@@ -1,0 +1,43 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2af33c540a888db84ab5ef736feb1c3d, type: 3}
+  m_Name: WorldSettings
+  m_EditorClassIdentifier: Assembly-CSharp::WorldSettings
+  gridWidth: 8
+  gridHeight: 8
+  chunkSize: 128
+  lod0Resolution: 128
+  heightTileChunkSpan: 2
+  heightSeed: 12345
+  heightNoiseScale: 400
+  heightBaseHeight: 0
+  heightAmplitude: 40
+  heightOctaves: 4
+  heightPersistence: 0.5
+  heightLacunarity: 2
+  collisionResolution: 64
+  clipmapCenterResolution: 128
+  clipmapLevelCount: 4
+  clipmapBaseSampleStep: 1
+  lastSyncedGridWidth: 8
+  lastSyncedGridHeight: 8
+  lastSyncedChunkSize: 128
+  lastSyncedLOD0Resolution: 128
+  lastSyncedBaseMeshHash: b0b87379942a69937a5b5be3a79926c3
+  chunkMeshGenerationRevision: 1
+  lastGeneratedHeightSignature: daa3d19eaa9f72526990a520502871519ffed86658092be691f7de1c71f3c7d1
+  heightmapGenerationRevision: 1
+  appliedChunkMeshGenerationRevision: 1
+  appliedHeightmapGenerationRevision: 1
+  lastGeneratedCollisionSignature: ffd2d8ece94dc4d5b217cd921a195bbd62522fbc44338c01e334da0793ac2a38
+  collisionMeshGenerationRevision: 1
+  collisionSourceHeightmapGenerationRevision: 1

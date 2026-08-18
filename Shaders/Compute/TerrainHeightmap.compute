@@ -1,0 +1,482 @@
+#pragma kernel GenerateHeight
+
+
+// =====================================================
+// OUTPUT
+// =====================================================
+
+RWStructuredBuffer<float> _HeightData;
+
+
+// =====================================================
+// TILE LAYOUT
+// =====================================================
+
+int _SamplesPerSide;
+
+int _TileX;
+int _TileZ;
+
+int _TileIntervalsPerSide;
+
+float _SampleSpacing;
+
+
+// =====================================================
+// NOISE SETTINGS
+// =====================================================
+
+int _Seed;
+
+float _NoiseScale;
+
+float _BaseHeight;
+
+float _HeightAmplitude;
+
+int _Octaves;
+
+float _Persistence;
+
+float _Lacunarity;
+
+
+// =====================================================
+// HASH
+// =====================================================
+
+uint Hash(uint value)
+{
+    value ^= value >> 16;
+
+    value *= 0x7feb352d;
+
+    value ^= value >> 15;
+
+    value *= 0x846ca68b;
+
+    value ^= value >> 16;
+
+    return value;
+}
+
+
+uint Hash2D(
+    int2 position,
+    int seed
+)
+{
+    uint x =
+        (uint)position.x;
+
+    uint y =
+        (uint)position.y;
+
+    uint s =
+        (uint)seed;
+
+    uint value =
+        x * 0x9E3779B1;
+
+    value ^=
+        y * 0x85EBCA77;
+
+    value ^=
+        s * 0xC2B2AE3D;
+
+    return Hash(
+        value
+    );
+}
+
+
+// =====================================================
+// PERLIN GRADIENT
+// =====================================================
+
+float2 Gradient(
+    int2 cell
+)
+{
+    uint hash =
+        Hash2D(
+            cell,
+            _Seed
+        );
+
+    float normalized =
+        hash /
+        4294967295.0;
+
+    float angle =
+        normalized *
+        6.28318530718;
+
+    return float2(
+        cos(angle),
+        sin(angle)
+    );
+}
+
+
+// =====================================================
+// PERLIN FADE
+// =====================================================
+
+float Fade(
+    float value
+)
+{
+    return
+        value *
+        value *
+        value *
+        (
+            value *
+            (
+                value * 6.0
+                - 15.0
+            )
+            + 10.0
+        );
+}
+
+
+// =====================================================
+// 2D PERLIN NOISE
+// =====================================================
+
+float PerlinNoise2D(
+    float2 position
+)
+{
+    int2 cell =
+        (int2)floor(
+            position
+        );
+
+    float2 local =
+        frac(
+            position
+        );
+
+    // -------------------------------------------------
+    // Corner gradients
+    // -------------------------------------------------
+
+    float2 gradient00 =
+        Gradient(
+            cell +
+            int2(
+                0,
+                0
+            )
+        );
+
+    float2 gradient10 =
+        Gradient(
+            cell +
+            int2(
+                1,
+                0
+            )
+        );
+
+    float2 gradient01 =
+        Gradient(
+            cell +
+            int2(
+                0,
+                1
+            )
+        );
+
+    float2 gradient11 =
+        Gradient(
+            cell +
+            int2(
+                1,
+                1
+            )
+        );
+
+    // -------------------------------------------------
+    // Vectors from corners to sample
+    // -------------------------------------------------
+
+    float2 offset00 =
+        local -
+        float2(
+            0.0,
+            0.0
+        );
+
+    float2 offset10 =
+        local -
+        float2(
+            1.0,
+            0.0
+        );
+
+    float2 offset01 =
+        local -
+        float2(
+            0.0,
+            1.0
+        );
+
+    float2 offset11 =
+        local -
+        float2(
+            1.0,
+            1.0
+        );
+
+    // -------------------------------------------------
+    // Gradient dot products
+    // -------------------------------------------------
+
+    float value00 =
+        dot(
+            gradient00,
+            offset00
+        );
+
+    float value10 =
+        dot(
+            gradient10,
+            offset10
+        );
+
+    float value01 =
+        dot(
+            gradient01,
+            offset01
+        );
+
+    float value11 =
+        dot(
+            gradient11,
+            offset11
+        );
+
+    // -------------------------------------------------
+    // Smooth interpolation
+    // -------------------------------------------------
+
+    float fadeX =
+        Fade(
+            local.x
+        );
+
+    float fadeY =
+        Fade(
+            local.y
+        );
+
+    float lower =
+        lerp(
+            value00,
+            value10,
+            fadeX
+        );
+
+    float upper =
+        lerp(
+            value01,
+            value11,
+            fadeX
+        );
+
+    float result =
+        lerp(
+            lower,
+            upper,
+            fadeY
+        );
+
+    /*
+     * Gradient noise does not naturally use the entire
+     * -1 to +1 range.
+     *
+     * This scale brings it approximately into that range.
+     */
+
+    return
+        result *
+        1.41421356237;
+}
+
+
+// =====================================================
+// FRACTAL BROWNIAN MOTION
+// =====================================================
+
+float GenerateFBM(
+    float2 position
+)
+{
+    float total =
+        0.0;
+
+    float amplitude =
+        1.0;
+
+    float frequency =
+        1.0;
+
+    float normalization =
+        0.0;
+
+    for (
+        int octave = 0;
+        octave < _Octaves;
+        octave++
+    )
+    {
+        float noise =
+            PerlinNoise2D(
+                position *
+                frequency
+            );
+
+        total +=
+            noise *
+            amplitude;
+
+        normalization +=
+            amplitude;
+
+        amplitude *=
+            _Persistence;
+
+        frequency *=
+            _Lacunarity;
+    }
+
+    if (
+        normalization <= 0.0
+    )
+    {
+        return 0.0;
+    }
+
+    return
+        total /
+        normalization;
+}
+
+
+// =====================================================
+// GENERATE HEIGHT
+// =====================================================
+
+[numthreads(8, 8, 1)]
+void GenerateHeight(
+    uint3 id : SV_DispatchThreadID
+)
+{
+    // -------------------------------------------------
+    // Bounds
+    // -------------------------------------------------
+
+    if (
+        id.x >= _SamplesPerSide ||
+        id.y >= _SamplesPerSide
+    )
+    {
+        return;
+    }
+
+    // -------------------------------------------------
+    // Global sample coordinate
+    // -------------------------------------------------
+
+    /*
+     * IMPORTANT:
+     *
+     * Adjacent tiles share their boundary sample.
+     *
+     * Example:
+     *
+     * Tile 0 local X = 512
+     *
+     * and
+     *
+     * Tile 1 local X = 0
+     *
+     * both produce global sample X = 512.
+     */
+
+    int globalSampleX =
+        _TileX *
+        _TileIntervalsPerSide
+        +
+        (int)id.x;
+
+    int globalSampleZ =
+        _TileZ *
+        _TileIntervalsPerSide
+        +
+        (int)id.y;
+
+    // -------------------------------------------------
+    // Convert sample coordinate to world position
+    // -------------------------------------------------
+
+    float worldX =
+        globalSampleX *
+        _SampleSpacing;
+
+    float worldZ =
+        globalSampleZ *
+        _SampleSpacing;
+
+    // -------------------------------------------------
+    // Noise coordinate
+    // -------------------------------------------------
+
+    float safeNoiseScale =
+        max(
+            _NoiseScale,
+            0.0001
+        );
+
+    float2 noisePosition =
+        float2(
+            worldX,
+            worldZ
+        )
+        /
+        safeNoiseScale;
+
+    // -------------------------------------------------
+    // Generate height
+    // -------------------------------------------------
+
+    float noise =
+        GenerateFBM(
+            noisePosition
+        );
+
+    float height =
+        _BaseHeight
+        +
+        noise *
+        _HeightAmplitude;
+
+    // -------------------------------------------------
+    // Store
+    // -------------------------------------------------
+
+    uint index =
+        id.y *
+        _SamplesPerSide
+        +
+        id.x;
+
+    _HeightData[
+        index
+    ] =
+        height;
+}
