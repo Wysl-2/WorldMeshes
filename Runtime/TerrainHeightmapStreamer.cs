@@ -48,6 +48,24 @@ public class TerrainHeightmapStreamer :
     private int guardTileCount =
         1;
 
+    /*
+     * Begin preparing a neighboring cache window before the
+     * visible clipmap reaches the active cache boundary.
+     *
+     * Measured as a fraction of one height tile.
+     *
+     * 0.25 means that a transition is requested roughly one
+     * quarter tile before the current cache would become unsafe.
+     *
+     * Keeping this below 0.5 also leaves hysteresis between
+     * neighboring cache windows, avoiding rapid back-and-forth
+     * reloads if the player hovers near a transition threshold.
+     */
+    [SerializeField]
+    [Range(0f, 1f)]
+    private float prefetchTileFraction =
+        0.25f;
+
     [SerializeField]
     private bool logCacheUpdates =
         true;
@@ -68,17 +86,45 @@ public class TerrainHeightmapStreamer :
     // RUNTIME CACHE
     // =====================================================
 
+    /*
+     * The cache currently bound to the terrain shader.
+     *
+     * Once cacheReady is true this texture remains valid and
+     * visible while the next window is prepared.
+     */
     private Texture2DArray heightCache;
 
-    private readonly Dictionary<Vector2Int, LoadedTile>
-        loadedTiles =
-            new Dictionary<Vector2Int, LoadedTile>();
+    /*
+     * Inactive GPU cache used to build the next window.
+     *
+     * The two Texture2DArray references swap roles after each
+     * successful transition. This avoids allocating/destroying
+     * GPU cache textures while the player is moving.
+     */
+    private Texture2DArray stagingHeightCache;
+
+    private readonly Dictionary<Vector2Int, ResidentTile>
+        residentTiles =
+            new Dictionary<Vector2Int, ResidentTile>();
 
     private Coroutine loadRoutine;
 
     private Vector2Int cacheOriginTile;
 
     private Vector2Int requestedOriginTile;
+
+    /*
+     * TerrainClipmapController may request cache coverage for
+     * the position it wants the clipmap to occupy.
+     *
+     * This is intentionally separate from transform.position:
+     * if movement is temporarily held at the active-cache edge,
+     * streaming must still continue toward the player's desired
+     * position.
+     */
+    private bool hasRequestedClipmapCenter;
+
+    private Vector3 requestedClipmapCenter;
 
     private int cacheWidth;
 
@@ -194,6 +240,217 @@ public class TerrainHeightmapStreamer :
     }
 
     // =====================================================
+    // ACTIVE CACHE WORLD COVERAGE
+    // =====================================================
+
+    /*
+     * Returns the nominal world-space XZ rectangle represented
+     * by the currently active cache.
+     *
+     * maximumXZ is the geometric upper edge of the cache.
+     * For exact sample-safety decisions use
+     * CanActiveCacheCoverClipmapAt(), which follows the same
+     * sample-to-tile mapping as the terrain shader.
+     */
+    public bool TryGetActiveCacheWorldCoverage(
+        out Vector2 minimumXZ,
+        out Vector2 maximumXZ
+    )
+    {
+        minimumXZ =
+            Vector2.zero;
+
+        maximumXZ =
+            Vector2.zero;
+
+        if (
+            !cacheReady
+            ||
+            heightmapManifest == null
+            ||
+            cacheWidth <= 0
+            ||
+            cacheHeight <= 0
+        )
+        {
+            return false;
+        }
+
+        float tileWorldSize =
+            Mathf.Max(
+                0.0001f,
+                heightmapManifest.heightTileWorldSize
+            );
+
+        minimumXZ =
+            new Vector2(
+                cacheOriginTile.x *
+                    tileWorldSize,
+
+                cacheOriginTile.y *
+                    tileWorldSize
+            );
+
+        maximumXZ =
+            new Vector2(
+                Mathf.Min(
+                    heightmapManifest.WorldSizeX,
+                    (
+                        cacheOriginTile.x +
+                        cacheWidth
+                    )
+                    *
+                    tileWorldSize
+                ),
+
+                Mathf.Min(
+                    heightmapManifest.WorldSizeZ,
+                    (
+                        cacheOriginTile.y +
+                        cacheHeight
+                    )
+                    *
+                    tileWorldSize
+                )
+            );
+
+        return true;
+    }
+
+    // =====================================================
+    // REQUEST CLIPMAP COVERAGE
+    // =====================================================
+
+    /*
+     * Called by TerrainClipmapController with the position the
+     * clipmap wants to occupy.
+     *
+     * The request is stored independently from the clipmap's
+     * current transform so streaming can continue even if the
+     * controller temporarily holds movement at a cache boundary.
+     */
+    public void RequestCoverageForClipmapCenter(
+        Vector3 clipmapCenter
+    )
+    {
+        requestedClipmapCenter =
+            clipmapCenter;
+
+        hasRequestedClipmapCenter =
+            true;
+
+        if (
+            !Application.isPlaying
+            ||
+            !initialized
+            ||
+            cacheInspectionActive
+        )
+        {
+            return;
+        }
+
+        Vector2Int desiredOrigin =
+            CalculateRequestedCacheOrigin();
+
+        requestedOriginTile =
+            desiredOrigin;
+
+        if (loadRoutine != null)
+        {
+            return;
+        }
+
+        if (
+            cacheReady
+            &&
+            desiredOrigin ==
+            cacheOriginTile
+        )
+        {
+            return;
+        }
+
+        BeginLoadWindow(
+            desiredOrigin
+        );
+    }
+
+    // =====================================================
+    // CLEAR CLIPMAP COVERAGE REQUEST
+    // =====================================================
+
+    public void ClearCoverageRequest()
+    {
+        hasRequestedClipmapCenter =
+            false;
+    }
+
+    // =====================================================
+    // CAN ACTIVE CACHE COVER CLIPMAP
+    // =====================================================
+
+    /*
+     * Returns true only when every VISIBLE in-world part of
+     * the clipmap can sample the current active cache.
+     *
+     * Geometry outside the authoritative world does not require
+     * height data because ClipmapTerrain.shader clips those
+     * fragments at the world boundary.
+     *
+     * One height-sample margin is included so the shader's
+     * neighboring normal samples also remain inside the cache
+     * wherever possible.
+     */
+    public bool CanActiveCacheCoverClipmapAt(
+        Vector3 clipmapCenter
+    )
+    {
+        if (
+            !cacheReady
+            ||
+            heightCache == null
+            ||
+            heightmapManifest == null
+        )
+        {
+            return false;
+        }
+
+        float sampleMargin =
+            Mathf.Max(
+                0f,
+                heightmapManifest.HeightSampleSpacing
+            );
+
+        if (
+            !TryCalculateVisibleClipmapTileBounds(
+                clipmapCenter,
+                sampleMargin,
+                out Vector2Int minimumTile,
+                out Vector2Int maximumTile
+            )
+        )
+        {
+            /*
+             * The clipmap footprint does not intersect the
+             * authoritative world at all.
+             *
+             * Nothing is visible there, so no height tile is
+             * required for movement safety.
+             */
+            return true;
+        }
+
+        return
+            AreTileBoundsInsideCache(
+                minimumTile,
+                maximumTile,
+                cacheOriginTile
+            );
+    }
+
+    // =====================================================
     // EDITOR / HIERARCHY CONFIGURATION
     // =====================================================
 
@@ -265,7 +522,7 @@ public class TerrainHeightmapStreamer :
         }
 
         requestedOriginTile =
-            CalculateRequiredCacheOrigin();
+            CalculateRequestedCacheOrigin();
 
         BeginLoadWindow(
             requestedOriginTile
@@ -320,7 +577,7 @@ public class TerrainHeightmapStreamer :
         // =====================================================
 
         Vector2Int desiredOrigin =
-            CalculateRequiredCacheOrigin();
+            CalculateRequestedCacheOrigin();
 
         requestedOriginTile =
             desiredOrigin;
@@ -836,6 +1093,15 @@ private void BindHeightCacheToClipmapRenderers()
             return false;
         }
 
+        // -------------------------------------------------
+        // GPU cache buffers
+        // -------------------------------------------------
+
+        if (!CreateHeightCacheBuffers())
+        {
+            return false;
+        }
+
         initialized =
             true;
 
@@ -899,6 +1165,92 @@ private void BindHeightCacheToClipmapRenderers()
     }
 
     // =====================================================
+    // CREATE HEIGHT CACHE BUFFERS
+    // =====================================================
+
+    private bool CreateHeightCacheBuffers()
+    {
+        DestroyHeightCacheBuffers();
+
+        int samplesPerSide =
+            heightmapManifest
+                .heightTileSamplesPerSide;
+
+        int sliceCount =
+            cacheWidth *
+            cacheHeight;
+
+        try
+        {
+            heightCache =
+                CreateHeightCacheTexture(
+                    "Terrain Height Cache A",
+                    samplesPerSide,
+                    sliceCount
+                );
+
+            stagingHeightCache =
+                CreateHeightCacheTexture(
+                    "Terrain Height Cache B",
+                    samplesPerSide,
+                    sliceCount
+                );
+        }
+        catch (
+            System.Exception exception
+        )
+        {
+            Debug.LogError(
+                "TerrainHeightmapStreamer could not create " +
+                "the double-buffered GPU height cache.\n\n" +
+                exception.Message,
+                this
+            );
+
+            DestroyHeightCacheBuffers();
+
+            return false;
+        }
+
+        return true;
+    }
+
+    // =====================================================
+    // CREATE HEIGHT CACHE TEXTURE
+    // =====================================================
+
+    private static Texture2DArray CreateHeightCacheTexture(
+        string textureName,
+        int samplesPerSide,
+        int sliceCount
+    )
+    {
+        Texture2DArray cache =
+            new Texture2DArray(
+                samplesPerSide,
+                samplesPerSide,
+                sliceCount,
+                TextureFormat.RFloat,
+                false,
+                true
+            );
+
+        cache.name =
+            textureName;
+
+        cache.wrapMode =
+            TextureWrapMode.Clamp;
+
+        cache.filterMode =
+            FilterMode.Point;
+
+        cache.anisoLevel =
+            0;
+
+        return cache;
+    }
+
+    // =====================================================
     // CLIPMAP DIAMETER
     // =====================================================
 
@@ -946,6 +1298,32 @@ private void BindHeightCacheToClipmapRenderers()
     }
 
     // =====================================================
+    // REQUESTED CACHE ORIGIN
+    // =====================================================
+
+    private Vector2Int CalculateRequestedCacheOrigin()
+    {
+        if (!hasRequestedClipmapCenter)
+        {
+            return
+                CalculateRequiredCacheOrigin();
+        }
+
+        if (!cacheReady)
+        {
+            return
+                CalculateRequiredCacheOrigin(
+                    requestedClipmapCenter
+                );
+        }
+
+        return
+            CalculatePrefetchCacheOrigin(
+                requestedClipmapCenter
+            );
+    }
+
+    // =====================================================
     // REQUIRED CACHE ORIGIN
     // =====================================================
 
@@ -956,6 +1334,16 @@ private void BindHeightCacheToClipmapRenderers()
                 ? streamingTarget.position
                 : transform.position;
 
+        return
+            CalculateRequiredCacheOrigin(
+                center
+            );
+    }
+
+    private Vector2Int CalculateRequiredCacheOrigin(
+        Vector3 center
+    )
+    {
         float tileWorldSize =
             Mathf.Max(
                 0.0001f,
@@ -971,12 +1359,13 @@ private void BindHeightCacheToClipmapRenderers()
             tileWorldSize;
 
         /*
-         * Position the cache approximately around the target.
+         * Position the cache approximately around the requested
+         * center, then clamp the cache origin to actual generated
+         * height tiles.
          *
-         * The origin is always clamped to the valid generated
-         * tile grid. Therefore negative tile coordinates and
-         * coordinates beyond the generated world are never
-         * requested from Addressables.
+         * The clipmap itself is allowed to move outside the world.
+         * Only the DATA window is clamped because no Addressable
+         * height tiles exist beyond the generated world.
          */
 
         int originX =
@@ -1003,34 +1392,21 @@ private void BindHeightCacheToClipmapRenderers()
                 tileWorldSize
             );
 
-        int maximumOriginX =
-            Mathf.Max(
-                0,
-                heightmapManifest.heightTileGridWidth
-                -
-                cacheWidth
-            );
-
-        int maximumOriginZ =
-            Mathf.Max(
-                0,
-                heightmapManifest.heightTileGridHeight
-                -
-                cacheHeight
-            );
+        Vector2Int maximumOrigin =
+            GetMaximumCacheOrigin();
 
         originX =
             Mathf.Clamp(
                 originX,
                 0,
-                maximumOriginX
+                maximumOrigin.x
             );
 
         originZ =
             Mathf.Clamp(
                 originZ,
                 0,
-                maximumOriginZ
+                maximumOrigin.y
             );
 
         return
@@ -1038,6 +1414,531 @@ private void BindHeightCacheToClipmapRenderers()
                 originX,
                 originZ
             );
+    }
+
+    // =====================================================
+    // PREFETCH CACHE ORIGIN
+    // =====================================================
+
+    /*
+     * Keep the active cache while the clipmap is comfortably
+     * inside it.
+     *
+     * When the visible clipmap footprint plus a configurable
+     * prefetch margin approaches an active-cache edge, shift the
+     * requested origin by the minimum number of tiles necessary
+     * to contain that expanded footprint.
+     *
+     * The footprint is intersected with the real world first.
+     * Therefore geometry outside world bounds never creates an
+     * impossible request for non-existent height tiles.
+     */
+    private Vector2Int CalculatePrefetchCacheOrigin(
+        Vector3 clipmapCenter
+    )
+    {
+        if (!cacheReady)
+        {
+            return
+                CalculateRequiredCacheOrigin(
+                    clipmapCenter
+                );
+        }
+
+        float tileWorldSize =
+            Mathf.Max(
+                0.0001f,
+                heightmapManifest.heightTileWorldSize
+            );
+
+        float prefetchMargin =
+            tileWorldSize *
+            Mathf.Clamp01(
+                prefetchTileFraction
+            );
+
+        if (
+            !TryCalculateVisibleClipmapTileBounds(
+                clipmapCenter,
+                prefetchMargin,
+                out Vector2Int minimumTile,
+                out Vector2Int maximumTile
+            )
+        )
+        {
+            /*
+             * The desired clipmap is completely outside the
+             * authoritative world.
+             *
+             * Request the nearest edge cache so data is already
+             * prepared if the player approaches the world again.
+             */
+            return
+                CalculateRequiredCacheOrigin(
+                    clipmapCenter
+                );
+        }
+
+        int requiredWidth =
+            maximumTile.x -
+            minimumTile.x +
+            1;
+
+        int requiredHeight =
+            maximumTile.y -
+            minimumTile.y +
+            1;
+
+        if (
+            requiredWidth > cacheWidth
+            ||
+            requiredHeight > cacheHeight
+        )
+        {
+            /*
+             * The configured prefetch margin cannot fit inside
+             * the cache. Fall back to normal centered placement.
+             *
+             * Movement safety is still enforced separately by
+             * CanActiveCacheCoverClipmapAt().
+             */
+            return
+                CalculateRequiredCacheOrigin(
+                    clipmapCenter
+                );
+        }
+
+        /*
+         * Any cache origin in these ranges completely contains
+         * the requested tile bounds.
+         */
+        int minimumAllowedOriginX =
+            maximumTile.x -
+            cacheWidth +
+            1;
+
+        int maximumAllowedOriginX =
+            minimumTile.x;
+
+        int minimumAllowedOriginZ =
+            maximumTile.y -
+            cacheHeight +
+            1;
+
+        int maximumAllowedOriginZ =
+            minimumTile.y;
+
+        /*
+         * Keep the current origin whenever it is still valid.
+         *
+         * Otherwise move only as far as required. This avoids
+         * continuously recentring the cache on every metre of
+         * player movement.
+         */
+        int originX =
+            Mathf.Clamp(
+                cacheOriginTile.x,
+                minimumAllowedOriginX,
+                maximumAllowedOriginX
+            );
+
+        int originZ =
+            Mathf.Clamp(
+                cacheOriginTile.y,
+                minimumAllowedOriginZ,
+                maximumAllowedOriginZ
+            );
+
+        Vector2Int maximumOrigin =
+            GetMaximumCacheOrigin();
+
+        originX =
+            Mathf.Clamp(
+                originX,
+                0,
+                maximumOrigin.x
+            );
+
+        originZ =
+            Mathf.Clamp(
+                originZ,
+                0,
+                maximumOrigin.y
+            );
+
+        return
+            new Vector2Int(
+                originX,
+                originZ
+            );
+    }
+
+    // =====================================================
+    // VISIBLE CLIPMAP TILE BOUNDS
+    // =====================================================
+
+    /*
+     * Calculates which authoritative height tiles are needed by
+     * the portion of the clipmap that actually intersects the
+     * terrain world.
+     *
+     * margin expands the clipmap footprint before intersection.
+     *
+     * Returns false when the clipmap is completely outside the
+     * world and therefore has no visible terrain to sample.
+     */
+    private bool TryCalculateVisibleClipmapTileBounds(
+        Vector3 clipmapCenter,
+        float margin,
+        out Vector2Int minimumTile,
+        out Vector2Int maximumTile
+    )
+    {
+        minimumTile =
+            Vector2Int.zero;
+
+        maximumTile =
+            Vector2Int.zero;
+
+        float halfDiameter =
+            CalculateClipmapDiameter() *
+            0.5f;
+
+        float expandedHalfDiameter =
+            halfDiameter +
+            Mathf.Max(
+                0f,
+                margin
+            );
+
+        float footprintMinimumX =
+            clipmapCenter.x -
+            expandedHalfDiameter;
+
+        float footprintMaximumX =
+            clipmapCenter.x +
+            expandedHalfDiameter;
+
+        float footprintMinimumZ =
+            clipmapCenter.z -
+            expandedHalfDiameter;
+
+        float footprintMaximumZ =
+            clipmapCenter.z +
+            expandedHalfDiameter;
+
+        float worldSizeX =
+            Mathf.Max(
+                0f,
+                heightmapManifest.WorldSizeX
+            );
+
+        float worldSizeZ =
+            Mathf.Max(
+                0f,
+                heightmapManifest.WorldSizeZ
+            );
+
+        float visibleMinimumX =
+            Mathf.Max(
+                0f,
+                footprintMinimumX
+            );
+
+        float visibleMaximumX =
+            Mathf.Min(
+                worldSizeX,
+                footprintMaximumX
+            );
+
+        float visibleMinimumZ =
+            Mathf.Max(
+                0f,
+                footprintMinimumZ
+            );
+
+        float visibleMaximumZ =
+            Mathf.Min(
+                worldSizeZ,
+                footprintMaximumZ
+            );
+
+        if (
+            visibleMinimumX >
+                visibleMaximumX
+            ||
+            visibleMinimumZ >
+                visibleMaximumZ
+        )
+        {
+            return false;
+        }
+
+        minimumTile =
+            new Vector2Int(
+                WorldPositionToTileCoordinate(
+                    visibleMinimumX,
+                    worldSizeX,
+                    heightmapManifest
+                        .heightTileGridWidth
+                ),
+
+                WorldPositionToTileCoordinate(
+                    visibleMinimumZ,
+                    worldSizeZ,
+                    heightmapManifest
+                        .heightTileGridHeight
+                )
+            );
+
+        maximumTile =
+            new Vector2Int(
+                WorldPositionToTileCoordinate(
+                    visibleMaximumX,
+                    worldSizeX,
+                    heightmapManifest
+                        .heightTileGridWidth
+                ),
+
+                WorldPositionToTileCoordinate(
+                    visibleMaximumZ,
+                    worldSizeZ,
+                    heightmapManifest
+                        .heightTileGridHeight
+                )
+            );
+
+        return true;
+    }
+
+    // =====================================================
+    // WORLD POSITION TO HEIGHT TILE
+    // =====================================================
+
+    /*
+     * Reproduces the shader's world-position -> global-sample
+     * -> tile-coordinate mapping.
+     */
+    private int WorldPositionToTileCoordinate(
+        float coordinate,
+        float worldSize,
+        int tileCount
+    )
+    {
+        float sampleSpacing =
+            Mathf.Max(
+                0.000001f,
+                heightmapManifest.HeightSampleSpacing
+            );
+
+        int samplesPerSide =
+            Mathf.Max(
+                2,
+                heightmapManifest
+                    .heightTileSamplesPerSide
+            );
+
+        int tileIntervals =
+            samplesPerSide -
+            1;
+
+        float clampedCoordinate =
+            Mathf.Clamp(
+                coordinate,
+                0f,
+                Mathf.Max(
+                    0f,
+                    worldSize
+                )
+            );
+
+        int globalSample =
+            Mathf.FloorToInt(
+                clampedCoordinate /
+                sampleSpacing
+                +
+                0.5f
+            );
+
+        int tileCoordinate =
+            globalSample /
+            tileIntervals;
+
+        return
+            Mathf.Clamp(
+                tileCoordinate,
+                0,
+                Mathf.Max(
+                    0,
+                    tileCount - 1
+                )
+            );
+    }
+
+    // =====================================================
+    // TILE BOUNDS INSIDE CACHE
+    // =====================================================
+
+    private bool AreTileBoundsInsideCache(
+        Vector2Int minimumTile,
+        Vector2Int maximumTile,
+        Vector2Int cacheOrigin
+    )
+    {
+        return
+            minimumTile.x >=
+                cacheOrigin.x
+            &&
+            minimumTile.y >=
+                cacheOrigin.y
+            &&
+            maximumTile.x <
+                cacheOrigin.x +
+                cacheWidth
+            &&
+            maximumTile.y <
+                cacheOrigin.y +
+                cacheHeight;
+    }
+
+    // =====================================================
+    // MAXIMUM CACHE ORIGIN
+    // =====================================================
+
+    private Vector2Int GetMaximumCacheOrigin()
+    {
+        return
+            new Vector2Int(
+                Mathf.Max(
+                    0,
+                    heightmapManifest
+                        .heightTileGridWidth
+                    -
+                    cacheWidth
+                ),
+
+                Mathf.Max(
+                    0,
+                    heightmapManifest
+                        .heightTileGridHeight
+                    -
+                    cacheHeight
+                )
+            );
+    }
+
+    // =====================================================
+// RESOLVE CACHE SLICE
+// =====================================================
+
+    private static bool TryResolveCacheSlice(
+        Vector2Int tileCoordinate,
+        Vector2Int cacheOrigin,
+        int cacheWidth,
+        int cacheHeight,
+        out int slice
+    )
+    {
+        slice =
+            -1;
+
+        // -------------------------------------------------
+        // Cache dimensions
+        // -------------------------------------------------
+
+        if (
+            cacheWidth <= 0
+            ||
+            cacheHeight <= 0
+        )
+        {
+            return false;
+        }
+
+        // -------------------------------------------------
+        // Cache-local tile coordinate
+        // -------------------------------------------------
+
+        Vector2Int localCoordinate =
+            tileCoordinate
+            -
+            cacheOrigin;
+
+        // -------------------------------------------------
+        // Cache bounds
+        // -------------------------------------------------
+
+        if (
+            localCoordinate.x < 0
+            ||
+            localCoordinate.y < 0
+            ||
+            localCoordinate.x >= cacheWidth
+            ||
+            localCoordinate.y >= cacheHeight
+        )
+        {
+            return false;
+        }
+
+        // -------------------------------------------------
+        // Texture2DArray slice
+        // -------------------------------------------------
+
+        slice =
+            localCoordinate.x
+            +
+            localCoordinate.y *
+            cacheWidth;
+
+        return true;
+    }
+
+    // =====================================================
+    // GET USABLE RESIDENT TILE
+    // =====================================================
+
+    private bool TryGetUsableResidentTile(
+        Vector2Int coordinate,
+        out ResidentTile residentTile
+    )
+    {
+        residentTile =
+            null;
+
+        if (
+            !residentTiles.TryGetValue(
+                coordinate,
+                out ResidentTile existingTile
+            )
+        )
+        {
+            return false;
+        }
+
+        bool usable =
+            existingTile != null
+            &&
+            existingTile.texture != null
+            &&
+            existingTile.handle.IsValid()
+            &&
+            existingTile.handle.Status ==
+                AsyncOperationStatus.Succeeded;
+
+        if (!usable)
+        {
+            ReleaseResidentTile(
+                coordinate
+            );
+
+            return false;
+        }
+
+        residentTile =
+            existingTile;
+
+        return true;
     }
 
     // =====================================================
@@ -1073,54 +1974,55 @@ private void BindHeightCacheToClipmapRenderers()
         Vector2Int origin
     )
     {
-        cacheReady =
-            false;
+        /*
+         * IMPORTANT:
+         *
+         * Do not invalidate or destroy the active cache here.
+         *
+         * If cacheReady is already true, heightCache remains
+         * bound to the shader for the entire transition.
+         *
+         * The next window is assembled in stagingHeightCache
+         * and becomes visible only after every required tile
+         * has loaded and every GPU copy has succeeded.
+         */
 
-        // -------------------------------------------------
-        // Release previous window
-        // -------------------------------------------------
+        if (
+            heightCache == null
+            ||
+            stagingHeightCache == null
+        )
+        {
+            Debug.LogError(
+                "Terrain height-cache buffers are not available.",
+                this
+            );
 
-        ReleaseLoadedTiles();
+            loadRoutine =
+                null;
 
-        DestroyHeightCache();
-
-        // -------------------------------------------------
-        // Create GPU cache
-        // -------------------------------------------------
+            yield break;
+        }
 
         int samplesPerSide =
             heightmapManifest
                 .heightTileSamplesPerSide;
 
-        int sliceCount =
-            cacheWidth *
-            cacheHeight;
+        // =====================================================
+        // REQUIRED TILE SET
+        // =====================================================
 
-        heightCache =
-            new Texture2DArray(
-                samplesPerSide,
-                samplesPerSide,
-                sliceCount,
-                TextureFormat.RFloat,
-                false,
-                true
-            );
+        HashSet<Vector2Int> requiredTiles =
+            new HashSet<Vector2Int>();
 
-        heightCache.name =
-            "Terrain Height Cache";
+        List<Vector2Int> enteringTiles =
+            new List<Vector2Int>();
 
-        heightCache.wrapMode =
-            TextureWrapMode.Clamp;
+        List<Vector2Int> newlyLoadedTiles =
+            new List<Vector2Int>();
 
-        heightCache.filterMode =
-            FilterMode.Point;
-
-        heightCache.anisoLevel =
+        int retainedTileCount =
             0;
-
-        // =====================================================
-        // LOAD TILES
-        // =====================================================
 
         for (
             int localZ = 0;
@@ -1162,198 +2064,365 @@ private void BindHeightCacheToClipmapRenderers()
                         this
                     );
 
-                    FailCurrentLoad();
+                    FailCurrentLoad(
+                        newlyLoadedTiles
+                    );
 
                     yield break;
                 }
 
-                // -----------------------------------------
-                // Address
-                // -----------------------------------------
-
-                string address =
-                    heightmapManifest
-                        .GetHeightTileAddress(
-                            tileCoordinate.x,
-                            tileCoordinate.y
-                        );
-
-                // -----------------------------------------
-                // Load
-                // -----------------------------------------
-
-                AsyncOperationHandle<Texture2D> handle;
-
-                try
-                {
-                    handle =
-                        Addressables
-                            .LoadAssetAsync<Texture2D>(
-                                address
-                            );
-                }
-                catch (
-                    System.Exception exception
-                )
-                {
-                    Debug.LogError(
-                        "Failed to begin loading Addressable " +
-                        "heightmap tile.\n\n" +
-
-                        $"Tile: " +
-                        $"({tileCoordinate.x}, " +
-                        $"{tileCoordinate.y})\n" +
-
-                        $"Address: {address}\n\n" +
-
-                        exception.Message,
-                        this
-                    );
-
-                    FailCurrentLoad();
-
-                    yield break;
-                }
-
-                int slice =
-                    localX
-                    +
-                    localZ *
-                    cacheWidth;
-
-                LoadedTile loadedTile =
-                    new LoadedTile(
-                        tileCoordinate,
-                        address,
-                        handle,
-                        slice
-                    );
-
-                loadedTiles[
+                requiredTiles.Add(
                     tileCoordinate
-                ] =
-                    loadedTile;
+                );
 
                 // -----------------------------------------
-                // Wait for Addressables
-                // -----------------------------------------
-
-                if (!handle.IsDone)
-                {
-                    yield return handle;
-                }
-
-                // -----------------------------------------
-                // Failed load
+                // Retained or entering
                 // -----------------------------------------
 
                 if (
-                    handle.Status !=
-                    AsyncOperationStatus.Succeeded
-                    ||
-                    handle.Result == null
+                    TryGetUsableResidentTile(
+                        tileCoordinate,
+                        out _
+                    )
+                )
+                {
+                    retainedTileCount++;
+                }
+                else
+                {
+                    enteringTiles.Add(
+                        tileCoordinate
+                    );
+                }
+            }
+        }
+
+        // =====================================================
+        // BEGIN ALL ENTERING TILE LOADS
+        // =====================================================
+
+        /*
+         * Start every missing Addressables request before
+         * waiting for any one request to finish.
+         *
+         * Stage 2B waited for each entering tile sequentially.
+         * Beginning them together allows independent tile loads
+         * to make progress concurrently.
+         */
+
+        foreach (
+            Vector2Int tileCoordinate
+            in enteringTiles
+        )
+        {
+            string address =
+                heightmapManifest
+                    .GetHeightTileAddress(
+                        tileCoordinate.x,
+                        tileCoordinate.y
+                    );
+
+            AsyncOperationHandle<Texture2D> handle;
+
+            try
+            {
+                handle =
+                    Addressables
+                        .LoadAssetAsync<Texture2D>(
+                            address
+                        );
+            }
+            catch (
+                System.Exception exception
+            )
+            {
+                Debug.LogError(
+                    "Failed to begin loading Addressable " +
+                    "heightmap tile.\n\n" +
+
+                    $"Tile: " +
+                    $"({tileCoordinate.x}, " +
+                    $"{tileCoordinate.y})\n" +
+
+                    $"Address: {address}\n\n" +
+
+                    exception.Message,
+                    this
+                );
+
+                FailCurrentLoad(
+                    newlyLoadedTiles
+                );
+
+                yield break;
+            }
+
+            ResidentTile residentTile =
+                new ResidentTile(
+                    tileCoordinate,
+                    address,
+                    handle
+                );
+
+            residentTiles[
+                tileCoordinate
+            ] =
+                residentTile;
+
+            newlyLoadedTiles.Add(
+                tileCoordinate
+            );
+        }
+
+        // =====================================================
+        // COMPLETE ENTERING TILE LOADS
+        // =====================================================
+
+        int loadedTileCount =
+            0;
+
+        foreach (
+            Vector2Int tileCoordinate
+            in newlyLoadedTiles
+        )
+        {
+            if (
+                !residentTiles.TryGetValue(
+                    tileCoordinate,
+                    out ResidentTile residentTile
+                )
+                ||
+                residentTile == null
+            )
+            {
+                Debug.LogError(
+                    "A newly requested terrain height tile " +
+                    "was not present in the residency table.\n\n" +
+
+                    $"Tile: " +
+                    $"({tileCoordinate.x}, " +
+                    $"{tileCoordinate.y})",
+                    this
+                );
+
+                FailCurrentLoad(
+                    newlyLoadedTiles
+                );
+
+                yield break;
+            }
+
+            AsyncOperationHandle<Texture2D> handle =
+                residentTile.handle;
+
+            if (!handle.IsDone)
+            {
+                yield return handle;
+            }
+
+            if (
+                handle.Status !=
+                AsyncOperationStatus.Succeeded
+                ||
+                handle.Result == null
+            )
+            {
+                Debug.LogError(
+                    "Failed to load Addressable " +
+                    "heightmap tile.\n\n" +
+
+                    $"Tile: " +
+                    $"({tileCoordinate.x}, " +
+                    $"{tileCoordinate.y})\n" +
+
+                    $"Address: {residentTile.address}",
+                    this
+                );
+
+                FailCurrentLoad(
+                    newlyLoadedTiles
+                );
+
+                yield break;
+            }
+
+            Texture2D texture =
+                handle.Result;
+
+            residentTile.texture =
+                texture;
+
+            // -----------------------------------------
+            // Validate dimensions
+            // -----------------------------------------
+
+            if (
+                texture.width !=
+                    samplesPerSide
+                ||
+                texture.height !=
+                    samplesPerSide
+            )
+            {
+                Debug.LogError(
+                    "Loaded heightmap tile has incorrect " +
+                    "dimensions.\n\n" +
+
+                    $"Tile: " +
+                    $"({tileCoordinate.x}, " +
+                    $"{tileCoordinate.y})\n\n" +
+
+                    $"Expected: " +
+                    $"{samplesPerSide} x " +
+                    $"{samplesPerSide}\n" +
+
+                    $"Actual: " +
+                    $"{texture.width} x " +
+                    $"{texture.height}",
+                    this
+                );
+
+                FailCurrentLoad(
+                    newlyLoadedTiles
+                );
+
+                yield break;
+            }
+
+            // -----------------------------------------
+            // Validate format
+            // -----------------------------------------
+
+            if (
+                texture.format !=
+                TextureFormat.RFloat
+            )
+            {
+                Debug.LogError(
+                    "Loaded heightmap tile has incorrect " +
+                    "texture format.\n\n" +
+
+                    $"Tile: " +
+                    $"({tileCoordinate.x}, " +
+                    $"{tileCoordinate.y})\n\n" +
+
+                    $"Expected: " +
+                    $"{TextureFormat.RFloat}\n" +
+
+                    $"Actual: " +
+                    $"{texture.format}",
+                    this
+                );
+
+                FailCurrentLoad(
+                    newlyLoadedTiles
+                );
+
+                yield break;
+            }
+
+            loadedTileCount++;
+        }
+
+        // =====================================================
+        // POPULATE STAGING GPU CACHE
+        // =====================================================
+
+        /*
+         * Every slice of the staging cache is rewritten.
+         *
+         * Retained tiles may move to different row-major slices
+         * when cacheOriginTile changes, so rebuilding all slices
+         * preserves the shader's simple local-slice mapping.
+         *
+         * Graphics.CopyTexture performs the texture copies on
+         * the graphics side; no CPU height-data readback occurs.
+         */
+
+        for (
+            int localZ = 0;
+            localZ < cacheHeight;
+            localZ++
+        )
+        {
+            for (
+                int localX = 0;
+                localX < cacheWidth;
+                localX++
+            )
+            {
+                Vector2Int tileCoordinate =
+                    new Vector2Int(
+                        origin.x + localX,
+                        origin.y + localZ
+                    );
+
+                if (
+                    !TryGetUsableResidentTile(
+                        tileCoordinate,
+                        out ResidentTile residentTile
+                    )
                 )
                 {
                     Debug.LogError(
-                        "Failed to load Addressable " +
-                        "heightmap tile.\n\n" +
+                        "A required resident height tile was " +
+                        "missing while building the staging GPU " +
+                        "cache.\n\n" +
+
+                        $"Tile: " +
+                        $"({tileCoordinate.x}, " +
+                        $"{tileCoordinate.y})",
+                        this
+                    );
+
+                    FailCurrentLoad(
+                        newlyLoadedTiles
+                    );
+
+                    yield break;
+                }
+
+                if (
+                    !TryResolveCacheSlice(
+                        tileCoordinate,
+                        origin,
+                        cacheWidth,
+                        cacheHeight,
+                        out int slice
+                    )
+                )
+                {
+                    Debug.LogError(
+                        "Could not resolve a GPU cache slice " +
+                        "for a required terrain height tile.\n\n" +
 
                         $"Tile: " +
                         $"({tileCoordinate.x}, " +
                         $"{tileCoordinate.y})\n" +
 
-                        $"Address: {address}",
+                        $"Cache Origin: " +
+                        $"({origin.x}, {origin.y})\n" +
+
+                        $"Cache Size: " +
+                        $"{cacheWidth} x {cacheHeight}",
                         this
                     );
 
-                    FailCurrentLoad();
-
-                    yield break;
-                }
-
-                Texture2D texture =
-                    handle.Result;
-
-                loadedTile.texture =
-                    texture;
-
-                // -----------------------------------------
-                // Validate dimensions
-                // -----------------------------------------
-
-                if (
-                    texture.width !=
-                        samplesPerSide
-                    ||
-                    texture.height !=
-                        samplesPerSide
-                )
-                {
-                    Debug.LogError(
-                        "Loaded heightmap tile has incorrect " +
-                        "dimensions.\n\n" +
-
-                        $"Tile: " +
-                        $"({tileCoordinate.x}, " +
-                        $"{tileCoordinate.y})\n\n" +
-
-                        $"Expected: " +
-                        $"{samplesPerSide} x " +
-                        $"{samplesPerSide}\n" +
-
-                        $"Actual: " +
-                        $"{texture.width} x " +
-                        $"{texture.height}",
-                        this
+                    FailCurrentLoad(
+                        newlyLoadedTiles
                     );
 
-                    FailCurrentLoad();
-
                     yield break;
                 }
-
-                // -----------------------------------------
-                // Validate format
-                // -----------------------------------------
-
-                if (
-                    texture.format !=
-                    TextureFormat.RFloat
-                )
-                {
-                    Debug.LogError(
-                        "Loaded heightmap tile has incorrect " +
-                        "texture format.\n\n" +
-
-                        $"Tile: " +
-                        $"({tileCoordinate.x}, " +
-                        $"{tileCoordinate.y})\n\n" +
-
-                        $"Expected: " +
-                        $"{TextureFormat.RFloat}\n" +
-
-                        $"Actual: " +
-                        $"{texture.format}",
-                        this
-                    );
-
-                    FailCurrentLoad();
-
-                    yield break;
-                }
-
-                // -----------------------------------------
-                // Copy into GPU cache
-                // -----------------------------------------
 
                 try
                 {
                     Graphics.CopyTexture(
-                        texture,
+                        residentTile.texture,
                         0,
                         0,
 
-                        heightCache,
+                        stagingHeightCache,
                         slice,
                         0
                     );
@@ -1363,8 +2432,8 @@ private void BindHeightCacheToClipmapRenderers()
                 )
                 {
                     Debug.LogError(
-                        "Could not copy heightmap tile into " +
-                        "the terrain height cache.\n\n" +
+                        "Could not copy resident heightmap tile " +
+                        "into the staging terrain height cache.\n\n" +
 
                         $"Tile: " +
                         $"({tileCoordinate.x}, " +
@@ -1376,7 +2445,9 @@ private void BindHeightCacheToClipmapRenderers()
                         this
                     );
 
-                    FailCurrentLoad();
+                    FailCurrentLoad(
+                        newlyLoadedTiles
+                    );
 
                     yield break;
                 }
@@ -1384,8 +2455,28 @@ private void BindHeightCacheToClipmapRenderers()
         }
 
         // =====================================================
-        // COMPLETE
+        // ATOMIC CACHE COMMIT
         // =====================================================
+
+        /*
+         * Until this point the currently bound cache and its
+         * origin have remained untouched.
+         *
+         * Swap the two GPU buffers, update the active origin,
+         * and immediately rebind the MaterialPropertyBlocks.
+         *
+         * _HeightCacheReady is never set to zero during a
+         * successful runtime transition.
+         */
+
+        Texture2DArray previousActiveCache =
+            heightCache;
+
+        heightCache =
+            stagingHeightCache;
+
+        stagingHeightCache =
+            previousActiveCache;
 
         cacheOriginTile =
             origin;
@@ -1393,15 +2484,38 @@ private void BindHeightCacheToClipmapRenderers()
         cacheReady =
             true;
 
+        BindHeightCacheToClipmapRenderers();
+
+        // =====================================================
+        // RELEASE LEAVING TILES
+        // =====================================================
+
+        /*
+         * Source Addressables are released only after the new
+         * GPU cache has committed successfully.
+         */
+        int releasedTileCount =
+            ReleaseResidentTilesNotRequired(
+                requiredTiles
+            );
+
+        // =====================================================
+        // COMPLETE
+        // =====================================================
+
         loadRoutine =
             null;
 
         if (logCacheUpdates)
         {
-            LogCacheReady();
+            LogCacheReady(
+                retainedTileCount,
+                loadedTileCount,
+                releasedTileCount
+            );
         }
     }
-    
+
     // =====================================================
     // BEGIN CACHE INSPECTION
     // =====================================================
@@ -1489,25 +2603,50 @@ private void BindHeightCacheToClipmapRenderers()
         recordedSlice =
             -1;
 
+        // -------------------------------------------------
+        // Resident source tile
+        // -------------------------------------------------
+
         if (
-            !loadedTiles.TryGetValue(
+            !residentTiles.TryGetValue(
                 coordinate,
-                out LoadedTile loadedTile
+                out ResidentTile residentTile
             )
             ||
-            loadedTile == null
+            residentTile == null
             ||
-            loadedTile.texture == null
+            residentTile.texture == null
+        )
+        {
+            return false;
+        }
+
+        // -------------------------------------------------
+        // Current GPU placement
+        // -------------------------------------------------
+
+        /*
+         * The inspection API retains its existing shape so the
+         * validator does not need to change during Stage 2A.
+         *
+         * The returned slice is now DERIVED from the current
+         * cache layout instead of being stored on the tile.
+         */
+        if (
+            !TryResolveCacheSlice(
+                coordinate,
+                cacheOriginTile,
+                cacheWidth,
+                cacheHeight,
+                out recordedSlice
+            )
         )
         {
             return false;
         }
 
         texture =
-            loadedTile.texture;
-
-        recordedSlice =
-            loadedTile.slice;
+            residentTile.texture;
 
         return true;
     }
@@ -1516,82 +2655,172 @@ private void BindHeightCacheToClipmapRenderers()
     // FAILED LOAD
     // =====================================================
 
-    private void FailCurrentLoad()
+    private void FailCurrentLoad(
+        List<Vector2Int> newlyLoadedTiles
+    )
     {
-        ReleaseLoadedTiles();
-
-        DestroyHeightCache();
-
-        cacheReady =
-            false;
+        /*
+         * Roll back only tiles acquired by this load attempt.
+         *
+         * The active GPU cache, active cache origin and shader
+         * binding are deliberately left untouched.
+         *
+         * If this was the initial load, cacheReady was already
+         * false. If this was a runtime transition, the previous
+         * cache therefore remains visible.
+         */
+        if (newlyLoadedTiles != null)
+        {
+            foreach (
+                Vector2Int coordinate
+                in newlyLoadedTiles
+            )
+            {
+                ReleaseResidentTile(
+                    coordinate
+                );
+            }
+        }
 
         loadRoutine =
             null;
     }
 
     // =====================================================
-    // RELEASE LOADED ADDRESSABLES
+    // RELEASE ONE RESIDENT TILE
     // =====================================================
 
-    private void ReleaseLoadedTiles()
+    private void ReleaseResidentTile(
+        Vector2Int coordinate
+    )
     {
-        foreach (
-            KeyValuePair<Vector2Int, LoadedTile> pair
-            in loadedTiles
+        if (
+            !residentTiles.TryGetValue(
+                coordinate,
+                out ResidentTile tile
+            )
         )
         {
-            LoadedTile tile =
-                pair.Value;
+            return;
+        }
 
+        if (
+            tile != null
+            &&
+            tile.handle.IsValid()
+        )
+        {
+            Addressables.Release(
+                tile.handle
+            );
+        }
+
+        residentTiles.Remove(
+            coordinate
+        );
+    }
+
+    // =====================================================
+    // RELEASE LEAVING RESIDENT TILES
+    // =====================================================
+
+    private int ReleaseResidentTilesNotRequired(
+        HashSet<Vector2Int> requiredTiles
+    )
+    {
+        List<Vector2Int> leavingTiles =
+            new List<Vector2Int>();
+
+        foreach (
+            KeyValuePair<Vector2Int, ResidentTile> pair
+            in residentTiles
+        )
+        {
             if (
-                tile != null
-                &&
-                tile.handle.IsValid()
+                !requiredTiles.Contains(
+                    pair.Key
+                )
             )
             {
-                Addressables.Release(
-                    tile.handle
+                leavingTiles.Add(
+                    pair.Key
                 );
             }
         }
 
-        loadedTiles.Clear();
+        foreach (
+            Vector2Int coordinate
+            in leavingTiles
+        )
+        {
+            ReleaseResidentTile(
+                coordinate
+            );
+        }
+
+        return
+            leavingTiles.Count;
+    }
+
+    // =====================================================
+    // RELEASE ALL RESIDENT ADDRESSABLES
+    // =====================================================
+
+    private void ReleaseResidentTiles()
+    {
+        List<Vector2Int> coordinates =
+            new List<Vector2Int>(
+                residentTiles.Keys
+            );
+
+        foreach (
+            Vector2Int coordinate
+            in coordinates
+        )
+        {
+            ReleaseResidentTile(
+                coordinate
+            );
+        }
     }
 
     // =====================================================
     // DESTROY GPU CACHE
     // =====================================================
 
-    private void DestroyHeightCache()
+    private void DestroyHeightCacheBuffers()
     {
         /*
-         * If the current cache is actively bound to the
-         * clipmap shader, disable shader access before
-         * destroying the Texture2DArray.
+         * Shutdown is the only normal runtime path that disables
+         * the currently bound cache.
+         *
+         * Cache-window transitions use the inactive buffer and
+         * never call this method.
          */
-
         if (shaderCacheBound)
         {
             DisableHeightCacheOnClipmapRenderers();
         }
 
-        /*
-         * There may be no previous cache.
-         *
-         * This is normal during the first cache load.
-         */
-
-        if (heightCache == null)
+        if (heightCache != null)
         {
-            return;
+            Destroy(
+                heightCache
+            );
+
+            heightCache =
+                null;
         }
 
-        Destroy(
-            heightCache
-        );
+        if (stagingHeightCache != null)
+        {
+            Destroy(
+                stagingHeightCache
+            );
 
-        heightCache =
-            null;
+            stagingHeightCache =
+                null;
+        }
     }
 
     // =====================================================
@@ -1613,9 +2842,12 @@ private void BindHeightCacheToClipmapRenderers()
         cacheInspectionActive =
             false;
 
-        ReleaseLoadedTiles();
+        hasRequestedClipmapCenter =
+            false;
 
-        DestroyHeightCache();
+        ReleaseResidentTiles();
+
+        DestroyHeightCacheBuffers();
 
         initialized =
             false;
@@ -1628,7 +2860,11 @@ private void BindHeightCacheToClipmapRenderers()
     // DEBUG LOG
     // =====================================================
 
-    private void LogCacheReady()
+    private void LogCacheReady(
+        int retainedTileCount,
+        int loadedTileCount,
+        int releasedTileCount
+    )
     {
         float clipmapDiameter =
             CalculateClipmapDiameter();
@@ -1651,8 +2887,13 @@ private void BindHeightCacheToClipmapRenderers()
             $"{cacheWidth} x " +
             $"{cacheHeight}\n" +
 
-            $"Loaded Tiles: " +
-            $"{loadedTiles.Count}\n\n" +
+            $"Resident Tiles: " +
+            $"{residentTiles.Count}\n\n" +
+
+            $"Residency Transition:\n" +
+            $"Retained: {retainedTileCount}\n" +
+            $"Loaded: {loadedTileCount}\n" +
+            $"Released: {releasedTileCount}\n\n" +
 
             $"Texture Array: " +
             $"{heightmapManifest.heightTileSamplesPerSide} x " +
@@ -1669,10 +2910,10 @@ private void BindHeightCacheToClipmapRenderers()
     }
 
     // =====================================================
-    // LOADED TILE
+    // RESIDENT TILE
     // =====================================================
 
-    private sealed class LoadedTile
+    private sealed class ResidentTile
     {
         public readonly Vector2Int coordinate;
 
@@ -1681,15 +2922,12 @@ private void BindHeightCacheToClipmapRenderers()
         public readonly AsyncOperationHandle<Texture2D>
             handle;
 
-        public readonly int slice;
-
         public Texture2D texture;
 
-        public LoadedTile(
+        public ResidentTile(
             Vector2Int coordinate,
             string address,
-            AsyncOperationHandle<Texture2D> handle,
-            int slice
+            AsyncOperationHandle<Texture2D> handle
         )
         {
             this.coordinate =
@@ -1701,11 +2939,9 @@ private void BindHeightCacheToClipmapRenderers()
             this.handle =
                 handle;
 
-            this.slice =
-                slice;
-
             texture =
                 null;
         }
     }
 }
+

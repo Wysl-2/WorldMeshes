@@ -1256,6 +1256,16 @@ public static void SyncWorldHierarchy(
             );
 
         // =====================================================
+        // CLIPMAP CONTROLLER
+        // =====================================================
+
+        changed |=
+            SynchronizeClipmapController(
+                clipmapRoot.gameObject,
+                worldSettings
+            );
+
+        // =====================================================
         // HEIGHTMAP STREAMER
         // =====================================================
 
@@ -1518,6 +1528,86 @@ public static void SyncWorldHierarchy(
                     clipmapTerrainMaterial
                 );
         }
+
+        return changed;
+    }
+    
+    // =====================================================
+// CLIPMAP CONTROLLER
+// =====================================================
+
+    private static bool SynchronizeClipmapController(
+        GameObject clipmapObject,
+        WorldSettings worldSettings
+    )
+    {
+        bool changed =
+            false;
+
+        TerrainClipmapController[] controllers =
+            clipmapObject
+                .GetComponents<TerrainClipmapController>();
+
+        TerrainClipmapController controller;
+
+        // -------------------------------------------------
+        // Create if missing
+        // -------------------------------------------------
+
+        if (controllers.Length == 0)
+        {
+            controller =
+                clipmapObject
+                    .AddComponent<TerrainClipmapController>();
+
+            changed =
+                true;
+        }
+        else
+        {
+            controller =
+                controllers[0];
+
+            // ---------------------------------------------
+            // Remove duplicates
+            // ---------------------------------------------
+
+            for (
+                int i = 1;
+                i < controllers.Length;
+                i++
+            )
+            {
+                Object.DestroyImmediate(
+                    controllers[i]
+                );
+
+                changed =
+                    true;
+            }
+        }
+
+        // -------------------------------------------------
+        // Enable component
+        // -------------------------------------------------
+
+        if (!controller.enabled)
+        {
+            controller.enabled =
+                true;
+
+            changed =
+                true;
+        }
+
+        // -------------------------------------------------
+        // Configure
+        // -------------------------------------------------
+
+        changed |=
+            controller.Configure(
+                worldSettings
+            );
 
         return changed;
     }
