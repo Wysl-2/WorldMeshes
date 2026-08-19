@@ -879,34 +879,37 @@ public class TerrainClipmapDisplacementValidator :
                 // World bounds
                 // -------------------------------------------------
 
+                /*
+                 * Clipmap geometry is intentionally allowed to extend
+                 * beyond the authoritative terrain world.
+                 *
+                 * Terrain outside the world is removed by the fragment
+                 * shader, so an out-of-world vertex is informational
+                 * rather than a displacement failure.
+                 *
+                 * Continue validating the vertex below. The shader still
+                 * executes its vertex stage and clamps height lookup
+                 * coordinates to the authoritative world.
+                 */
                 if (
                     worldPosition.x <
-                        -sampleAlignmentTolerance
+                    -sampleAlignmentTolerance
                     ||
                     worldPosition.z <
-                        -sampleAlignmentTolerance
+                    -sampleAlignmentTolerance
                     ||
                     worldPosition.x >
-                        source.binding.worldSize.x
-                        +
-                        sampleAlignmentTolerance
+                    source.binding.worldSize.x
+                    +
+                    sampleAlignmentTolerance
                     ||
                     worldPosition.z >
-                        source.binding.worldSize.y
-                        +
-                        sampleAlignmentTolerance
+                    source.binding.worldSize.y
+                    +
+                    sampleAlignmentTolerance
                 )
                 {
                     outOfWorldVertices++;
-
-                    if (firstVertexProblem == null)
-                    {
-                        firstVertexProblem =
-                            $"{source.renderer.name}\n" +
-                            $"Vertex: {vertexIndex}\n" +
-                            $"World Position: " +
-                            $"{worldPosition}";
-                    }
                 }
 
                 // -------------------------------------------------
@@ -1318,8 +1321,6 @@ public class TerrainClipmapDisplacementValidator :
             bindingMismatchCount == 0
             &&
             positionAlignmentMismatches == 0
-            &&
-            outOfWorldVertices == 0
             &&
             invalidMappings == 0
             &&
