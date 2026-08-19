@@ -1232,42 +1232,51 @@ public static void SyncWorldHierarchy(
     }
     
 
-// =====================================================
-// CLIPMAP HIERARCHY
-// =====================================================
-
-private static bool SynchronizeClipmapHierarchy(
-    Transform clipmapRoot,
-    WorldSettings worldSettings,
-    ClipmapMeshSet meshes,
-    Material clipmapTerrainMaterial,
-    float minimumTerrainHeight,
-    float maximumTerrainHeight
-)
-{
-    bool changed =
-        false;
-
-    int levelCount =
-        Mathf.Clamp(
-            worldSettings.clipmapLevelCount,
-            1,
-            10
-        );
-
     // =====================================================
-    // HEIGHTMAP STREAMER
+    // CLIPMAP HIERARCHY
     // =====================================================
 
-    changed |=
-        SynchronizeHeightmapStreamer(
-            clipmapRoot.gameObject,
-            worldSettings
-        );
+    private static bool SynchronizeClipmapHierarchy(
+        Transform clipmapRoot,
+        WorldSettings worldSettings,
+        ClipmapMeshSet meshes,
+        Material clipmapTerrainMaterial,
+        float minimumTerrainHeight,
+        float maximumTerrainHeight
+    )
+    {
+        bool changed =
+            false;
 
-    // =====================================================
-    // DISPLACEMENT BOUNDS
-    // =====================================================
+        int levelCount =
+            Mathf.Clamp(
+                worldSettings.clipmapLevelCount,
+                1,
+                10
+            );
+
+        // =====================================================
+        // HEIGHTMAP STREAMER
+        // =====================================================
+
+        changed |=
+            SynchronizeHeightmapStreamer(
+                clipmapRoot.gameObject,
+                worldSettings
+            );
+
+        // =====================================================
+        // HEIGHTMAP CACHE VALIDATOR
+        // =====================================================
+
+        changed |=
+            SynchronizeHeightmapCacheValidator(
+                clipmapRoot.gameObject
+            );
+
+        // =====================================================
+        // DISPLACEMENT BOUNDS
+        // =====================================================
 
         changed |=
             SynchronizeClipmapBoundsController(
@@ -1276,169 +1285,50 @@ private static bool SynchronizeClipmapHierarchy(
                 maximumTerrainHeight
             );
 
-    // =====================================================
-    // DISPLACEMENT VALIDATOR
-    // =====================================================
+        // =====================================================
+        // DISPLACEMENT VALIDATOR
+        // =====================================================
 
         changed |=
             SynchronizeClipmapDisplacementValidator(
                 clipmapRoot.gameObject
             );
 
-    // -------------------------------------------------
-    // Remove obsolete LOD groups
-    // -------------------------------------------------
+        // -------------------------------------------------
+        // Remove obsolete LOD groups
+        // -------------------------------------------------
 
         List<GameObject> obsoleteObjects =
             new List<GameObject>();
 
-    foreach (
-        Transform child
-        in clipmapRoot
-    )
-    {
-        if (
-            TryGetLODGroupLevel(
-                child.name,
-                out int level
-            )
-        )
-        {
-            if (
-                level < 1
-                ||
-                level >= levelCount
-            )
-            {
-                obsoleteObjects.Add(
-                    child.gameObject
-                );
-            }
-        }
-    }
-
-    foreach (
-        GameObject obsolete
-        in obsoleteObjects
-    )
-    {
-        Object.DestroyImmediate(
-            obsolete
-        );
-
-        changed =
-            true;
-    }
-
-    // =====================================================
-    // CENTER LOD0
-    // =====================================================
-
-    Transform centerTransform =
-        GetOrCreateUniqueDirectChild(
-            clipmapRoot,
-            ClipmapCenterName,
-            out bool centerChanged
-        );
-
-    changed |=
-        centerChanged;
-
-    changed |=
-        SynchronizeTransform(
-            centerTransform,
-            Vector3.zero,
-            true
-        );
-
-    changed |=
-        SynchronizeRenderableMeshObject(
-            centerTransform.gameObject,
-            meshes.center,
-            clipmapTerrainMaterial
-        );
-
-    // =====================================================
-    // OUTER LEVELS
-    // =====================================================
-
-    for (
-        int level = 1;
-        level < levelCount;
-        level++
-    )
-    {
-        string levelName =
-            GetClipmapLODGroupName(
-                level
-            );
-
-        Transform levelTransform =
-            GetOrCreateUniqueDirectChild(
-                clipmapRoot,
-                levelName,
-                out bool levelChanged
-            );
-
-        changed |=
-            levelChanged;
-
-        changed |=
-            SynchronizeTransform(
-                levelTransform,
-                Vector3.zero,
-                true
-            );
-
-        string ringName =
-            GetClipmapRingObjectName(
-                level
-            );
-
-        string stitchName =
-            GetClipmapStitchObjectName(
-                level - 1,
-                level
-            );
-
-        // ---------------------------------------------
-        // Remove obsolete generated children
-        // ---------------------------------------------
-
-        List<GameObject> obsoleteLevelChildren =
-            new List<GameObject>();
-
         foreach (
             Transform child
-            in levelTransform
+            in clipmapRoot
         )
         {
-            bool generatedClipmapChild =
-                child.name.StartsWith(
-                    "Ring_LOD"
-                )
-                ||
-                child.name.StartsWith(
-                    "Stitch_LOD"
-                );
-
             if (
-                generatedClipmapChild
-                &&
-                child.name != ringName
-                &&
-                child.name != stitchName
+                TryGetLODGroupLevel(
+                    child.name,
+                    out int level
+                )
             )
             {
-                obsoleteLevelChildren.Add(
-                    child.gameObject
-                );
+                if (
+                    level < 1
+                    ||
+                    level >= levelCount
+                )
+                {
+                    obsoleteObjects.Add(
+                        child.gameObject
+                    );
+                }
             }
         }
 
         foreach (
             GameObject obsolete
-            in obsoleteLevelChildren
+            in obsoleteObjects
         )
         {
             Object.DestroyImmediate(
@@ -1449,69 +1339,188 @@ private static bool SynchronizeClipmapHierarchy(
                 true;
         }
 
-        // ---------------------------------------------
-        // Ring
-        // ---------------------------------------------
+        // =====================================================
+        // CENTER LOD0
+        // =====================================================
 
-        Transform ringTransform =
+        Transform centerTransform =
             GetOrCreateUniqueDirectChild(
-                levelTransform,
-                ringName,
-                out bool ringChanged
+                clipmapRoot,
+                ClipmapCenterName,
+                out bool centerChanged
             );
 
         changed |=
-            ringChanged;
+            centerChanged;
 
         changed |=
             SynchronizeTransform(
-                ringTransform,
+                centerTransform,
                 Vector3.zero,
                 true
             );
 
         changed |=
             SynchronizeRenderableMeshObject(
-                ringTransform.gameObject,
-                meshes.rings[
-                    level
-                ],
+                centerTransform.gameObject,
+                meshes.center,
                 clipmapTerrainMaterial
             );
 
-        // ---------------------------------------------
-        // Stitch
-        // ---------------------------------------------
+        // =====================================================
+        // OUTER LEVELS
+        // =====================================================
 
-        Transform stitchTransform =
-            GetOrCreateUniqueDirectChild(
-                levelTransform,
-                stitchName,
-                out bool stitchChanged
-            );
-
-        changed |=
-            stitchChanged;
-
-        changed |=
-            SynchronizeTransform(
-                stitchTransform,
-                Vector3.zero,
-                true
-            );
-
-        changed |=
-            SynchronizeRenderableMeshObject(
-                stitchTransform.gameObject,
-                meshes.stitches[
+        for (
+            int level = 1;
+            level < levelCount;
+            level++
+        )
+        {
+            string levelName =
+                GetClipmapLODGroupName(
                     level
-                ],
-                clipmapTerrainMaterial
-            );
+                );
+
+            Transform levelTransform =
+                GetOrCreateUniqueDirectChild(
+                    clipmapRoot,
+                    levelName,
+                    out bool levelChanged
+                );
+
+            changed |=
+                levelChanged;
+
+            changed |=
+                SynchronizeTransform(
+                    levelTransform,
+                    Vector3.zero,
+                    true
+                );
+
+            string ringName =
+                GetClipmapRingObjectName(
+                    level
+                );
+
+            string stitchName =
+                GetClipmapStitchObjectName(
+                    level - 1,
+                    level
+                );
+
+            // ---------------------------------------------
+            // Remove obsolete generated children
+            // ---------------------------------------------
+
+            List<GameObject> obsoleteLevelChildren =
+                new List<GameObject>();
+
+            foreach (
+                Transform child
+                in levelTransform
+            )
+            {
+                bool generatedClipmapChild =
+                    child.name.StartsWith(
+                        "Ring_LOD"
+                    )
+                    ||
+                    child.name.StartsWith(
+                        "Stitch_LOD"
+                    );
+
+                if (
+                    generatedClipmapChild
+                    &&
+                    child.name != ringName
+                    &&
+                    child.name != stitchName
+                )
+                {
+                    obsoleteLevelChildren.Add(
+                        child.gameObject
+                    );
+                }
+            }
+
+            foreach (
+                GameObject obsolete
+                in obsoleteLevelChildren
+            )
+            {
+                Object.DestroyImmediate(
+                    obsolete
+                );
+
+                changed =
+                    true;
+            }
+
+            // ---------------------------------------------
+            // Ring
+            // ---------------------------------------------
+
+            Transform ringTransform =
+                GetOrCreateUniqueDirectChild(
+                    levelTransform,
+                    ringName,
+                    out bool ringChanged
+                );
+
+            changed |=
+                ringChanged;
+
+            changed |=
+                SynchronizeTransform(
+                    ringTransform,
+                    Vector3.zero,
+                    true
+                );
+
+            changed |=
+                SynchronizeRenderableMeshObject(
+                    ringTransform.gameObject,
+                    meshes.rings[
+                        level
+                    ],
+                    clipmapTerrainMaterial
+                );
+
+            // ---------------------------------------------
+            // Stitch
+            // ---------------------------------------------
+
+            Transform stitchTransform =
+                GetOrCreateUniqueDirectChild(
+                    levelTransform,
+                    stitchName,
+                    out bool stitchChanged
+                );
+
+            changed |=
+                stitchChanged;
+
+            changed |=
+                SynchronizeTransform(
+                    stitchTransform,
+                    Vector3.zero,
+                    true
+                );
+
+            changed |=
+                SynchronizeRenderableMeshObject(
+                    stitchTransform.gameObject,
+                    meshes.stitches[
+                        level
+                    ],
+                    clipmapTerrainMaterial
+                );
+        }
+
+        return changed;
     }
-
-    return changed;
-}
 
 
     // =====================================================
@@ -1614,6 +1623,76 @@ private static bool SynchronizeClipmapHierarchy(
                 worldSettings,
                 manifest
             );
+
+        return changed;
+    }
+    
+    // =====================================================
+    // HEIGHTMAP CACHE VALIDATOR
+    // =====================================================
+
+    private static bool SynchronizeHeightmapCacheValidator(
+        GameObject clipmapObject
+    )
+    {
+        bool changed =
+            false;
+
+        TerrainHeightmapCacheValidator[] validators =
+            clipmapObject
+                .GetComponents<TerrainHeightmapCacheValidator>();
+
+        TerrainHeightmapCacheValidator validator;
+
+        // -------------------------------------------------
+        // Create if missing
+        // -------------------------------------------------
+
+        if (validators.Length == 0)
+        {
+            validator =
+                clipmapObject
+                    .AddComponent<TerrainHeightmapCacheValidator>();
+
+            changed =
+                true;
+        }
+        else
+        {
+            validator =
+                validators[0];
+
+            // ---------------------------------------------
+            // Remove duplicates
+            // ---------------------------------------------
+
+            for (
+                int i = 1;
+                i < validators.Length;
+                i++
+            )
+            {
+                Object.DestroyImmediate(
+                    validators[i]
+                );
+
+                changed =
+                    true;
+            }
+        }
+
+        // -------------------------------------------------
+        // Enable component
+        // -------------------------------------------------
+
+        if (!validator.enabled)
+        {
+            validator.enabled =
+                true;
+
+            changed =
+                true;
+        }
 
         return changed;
     }

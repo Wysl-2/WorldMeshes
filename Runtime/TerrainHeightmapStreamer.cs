@@ -1,6 +1,5 @@
 using System.Collections;
 using System.Collections.Generic;
-using Unity.Collections;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.ResourceManagement.AsyncOperations;
@@ -54,33 +53,16 @@ public class TerrainHeightmapStreamer :
         true;
     
     // =====================================================
-    // CACHE VALIDATION
+    // CACHE INSPECTION
     // =====================================================
 
-    [Header("Cache Validation")]
-
-    [SerializeField]
-    private bool validateCacheAfterLoad =
-        true;
-
     /*
-     * Because both the source tiles and the cache use
-     * TextureFormat.RFloat, an exact copy should normally
-     * produce a difference of zero.
+     * Manual development tools may temporarily lock the
+     * current cache while inspecting or reading it.
      *
-     * This can be increased later if a platform requires
-     * a small tolerance.
+     * Normal runtime streaming never enables this state.
      */
-    [SerializeField]
-    [Min(0f)]
-    private float cacheValidationTolerance =
-        0f;
-
-    private Coroutine validationRoutine;
-
-    private bool hasValidatedCurrentCache;
-
-    private bool lastCacheValidationPassed;
+    private bool cacheInspectionActive;
 
     // =====================================================
     // RUNTIME CACHE
@@ -203,11 +185,11 @@ public class TerrainHeightmapStreamer :
         }
     }
     
-    public bool LastCacheValidationPassed
+    public bool IsCacheInspectionActive
     {
         get
         {
-            return lastCacheValidationPassed;
+            return cacheInspectionActive;
         }
     }
 
@@ -310,54 +292,25 @@ public class TerrainHeightmapStreamer :
         // =====================================================
 
         /*
-         * The shader is only allowed to use the height cache
-         * after:
+         * A successfully loaded cache may be used immediately.
          *
-         * 1. The cache has finished loading.
-         *
-         * 2. If cache validation is enabled, that validation
-         *    has completed successfully.
-         *
-         * Until then, _HeightCacheReady remains 0 and the
-         * clipmap stays undisplaced.
+         * Cache validation and other development diagnostics
+         * are not part of the normal streaming state machine.
          */
-
         UpdateShaderCacheBindingState();
 
         // =====================================================
-        // CACHE VALIDATION
+        // CACHE INSPECTION SAFETY
         // =====================================================
 
         /*
-         * Once a newly loaded cache becomes ready, validate it
-         * exactly once before allowing another cache-window
-         * change.
+         * A development diagnostic may temporarily lock the
+         * active cache while performing GPU readback.
+         *
+         * This state is never entered by normal runtime
+         * streaming.
          */
-
-        if (
-            cacheReady
-            &&
-            validateCacheAfterLoad
-            &&
-            !hasValidatedCurrentCache
-            &&
-            validationRoutine == null
-        )
-        {
-            validationRoutine =
-                StartCoroutine(
-                    ValidateHeightCacheRoutine()
-                );
-
-            return;
-        }
-
-        /*
-         * Keep the current cache stable while its GPU contents
-         * are being read back and validated.
-         */
-
-        if (validationRoutine != null)
+        if (cacheInspectionActive)
         {
             return;
         }
@@ -375,11 +328,10 @@ public class TerrainHeightmapStreamer :
         /*
          * Do not interrupt an in-progress load.
          *
-         * If the required window changes during loading,
-         * Update will request the new window after the current
-         * load has completed.
+         * If the target moves while the current load is running,
+         * the desired origin will be recalculated after that load
+         * completes.
          */
-
         if (loadRoutine != null)
         {
             return;
@@ -399,45 +351,38 @@ public class TerrainHeightmapStreamer :
             desiredOrigin
         );
     }
-    
+
     // =====================================================
     // UPDATE SHADER CACHE BINDING
     // =====================================================
 
-        private void UpdateShaderCacheBindingState()
+    private void UpdateShaderCacheBindingState()
+    {
+        /*
+         * A cache becomes usable as soon as the normal streaming
+         * process has loaded and populated it successfully.
+         */
+        bool shouldBeBound =
+            cacheReady
+            &&
+            heightCache != null;
+
+        if (shouldBeBound)
         {
-            bool validationAllowsBinding =
-                !validateCacheAfterLoad
-                ||
-                (
-                    hasValidatedCurrentCache
-                    &&
-                    lastCacheValidationPassed
-                );
-
-            bool shouldBeBound =
-                cacheReady
-                &&
-                heightCache != null
-                &&
-                validationAllowsBinding;
-
-            if (shouldBeBound)
+            if (!shaderCacheBound)
             {
-                if (!shaderCacheBound)
-                {
-                    BindHeightCacheToClipmapRenderers();
-                }
-
-                return;
+                BindHeightCacheToClipmapRenderers();
             }
 
-            if (shaderCacheBound)
-            {
-                DisableHeightCacheOnClipmapRenderers();
-            }
+            return;
         }
-        
+
+        if (shaderCacheBound)
+        {
+            DisableHeightCacheOnClipmapRenderers();
+        }
+    }
+
     // =====================================================
     // FIND CLIPMAP RENDERERS
     // =====================================================
@@ -1106,22 +1051,11 @@ private void BindHeightCacheToClipmapRenderers()
         if (
             loadRoutine != null
             ||
-            validationRoutine != null
+            cacheInspectionActive
         )
         {
             return;
         }
-
-        /*
-         * A new cache window will contain different data,
-         * therefore its validation state must be reset.
-         */
-
-        hasValidatedCurrentCache =
-            false;
-
-        lastCacheValidationPassed =
-            false;
 
         loadRoutine =
             StartCoroutine(
@@ -1469,929 +1403,114 @@ private void BindHeightCacheToClipmapRenderers()
     }
     
     // =====================================================
-// VALIDATE HEIGHT CACHE
-// =====================================================
+    // BEGIN CACHE INSPECTION
+    // =====================================================
 
-private IEnumerator ValidateHeightCacheRoutine()
-{
-    lastCacheValidationPassed =
-        false;
-
-    // -------------------------------------------------
-    // Basic state
-    // -------------------------------------------------
-
-    if (
-        heightCache == null
-        ||
-        !cacheReady
+    internal bool TryBeginCacheInspection(
+        out string reason
     )
     {
-        FailCacheValidation(
-            "The terrain height cache is not ready."
-        );
+        reason =
+            null;
 
-        yield break;
-    }
-
-    int samplesPerSide =
-        heightCache.width;
-
-    int samplesPerTile =
-        samplesPerSide *
-        samplesPerSide;
-
-    int expectedTileCount =
-        cacheWidth *
-        cacheHeight;
-
-    // -------------------------------------------------
-    // GPU readback
-    // -------------------------------------------------
-
-    /*
-     * Request mip 0 from the entire Texture2DArray.
-     *
-     * The destination format is explicitly RFloat so the
-     * returned NativeArray<float> for each layer corresponds
-     * directly to the stored terrain heights.
-     */
-
-    AsyncGPUReadbackRequest readback;
-
-    try
-    {
-        readback =
-            AsyncGPUReadback.Request(
-                heightCache,
-                0,
-                TextureFormat.RFloat,
-                null
-            );
-    }
-    catch (
-        System.Exception exception
-    )
-    {
-        FailCacheValidation(
-            "Could not begin GPU readback.\n\n" +
-            exception.Message
-        );
-
-        yield break;
-    }
-
-    while (!readback.done)
-    {
-        yield return null;
-    }
-
-    if (readback.hasError)
-    {
-        FailCacheValidation(
-            "GPU readback of the terrain height cache failed."
-        );
-
-        yield break;
-    }
-
-    // =====================================================
-    // VALIDATION STATISTICS
-    // =====================================================
-
-    int tilesValidated =
-        0;
-
-    int slicesValidated =
-        0;
-
-    int missingTiles =
-        0;
-
-    int sliceMappingMismatches =
-        0;
-
-    int invalidSourceTextures =
-        0;
-
-    long samplesCompared =
-        0L;
-
-    long sampleMismatches =
-        0L;
-
-    float maximumHeightDifference =
-        0f;
-
-    string firstSampleMismatch =
-        null;
-
-    string firstSliceMismatch =
-        null;
-
-    // =====================================================
-    // VALIDATE EVERY TILE / SLICE
-    // =====================================================
-
-    for (
-        int localZ = 0;
-        localZ < cacheHeight;
-        localZ++
-    )
-    {
-        for (
-            int localX = 0;
-            localX < cacheWidth;
-            localX++
-        )
+        if (!Application.isPlaying)
         {
-            Vector2Int tileCoordinate =
-                new Vector2Int(
-                    cacheOriginTile.x +
-                    localX,
+            reason =
+                "Cache inspection can only begin in Play Mode.";
 
-                    cacheOriginTile.y +
-                    localZ
-                );
-
-            int expectedSlice =
-                localX
-                +
-                localZ *
-                cacheWidth;
-
-            // -----------------------------------------
-            // Loaded source tile
-            // -----------------------------------------
-
-            if (
-                !loadedTiles.TryGetValue(
-                    tileCoordinate,
-                    out LoadedTile loadedTile
-                )
-                ||
-                loadedTile == null
-                ||
-                loadedTile.texture == null
-            )
-            {
-                missingTiles++;
-
-                continue;
-            }
-
-            tilesValidated++;
-
-            // -----------------------------------------
-            // Validate recorded slice mapping
-            // -----------------------------------------
-
-            if (
-                loadedTile.slice !=
-                expectedSlice
-            )
-            {
-                sliceMappingMismatches++;
-
-                if (
-                    firstSliceMismatch ==
-                    null
-                )
-                {
-                    firstSliceMismatch =
-                        $"Tile " +
-                        $"({tileCoordinate.x}, " +
-                        $"{tileCoordinate.y})\n" +
-
-                        $"Expected Slice: " +
-                        $"{expectedSlice}\n" +
-
-                        $"Recorded Slice: " +
-                        $"{loadedTile.slice}";
-                }
-            }
-
-            Texture2D sourceTexture =
-                loadedTile.texture;
-
-            // -----------------------------------------
-            // Validate source texture
-            // -----------------------------------------
-
-            if (
-                sourceTexture.width !=
-                    samplesPerSide
-                ||
-                sourceTexture.height !=
-                    samplesPerSide
-                ||
-                sourceTexture.format !=
-                    TextureFormat.RFloat
-                ||
-                !sourceTexture.isReadable
-            )
-            {
-                invalidSourceTextures++;
-
-                continue;
-            }
-
-            // -----------------------------------------
-            // CPU source data
-            // -----------------------------------------
-
-            NativeArray<float> sourceData;
-
-            try
-            {
-                sourceData =
-                    sourceTexture
-                        .GetPixelData<float>(
-                            0
-                        );
-            }
-            catch (
-                System.Exception exception
-            )
-            {
-                invalidSourceTextures++;
-
-                Debug.LogError(
-                    "Could not read source heightmap tile.\n\n" +
-
-                    $"Tile: " +
-                    $"({tileCoordinate.x}, " +
-                    $"{tileCoordinate.y})\n\n" +
-
-                    exception.Message,
-                    this
-                );
-
-                continue;
-            }
-
-            // -----------------------------------------
-            // GPU cache slice
-            // -----------------------------------------
-
-            NativeArray<float> cacheData;
-
-            try
-            {
-                cacheData =
-                    readback
-                        .GetData<float>(
-                            expectedSlice
-                        );
-            }
-            catch (
-                System.Exception exception
-            )
-            {
-                FailCacheValidation(
-                    "Could not access a Texture2DArray " +
-                    "readback layer.\n\n" +
-
-                    $"Tile: " +
-                    $"({tileCoordinate.x}, " +
-                    $"{tileCoordinate.y})\n" +
-
-                    $"Slice: {expectedSlice}\n\n" +
-
-                    exception.Message
-                );
-
-                yield break;
-            }
-
-            // -----------------------------------------
-            // Validate array lengths
-            // -----------------------------------------
-
-            if (
-                sourceData.Length !=
-                    samplesPerTile
-                ||
-                cacheData.Length !=
-                    samplesPerTile
-            )
-            {
-                invalidSourceTextures++;
-
-                Debug.LogError(
-                    "Height cache validation encountered " +
-                    "an unexpected sample count.\n\n" +
-
-                    $"Tile: " +
-                    $"({tileCoordinate.x}, " +
-                    $"{tileCoordinate.y})\n\n" +
-
-                    $"Expected Samples: " +
-                    $"{samplesPerTile:N0}\n" +
-
-                    $"Source Samples: " +
-                    $"{sourceData.Length:N0}\n" +
-
-                    $"Cache Samples: " +
-                    $"{cacheData.Length:N0}",
-                    this
-                );
-
-                continue;
-            }
-
-            slicesValidated++;
-
-            // =================================================
-            // COMPARE EVERY FLOAT
-            // =================================================
-
-            for (
-                int sampleIndex = 0;
-                sampleIndex < samplesPerTile;
-                sampleIndex++
-            )
-            {
-                float sourceHeight =
-                    sourceData[
-                        sampleIndex
-                    ];
-
-                float cacheHeightValue =
-                    cacheData[
-                        sampleIndex
-                    ];
-
-                samplesCompared++;
-
-                bool invalidValue =
-                    float.IsNaN(
-                        sourceHeight
-                    )
-                    ||
-                    float.IsInfinity(
-                        sourceHeight
-                    )
-                    ||
-                    float.IsNaN(
-                        cacheHeightValue
-                    )
-                    ||
-                    float.IsInfinity(
-                        cacheHeightValue
-                    );
-
-                float difference =
-                    invalidValue
-                        ? float.PositiveInfinity
-                        : Mathf.Abs(
-                            sourceHeight -
-                            cacheHeightValue
-                        );
-
-                if (
-                    !float.IsInfinity(
-                        difference
-                    )
-                )
-                {
-                    maximumHeightDifference =
-                        Mathf.Max(
-                            maximumHeightDifference,
-                            difference
-                        );
-                }
-
-                if (
-                    invalidValue
-                    ||
-                    difference >
-                        cacheValidationTolerance
-                )
-                {
-                    sampleMismatches++;
-
-                    if (
-                        firstSampleMismatch ==
-                        null
-                    )
-                    {
-                        int sampleX =
-                            sampleIndex %
-                            samplesPerSide;
-
-                        int sampleZ =
-                            sampleIndex /
-                            samplesPerSide;
-
-                        firstSampleMismatch =
-                            $"Tile: " +
-                            $"({tileCoordinate.x}, " +
-                            $"{tileCoordinate.y})\n" +
-
-                            $"Slice: {expectedSlice}\n" +
-
-                            $"Sample: " +
-                            $"({sampleX}, {sampleZ})\n" +
-
-                            $"Source Height: " +
-                            $"{sourceHeight:R}\n" +
-
-                            $"Cache Height: " +
-                            $"{cacheHeightValue:R}\n" +
-
-                            $"Difference: " +
-                            $"{difference:R}";
-                    }
-                }
-            }
+            return false;
         }
-    }
 
-    // =====================================================
-    // VALIDATE CACHE TILE BOUNDARIES
-    // =====================================================
-
-    long boundarySamplesCompared =
-        0L;
-
-    long boundaryMismatches =
-        0L;
-
-    float maximumBoundaryDifference =
-        0f;
-
-    string firstBoundaryMismatch =
-        null;
-
-    ValidateCacheBoundaries(
-        readback,
-        samplesPerSide,
-
-        ref boundarySamplesCompared,
-        ref boundaryMismatches,
-        ref maximumBoundaryDifference,
-        ref firstBoundaryMismatch
-    );
-
-    // =====================================================
-    // RESULT
-    // =====================================================
-
-    bool passed =
-        tilesValidated ==
-            expectedTileCount
-        &&
-        slicesValidated ==
-            expectedTileCount
-        &&
-        missingTiles == 0
-        &&
-        invalidSourceTextures == 0
-        &&
-        sliceMappingMismatches == 0
-        &&
-        sampleMismatches == 0
-        &&
-        boundaryMismatches == 0;
-
-    lastCacheValidationPassed =
-        passed;
-
-    hasValidatedCurrentCache =
-        true;
-
-    validationRoutine =
-        null;
-
-    if (passed)
-    {
-        Debug.Log(
-            "Terrain height cache validation passed.\n\n" +
-
-            $"Cache Origin Tile: " +
-            $"({cacheOriginTile.x}, " +
-            $"{cacheOriginTile.y})\n" +
-
-            $"Cache Tile Grid: " +
-            $"{cacheWidth} x " +
-            $"{cacheHeight}\n\n" +
-
-            $"Tiles Validated: " +
-            $"{tilesValidated:N0}\n" +
-
-            $"Slices Validated: " +
-            $"{slicesValidated:N0}\n\n" +
-
-            $"Samples Compared: " +
-            $"{samplesCompared:N0}\n" +
-
-            $"Sample Mismatches: " +
-            $"{sampleMismatches:N0}\n\n" +
-
-            $"Slice Mapping Mismatches: " +
-            $"{sliceMappingMismatches:N0}\n\n" +
-
-            $"Boundary Samples Compared: " +
-            $"{boundarySamplesCompared:N0}\n" +
-
-            $"Boundary Mismatches: " +
-            $"{boundaryMismatches:N0}\n\n" +
-
-            $"Maximum Height Difference: " +
-            $"{maximumHeightDifference:R}\n" +
-
-            $"Maximum Boundary Difference: " +
-            $"{maximumBoundaryDifference:R}",
-            this
-        );
-    }
-    else
-    {
-        string details =
-            "";
-
-        if (
-            firstSliceMismatch !=
-            null
-        )
+        if (!initialized)
         {
-            details +=
-                "\n\nFirst Slice Mapping Mismatch:\n" +
-                firstSliceMismatch;
+            reason =
+                "The terrain heightmap streamer has not initialized.";
+
+            return false;
+        }
+
+        if (cacheInspectionActive)
+        {
+            reason =
+                "The current height cache is already being inspected.";
+
+            return false;
+        }
+
+        if (loadRoutine != null)
+        {
+            reason =
+                "A height-cache window is currently being loaded.";
+
+            return false;
         }
 
         if (
-            firstSampleMismatch !=
-            null
+            !cacheReady
+            ||
+            heightCache == null
         )
         {
-            details +=
-                "\n\nFirst Height Mismatch:\n" +
-                firstSampleMismatch;
+            reason =
+                "There is no ready height cache to inspect.";
+
+            return false;
         }
+
+        cacheInspectionActive =
+            true;
+
+        return true;
+    }
+
+    // =====================================================
+    // END CACHE INSPECTION
+    // =====================================================
+
+    internal void EndCacheInspection()
+    {
+        cacheInspectionActive =
+            false;
+    }
+
+    // =====================================================
+    // GET LOADED TILE FOR INSPECTION
+    // =====================================================
+
+    internal bool TryGetLoadedTileForInspection(
+        Vector2Int coordinate,
+        out Texture2D texture,
+        out int recordedSlice
+    )
+    {
+        texture =
+            null;
+
+        recordedSlice =
+            -1;
 
         if (
-            firstBoundaryMismatch !=
-            null
-        )
-        {
-            details +=
-                "\n\nFirst Boundary Mismatch:\n" +
-                firstBoundaryMismatch;
-        }
-
-        Debug.LogError(
-            "Terrain height cache validation FAILED.\n\n" +
-
-            $"Expected Tiles: " +
-            $"{expectedTileCount:N0}\n" +
-
-            $"Tiles Validated: " +
-            $"{tilesValidated:N0}\n" +
-
-            $"Slices Validated: " +
-            $"{slicesValidated:N0}\n" +
-
-            $"Missing Tiles: " +
-            $"{missingTiles:N0}\n" +
-
-            $"Invalid Source Textures: " +
-            $"{invalidSourceTextures:N0}\n\n" +
-
-            $"Samples Compared: " +
-            $"{samplesCompared:N0}\n" +
-
-            $"Sample Mismatches: " +
-            $"{sampleMismatches:N0}\n\n" +
-
-            $"Slice Mapping Mismatches: " +
-            $"{sliceMappingMismatches:N0}\n\n" +
-
-            $"Boundary Samples Compared: " +
-            $"{boundarySamplesCompared:N0}\n" +
-
-            $"Boundary Mismatches: " +
-            $"{boundaryMismatches:N0}\n\n" +
-
-            $"Maximum Height Difference: " +
-            $"{maximumHeightDifference:R}\n" +
-
-            $"Maximum Boundary Difference: " +
-            $"{maximumBoundaryDifference:R}" +
-
-            details,
-            this
-        );
-    }
-}
-
-// =====================================================
-// VALIDATE CACHE BOUNDARIES
-// =====================================================
-
-private void ValidateCacheBoundaries(
-    AsyncGPUReadbackRequest readback,
-    int samplesPerSide,
-
-    ref long samplesCompared,
-    ref long mismatches,
-    ref float maximumDifference,
-    ref string firstMismatch
-)
-{
-    int maximumSample =
-        samplesPerSide - 1;
-
-    // =====================================================
-    // X-AXIS NEIGHBOURS
-    // =====================================================
-
-    for (
-        int localZ = 0;
-        localZ < cacheHeight;
-        localZ++
-    )
-    {
-        for (
-            int localX = 0;
-            localX < cacheWidth - 1;
-            localX++
-        )
-        {
-            int leftSlice =
-                localX
-                +
-                localZ *
-                cacheWidth;
-
-            int rightSlice =
-                localX + 1
-                +
-                localZ *
-                cacheWidth;
-
-            NativeArray<float> leftData =
-                readback
-                    .GetData<float>(
-                        leftSlice
-                    );
-
-            NativeArray<float> rightData =
-                readback
-                    .GetData<float>(
-                        rightSlice
-                    );
-
-            for (
-                int sampleZ = 0;
-                sampleZ < samplesPerSide;
-                sampleZ++
+            !loadedTiles.TryGetValue(
+                coordinate,
+                out LoadedTile loadedTile
             )
-            {
-                int leftIndex =
-                    maximumSample
-                    +
-                    sampleZ *
-                    samplesPerSide;
-
-                int rightIndex =
-                    sampleZ *
-                    samplesPerSide;
-
-                float leftHeight =
-                    leftData[
-                        leftIndex
-                    ];
-
-                float rightHeight =
-                    rightData[
-                        rightIndex
-                    ];
-
-                float difference =
-                    Mathf.Abs(
-                        leftHeight -
-                        rightHeight
-                    );
-
-                samplesCompared++;
-
-                maximumDifference =
-                    Mathf.Max(
-                        maximumDifference,
-                        difference
-                    );
-
-                if (
-                    difference >
-                    cacheValidationTolerance
-                )
-                {
-                    mismatches++;
-
-                    if (
-                        firstMismatch ==
-                        null
-                    )
-                    {
-                        Vector2Int leftTile =
-                            new Vector2Int(
-                                cacheOriginTile.x +
-                                localX,
-
-                                cacheOriginTile.y +
-                                localZ
-                            );
-
-                        Vector2Int rightTile =
-                            leftTile +
-                            Vector2Int.right;
-
-                        firstMismatch =
-                            $"X Boundary\n" +
-
-                            $"Left Tile: " +
-                            $"({leftTile.x}, " +
-                            $"{leftTile.y})\n" +
-
-                            $"Right Tile: " +
-                            $"({rightTile.x}, " +
-                            $"{rightTile.y})\n" +
-
-                            $"Sample Z: " +
-                            $"{sampleZ}\n" +
-
-                            $"Left Height: " +
-                            $"{leftHeight:R}\n" +
-
-                            $"Right Height: " +
-                            $"{rightHeight:R}\n" +
-
-                            $"Difference: " +
-                            $"{difference:R}";
-                    }
-                }
-            }
-        }
-    }
-
-    // =====================================================
-    // Z-AXIS NEIGHBOURS
-    // =====================================================
-
-    for (
-        int localZ = 0;
-        localZ < cacheHeight - 1;
-        localZ++
-    )
-    {
-        for (
-            int localX = 0;
-            localX < cacheWidth;
-            localX++
+            ||
+            loadedTile == null
+            ||
+            loadedTile.texture == null
         )
         {
-            int lowerSlice =
-                localX
-                +
-                localZ *
-                cacheWidth;
-
-            int upperSlice =
-                localX
-                +
-                (localZ + 1) *
-                cacheWidth;
-
-            NativeArray<float> lowerData =
-                readback
-                    .GetData<float>(
-                        lowerSlice
-                    );
-
-            NativeArray<float> upperData =
-                readback
-                    .GetData<float>(
-                        upperSlice
-                    );
-
-            for (
-                int sampleX = 0;
-                sampleX < samplesPerSide;
-                sampleX++
-            )
-            {
-                int lowerIndex =
-                    sampleX
-                    +
-                    maximumSample *
-                    samplesPerSide;
-
-                int upperIndex =
-                    sampleX;
-
-                float lowerHeight =
-                    lowerData[
-                        lowerIndex
-                    ];
-
-                float upperHeight =
-                    upperData[
-                        upperIndex
-                    ];
-
-                float difference =
-                    Mathf.Abs(
-                        lowerHeight -
-                        upperHeight
-                    );
-
-                samplesCompared++;
-
-                maximumDifference =
-                    Mathf.Max(
-                        maximumDifference,
-                        difference
-                    );
-
-                if (
-                    difference >
-                    cacheValidationTolerance
-                )
-                {
-                    mismatches++;
-
-                    if (
-                        firstMismatch ==
-                        null
-                    )
-                    {
-                        Vector2Int lowerTile =
-                            new Vector2Int(
-                                cacheOriginTile.x +
-                                localX,
-
-                                cacheOriginTile.y +
-                                localZ
-                            );
-
-                        Vector2Int upperTile =
-                            lowerTile +
-                            Vector2Int.up;
-
-                        firstMismatch =
-                            $"Z Boundary\n" +
-
-                            $"Lower Tile: " +
-                            $"({lowerTile.x}, " +
-                            $"{lowerTile.y})\n" +
-
-                            $"Upper Tile: " +
-                            $"({upperTile.x}, " +
-                            $"{upperTile.y})\n" +
-
-                            $"Sample X: " +
-                            $"{sampleX}\n" +
-
-                            $"Lower Height: " +
-                            $"{lowerHeight:R}\n" +
-
-                            $"Upper Height: " +
-                            $"{upperHeight:R}\n" +
-
-                            $"Difference: " +
-                            $"{difference:R}";
-                    }
-                }
-            }
+            return false;
         }
+
+        texture =
+            loadedTile.texture;
+
+        recordedSlice =
+            loadedTile.slice;
+
+        return true;
     }
-}
-
-// =====================================================
-// CACHE VALIDATION FAILURE
-// =====================================================
-
-private void FailCacheValidation(
-    string reason
-)
-{
-    lastCacheValidationPassed =
-        false;
-
-    hasValidatedCurrentCache =
-        true;
-
-    validationRoutine =
-        null;
-
-    Debug.LogError(
-        "Terrain height cache validation FAILED.\n\n" +
-        reason,
-        this
-    );
-}
 
     // =====================================================
     // FAILED LOAD
@@ -2491,15 +1610,8 @@ private void FailCacheValidation(
                 null;
         }
 
-        if (validationRoutine != null)
-        {
-            StopCoroutine(
-                validationRoutine
-            );
-
-            validationRoutine =
-                null;
-        }
+        cacheInspectionActive =
+            false;
 
         ReleaseLoadedTiles();
 
@@ -2509,12 +1621,6 @@ private void FailCacheValidation(
             false;
 
         cacheReady =
-            false;
-
-        hasValidatedCurrentCache =
-            false;
-
-        lastCacheValidationPassed =
             false;
     }
 

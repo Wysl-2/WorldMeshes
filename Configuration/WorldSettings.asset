@@ -20,7 +20,7 @@ MonoBehaviour:
   heightSeed: 12345
   heightNoiseScale: 400
   heightBaseHeight: 0
-  heightAmplitude: 40
+  heightAmplitude: 80
   heightOctaves: 4
   heightPersistence: 0.5
   heightLacunarity: 2
@@ -34,10 +34,10 @@ MonoBehaviour:
   lastSyncedLOD0Resolution: 128
   lastSyncedBaseMeshHash: b0b87379942a69937a5b5be3a79926c3
   chunkMeshGenerationRevision: 1
-  lastGeneratedHeightSignature: daa3d19eaa9f72526990a520502871519ffed86658092be691f7de1c71f3c7d1
-  heightmapGenerationRevision: 1
+  lastGeneratedHeightSignature: 8eb0653dec11848e57babde9a0102ac4733283dd13086f121ccbaae61acaed92
+  heightmapGenerationRevision: 2
   appliedChunkMeshGenerationRevision: 1
-  appliedHeightmapGenerationRevision: 1
+  appliedHeightmapGenerationRevision: 2
   lastGeneratedCollisionSignature: ffd2d8ece94dc4d5b217cd921a195bbd62522fbc44338c01e334da0793ac2a38
-  collisionMeshGenerationRevision: 1
-  collisionSourceHeightmapGenerationRevision: 1
+  collisionMeshGenerationRevision: 2
+  collisionSourceHeightmapGenerationRevision: 2
