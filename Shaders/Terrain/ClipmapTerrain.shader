@@ -63,6 +63,26 @@ Shader "Custom/ClipmapTerrain"
             "Height Cache Ready",
             Float
         ) = 0
+
+        // =================================================
+        // CLIPMAP TRANSITION
+        // =================================================
+
+        /*
+         * World-space offset applied only to stitch vertices
+         * whose generated transition weight is 1.
+         *
+         * Stage 3B leaves this at zero. Stage 3C will set it
+         * per stitch renderer from the fine/coarse LOD anchors.
+         *
+         * x = world X offset
+         * z = world Z offset
+         */
+        [HideInInspector]
+        _ClipmapTransitionOffset(
+            "Clipmap Transition Offset",
+            Vector
+        ) = (0, 0, 0, 0)
     }
 
     SubShader
@@ -107,6 +127,18 @@ Shader "Custom/ClipmapTerrain"
             {
                 float4 positionOS : POSITION;
                 float2 uv : TEXCOORD0;
+
+                /*
+                 * Generated clipmap-specific vertex data.
+                 *
+                 * TEXCOORD3.x:
+                 *
+                 * 0 = vertex remains attached to coarse side
+                 * 1 = vertex follows the fine-side offset
+                 *
+                 * yzw are reserved for future clipmap data.
+                 */
+                float4 clipmapData : TEXCOORD3;
             };
 
             // =================================================
@@ -196,6 +228,17 @@ Shader "Custom/ClipmapTerrain"
                  * 1 = cache ready
                  */
                 float _HeightCacheReady;
+
+                /*
+                 * Stage 3B adaptive-stitch capability.
+                 *
+                 * x/z = world-space horizontal offset applied
+                 *       according to clipmapData.x.
+                 *
+                 * Stage 3B keeps this zero, so existing geometry
+                 * placement remains unchanged.
+                 */
+                float4 _ClipmapTransitionOffset;
 
             CBUFFER_END
 
@@ -571,6 +614,28 @@ Shader "Custom/ClipmapTerrain"
                     TransformObjectToWorld(
                         IN.positionOS.xyz
                     );
+
+                // ---------------------------------------------
+                // Adaptive stitch horizontal offset
+                // ---------------------------------------------
+
+                /*
+                 * Stage 3B only adds the capability.
+                 * _ClipmapTransitionOffset remains zero, so this
+                 * produces no visible geometry change yet.
+                 *
+                 * Stage 3C will provide a non-zero per-stitch
+                 * offset equal to FineCenter - CoarseCenter.
+                 */
+                float transitionWeight =
+                    saturate(
+                        IN.clipmapData.x
+                    );
+
+                positionWS.xz +=
+                    _ClipmapTransitionOffset.xz
+                    *
+                    transitionWeight;
 
                 // ---------------------------------------------
                 // Default flat normal

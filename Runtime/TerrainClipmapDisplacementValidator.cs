@@ -17,42 +17,21 @@ public class TerrainClipmapDisplacementValidator :
     private bool validateOnStart =
         true;
 
-    /*
-     * Maximum allowed difference between a clipmap
-     * vertex X/Z position and the authoritative height
-     * sample grid.
-     */
     [SerializeField]
     [Min(0f)]
     private float sampleAlignmentTolerance =
         0.0001f;
 
-    /*
-     * Maximum allowed height difference when comparing
-     * the GPU-cache lookup against the Preview mesh.
-     */
     [SerializeField]
     [Min(0f)]
     private float heightTolerance =
         0.00001f;
-    
-    /*
-     * Small tolerance when testing displaced vertices against
-     * Renderer.localBounds.
-     *
-     * This avoids reporting a failure when a vertex lies on
-     * a bounds edge and differs only because of floating-point
-     * transform precision.
-     */
+
     [SerializeField]
     [Min(0f)]
     private float boundsContainmentTolerance =
         0.0001f;
 
-    /*
-     * How long the validator waits for the streamer to
-     * finish loading, validating and binding the cache.
-     */
     [SerializeField]
     [Min(0.1f)]
     private float startupTimeoutSeconds =
@@ -67,8 +46,12 @@ public class TerrainClipmapDisplacementValidator :
     // =====================================================
 
     private TerrainHeightmapStreamer streamer;
-    
-    private TerrainClipmapBoundsController boundsController;
+
+    private TerrainClipmapBoundsController
+        boundsController;
+
+    private TerrainClipmapController
+        clipmapController;
 
     private Coroutine validationRoutine;
 
@@ -83,25 +66,28 @@ public class TerrainClipmapDisplacementValidator :
             "_HeightCache"
         );
 
-    private static readonly int HeightCacheOriginTilePropertyId =
-        Shader.PropertyToID(
-            "_HeightCacheOriginTile"
-        );
+    private static readonly int
+        HeightCacheOriginTilePropertyId =
+            Shader.PropertyToID(
+                "_HeightCacheOriginTile"
+            );
 
     private static readonly int HeightCacheSizePropertyId =
         Shader.PropertyToID(
             "_HeightCacheSize"
         );
 
-    private static readonly int HeightTileSamplesPerSidePropertyId =
-        Shader.PropertyToID(
-            "_HeightTileSamplesPerSide"
-        );
+    private static readonly int
+        HeightTileSamplesPerSidePropertyId =
+            Shader.PropertyToID(
+                "_HeightTileSamplesPerSide"
+            );
 
-    private static readonly int HeightSampleSpacingPropertyId =
-        Shader.PropertyToID(
-            "_HeightSampleSpacing"
-        );
+    private static readonly int
+        HeightSampleSpacingPropertyId =
+            Shader.PropertyToID(
+                "_HeightSampleSpacing"
+            );
 
     private static readonly int WorldSizeXZPropertyId =
         Shader.PropertyToID(
@@ -112,6 +98,12 @@ public class TerrainClipmapDisplacementValidator :
         Shader.PropertyToID(
             "_HeightCacheReady"
         );
+
+    private static readonly int
+        ClipmapTransitionOffsetPropertyId =
+            Shader.PropertyToID(
+                "_ClipmapTransitionOffset"
+            );
 
     // =====================================================
     // PUBLIC STATE
@@ -137,65 +129,70 @@ public class TerrainClipmapDisplacementValidator :
     // START
     // =====================================================
 
-        private void Start()
+    private void Start()
+    {
+        if (!Application.isPlaying)
         {
-            if (!Application.isPlaying)
-            {
-                return;
-            }
-
-            // =====================================================
-            // HEIGHTMAP STREAMER
-            // =====================================================
-
-            streamer =
-                GetComponent<TerrainHeightmapStreamer>();
-
-            if (streamer == null)
-            {
-                Debug.LogError(
-                    "TerrainClipmapDisplacementValidator requires " +
-                    "TerrainHeightmapStreamer on the same GameObject.",
-                    this
-                );
-
-                enabled =
-                    false;
-
-                return;
-            }
-
-            // =====================================================
-            // BOUNDS CONTROLLER
-            // =====================================================
-
-            boundsController =
-                GetComponent<TerrainClipmapBoundsController>();
-
-            if (boundsController == null)
-            {
-                Debug.LogError(
-                    "TerrainClipmapDisplacementValidator requires " +
-                    "TerrainClipmapBoundsController on the same " +
-                    "GameObject.",
-                    this
-                );
-
-                enabled =
-                    false;
-
-                return;
-            }
-
-            // =====================================================
-            // AUTO VALIDATION
-            // =====================================================
-
-            if (validateOnStart)
-            {
-                BeginValidation();
-            }
+            return;
         }
+
+        streamer =
+            GetComponent<TerrainHeightmapStreamer>();
+
+        boundsController =
+            GetComponent<TerrainClipmapBoundsController>();
+
+        clipmapController =
+            GetComponent<TerrainClipmapController>();
+
+        if (streamer == null)
+        {
+            Debug.LogError(
+                "TerrainClipmapDisplacementValidator requires " +
+                "TerrainHeightmapStreamer on the same GameObject.",
+                this
+            );
+
+            enabled =
+                false;
+
+            return;
+        }
+
+        if (boundsController == null)
+        {
+            Debug.LogError(
+                "TerrainClipmapDisplacementValidator requires " +
+                "TerrainClipmapBoundsController on the same " +
+                "GameObject.",
+                this
+            );
+
+            enabled =
+                false;
+
+            return;
+        }
+
+        if (clipmapController == null)
+        {
+            Debug.LogError(
+                "TerrainClipmapDisplacementValidator requires " +
+                "TerrainClipmapController on the same GameObject.",
+                this
+            );
+
+            enabled =
+                false;
+
+            return;
+        }
+
+        if (validateOnStart)
+        {
+            BeginValidation();
+        }
+    }
 
     // =====================================================
     // DISABLE
@@ -203,9 +200,7 @@ public class TerrainClipmapDisplacementValidator :
 
     private void OnDisable()
     {
-        if (
-            validationRoutine != null
-        )
+        if (validationRoutine != null)
         {
             StopCoroutine(
                 validationRoutine
@@ -245,11 +240,43 @@ public class TerrainClipmapDisplacementValidator :
                 GetComponent<TerrainHeightmapStreamer>();
         }
 
-        if (streamer == null)
+        if (boundsController == null)
+        {
+            boundsController =
+                GetComponent<TerrainClipmapBoundsController>();
+        }
+
+        if (clipmapController == null)
+        {
+            clipmapController =
+                GetComponent<TerrainClipmapController>();
+        }
+
+        if (
+            streamer == null
+            ||
+            boundsController == null
+            ||
+            clipmapController == null
+        )
         {
             Debug.LogError(
                 "Cannot validate clipmap displacement.\n\n" +
-                "TerrainHeightmapStreamer was not found.",
+                "TerrainHeightmapStreamer, " +
+                "TerrainClipmapBoundsController, and " +
+                "TerrainClipmapController are required.",
+                this
+            );
+
+            return;
+        }
+
+        if (clipmapController.IsWaitingForHeightData)
+        {
+            Debug.LogWarning(
+                "Clipmap displacement validation was not started " +
+                "because clipmap movement is currently waiting " +
+                "for height-cache coverage.",
                 this
             );
 
@@ -266,7 +293,7 @@ public class TerrainClipmapDisplacementValidator :
     }
 
     // =====================================================
-    // WAIT FOR STREAMER / SHADER / BOUNDS
+    // WAIT FOR READY STATE
     // =====================================================
 
     private IEnumerator WaitForCacheAndValidate()
@@ -293,12 +320,20 @@ public class TerrainClipmapDisplacementValidator :
                 &&
                 boundsController.BoundsApplied;
 
+            bool movementReady =
+                clipmapController != null
+                &&
+                !clipmapController
+                    .IsWaitingForHeightData;
+
             if (
                 streamerReady
                 &&
                 shaderReady
                 &&
                 boundsReady
+                &&
+                movementReady
             )
             {
                 break;
@@ -314,8 +349,8 @@ public class TerrainClipmapDisplacementValidator :
             {
                 FailValidation(
                     "Timed out while waiting for the height " +
-                    "cache, clipmap shader bindings and renderer " +
-                    "displacement bounds."
+                    "cache, shader bindings, renderer bounds, " +
+                    "and a stable clipmap movement state."
                 );
 
                 yield break;
@@ -325,10 +360,9 @@ public class TerrainClipmapDisplacementValidator :
         }
 
         /*
-         * Give the renderer one complete frame after all
-         * runtime state becomes ready.
+         * Give transforms, MaterialPropertyBlocks, and renderer
+         * state one complete frame to settle.
          */
-
         yield return null;
 
         yield return
@@ -401,10 +435,10 @@ public class TerrainClipmapDisplacementValidator :
         return
             clipmapRendererCount > 0;
     }
-    
+
     // =====================================================
-// CHECK DISPLACED VERTEX AGAINST RENDERER BOUNDS
-// =====================================================
+    // CHECK DISPLACED VERTEX AGAINST RENDERER BOUNDS
+    // =====================================================
 
     private bool IsDisplacedVertexInsideRendererBounds(
         MeshRenderer renderer,
@@ -508,9 +542,9 @@ public class TerrainClipmapDisplacementValidator :
             yield break;
         }
 
-        // =====================================================
+        // =================================================
         // CLIPMAP RENDERERS
-        // =====================================================
+        // =================================================
 
         MeshRenderer[] allRenderers =
             GetComponentsInChildren<MeshRenderer>(
@@ -521,10 +555,26 @@ public class TerrainClipmapDisplacementValidator :
             validationSources =
                 new List<RendererValidationSource>();
 
+        Dictionary<string, int>
+            rendererInstanceIdsByName =
+                new Dictionary<string, int>();
+
         int bindingMismatchCount =
             0;
 
+        int transitionDataMismatchCount =
+            0;
+
+        int transitionOffsetMismatchCount =
+            0;
+
         string firstBindingMismatch =
+            null;
+
+        string firstTransitionDataMismatch =
+            null;
+
+        string firstTransitionOffsetMismatch =
             null;
 
         ShaderBindingState canonicalBinding =
@@ -561,7 +611,8 @@ public class TerrainClipmapDisplacementValidator :
             }
 
             MeshFilter meshFilter =
-                meshRenderer.GetComponent<MeshFilter>();
+                meshRenderer
+                    .GetComponent<MeshFilter>();
 
             if (
                 meshFilter == null
@@ -603,7 +654,6 @@ public class TerrainClipmapDisplacementValidator :
 
             if (
                 !ValidateBindingAgainstStreamer(
-                    meshRenderer,
                     binding,
                     out string streamerBindingError
                 )
@@ -640,8 +690,71 @@ public class TerrainClipmapDisplacementValidator :
                 {
                     firstBindingMismatch =
                         $"{meshRenderer.name}: " +
-                        "shader metadata differs from the " +
-                        "other clipmap renderers.";
+                        "height-cache shader metadata differs " +
+                        "from the other clipmap renderers.";
+                }
+            }
+
+            Mesh mesh =
+                meshFilter.sharedMesh;
+
+            List<Vector4> clipmapData =
+                new List<Vector4>();
+
+            mesh.GetUVs(
+                3,
+                clipmapData
+            );
+
+            if (
+                clipmapData.Count !=
+                mesh.vertexCount
+            )
+            {
+                transitionDataMismatchCount++;
+
+                if (
+                    firstTransitionDataMismatch ==
+                    null
+                )
+                {
+                    firstTransitionDataMismatch =
+                        $"{meshRenderer.name}\n" +
+                        $"Vertices: {mesh.vertexCount}\n" +
+                        $"UV3/TEXCOORD3 Values: " +
+                        $"{clipmapData.Count}";
+                }
+
+                continue;
+            }
+
+            bool isStitch =
+                TryParseStitchLevels(
+                    meshRenderer.name,
+                    out int fineLevel,
+                    out int coarseLevel
+                );
+
+            if (
+                !ValidateTransitionOffset(
+                    meshRenderer,
+                    binding.transitionOffset,
+                    isStitch,
+                    fineLevel,
+                    coarseLevel,
+                    out string transitionOffsetError
+                )
+            )
+            {
+                transitionOffsetMismatchCount++;
+
+                if (
+                    firstTransitionOffsetMismatch ==
+                    null
+                )
+                {
+                    firstTransitionOffsetMismatch =
+                        transitionOffsetError;
                 }
             }
 
@@ -649,14 +762,28 @@ public class TerrainClipmapDisplacementValidator :
                 new RendererValidationSource(
                     meshRenderer,
                     meshFilter,
-                    binding
+                    binding,
+                    clipmapData,
+                    isStitch,
+                    fineLevel,
+                    coarseLevel
                 )
             );
+
+            if (
+                !rendererInstanceIdsByName.ContainsKey(
+                    meshRenderer.name
+                )
+            )
+            {
+                rendererInstanceIdsByName.Add(
+                    meshRenderer.name,
+                    meshRenderer.GetInstanceID()
+                );
+            }
         }
 
-        if (
-            validationSources.Count == 0
-        )
+        if (validationSources.Count == 0)
         {
             FailValidation(
                 "No clipmap renderers using the displacement " +
@@ -675,9 +802,9 @@ public class TerrainClipmapDisplacementValidator :
             yield break;
         }
 
-        // =====================================================
+        // =================================================
         // GPU CACHE READBACK
-        // =====================================================
+        // =================================================
 
         AsyncGPUReadbackRequest readback;
 
@@ -731,7 +858,6 @@ public class TerrainClipmapDisplacementValidator :
             FailValidation(
                 "The Texture2DArray depth does not match " +
                 "the shader cache dimensions.\n\n" +
-
                 $"Expected Slices: {expectedSliceCount}\n" +
                 $"Actual Slices: {heightCache.depth}"
             );
@@ -752,7 +878,9 @@ public class TerrainClipmapDisplacementValidator :
                 slice++
             )
             {
-                cacheSlices[slice] =
+                cacheSlices[
+                    slice
+                ] =
                     readback.GetData<float>(
                         slice
                     );
@@ -765,16 +893,15 @@ public class TerrainClipmapDisplacementValidator :
             FailValidation(
                 "Could not access one or more height-cache " +
                 "array slices.\n\n" +
-
                 exception.Message
             );
 
             yield break;
         }
 
-        // =====================================================
-        // VERTEX VALIDATION
-        // =====================================================
+        // =================================================
+        // STATISTICS
+        // =================================================
 
         long verticesValidated =
             0L;
@@ -790,19 +917,18 @@ public class TerrainClipmapDisplacementValidator :
 
         long invalidHeights =
             0L;
-        
-        // =====================================================
-        // RENDERER BOUNDS STATISTICS
-        // =====================================================
 
         long displacedVerticesOutsideBounds =
             0L;
 
+        long adaptiveTriangleMismatches =
+            0L;
+
+        long stitchBoundaryMismatches =
+            0L;
+
         float maximumBoundsOverflow =
             0f;
-
-        string firstBoundsMismatch =
-            null;
 
         float maximumAlignmentDifference =
             0f;
@@ -814,6 +940,15 @@ public class TerrainClipmapDisplacementValidator :
             float.NegativeInfinity;
 
         string firstVertexProblem =
+            null;
+
+        string firstBoundsMismatch =
+            null;
+
+        string firstAdaptiveTriangleMismatch =
+            null;
+
+        string firstStitchBoundaryMismatch =
             null;
 
         Dictionary<Vector2Int, ClipmapSample>
@@ -832,6 +967,26 @@ public class TerrainClipmapDisplacementValidator :
         string firstSharedMismatch =
             null;
 
+        Dictionary<Vector2Int, HashSet<int>>
+            rendererIdsByWorldSample =
+                new Dictionary<Vector2Int, HashSet<int>>();
+
+        List<StitchBoundaryRequirement>
+            stitchBoundaryRequirements =
+                new List<StitchBoundaryRequirement>();
+
+        float projectedAreaTolerance =
+            Mathf.Max(
+                0.0000001f,
+                canonicalBinding.sampleSpacing *
+                canonicalBinding.sampleSpacing *
+                0.0000001f
+            );
+
+        // =================================================
+        // EACH RENDERER
+        // =================================================
+
         foreach (
             RendererValidationSource source
             in validationSources
@@ -841,25 +996,33 @@ public class TerrainClipmapDisplacementValidator :
                 source.meshFilter.sharedMesh;
 
             Vector3[] vertices;
+            int[] triangles;
 
             try
             {
                 vertices =
                     mesh.vertices;
+
+                triangles =
+                    mesh.triangles;
             }
             catch (
                 System.Exception exception
             )
             {
                 FailValidation(
-                    $"Could not read vertices from mesh " +
+                    $"Could not read mesh data from " +
                     $"'{mesh.name}'.\n\n" +
-
                     exception.Message
                 );
 
                 yield break;
             }
+
+            Vector3[] shaderWorldPositions =
+                new Vector3[
+                    vertices.Length
+                ];
 
             for (
                 int vertexIndex = 0;
@@ -867,54 +1030,125 @@ public class TerrainClipmapDisplacementValidator :
                 vertexIndex++
             )
             {
+                Vector4 vertexClipmapData =
+                    source.clipmapData[
+                        vertexIndex
+                    ];
+
+                float transitionWeight =
+                    vertexClipmapData.x;
+
+                if (
+                    !IsFinite(
+                        transitionWeight
+                    )
+                    ||
+                    (
+                        Mathf.Abs(
+                            transitionWeight
+                        )
+                        >
+                        sampleAlignmentTolerance
+                        &&
+                        Mathf.Abs(
+                            transitionWeight -
+                            1f
+                        )
+                        >
+                        sampleAlignmentTolerance
+                    )
+                )
+                {
+                    transitionDataMismatchCount++;
+
+                    if (
+                        firstTransitionDataMismatch ==
+                        null
+                    )
+                    {
+                        firstTransitionDataMismatch =
+                            $"{source.renderer.name}\n" +
+                            $"Vertex: {vertexIndex}\n" +
+                            $"Transition Weight: " +
+                            $"{transitionWeight:R}";
+                    }
+
+                    /*
+                     * Continue with a clamped value so the
+                     * remaining diagnostics can still run.
+                     */
+                    transitionWeight =
+                        Mathf.Clamp01(
+                            transitionWeight
+                        );
+                }
+                else
+                {
+                    transitionWeight =
+                        transitionWeight >= 0.5f
+                            ? 1f
+                            : 0f;
+                }
+
                 Vector3 worldPosition =
                     source.meshFilter.transform
                         .TransformPoint(
-                            vertices[vertexIndex]
+                            vertices[
+                                vertexIndex
+                            ]
                         );
+
+                /*
+                 * Reproduce Stage 3B/3C shader-side X/Z stitch
+                 * deformation BEFORE height lookup.
+                 */
+                worldPosition.x +=
+                    source.binding
+                        .transitionOffset.x
+                    *
+                    transitionWeight;
+
+                worldPosition.z +=
+                    source.binding
+                        .transitionOffset.y
+                    *
+                    transitionWeight;
+
+                shaderWorldPositions[
+                    vertexIndex
+                ] =
+                    worldPosition;
 
                 verticesValidated++;
 
-                // -------------------------------------------------
+                // -----------------------------------------
                 // World bounds
-                // -------------------------------------------------
+                // -----------------------------------------
 
-                /*
-                 * Clipmap geometry is intentionally allowed to extend
-                 * beyond the authoritative terrain world.
-                 *
-                 * Terrain outside the world is removed by the fragment
-                 * shader, so an out-of-world vertex is informational
-                 * rather than a displacement failure.
-                 *
-                 * Continue validating the vertex below. The shader still
-                 * executes its vertex stage and clamps height lookup
-                 * coordinates to the authoritative world.
-                 */
                 if (
                     worldPosition.x <
-                    -sampleAlignmentTolerance
+                        -sampleAlignmentTolerance
                     ||
                     worldPosition.z <
-                    -sampleAlignmentTolerance
+                        -sampleAlignmentTolerance
                     ||
                     worldPosition.x >
-                    source.binding.worldSize.x
-                    +
-                    sampleAlignmentTolerance
+                        source.binding.worldSize.x
+                        +
+                        sampleAlignmentTolerance
                     ||
                     worldPosition.z >
-                    source.binding.worldSize.y
-                    +
-                    sampleAlignmentTolerance
+                        source.binding.worldSize.y
+                        +
+                        sampleAlignmentTolerance
                 )
                 {
                     outOfWorldVertices++;
                 }
 
-                // -------------------------------------------------
+                // -----------------------------------------
                 // Source sample-grid alignment
-                // -------------------------------------------------
+                // -----------------------------------------
 
                 int nearestSampleX =
                     Mathf.RoundToInt(
@@ -966,17 +1200,97 @@ public class TerrainClipmapDisplacementValidator :
                         firstVertexProblem =
                             $"{source.renderer.name}\n" +
                             $"Vertex: {vertexIndex}\n" +
-                            $"World Position: " +
+                            $"Shader World Position: " +
                             $"{worldPosition}\n" +
-
                             $"Grid Difference: " +
                             $"{alignmentDifference:R}";
                     }
                 }
 
-                // -------------------------------------------------
-                // Reproduce shader lookup
-                // -------------------------------------------------
+                // -----------------------------------------
+                // Exact world sample occupancy
+                // -----------------------------------------
+
+                Vector2Int worldSample =
+                    new Vector2Int(
+                        nearestSampleX,
+                        nearestSampleZ
+                    );
+
+                if (
+                    !rendererIdsByWorldSample.TryGetValue(
+                        worldSample,
+                        out HashSet<int> rendererIds
+                    )
+                )
+                {
+                    rendererIds =
+                        new HashSet<int>();
+
+                    rendererIdsByWorldSample.Add(
+                        worldSample,
+                        rendererIds
+                    );
+                }
+
+                rendererIds.Add(
+                    source.renderer.GetInstanceID()
+                );
+
+                // -----------------------------------------
+                // Stitch boundary requirement
+                // -----------------------------------------
+
+                if (source.isStitch)
+                {
+                    string expectedRendererName =
+                        transitionWeight >=
+                            0.5f
+                            ? GetFineRendererName(
+                                source.fineLevel
+                            )
+                            : $"Ring_LOD" +
+                              $"{source.coarseLevel}";
+
+                    if (
+                        rendererInstanceIdsByName.TryGetValue(
+                            expectedRendererName,
+                            out int expectedRendererId
+                        )
+                    )
+                    {
+                        stitchBoundaryRequirements.Add(
+                            new StitchBoundaryRequirement(
+                                source.renderer.name,
+                                vertexIndex,
+                                worldSample,
+                                expectedRendererName,
+                                expectedRendererId,
+                                transitionWeight
+                            )
+                        );
+                    }
+                    else
+                    {
+                        stitchBoundaryMismatches++;
+
+                        if (
+                            firstStitchBoundaryMismatch ==
+                            null
+                        )
+                        {
+                            firstStitchBoundaryMismatch =
+                                $"{source.renderer.name}\n" +
+                                $"Expected matching renderer " +
+                                $"'{expectedRendererName}' " +
+                                "was not found.";
+                        }
+                    }
+                }
+
+                // -----------------------------------------
+                // Reproduce shader height lookup
+                // -----------------------------------------
 
                 if (
                     !TryResolveShaderHeight(
@@ -1004,11 +1318,7 @@ public class TerrainClipmapDisplacementValidator :
                 }
 
                 if (
-                    float.IsNaN(
-                        expectedHeight
-                    )
-                    ||
-                    float.IsInfinity(
+                    !IsFinite(
                         expectedHeight
                     )
                 )
@@ -1027,17 +1337,9 @@ public class TerrainClipmapDisplacementValidator :
                     continue;
                 }
 
-                // =================================================
-                // DISPLACED RENDERER BOUNDS
-                // =================================================
-
-                /*
-                 * Reproduce the world-space position produced by the
-                 * vertex shader.
-                 *
-                 * The shader preserves world X/Z and replaces world Y
-                 * with the sampled terrain height.
-                 */
+                // -----------------------------------------
+                // Displaced renderer bounds
+                // -----------------------------------------
 
                 Vector3 displacedWorldPosition =
                     worldPosition;
@@ -1069,30 +1371,17 @@ public class TerrainClipmapDisplacementValidator :
 
                         firstBoundsMismatch =
                             $"{source.renderer.name}\n" +
-
                             $"Vertex: {vertexIndex}\n" +
-
-                            $"Original World Position: " +
+                            $"Shader World Position: " +
                             $"{worldPosition}\n" +
-
                             $"Displaced World Position: " +
                             $"{displacedWorldPosition}\n" +
-
                             $"Displaced Local Position: " +
                             $"{displacedLocalPosition}\n\n" +
-
                             $"Renderer Local Bounds Center: " +
                             $"{rendererBounds.center}\n" +
-
                             $"Renderer Local Bounds Size: " +
                             $"{rendererBounds.size}\n" +
-
-                            $"Renderer Local Bounds Min: " +
-                            $"{rendererBounds.min}\n" +
-
-                            $"Renderer Local Bounds Max: " +
-                            $"{rendererBounds.max}\n\n" +
-
                             $"Maximum Overflow: " +
                             $"{boundsOverflow:R}";
                     }
@@ -1110,9 +1399,9 @@ public class TerrainClipmapDisplacementValidator :
                         expectedHeight
                     );
 
-                // =================================================
-                // SHARED SAMPLE / SEAM VALIDATION
-                // =================================================
+                // -----------------------------------------
+                // Shared sample / height validation
+                // -----------------------------------------
 
                 if (
                     uniqueClipmapSamples.TryGetValue(
@@ -1121,24 +1410,22 @@ public class TerrainClipmapDisplacementValidator :
                     )
                 )
                 {
-                    /*
-                     * Only count this as a cross-mesh shared
-                     * sample when the same X/Z coordinate occurs
-                     * on a different renderer.
-                     */
-
                     if (
                         existingSample.rendererInstanceId
                         !=
                         source.renderer.GetInstanceID()
                     )
                     {
-                        if (!existingSample.sharedAcrossRenderers)
+                        if (
+                            !existingSample
+                                .sharedAcrossRenderers
+                        )
                         {
                             sharedSamplePositions++;
 
-                            existingSample.sharedAcrossRenderers =
-                                true;
+                            existingSample
+                                .sharedAcrossRenderers =
+                                    true;
                         }
 
                         float sharedDifference =
@@ -1169,13 +1456,10 @@ public class TerrainClipmapDisplacementValidator :
                                     $"Sample: " +
                                     $"({globalSample.x}, " +
                                     $"{globalSample.y})\n" +
-
                                     $"First Height: " +
                                     $"{existingSample.height:R}\n" +
-
                                     $"Second Height: " +
                                     $"{expectedHeight:R}\n" +
-
                                     $"Difference: " +
                                     $"{sharedDifference:R}";
                             }
@@ -1193,16 +1477,126 @@ public class TerrainClipmapDisplacementValidator :
                         globalSample,
                         new ClipmapSample(
                             expectedHeight,
-                            source.renderer.GetInstanceID()
+                            source.renderer
+                                .GetInstanceID()
                         )
                     );
                 }
             }
+
+            // =============================================
+            // ADAPTIVE PROJECTED TRIANGLE TOPOLOGY
+            // =============================================
+
+            for (
+                int triangleOffset = 0;
+                triangleOffset < triangles.Length;
+                triangleOffset += 3
+            )
+            {
+                Vector3 p0 =
+                    shaderWorldPositions[
+                        triangles[
+                            triangleOffset
+                        ]
+                    ];
+
+                Vector3 p1 =
+                    shaderWorldPositions[
+                        triangles[
+                            triangleOffset + 1
+                        ]
+                    ];
+
+                Vector3 p2 =
+                    shaderWorldPositions[
+                        triangles[
+                            triangleOffset + 2
+                        ]
+                    ];
+
+                float signedProjectedArea =
+                    Vector3.Cross(
+                        p1 - p0,
+                        p2 - p0
+                    ).y;
+
+                if (
+                    signedProjectedArea <=
+                    projectedAreaTolerance
+                )
+                {
+                    adaptiveTriangleMismatches++;
+
+                    if (
+                        firstAdaptiveTriangleMismatch ==
+                        null
+                    )
+                    {
+                        firstAdaptiveTriangleMismatch =
+                            $"{source.renderer.name}\n" +
+                            $"Triangle: " +
+                            $"{triangleOffset / 3}\n" +
+                            $"Signed Projected Area: " +
+                            $"{signedProjectedArea:R}\n" +
+                            $"Transition Offset: " +
+                            $"({source.binding.transitionOffset.x:R}, " +
+                            $"{source.binding.transitionOffset.y:R})";
+                    }
+                }
+            }
         }
 
-        // =====================================================
+        // =================================================
+        // STITCH BOUNDARY COINCIDENCE
+        // =================================================
+
+        foreach (
+            StitchBoundaryRequirement requirement
+            in stitchBoundaryRequirements
+        )
+        {
+            if (
+                !rendererIdsByWorldSample.TryGetValue(
+                    requirement.worldSample,
+                    out HashSet<int> rendererIds
+                )
+                ||
+                !rendererIds.Contains(
+                    requirement.expectedRendererInstanceId
+                )
+            )
+            {
+                stitchBoundaryMismatches++;
+
+                if (
+                    firstStitchBoundaryMismatch ==
+                    null
+                )
+                {
+                    string side =
+                        requirement.transitionWeight >=
+                            0.5f
+                            ? "fine"
+                            : "coarse";
+
+                    firstStitchBoundaryMismatch =
+                        $"{requirement.stitchRendererName}\n" +
+                        $"Vertex: " +
+                        $"{requirement.vertexIndex}\n" +
+                        $"Boundary Side: {side}\n" +
+                        $"World Sample: " +
+                        $"({requirement.worldSample.x}, " +
+                        $"{requirement.worldSample.y})\n" +
+                        $"Expected Match: " +
+                        $"{requirement.expectedRendererName}";
+                }
+            }
+        }
+
+        // =================================================
         // PREVIEW COMPARISON
-        // =====================================================
+        // =================================================
 
         int previewSamplesRequired =
             uniqueClipmapSamples.Count;
@@ -1245,11 +1639,13 @@ public class TerrainClipmapDisplacementValidator :
                         previewRoot,
                         uniqueClipmapSamples.Keys,
                         canonicalBinding.sampleSpacing,
-                        ref previewDuplicateHeightMismatches
+                        ref
+                            previewDuplicateHeightMismatches
                     );
 
             foreach (
-                KeyValuePair<Vector2Int, ClipmapSample> pair
+                KeyValuePair<Vector2Int, ClipmapSample>
+                    pair
                 in uniqueClipmapSamples
             )
             {
@@ -1297,15 +1693,11 @@ public class TerrainClipmapDisplacementValidator :
                     {
                         firstPreviewMismatch =
                             $"Sample: " +
-                            $"({pair.Key.x}, " +
-                            $"{pair.Key.y})\n" +
-
+                            $"({pair.Key.x}, {pair.Key.y})\n" +
                             $"Clipmap Height: " +
                             $"{pair.Value.height:R}\n" +
-
                             $"Preview Height: " +
                             $"{previewHeight:R}\n" +
-
                             $"Difference: " +
                             $"{difference:R}";
                     }
@@ -1313,12 +1705,16 @@ public class TerrainClipmapDisplacementValidator :
             }
         }
 
-        // =====================================================
+        // =================================================
         // RESULT
-        // =====================================================
+        // =================================================
 
         bool passed =
             bindingMismatchCount == 0
+            &&
+            transitionDataMismatchCount == 0
+            &&
+            transitionOffsetMismatchCount == 0
             &&
             positionAlignmentMismatches == 0
             &&
@@ -1328,6 +1724,10 @@ public class TerrainClipmapDisplacementValidator :
             &&
             displacedVerticesOutsideBounds == 0
             &&
+            adaptiveTriangleMismatches == 0
+            &&
+            stitchBoundaryMismatches == 0
+            &&
             sharedSampleHeightMismatches == 0
             &&
             (
@@ -1335,7 +1735,7 @@ public class TerrainClipmapDisplacementValidator :
                 ||
                 (
                     previewSamplesFound ==
-                    previewSamplesRequired
+                        previewSamplesRequired
                     &&
                     previewSamplesMissing == 0
                     &&
@@ -1351,202 +1751,185 @@ public class TerrainClipmapDisplacementValidator :
         validationRoutine =
             null;
 
+        string report =
+            $"Renderers Validated: " +
+            $"{validationSources.Count}\n" +
+
+            $"Vertices Validated: " +
+            $"{verticesValidated:N0}\n" +
+
+            $"Unique Height Samples: " +
+            $"{uniqueClipmapSamples.Count:N0}\n\n" +
+
+            $"Shader Binding Mismatches: " +
+            $"{bindingMismatchCount:N0}\n\n" +
+
+            "Adaptive Stitch Data\n" +
+
+            $"Transition Data Mismatches: " +
+            $"{transitionDataMismatchCount:N0}\n" +
+
+            $"Transition Offset Mismatches: " +
+            $"{transitionOffsetMismatchCount:N0}\n" +
+
+            $"Adaptive Triangle Mismatches: " +
+            $"{adaptiveTriangleMismatches:N0}\n" +
+
+            $"Stitch Boundary Mismatches: " +
+            $"{stitchBoundaryMismatches:N0}\n\n" +
+
+            $"Sample Alignment Mismatches: " +
+            $"{positionAlignmentMismatches:N0}\n" +
+
+            $"Maximum Alignment Difference: " +
+            $"{maximumAlignmentDifference:R}\n\n" +
+
+            $"Out-of-World Vertices: " +
+            $"{outOfWorldVertices:N0}\n" +
+
+            $"Invalid Height Mappings: " +
+            $"{invalidMappings:N0}\n" +
+
+            $"Invalid Heights: " +
+            $"{invalidHeights:N0}\n\n" +
+
+            "Renderer Bounds\n" +
+
+            $"Displaced Vertices Outside Bounds: " +
+            $"{displacedVerticesOutsideBounds:N0}\n" +
+
+            $"Maximum Bounds Overflow: " +
+            $"{maximumBoundsOverflow:R}\n\n" +
+
+            $"Shared Cross-Mesh Samples: " +
+            $"{sharedSamplePositions:N0}\n" +
+
+            $"Shared Height Mismatches: " +
+            $"{sharedSampleHeightMismatches:N0}\n" +
+
+            $"Maximum Shared Height Difference: " +
+            $"{maximumSharedHeightDifference:R}\n\n" +
+
+            $"Preview Samples Required: " +
+            $"{previewSamplesRequired:N0}\n" +
+
+            $"Preview Samples Found: " +
+            $"{previewSamplesFound:N0}\n" +
+
+            $"Preview Samples Missing: " +
+            $"{previewSamplesMissing:N0}\n" +
+
+            $"Preview Height Mismatches: " +
+            $"{previewHeightMismatches:N0}\n" +
+
+            $"Preview Duplicate Mismatches: " +
+            $"{previewDuplicateHeightMismatches:N0}\n" +
+
+            $"Maximum Preview Height Difference: " +
+            $"{maximumPreviewHeightDifference:R}\n\n" +
+
+            $"Minimum Terrain Height: " +
+            $"{minimumHeight:R}\n" +
+
+            $"Maximum Terrain Height: " +
+            $"{maximumHeight:R}";
+
         if (passed)
         {
             Debug.Log(
                 "Clipmap displacement validation passed.\n\n" +
-
-                $"Renderers Validated: " +
-                $"{validationSources.Count}\n" +
-
-                $"Vertices Validated: " +
-                $"{verticesValidated:N0}\n" +
-
-                $"Unique Height Samples: " +
-                $"{uniqueClipmapSamples.Count:N0}\n\n" +
-
-                $"Shader Binding Mismatches: " +
-                $"{bindingMismatchCount:N0}\n\n" +
-
-                $"Sample Alignment Mismatches: " +
-                $"{positionAlignmentMismatches:N0}\n" +
-
-                $"Maximum Alignment Difference: " +
-                $"{maximumAlignmentDifference:R}\n\n" +
-
-                $"Out-of-World Vertices: " +
-                $"{outOfWorldVertices:N0}\n" +
-
-                $"Invalid Height Mappings: " +
-                $"{invalidMappings:N0}\n" +
-
-                $"Invalid Heights: " +
-                $"{invalidHeights:N0}\n\n" +
-
-                "Renderer Bounds\n" +
-
-                $"Displaced Vertices Outside Bounds: " +
-                $"{displacedVerticesOutsideBounds:N0}\n" +
-
-                $"Maximum Bounds Overflow: " +
-                $"{maximumBoundsOverflow:R}\n\n" +
-
-                $"Shared Cross-Mesh Samples: " +
-                $"{sharedSamplePositions:N0}\n" +
-
-                $"Shared Height Mismatches: " +
-                $"{sharedSampleHeightMismatches:N0}\n" +
-
-                $"Maximum Shared Height Difference: " +
-                $"{maximumSharedHeightDifference:R}\n\n" +
-
-                $"Preview Samples Required: " +
-                $"{previewSamplesRequired:N0}\n" +
-
-                $"Preview Samples Found: " +
-                $"{previewSamplesFound:N0}\n" +
-
-                $"Preview Samples Missing: " +
-                $"{previewSamplesMissing:N0}\n" +
-
-                $"Preview Height Mismatches: " +
-                $"{previewHeightMismatches:N0}\n" +
-
-                $"Maximum Preview Height Difference: " +
-                $"{maximumPreviewHeightDifference:R}\n\n" +
-
-                $"Minimum Terrain Height: " +
-                $"{minimumHeight:R}\n" +
-
-                $"Maximum Terrain Height: " +
-                $"{maximumHeight:R}",
+                report,
                 this
             );
+
+            yield break;
         }
-        else
+
+        string details =
+            "";
+
+        AppendProblem(
+            ref details,
+            "First Shader Binding Problem",
+            firstBindingMismatch
+        );
+
+        AppendProblem(
+            ref details,
+            "First Transition Data Problem",
+            firstTransitionDataMismatch
+        );
+
+        AppendProblem(
+            ref details,
+            "First Transition Offset Problem",
+            firstTransitionOffsetMismatch
+        );
+
+        AppendProblem(
+            ref details,
+            "First Adaptive Triangle Problem",
+            firstAdaptiveTriangleMismatch
+        );
+
+        AppendProblem(
+            ref details,
+            "First Stitch Boundary Problem",
+            firstStitchBoundaryMismatch
+        );
+
+        AppendProblem(
+            ref details,
+            "First Vertex Problem",
+            firstVertexProblem
+        );
+
+        AppendProblem(
+            ref details,
+            "First Renderer Bounds Mismatch",
+            firstBoundsMismatch
+        );
+
+        AppendProblem(
+            ref details,
+            "First Shared Sample Mismatch",
+            firstSharedMismatch
+        );
+
+        AppendProblem(
+            ref details,
+            "First Preview Mismatch",
+            firstPreviewMismatch
+        );
+
+        Debug.LogError(
+            "Clipmap displacement validation FAILED.\n\n" +
+            report +
+            details,
+            this
+        );
+    }
+
+    // =====================================================
+    // APPEND PROBLEM
+    // =====================================================
+
+    private static void AppendProblem(
+        ref string details,
+        string heading,
+        string problem
+    )
+    {
+        if (problem == null)
         {
-            string details =
-                "";
-
-            if (
-                firstBindingMismatch !=
-                null
-            )
-            {
-                details +=
-                    "\n\nFirst Shader Binding Problem:\n" +
-                    firstBindingMismatch;
-            }
-
-            if (
-                firstVertexProblem !=
-                null
-            )
-            {
-                details +=
-                    "\n\nFirst Vertex Problem:\n" +
-                    firstVertexProblem;
-            }
-
-            if (
-                firstBoundsMismatch !=
-                null
-            )
-            {
-                details +=
-                    "\n\nFirst Renderer Bounds Mismatch:\n" +
-                    firstBoundsMismatch;
-            }
-
-            if (
-                firstSharedMismatch !=
-                null
-            )
-            {
-                details +=
-                    "\n\nFirst Shared Sample Mismatch:\n" +
-                    firstSharedMismatch;
-            }
-
-            if (
-                firstPreviewMismatch !=
-                null
-            )
-            {
-                details +=
-                    "\n\nFirst Preview Mismatch:\n" +
-                    firstPreviewMismatch;
-            }
-
-            Debug.LogError(
-                "Clipmap displacement validation FAILED.\n\n" +
-
-                $"Renderers Validated: " +
-                $"{validationSources.Count}\n" +
-
-                $"Vertices Validated: " +
-                $"{verticesValidated:N0}\n" +
-
-                $"Unique Height Samples: " +
-                $"{uniqueClipmapSamples.Count:N0}\n\n" +
-
-                $"Shader Binding Mismatches: " +
-                $"{bindingMismatchCount:N0}\n\n" +
-
-                $"Sample Alignment Mismatches: " +
-                $"{positionAlignmentMismatches:N0}\n" +
-
-                $"Maximum Alignment Difference: " +
-                $"{maximumAlignmentDifference:R}\n\n" +
-
-                $"Out-of-World Vertices: " +
-                $"{outOfWorldVertices:N0}\n" +
-
-                $"Invalid Height Mappings: " +
-                $"{invalidMappings:N0}\n" +
-
-                $"Invalid Heights: " +
-                $"{invalidHeights:N0}\n\n" +
-
-                "Renderer Bounds\n" +
-
-                $"Displaced Vertices Outside Bounds: " +
-                $"{displacedVerticesOutsideBounds:N0}\n" +
-
-                $"Maximum Bounds Overflow: " +
-                $"{maximumBoundsOverflow:R}\n\n" +
-
-                $"Shared Cross-Mesh Samples: " +
-                $"{sharedSamplePositions:N0}\n" +
-
-                $"Shared Height Mismatches: " +
-                $"{sharedSampleHeightMismatches:N0}\n" +
-
-                $"Maximum Shared Height Difference: " +
-                $"{maximumSharedHeightDifference:R}\n\n" +
-
-                $"Preview Samples Required: " +
-                $"{previewSamplesRequired:N0}\n" +
-
-                $"Preview Samples Found: " +
-                $"{previewSamplesFound:N0}\n" +
-
-                $"Preview Samples Missing: " +
-                $"{previewSamplesMissing:N0}\n" +
-
-                $"Preview Height Mismatches: " +
-                $"{previewHeightMismatches:N0}\n" +
-
-                $"Preview Duplicate Mismatches: " +
-                $"{previewDuplicateHeightMismatches:N0}\n" +
-
-                $"Maximum Preview Height Difference: " +
-                $"{maximumPreviewHeightDifference:R}" +
-
-                details,
-                this
-            );
+            return;
         }
+
+        details +=
+            "\n\n" +
+            heading +
+            ":\n" +
+            problem;
     }
 
     // =====================================================
@@ -1564,6 +1947,24 @@ public class TerrainClipmapDisplacementValidator :
 
         error =
             null;
+
+        Material material =
+            renderer.sharedMaterial;
+
+        if (
+            material == null
+            ||
+            !material.HasProperty(
+                ClipmapTransitionOffsetPropertyId
+            )
+        )
+        {
+            error =
+                "Clipmap shader does not expose " +
+                "_ClipmapTransitionOffset.";
+
+            return false;
+        }
 
         MaterialPropertyBlock block =
             new MaterialPropertyBlock();
@@ -1626,6 +2027,11 @@ public class TerrainClipmapDisplacementValidator :
                 WorldSizeXZPropertyId
             );
 
+        Vector4 transitionOffset =
+            block.GetVector(
+                ClipmapTransitionOffsetPropertyId
+            );
+
         int samplesPerSide =
             Mathf.RoundToInt(
                 samplesPerSideValue
@@ -1653,6 +2059,14 @@ public class TerrainClipmapDisplacementValidator :
             worldSize.x <= 0f
             ||
             worldSize.y <= 0f
+            ||
+            !IsFinite(
+                transitionOffset.x
+            )
+            ||
+            !IsFinite(
+                transitionOffset.z
+            )
         )
         {
             error =
@@ -1679,6 +2093,10 @@ public class TerrainClipmapDisplacementValidator :
                 new Vector2(
                     worldSize.x,
                     worldSize.y
+                ),
+                new Vector2(
+                    transitionOffset.x,
+                    transitionOffset.z
                 )
             );
 
@@ -1690,7 +2108,6 @@ public class TerrainClipmapDisplacementValidator :
     // =====================================================
 
     private bool ValidateBindingAgainstStreamer(
-        MeshRenderer renderer,
         ShaderBindingState binding,
         out string error
     )
@@ -1756,7 +2173,86 @@ public class TerrainClipmapDisplacementValidator :
     }
 
     // =====================================================
-    // COMPARE BINDINGS
+    // VALIDATE TRANSITION OFFSET
+    // =====================================================
+
+    private bool ValidateTransitionOffset(
+        MeshRenderer renderer,
+        Vector2 transitionOffset,
+        bool isStitch,
+        int fineLevel,
+        int coarseLevel,
+        out string error
+    )
+    {
+        error =
+            null;
+
+        Vector2 expectedOffset =
+            Vector2.zero;
+
+        if (isStitch)
+        {
+            if (
+                !clipmapController.TryGetDesiredLODAnchor(
+                    fineLevel,
+                    out Vector3 fineAnchor,
+                    out _
+                )
+                ||
+                !clipmapController.TryGetDesiredLODAnchor(
+                    coarseLevel,
+                    out Vector3 coarseAnchor,
+                    out _
+                )
+            )
+            {
+                error =
+                    $"{renderer.name}: desired LOD anchors " +
+                    "are unavailable.";
+
+                return false;
+            }
+
+            expectedOffset =
+                new Vector2(
+                    fineAnchor.x -
+                    coarseAnchor.x,
+
+                    fineAnchor.z -
+                    coarseAnchor.z
+                );
+        }
+
+        float difference =
+            Vector2.Distance(
+                transitionOffset,
+                expectedOffset
+            );
+
+        if (
+            difference >
+            sampleAlignmentTolerance
+        )
+        {
+            error =
+                $"{renderer.name}\n" +
+                $"Expected Transition Offset: " +
+                $"({expectedOffset.x:R}, " +
+                $"{expectedOffset.y:R})\n" +
+                $"Actual Transition Offset: " +
+                $"({transitionOffset.x:R}, " +
+                $"{transitionOffset.y:R})\n" +
+                $"Difference: {difference:R}";
+
+            return false;
+        }
+
+        return true;
+    }
+
+    // =====================================================
+    // COMPARE HEIGHT BINDINGS
     // =====================================================
 
     private bool BindingsMatch(
@@ -1764,6 +2260,11 @@ public class TerrainClipmapDisplacementValidator :
         ShaderBindingState b
     )
     {
+        /*
+         * transitionOffset is intentionally NOT compared here.
+         *
+         * Every adaptive stitch may have a different offset.
+         */
         return
             a.cache ==
                 b.cache
@@ -2000,7 +2501,9 @@ public class TerrainClipmapDisplacementValidator :
             samplesPerSide;
 
         NativeArray<float> sliceData =
-            cacheSlices[slice];
+            cacheSlices[
+                slice
+            ];
 
         if (
             sampleIndex < 0
@@ -2022,6 +2525,85 @@ public class TerrainClipmapDisplacementValidator :
             ];
 
         return true;
+    }
+
+    // =====================================================
+    // STITCH NAME PARSING
+    // =====================================================
+
+    private static bool TryParseStitchLevels(
+        string rendererName,
+        out int fineLevel,
+        out int coarseLevel
+    )
+    {
+        fineLevel =
+            -1;
+
+        coarseLevel =
+            -1;
+
+        if (
+            string.IsNullOrEmpty(
+                rendererName
+            )
+        )
+        {
+            return false;
+        }
+
+        string[] parts =
+            rendererName.Split(
+                '_'
+            );
+
+        if (
+            parts.Length != 3
+            ||
+            parts[0] != "Stitch"
+            ||
+            !parts[1].StartsWith("LOD")
+            ||
+            !parts[2].StartsWith("LOD")
+        )
+        {
+            return false;
+        }
+
+        if (
+            !int.TryParse(
+                parts[1].Substring(3),
+                out fineLevel
+            )
+            ||
+            !int.TryParse(
+                parts[2].Substring(3),
+                out coarseLevel
+            )
+        )
+        {
+            fineLevel =
+                -1;
+
+            coarseLevel =
+                -1;
+
+            return false;
+        }
+
+        return
+            coarseLevel ==
+            fineLevel + 1;
+    }
+
+    private static string GetFineRendererName(
+        int fineLevel
+    )
+    {
+        return
+            fineLevel == 0
+                ? "Center_LOD0"
+                : $"Ring_LOD{fineLevel}";
     }
 
     // =====================================================
@@ -2048,8 +2630,8 @@ public class TerrainClipmapDisplacementValidator :
     private Dictionary<Vector2Int, float>
         BuildPreviewHeightLookup(
             Transform previewRoot,
-            Dictionary<Vector2Int, ClipmapSample>.KeyCollection
-                requiredSamples,
+            Dictionary<Vector2Int, ClipmapSample>
+                .KeyCollection requiredSamples,
             float sampleSpacing,
             ref int duplicateHeightMismatches
         )
@@ -2161,6 +2743,20 @@ public class TerrainClipmapDisplacementValidator :
     }
 
     // =====================================================
+    // FINITE
+    // =====================================================
+
+    private static bool IsFinite(
+        float value
+    )
+    {
+        return
+            !float.IsNaN(value)
+            &&
+            !float.IsInfinity(value);
+    }
+
+    // =====================================================
     // FAIL VALIDATION
     // =====================================================
 
@@ -2201,6 +2797,12 @@ public class TerrainClipmapDisplacementValidator :
 
         public readonly Vector2 worldSize;
 
+        /*
+         * x = world X transition offset
+         * y = world Z transition offset
+         */
+        public readonly Vector2 transitionOffset;
+
         public ShaderBindingState(
             Texture2DArray cache,
             Vector2Int cacheOrigin,
@@ -2208,7 +2810,8 @@ public class TerrainClipmapDisplacementValidator :
             int cacheHeight,
             int samplesPerSide,
             float sampleSpacing,
-            Vector2 worldSize
+            Vector2 worldSize,
+            Vector2 transitionOffset
         )
         {
             this.cache =
@@ -2231,6 +2834,9 @@ public class TerrainClipmapDisplacementValidator :
 
             this.worldSize =
                 worldSize;
+
+            this.transitionOffset =
+                transitionOffset;
         }
     }
 
@@ -2246,10 +2852,22 @@ public class TerrainClipmapDisplacementValidator :
 
         public readonly ShaderBindingState binding;
 
+        public readonly List<Vector4> clipmapData;
+
+        public readonly bool isStitch;
+
+        public readonly int fineLevel;
+
+        public readonly int coarseLevel;
+
         public RendererValidationSource(
             MeshRenderer renderer,
             MeshFilter meshFilter,
-            ShaderBindingState binding
+            ShaderBindingState binding,
+            List<Vector4> clipmapData,
+            bool isStitch,
+            int fineLevel,
+            int coarseLevel
         )
         {
             this.renderer =
@@ -2260,6 +2878,65 @@ public class TerrainClipmapDisplacementValidator :
 
             this.binding =
                 binding;
+
+            this.clipmapData =
+                clipmapData;
+
+            this.isStitch =
+                isStitch;
+
+            this.fineLevel =
+                fineLevel;
+
+            this.coarseLevel =
+                coarseLevel;
+        }
+    }
+
+    // =====================================================
+    // STITCH BOUNDARY REQUIREMENT
+    // =====================================================
+
+    private readonly struct StitchBoundaryRequirement
+    {
+        public readonly string stitchRendererName;
+
+        public readonly int vertexIndex;
+
+        public readonly Vector2Int worldSample;
+
+        public readonly string expectedRendererName;
+
+        public readonly int expectedRendererInstanceId;
+
+        public readonly float transitionWeight;
+
+        public StitchBoundaryRequirement(
+            string stitchRendererName,
+            int vertexIndex,
+            Vector2Int worldSample,
+            string expectedRendererName,
+            int expectedRendererInstanceId,
+            float transitionWeight
+        )
+        {
+            this.stitchRendererName =
+                stitchRendererName;
+
+            this.vertexIndex =
+                vertexIndex;
+
+            this.worldSample =
+                worldSample;
+
+            this.expectedRendererName =
+                expectedRendererName;
+
+            this.expectedRendererInstanceId =
+                expectedRendererInstanceId;
+
+            this.transitionWeight =
+                transitionWeight;
         }
     }
 

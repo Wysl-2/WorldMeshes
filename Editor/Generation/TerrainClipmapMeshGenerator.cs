@@ -603,11 +603,6 @@ public static class TerrainClipmapMeshGenerator
         float fineSpacing
     )
     {
-        MeshBuilder builder =
-            new MeshBuilder(
-                fineSpacing
-            );
-
         /*
          * All coordinates here are measured in units of
          * the FINER level's spacing.
@@ -619,6 +614,21 @@ public static class TerrainClipmapMeshGenerator
         int half =
             centerResolution /
             2;
+
+        /*
+         * Stage 3B:
+         *
+         * transitionFineBoundaryHalf tells MeshBuilder which
+         * Chebyshev-radius boundary belongs to the finer LOD.
+         *
+         * Vertices on this boundary receive clipmapData.x = 1.
+         * All other stitch vertices receive clipmapData.x = 0.
+         */
+        MeshBuilder builder =
+            new MeshBuilder(
+                fineSpacing,
+                half
+            );
 
         const int coarseStep =
             2;
@@ -844,14 +854,31 @@ public static class TerrainClipmapMeshGenerator
         // =================================================
 
         /*
-         * The four side strips leave one coarse-sized
-         * square at each corner.
+         * The four side strips leave one coarse-sized square
+         * at each corner.
          *
-         * Fill those four squares with simple quads.
+         * IMPORTANT FOR MOVING LODS:
+         *
+         * The corner is triangulated along the diagonal from
+         * the adaptive FINE corner to the opposite COARSE outer
+         * corner.
+         *
+         * The previous stationary-only diagonal could become
+         * degenerate when the fine LOD was offset diagonally by
+         * one fine sample in both X and Z.
+         *
+         * This diagonal remains non-degenerate for every
+         * Stage 3A adjacent-LOD offset:
+         *
+         *     (-S, -S) ... (+S, +S)
+         *
+         * where S is the finer LOD spacing.
          */
 
         // North-East
-        builder.AddQuad(
+        AddAdaptiveCorner(
+            builder,
+
             new Vector2Int(
                 half,
                 half
@@ -874,38 +901,37 @@ public static class TerrainClipmapMeshGenerator
         );
 
         // North-West
-        builder.AddQuad(
+        AddAdaptiveCorner(
+            builder,
+
+            new Vector2Int(
+                -half,
+                half
+            ),
+
             new Vector2Int(
                 -half - coarseStep,
                 half
             ),
 
             new Vector2Int(
-                -half,
-                half
-            ),
-
-            new Vector2Int(
-                -half,
+                -half - coarseStep,
                 half + coarseStep
             ),
 
             new Vector2Int(
-                -half - coarseStep,
+                -half,
                 half + coarseStep
             )
         );
 
         // South-East
-        builder.AddQuad(
-            new Vector2Int(
-                half,
-                -half - coarseStep
-            ),
+        AddAdaptiveCorner(
+            builder,
 
             new Vector2Int(
-                half + coarseStep,
-                -half - coarseStep
+                half,
+                -half
             ),
 
             new Vector2Int(
@@ -914,22 +940,19 @@ public static class TerrainClipmapMeshGenerator
             ),
 
             new Vector2Int(
+                half + coarseStep,
+                -half - coarseStep
+            ),
+
+            new Vector2Int(
                 half,
-                -half
+                -half - coarseStep
             )
         );
 
         // South-West
-        builder.AddQuad(
-            new Vector2Int(
-                -half - coarseStep,
-                -half - coarseStep
-            ),
-
-            new Vector2Int(
-                -half,
-                -half - coarseStep
-            ),
+        AddAdaptiveCorner(
+            builder,
 
             new Vector2Int(
                 -half,
@@ -939,6 +962,16 @@ public static class TerrainClipmapMeshGenerator
             new Vector2Int(
                 -half - coarseStep,
                 -half
+            ),
+
+            new Vector2Int(
+                -half - coarseStep,
+                -half - coarseStep
+            ),
+
+            new Vector2Int(
+                -half,
+                -half - coarseStep
             )
         );
 
@@ -1022,6 +1055,62 @@ public static class TerrainClipmapMeshGenerator
     }
 
     // =====================================================
+    // ADD ADAPTIVE CORNER
+    // =====================================================
+
+    private static void AddAdaptiveCorner(
+        MeshBuilder builder,
+        Vector2Int fineCorner,
+        Vector2Int coarseAlongX,
+        Vector2Int coarseOuterCorner,
+        Vector2Int coarseAlongZ
+    )
+    {
+        /*
+         * Use the fine corner -> outer coarse corner diagonal.
+         *
+         * Only fineCorner has transition weight 1.
+         * The other three vertices remain attached to the
+         * coarse ring.
+         *
+         * This topology stays non-degenerate for every valid
+         * adjacent-LOD relative offset calculated in Stage 3A.
+         */
+
+        int fine =
+            builder.GetVertex(
+                fineCorner
+            );
+
+        int coarseX =
+            builder.GetVertex(
+                coarseAlongX
+            );
+
+        int coarseOuter =
+            builder.GetVertex(
+                coarseOuterCorner
+            );
+
+        int coarseZ =
+            builder.GetVertex(
+                coarseAlongZ
+            );
+
+        builder.AddTriangleUpward(
+            fine,
+            coarseX,
+            coarseOuter
+        );
+
+        builder.AddTriangleUpward(
+            fine,
+            coarseOuter,
+            coarseZ
+        );
+    }
+
+    // =====================================================
     // SAVE / UPDATE
     // =====================================================
 
@@ -1075,6 +1164,23 @@ public static class TerrainClipmapMeshGenerator
             data.vertices
         );
 
+        /*
+         * Stage 3B clipmap-specific vertex data.
+         *
+         * UV channel 3 maps to the shader TEXCOORD3 semantic.
+         *
+         * clipmapData.x:
+         *
+         * 0 = coarse/stationary side
+         * 1 = fine/adaptive side
+         *
+         * Center and ring meshes contain zero in this channel.
+         */
+        mesh.SetUVs(
+            3,
+            data.clipmapData
+        );
+
         mesh.SetTriangles(
             data.triangles,
             0,
@@ -1083,6 +1189,34 @@ public static class TerrainClipmapMeshGenerator
 
         mesh.RecalculateNormals();
         mesh.RecalculateBounds();
+
+        // -------------------------------------------------
+        // Verify clipmap data survived the mesh write
+        // -------------------------------------------------
+
+        List<Vector4> writtenClipmapData =
+            new List<Vector4>();
+
+        mesh.GetUVs(
+            3,
+            writtenClipmapData
+        );
+
+        if (
+            writtenClipmapData.Count !=
+            data.vertices.Count
+        )
+        {
+            throw new InvalidOperationException(
+                "Generated clipmap mesh did not preserve its " +
+                "clipmap vertex data.\n\n" +
+
+                $"Mesh: {meshName}\n" +
+                $"Vertices: {data.vertices.Count}\n" +
+                $"Clipmap Data Values: " +
+                $"{writtenClipmapData.Count}"
+            );
+        }
 
         if (isNew)
         {
@@ -1350,9 +1484,18 @@ public static class TerrainClipmapMeshGenerator
 
         public readonly List<int> triangles;
 
+        /*
+         * Stored in mesh UV channel 3 / TEXCOORD3.
+         *
+         * x = adaptive stitch transition weight
+         * yzw = reserved for future clipmap vertex data
+         */
+        public readonly List<Vector4> clipmapData;
+
         public GeneratedMeshData(
             List<Vector3> vertices,
-            List<int> triangles
+            List<int> triangles,
+            List<Vector4> clipmapData
         )
         {
             this.vertices =
@@ -1360,6 +1503,9 @@ public static class TerrainClipmapMeshGenerator
 
             this.triangles =
                 triangles;
+
+            this.clipmapData =
+                clipmapData;
         }
     }
 
@@ -1371,22 +1517,38 @@ public static class TerrainClipmapMeshGenerator
     {
         private readonly float spacing;
 
+        /*
+         * Negative means this is not a transition mesh.
+         *
+         * For a stitch mesh this is the Chebyshev radius,
+         * measured in grid coordinates, of the boundary that
+         * must later follow the finer LOD center.
+         */
+        private readonly int transitionFineBoundaryHalf;
+
         private readonly List<Vector3> vertices =
             new List<Vector3>();
 
         private readonly List<int> triangles =
             new List<int>();
 
+        private readonly List<Vector4> clipmapData =
+            new List<Vector4>();
+
         private readonly Dictionary<Vector2Int, int>
             vertexLookup =
                 new Dictionary<Vector2Int, int>();
 
         public MeshBuilder(
-            float spacing
+            float spacing,
+            int transitionFineBoundaryHalf = -1
         )
         {
             this.spacing =
                 spacing;
+
+            this.transitionFineBoundaryHalf =
+                transitionFineBoundaryHalf;
         }
 
         // -------------------------------------------------
@@ -1426,6 +1588,20 @@ public static class TerrainClipmapMeshGenerator
                 position
             );
 
+            float transitionWeight =
+                CalculateTransitionWeight(
+                    gridCoordinate
+                );
+
+            clipmapData.Add(
+                new Vector4(
+                    transitionWeight,
+                    0f,
+                    0f,
+                    0f
+                )
+            );
+
             vertexLookup[
                 gridCoordinate
             ] =
@@ -1433,6 +1609,39 @@ public static class TerrainClipmapMeshGenerator
 
             return
                 index;
+        }
+
+        // -------------------------------------------------
+        // Transition weight
+        // -------------------------------------------------
+
+        private float CalculateTransitionWeight(
+            Vector2Int gridCoordinate
+        )
+        {
+            if (
+                transitionFineBoundaryHalf <
+                0
+            )
+            {
+                return 0f;
+            }
+
+            int chebyshevRadius =
+                Mathf.Max(
+                    Mathf.Abs(
+                        gridCoordinate.x
+                    ),
+                    Mathf.Abs(
+                        gridCoordinate.y
+                    )
+                );
+
+            return
+                chebyshevRadius ==
+                    transitionFineBoundaryHalf
+                    ? 1f
+                    : 0f;
         }
 
         // -------------------------------------------------
@@ -1591,6 +1800,130 @@ public static class TerrainClipmapMeshGenerator
         }
 
         // -------------------------------------------------
+        // Validate all adaptive transition offsets
+        // -------------------------------------------------
+
+        private void ValidateAdaptiveTransitionTopology()
+        {
+            /*
+             * Stage 3A proved that an adjacent fine/coarse LOD
+             * pair can differ by only:
+             *
+             *     -S, 0, +S
+             *
+             * independently on X and Z.
+             *
+             * Validate all nine combinations here so generated
+             * stitch topology can never become degenerate or
+             * flip winding when Stage 3C activates movement.
+             */
+            for (
+                int offsetZStep = -1;
+                offsetZStep <= 1;
+                offsetZStep++
+            )
+            {
+                for (
+                    int offsetXStep = -1;
+                    offsetXStep <= 1;
+                    offsetXStep++
+                )
+                {
+                    Vector3 transitionOffset =
+                        new Vector3(
+                            offsetXStep *
+                            spacing,
+
+                            0f,
+
+                            offsetZStep *
+                            spacing
+                        );
+
+                    for (
+                        int triangleOffset = 0;
+                        triangleOffset < triangles.Count;
+                        triangleOffset += 3
+                    )
+                    {
+                        int index0 =
+                            triangles[
+                                triangleOffset
+                            ];
+
+                        int index1 =
+                            triangles[
+                                triangleOffset + 1
+                            ];
+
+                        int index2 =
+                            triangles[
+                                triangleOffset + 2
+                            ];
+
+                        Vector3 p0 =
+                            vertices[
+                                index0
+                            ]
+                            +
+                            transitionOffset *
+                            clipmapData[
+                                index0
+                            ].x;
+
+                        Vector3 p1 =
+                            vertices[
+                                index1
+                            ]
+                            +
+                            transitionOffset *
+                            clipmapData[
+                                index1
+                            ].x;
+
+                        Vector3 p2 =
+                            vertices[
+                                index2
+                            ]
+                            +
+                            transitionOffset *
+                            clipmapData[
+                                index2
+                            ].x;
+
+                        float signedProjectedArea =
+                            Vector3.Cross(
+                                p1 - p0,
+                                p2 - p0
+                            ).y;
+
+                        if (
+                            signedProjectedArea <=
+                            0.0000001f
+                        )
+                        {
+                            throw new InvalidOperationException(
+                                "Generated clipmap stitch becomes " +
+                                "degenerate or flips winding for a " +
+                                "valid adaptive LOD offset.\\n\\n" +
+
+                                $"Offset: " +
+                                $"({transitionOffset.x:R}, " +
+                                $"{transitionOffset.z:R})\\n" +
+
+                                $"Triangle: " +
+                                $"{triangleOffset / 3}\\n" +
+
+                                $"Signed Projected Area: " +
+                                $"{signedProjectedArea:R}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        // -------------------------------------------------
         // Build
         // -------------------------------------------------
 
@@ -1615,11 +1948,88 @@ public static class TerrainClipmapMeshGenerator
                 );
             }
 
+            if (
+                clipmapData.Count !=
+                vertices.Count
+            )
+            {
+                throw new InvalidOperationException(
+                    "Generated clipmap vertex data count does " +
+                    "not match the vertex count."
+                );
+            }
+
+            if (
+                transitionFineBoundaryHalf >=
+                0
+            )
+            {
+                int fineVertexCount =
+                    0;
+
+                int coarseVertexCount =
+                    0;
+
+                for (
+                    int index = 0;
+                    index < clipmapData.Count;
+                    index++
+                )
+                {
+                    float weight =
+                        clipmapData[
+                            index
+                        ].x;
+
+                    if (
+                        Mathf.Approximately(
+                            weight,
+                            1f
+                        )
+                    )
+                    {
+                        fineVertexCount++;
+                    }
+                    else if (
+                        Mathf.Approximately(
+                            weight,
+                            0f
+                        )
+                    )
+                    {
+                        coarseVertexCount++;
+                    }
+                    else
+                    {
+                        throw new InvalidOperationException(
+                            "Generated clipmap transition data " +
+                            "contains a weight other than 0 or 1."
+                        );
+                    }
+                }
+
+                if (
+                    fineVertexCount == 0
+                    ||
+                    coarseVertexCount == 0
+                )
+                {
+                    throw new InvalidOperationException(
+                        "Generated stitch mesh does not contain " +
+                        "both fine and coarse transition vertices."
+                    );
+                }
+
+                ValidateAdaptiveTransitionTopology();
+            }
+
             return
                 new GeneratedMeshData(
                     vertices,
-                    triangles
+                    triangles,
+                    clipmapData
                 );
         }
     }
+
 }

@@ -26,7 +26,7 @@ MonoBehaviour:
   heightLacunarity: 2
   collisionResolution: 64
   clipmapCenterResolution: 128
-  clipmapLevelCount: 7
+  clipmapLevelCount: 5
   clipmapBaseSampleStep: 1
   lastSyncedGridWidth: 48
   lastSyncedGridHeight: 48
