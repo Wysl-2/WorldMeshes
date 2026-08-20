@@ -109,17 +109,6 @@ public static void SyncWorldHierarchy(
     }
 
     if (
-        !ValidateCollisionMeshes(
-            worldSettings,
-            out Dictionary<Vector2Int, Mesh>
-                collisionMeshes
-        )
-    )
-    {
-        return;
-    }
-
-    if (
         !ValidateClipmapMeshes(
             worldSettings,
             out ClipmapMeshSet clipmapMeshes
@@ -128,7 +117,7 @@ public static void SyncWorldHierarchy(
     {
         return;
     }
-    
+
     // =====================================================
     // TERRAIN HEIGHT RANGE
     // =====================================================
@@ -365,9 +354,6 @@ public static void SyncWorldHierarchy(
     HierarchySyncStats previewStats =
         new HierarchySyncStats();
 
-    HierarchySyncStats collisionStats =
-        new HierarchySyncStats();
-
     bool cancelled =
         false;
 
@@ -413,47 +399,13 @@ public static void SyncWorldHierarchy(
             previewChanged;
 
         // -------------------------------------------------
-        // Collision
-        // -------------------------------------------------
-
-        if (
-            !SynchronizeCollisionHierarchy(
-                collisionRoot,
-                gridWidth,
-                gridHeight,
-                chunkSize,
-                collisionMeshes,
-                collisionStats,
-                out bool collisionChanged,
-                out cancelled
-            )
-        )
-        {
-            hierarchyChanged |=
-                collisionChanged;
-
-            if (cancelled)
-            {
-                MarkSceneDirtyIfNeeded(
-                    scene,
-                    hierarchyChanged
-                );
-
-                LogCancelled();
-
-                return;
-            }
-
-            return;
-        }
-
-        hierarchyChanged |=
-            collisionChanged;
-
-        // -------------------------------------------------
         // Clipmap
         // -------------------------------------------------
 
+        /*
+         * Synchronize Clipmap first so TerrainClipmapController
+         * exists before the collision streamer resolves its target.
+         */
         hierarchyChanged |=
             SynchronizeClipmapHierarchy(
                 clipmapRoot,
@@ -462,6 +414,27 @@ public static void SyncWorldHierarchy(
                 clipmapTerrainMaterial,
                 minimumTerrainHeight,
                 maximumTerrainHeight
+            );
+
+        // -------------------------------------------------
+        // Collision runtime streamer
+        // -------------------------------------------------
+
+        hierarchyChanged |=
+            SynchronizeCollisionStreamer(
+                collisionRoot.gameObject,
+                clipmapRoot.gameObject,
+                worldSettings
+            );
+
+        // -------------------------------------------------
+        // Collision collider pool
+        // -------------------------------------------------
+
+        hierarchyChanged |=
+            SynchronizeCollisionColliderPool(
+                collisionRoot.gameObject,
+                worldSettings
             );
     }
     finally
@@ -518,10 +491,11 @@ public static void SyncWorldHierarchy(
         $"Unchanged: {previewStats.unchanged}\n\n" +
 
         "Collision\n" +
-        $"Created: {collisionStats.created}\n" +
-        $"Updated: {collisionStats.updated}\n" +
-        $"Removed: {collisionStats.removed}\n" +
-        $"Unchanged: {collisionStats.unchanged}\n\n" +
+        "Runtime Mesh Residency: TerrainCollisionStreamer\n" +
+        "Active Physics: TerrainCollisionColliderPool\n" +
+        $"Collider Slots: " +
+        $"{TerrainCollisionColliderPool.CalculateRequiredSlotCount(TerrainCollisionColliderPool.DefaultActiveRadius)}\n" +
+        "Static Per-Chunk Objects: None\n\n" +
 
         $"Clipmap Levels: " +
         $"{worldSettings.clipmapLevelCount}\n\n" +
@@ -530,10 +504,12 @@ public static void SyncWorldHierarchy(
 
         $"{WorldRootName}\n" +
         $"├── {PreviewRootName}\n" +
-        $"├── {CollisionRootName}\n" +
+        $"├── {CollisionRootName} " +
+        "[TerrainCollisionStreamer, TerrainCollisionColliderPool]\n" +
         $"└── {ClipmapRootName}"
     );
 }
+
 
     // =====================================================
     // PREVIEW HIERARCHY
@@ -844,392 +820,494 @@ public static void SyncWorldHierarchy(
 
         return changed;
     }
-
+    
     // =====================================================
-    // COLLISION HIERARCHY
-    // =====================================================
+// COLLISION STREAMER
+// =====================================================
 
-    private static bool SynchronizeCollisionHierarchy(
-        Transform collisionRoot,
-        int gridWidth,
-        int gridHeight,
-        float chunkSize,
-        Dictionary<Vector2Int, Mesh> collisionMeshes,
-        HierarchySyncStats stats,
-        out bool changed,
-        out bool cancelled
-    )
+private static bool SynchronizeCollisionStreamer(
+    GameObject collisionObject,
+    GameObject clipmapObject,
+    WorldSettings worldSettings
+)
+{
+    bool changed =
+        false;
+
+    // -------------------------------------------------
+    // Component
+    // -------------------------------------------------
+
+    TerrainCollisionStreamer[] streamers =
+        collisionObject
+            .GetComponents<TerrainCollisionStreamer>();
+
+    TerrainCollisionStreamer streamer;
+
+    if (streamers.Length == 0)
     {
+        streamer =
+            collisionObject
+                .AddComponent<TerrainCollisionStreamer>();
+
         changed =
-            false;
+            true;
+    }
+    else
+    {
+        streamer =
+            streamers[0];
 
-        cancelled =
-            false;
-
-        Dictionary<Vector2Int, GameObject>
-            existingChunks =
-                FindExistingChunkObjects(
-                    collisionRoot,
-                    out List<GameObject> duplicates
-                );
-
-        // -------------------------------------------------
-        // Duplicates
-        // -------------------------------------------------
-
-        foreach (
-            GameObject duplicate
-            in duplicates
+        /*
+         * The generated hierarchy owns this component.
+         * Keep exactly one streamer on the Collision root.
+         */
+        for (
+            int i = 1;
+            i < streamers.Length;
+            i++
         )
         {
             Object.DestroyImmediate(
-                duplicate
+                streamers[i]
             );
-
-            stats.removed++;
 
             changed =
                 true;
         }
+    }
 
-        // -------------------------------------------------
-        // Obsolete chunks
-        // -------------------------------------------------
+    // -------------------------------------------------
+    // Enable component
+    // -------------------------------------------------
 
-        foreach (
-            KeyValuePair<Vector2Int, GameObject> pair
-            in existingChunks
-        )
-        {
-            Vector2Int coordinate =
-                pair.Key;
+    if (!streamer.enabled)
+    {
+        streamer.enabled =
+            true;
 
-            bool outsideGrid =
-                coordinate.x < 0
-                ||
-                coordinate.y < 0
-                ||
-                coordinate.x >= gridWidth
-                ||
-                coordinate.y >= gridHeight;
+        changed =
+            true;
+    }
 
-            if (!outsideGrid)
-            {
-                continue;
-            }
+    // -------------------------------------------------
+    // Prepared collision manifest
+    // -------------------------------------------------
 
-            Object.DestroyImmediate(
-                pair.Value
+    TerrainCollisionManifest manifest =
+        AssetDatabase
+            .LoadAssetAtPath<TerrainCollisionManifest>(
+                WorldMeshesPaths
+                    .CollisionManifestAssetPath
             );
 
-            stats.removed++;
+    if (manifest == null)
+    {
+        Debug.LogWarning(
+            "TerrainCollisionStreamer could not be fully " +
+            "configured because the collision runtime " +
+            "manifest does not exist.\n\n" +
 
-            changed =
-                true;
-        }
+            "Run 'Prepare Collision Meshes For Runtime' " +
+            "and then Sync World Hierarchy again."
+        );
+    }
+    else if (!manifest.isComplete)
+    {
+        Debug.LogWarning(
+            "TerrainCollisionStreamer could not be fully " +
+            "configured because CollisionManifest is " +
+            "marked incomplete.\n\n" +
 
-        // -------------------------------------------------
-        // Required chunks
-        // -------------------------------------------------
+            "Run 'Prepare Collision Meshes For Runtime' " +
+            "again and then Sync World Hierarchy."
+        );
+    }
 
-        int totalChunks =
-            gridWidth *
-            gridHeight;
+    // -------------------------------------------------
+    // Source data
+    // -------------------------------------------------
 
-        int currentChunk =
-            0;
+    changed |=
+        streamer.Configure(
+            worldSettings,
+            manifest
+        );
+
+    // -------------------------------------------------
+    // Streaming target
+    // -------------------------------------------------
+
+    /*
+     * TerrainClipmapController already owns the Player/follow
+     * target used by the moving visual terrain.
+     *
+     * Reuse that same Transform for collision residency instead
+     * of requiring a second manually maintained Player reference.
+     */
+    TerrainClipmapController clipmapController =
+        clipmapObject != null
+            ? clipmapObject
+                .GetComponent<TerrainClipmapController>()
+            : null;
+
+    Transform streamingTarget =
+        clipmapController != null
+            ? clipmapController.Target
+            : null;
+
+    if (clipmapController == null)
+    {
+        Debug.LogWarning(
+            "TerrainCollisionStreamer could not resolve the " +
+            "terrain movement target because " +
+            "TerrainClipmapController is missing from the " +
+            "Clipmap root.\n\n" +
+
+            "Run Sync World Hierarchy again."
+        );
+    }
+    else if (streamingTarget == null)
+    {
+        Debug.LogWarning(
+            "TerrainCollisionStreamer could not resolve its " +
+            "Streaming Target because TerrainClipmapController " +
+            "does not have a Target assigned.\n\n" +
+
+            "Assign the Player Transform to the Clipmap " +
+            "controller Target field, then run Sync World " +
+            "Hierarchy again."
+        );
+    }
+
+    changed |=
+        streamer.SetStreamingTarget(
+            streamingTarget
+        );
+
+    return changed;
+}
+
+private static bool SynchronizeCollisionColliderPool(
+    GameObject collisionObject,
+    WorldSettings worldSettings
+)
+{
+    bool changed =
+        false;
+
+    // -------------------------------------------------
+    // TerrainCollisionStreamer dependency
+    // -------------------------------------------------
+
+    TerrainCollisionStreamer streamer =
+        collisionObject
+            .GetComponent<TerrainCollisionStreamer>();
+
+    if (streamer == null)
+    {
+        Debug.LogError(
+            "Cannot synchronize collision collider pool.\n\n" +
+            "TerrainCollisionStreamer is missing from the " +
+            "Collision root."
+        );
+
+        return false;
+    }
+
+    // -------------------------------------------------
+    // Component
+    // -------------------------------------------------
+
+    TerrainCollisionColliderPool[] pools =
+        collisionObject
+            .GetComponents<TerrainCollisionColliderPool>();
+
+    TerrainCollisionColliderPool pool;
+
+    if (pools.Length == 0)
+    {
+        pool =
+            collisionObject
+                .AddComponent<TerrainCollisionColliderPool>();
+
+        changed =
+            true;
+    }
+    else
+    {
+        pool =
+            pools[0];
 
         for (
-            int z = 0;
-            z < gridHeight;
-            z++
+            int i = 1;
+            i < pools.Length;
+            i++
         )
         {
-            for (
-                int x = 0;
-                x < gridWidth;
-                x++
-            )
-            {
-                cancelled =
-                    ShowProgress(
-                        "Synchronizing Collision",
-                        $"Chunk ({x}, {z})",
-                        currentChunk,
-                        totalChunks
-                    );
-
-                if (cancelled)
-                {
-                    return false;
-                }
-
-                Vector2Int coordinate =
-                    new Vector2Int(
-                        x,
-                        z
-                    );
-
-                Mesh collisionMesh =
-                    collisionMeshes[
-                        coordinate
-                    ];
-
-                if (
-                    !existingChunks.TryGetValue(
-                        coordinate,
-                        out GameObject chunkObject
-                    )
-                    ||
-                    chunkObject == null
-                )
-                {
-                    CreateCollisionChunkObject(
-                        collisionRoot,
-                        coordinate,
-                        chunkSize,
-                        collisionMesh
-                    );
-
-                    stats.created++;
-
-                    changed =
-                        true;
-                }
-                else
-                {
-                    bool chunkChanged =
-                        SynchronizeCollisionChunkObject(
-                            chunkObject,
-                            coordinate,
-                            chunkSize,
-                            collisionMesh
-                        );
-
-                    if (chunkChanged)
-                    {
-                        stats.updated++;
-
-                        changed =
-                            true;
-                    }
-                    else
-                    {
-                        stats.unchanged++;
-                    }
-                }
-
-                currentChunk++;
-            }
-        }
-
-        return true;
-    }
-
-    // =====================================================
-    // CREATE COLLISION CHUNK
-    // =====================================================
-
-    private static GameObject CreateCollisionChunkObject(
-        Transform collisionRoot,
-        Vector2Int coordinate,
-        float chunkSize,
-        Mesh collisionMesh
-    )
-    {
-        GameObject chunkObject =
-            new GameObject(
-                GetChunkObjectName(
-                    coordinate.x,
-                    coordinate.y
-                )
+            Object.DestroyImmediate(
+                pools[i]
             );
-
-        chunkObject.transform.SetParent(
-            collisionRoot,
-            false
-        );
-
-        SynchronizeCollisionChunkObject(
-            chunkObject,
-            coordinate,
-            chunkSize,
-            collisionMesh
-        );
-
-        return chunkObject;
-    }
-
-    // =====================================================
-    // SYNCHRONIZE COLLISION CHUNK
-    // =====================================================
-
-    private static bool SynchronizeCollisionChunkObject(
-        GameObject chunkObject,
-        Vector2Int coordinate,
-        float chunkSize,
-        Mesh collisionMesh
-    )
-    {
-        bool changed =
-            false;
-
-        // -------------------------------------------------
-        // Name / transform
-        // -------------------------------------------------
-
-        string expectedName =
-            GetChunkObjectName(
-                coordinate.x,
-                coordinate.y
-            );
-
-        if (
-            chunkObject.name !=
-            expectedName
-        )
-        {
-            chunkObject.name =
-                expectedName;
 
             changed =
                 true;
         }
+    }
+
+    // -------------------------------------------------
+    // Enable
+    // -------------------------------------------------
+
+    if (!pool.enabled)
+    {
+        pool.enabled =
+            true;
+
+        changed =
+            true;
+    }
+
+    // -------------------------------------------------
+    // Configure
+    // -------------------------------------------------
+
+    changed |=
+        pool.Configure(
+            worldSettings,
+            streamer
+        );
+
+    // -------------------------------------------------
+    // Fixed collider slots
+    // -------------------------------------------------
+
+    changed |=
+        SynchronizeCollisionColliderSlots(
+            collisionObject.transform,
+            pool.RequiredSlotCount
+        );
+
+    return changed;
+}
+
+// =====================================================
+// COLLISION COLLIDER SLOTS
+// =====================================================
+
+private static bool SynchronizeCollisionColliderSlots(
+    Transform collisionRoot,
+    int requiredSlotCount
+)
+{
+    bool changed =
+        false;
+
+    int safeRequiredSlotCount =
+        Mathf.Max(
+            1,
+            requiredSlotCount
+        );
+
+    // -------------------------------------------------
+    // Remove obsolete generated slots
+    // -------------------------------------------------
+
+    List<GameObject> obsoleteSlots =
+        new List<GameObject>();
+
+    foreach (
+        Transform child
+        in collisionRoot
+    )
+    {
+        if (
+            !TerrainCollisionColliderPool
+                .TryGetColliderSlotIndex(
+                    child.name,
+                    out int slotIndex
+                )
+        )
+        {
+            continue;
+        }
+
+        if (
+            slotIndex >=
+            safeRequiredSlotCount
+        )
+        {
+            obsoleteSlots.Add(
+                child.gameObject
+            );
+        }
+    }
+
+    foreach (
+        GameObject obsoleteSlot
+        in obsoleteSlots
+    )
+    {
+        Object.DestroyImmediate(
+            obsoleteSlot
+        );
+
+        changed =
+            true;
+    }
+
+    // -------------------------------------------------
+    // Required slots
+    // -------------------------------------------------
+
+    for (
+        int slotIndex = 0;
+        slotIndex < safeRequiredSlotCount;
+        slotIndex++
+    )
+    {
+        string slotName =
+            TerrainCollisionColliderPool
+                .GetColliderSlotName(
+                    slotIndex
+                );
+
+        Transform slotTransform =
+            GetOrCreateUniqueDirectChild(
+                collisionRoot,
+                slotName,
+                out bool slotCreatedOrCleaned
+            );
+
+        changed |=
+            slotCreatedOrCleaned;
 
         changed |=
             SynchronizeTransform(
-                chunkObject.transform,
-                GetChunkPosition(
-                    coordinate,
-                    chunkSize
-                ),
-                false
+                slotTransform,
+                Vector3.zero,
+                true
             );
 
-        // -------------------------------------------------
-        // Remove legacy generated children
-        // -------------------------------------------------
-
         changed |=
-            RemoveDirectChildrenNamed(
-                chunkObject.transform,
-                LOD0ChildName
-            )
-            >
-            0;
+            SynchronizeCollisionColliderSlot(
+                slotTransform.gameObject
+            );
+    }
 
-        changed |=
-            RemoveDirectChildrenNamed(
-                chunkObject.transform,
-                CollisionRootName
-            )
-            >
-            0;
+    return changed;
+}
 
-        // -------------------------------------------------
-        // MeshCollider
-        // -------------------------------------------------
+// =====================================================
+// ONE COLLISION COLLIDER SLOT
+// =====================================================
 
-        MeshCollider[] colliders =
-            chunkObject
-                .GetComponents<MeshCollider>();
+private static bool SynchronizeCollisionColliderSlot(
+    GameObject slotObject
+)
+{
+    bool changed =
+        false;
 
-        MeshCollider meshCollider =
-            null;
+    // -------------------------------------------------
+    // Layer follows Collision root
+    // -------------------------------------------------
 
-        if (colliders.Length == 0)
-        {
-            meshCollider =
-                chunkObject
-                    .AddComponent<MeshCollider>();
+    if (
+        slotObject.transform.parent != null
+        &&
+        slotObject.layer !=
+            slotObject.transform.parent.gameObject.layer
+    )
+    {
+        slotObject.layer =
+            slotObject.transform.parent.gameObject.layer;
 
-            changed =
-                true;
-        }
-        else
-        {
-            meshCollider =
-                colliders[0];
+        changed =
+            true;
+    }
 
-            for (
-                int i = 1;
-                i < colliders.Length;
-                i++
-            )
-            {
-                Object.DestroyImmediate(
-                    colliders[i]
-                );
+    // -------------------------------------------------
+    // Exactly one MeshCollider
+    // -------------------------------------------------
 
-                changed =
-                    true;
-            }
-        }
+    MeshCollider[] colliders =
+        slotObject
+            .GetComponents<MeshCollider>();
 
-        // -------------------------------------------------
-        // Configuration
-        // -------------------------------------------------
+    MeshCollider meshCollider;
 
-        if (meshCollider.convex)
-        {
-            meshCollider.convex =
-                false;
+    if (colliders.Length == 0)
+    {
+        meshCollider =
+            slotObject
+                .AddComponent<MeshCollider>();
 
-            changed =
-                true;
-        }
+        changed =
+            true;
+    }
+    else
+    {
+        meshCollider =
+            colliders[0];
 
-        if (meshCollider.isTrigger)
-        {
-            meshCollider.isTrigger =
-                false;
-
-            changed =
-                true;
-        }
-
-        if (!meshCollider.enabled)
-        {
-            meshCollider.enabled =
-                true;
-
-            changed =
-                true;
-        }
-
-        // -------------------------------------------------
-        // Mesh
-        // -------------------------------------------------
-
-        if (
-            meshCollider.sharedMesh !=
-            collisionMesh
+        for (
+            int i = 1;
+            i < colliders.Length;
+            i++
         )
         {
-            meshCollider.sharedMesh =
-                collisionMesh;
+            Object.DestroyImmediate(
+                colliders[i]
+            );
 
             changed =
                 true;
         }
-        else
-        {
-            /*
-             * Collision assets are regenerated in place.
-             *
-             * Reassign the mesh so Unity recooks the
-             * MeshCollider from the latest mesh contents.
-             */
-
-            meshCollider.sharedMesh =
-                null;
-
-            meshCollider.sharedMesh =
-                collisionMesh;
-        }
-
-        return changed;
     }
+
+    // -------------------------------------------------
+    // Edit-mode default state
+    // -------------------------------------------------
+
+    if (meshCollider.enabled)
+    {
+        meshCollider.enabled =
+            false;
+
+        changed =
+            true;
+    }
+
+    if (meshCollider.sharedMesh != null)
+    {
+        meshCollider.sharedMesh =
+            null;
+
+        changed =
+            true;
+    }
+
+    if (meshCollider.convex)
+    {
+        meshCollider.convex =
+            false;
+
+        changed =
+            true;
+    }
+
+    if (meshCollider.isTrigger)
+    {
+        meshCollider.isTrigger =
+            false;
+
+        changed =
+            true;
+    }
+
+    return changed;
+}
+
     
 
     // =====================================================
@@ -2089,208 +2167,7 @@ public static void SyncWorldHierarchy(
 
         return true;
     }
-
-    // =====================================================
-    // VALIDATE COLLISION MESHES
-    // =====================================================
-
-    private static bool ValidateCollisionMeshes(
-        WorldSettings worldSettings,
-        out Dictionary<Vector2Int, Mesh> collisionMeshes
-    )
-    {
-        collisionMeshes =
-            new Dictionary<Vector2Int, Mesh>();
-
-        TerrainGenerationStateUtility.GenerationStatus
-            collisionStatus =
-                TerrainGenerationStateUtility
-                    .GetCollisionMeshStatus(
-                        worldSettings
-                    );
-
-        if (
-            collisionStatus !=
-            TerrainGenerationStateUtility
-                .GenerationStatus.Current
-        )
-        {
-            Debug.LogError(
-                "Cannot synchronize Collision hierarchy.\n\n" +
-
-                $"Collision State: " +
-                $"{TerrainGenerationStateUtility.GetStatusLabel(collisionStatus)}\n\n" +
-
-                "Generate or regenerate collision meshes first."
-            );
-
-            return false;
-        }
-
-        int gridWidth =
-            Mathf.Max(
-                1,
-                worldSettings.gridWidth
-            );
-
-        int gridHeight =
-            Mathf.Max(
-                1,
-                worldSettings.gridHeight
-            );
-
-        float chunkSize =
-            Mathf.Max(
-                0.01f,
-                worldSettings.chunkSize
-            );
-
-        int collisionResolution =
-            Mathf.Max(
-                1,
-                worldSettings.collisionResolution
-            );
-
-        int expectedVertexCount =
-            (
-                collisionResolution +
-                1
-            )
-            *
-            (
-                collisionResolution +
-                1
-            );
-
-        long expectedIndexCount =
-            (long)collisionResolution *
-            collisionResolution *
-            6L;
-
-        for (
-            int z = 0;
-            z < gridHeight;
-            z++
-        )
-        {
-            for (
-                int x = 0;
-                x < gridWidth;
-                x++
-            )
-            {
-                string assetPath =
-                    TerrainCollisionMeshGenerator
-                        .GetCollisionMeshPath(
-                            x,
-                            z
-                        );
-
-                Mesh mesh =
-                    AssetDatabase
-                        .LoadAssetAtPath<Mesh>(
-                            assetPath
-                        );
-
-                if (mesh == null)
-                {
-                    Debug.LogError(
-                        "Cannot synchronize Collision hierarchy.\n\n" +
-
-                        $"Missing collision mesh:\n" +
-                        $"{assetPath}"
-                    );
-
-                    return false;
-                }
-
-                if (
-                    mesh.vertexCount !=
-                    expectedVertexCount
-                )
-                {
-                    Debug.LogError(
-                        "Cannot synchronize Collision hierarchy.\n\n" +
-
-                        $"Chunk ({x}, {z}) has an unexpected " +
-                        "collision vertex count.\n\n" +
-
-                        $"Expected: {expectedVertexCount:N0}\n" +
-                        $"Actual: {mesh.vertexCount:N0}"
-                    );
-
-                    return false;
-                }
-
-                long actualIndexCount =
-                    0L;
-
-                for (
-                    int subMeshIndex = 0;
-                    subMeshIndex < mesh.subMeshCount;
-                    subMeshIndex++
-                )
-                {
-                    actualIndexCount +=
-                        mesh.GetIndexCount(
-                            subMeshIndex
-                        );
-                }
-
-                if (
-                    actualIndexCount !=
-                    expectedIndexCount
-                )
-                {
-                    Debug.LogError(
-                        "Cannot synchronize Collision hierarchy.\n\n" +
-
-                        $"Chunk ({x}, {z}) has an unexpected " +
-                        "collision index count."
-                    );
-
-                    return false;
-                }
-
-                if (
-                    Mathf.Abs(
-                        mesh.bounds.size.x -
-                        chunkSize
-                    )
-                    >
-                    SizeTolerance
-                    ||
-                    Mathf.Abs(
-                        mesh.bounds.size.z -
-                        chunkSize
-                    )
-                    >
-                    SizeTolerance
-                )
-                {
-                    Debug.LogError(
-                        "Cannot synchronize Collision hierarchy.\n\n" +
-
-                        $"Collision mesh ({x}, {z}) does not " +
-                        "match WorldSettings.chunkSize."
-                    );
-
-                    return false;
-                }
-
-                collisionMeshes[
-                    new Vector2Int(
-                        x,
-                        z
-                    )
-                ] =
-                    mesh;
-            }
-        }
-
-        return true;
-    }
-
+    
     // =====================================================
     // VALIDATE CLIPMAP MESHES
     // =====================================================

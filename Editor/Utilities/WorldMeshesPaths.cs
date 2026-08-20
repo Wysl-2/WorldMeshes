@@ -73,6 +73,10 @@ public static class WorldMeshesPaths
         GeneratedBaseMeshes +
         "/TerrainChunk_LOD0.asset";
 
+    public const string CollisionManifestAssetPath =
+        GeneratedCollisionMeshes +
+        "/CollisionManifest.asset";
+
     // =====================================================
     // GENERATED HEIGHTMAPS
     // =====================================================

@@ -1013,124 +1013,127 @@ public class WorldMeshesEditorWindow : EditorWindow
     // =====================================================
 
     private void DrawWorldHierarchySettings()
+{
+    GUILayout.BeginVertical(
+        EditorStyles.helpBox,
+        GUILayout.ExpandWidth(true)
+    );
+
+    GUILayout.Label(
+        "World Hierarchy",
+        EditorStyles.boldLabel
+    );
+
+    if (worldSettings == null)
     {
-        GUILayout.BeginVertical(
-            EditorStyles.helpBox,
-            GUILayout.ExpandWidth(true)
-        );
-
-        GUILayout.Label(
-            "World Hierarchy",
-            EditorStyles.boldLabel
-        );
-
-        if (worldSettings == null)
-        {
-            EditorGUILayout.HelpBox(
-                "Assign or create WorldSettings before " +
-                "creating the world hierarchy.",
-                MessageType.Warning
-            );
-
-            GUILayout.EndVertical();
-
-            return;
-        }
-
-        int totalChunks =
-            worldSettings.gridWidth *
-            worldSettings.gridHeight;
-
-        int clipmapLevelCount =
-            Mathf.Clamp(
-                worldSettings.clipmapLevelCount,
-                1,
-                10
-            );
-
-        int clipmapMeshObjects =
-            1
-            +
-            Mathf.Max(
-                0,
-                clipmapLevelCount - 1
-            )
-            *
-            2;
-
-        EditorGUILayout.LabelField(
-            "World Root",
-            TerrainWorldHierarchyGenerator
-                .WorldRootName
-        );
-
-        EditorGUILayout.LabelField(
-            "World Grid",
-            $"{worldSettings.gridWidth} x " +
-            $"{worldSettings.gridHeight}"
-        );
-
-        EditorGUILayout.LabelField(
-            "Preview Chunks",
-            totalChunks.ToString("N0")
-        );
-
-        EditorGUILayout.LabelField(
-            "Collision Chunks",
-            totalChunks.ToString("N0")
-        );
-
-        EditorGUILayout.LabelField(
-            "Clipmap Levels",
-            clipmapLevelCount.ToString()
-        );
-
-        EditorGUILayout.LabelField(
-            "Clipmap Mesh Objects",
-            clipmapMeshObjects.ToString()
-        );
-
-        GUILayout.Space(8f);
-
         EditorGUILayout.HelpBox(
-            "Synchronizes three independent terrain " +
-            "representations beneath WorldRoot:\n\n" +
-
-            "Preview\n" +
-            "Generated LOD0 terrain chunks used for editor " +
-            "preview and future terrain editing.\n\n" +
-
-            "Collision\n" +
-            "Generated collision chunks containing direct " +
-            "MeshCollider components. Collision chunks remain " +
-            "disabled until required by runtime streaming.\n\n" +
-
-            "Clipmap\n" +
-            "The center, LOD rings, and transition stitch meshes " +
-            "used by the runtime terrain renderer.\n\n" +
-
-            "Legacy Chunk_x_z objects directly beneath WorldRoot " +
-            "are removed automatically.",
-            MessageType.Info
+            "Assign or create WorldSettings before " +
+            "creating the world hierarchy.",
+            MessageType.Warning
         );
-
-        GUILayout.Space(5f);
-
-        if (
-            GUILayout.Button(
-                "Sync World Hierarchy",
-                GUILayout.ExpandWidth(true)
-            )
-        )
-        {
-            TerrainWorldHierarchyGenerator
-                .SyncWorldHierarchy(
-                    worldSettings
-                );
-        }
 
         GUILayout.EndVertical();
+
+        return;
     }
+
+    int totalChunks =
+        worldSettings.gridWidth *
+        worldSettings.gridHeight;
+
+    int clipmapLevelCount =
+        Mathf.Clamp(
+            worldSettings.clipmapLevelCount,
+            1,
+            10
+        );
+
+    int clipmapMeshObjects =
+        1
+        +
+        Mathf.Max(
+            0,
+            clipmapLevelCount - 1
+        )
+        *
+        2;
+
+    EditorGUILayout.LabelField(
+        "World Root",
+        TerrainWorldHierarchyGenerator
+            .WorldRootName
+    );
+
+    EditorGUILayout.LabelField(
+        "World Grid",
+        $"{worldSettings.gridWidth} x " +
+        $"{worldSettings.gridHeight}"
+    );
+
+    EditorGUILayout.LabelField(
+        "Preview Chunks",
+        totalChunks.ToString("N0")
+    );
+
+    EditorGUILayout.LabelField(
+        "Collision Mesh Assets",
+        totalChunks.ToString("N0")
+    );
+
+    EditorGUILayout.LabelField(
+        "Collision Scene Chunks",
+        "0"
+    );
+
+    EditorGUILayout.LabelField(
+        "Clipmap Levels",
+        clipmapLevelCount.ToString()
+    );
+
+    EditorGUILayout.LabelField(
+        "Clipmap Mesh Objects",
+        clipmapMeshObjects.ToString()
+    );
+
+    GUILayout.Space(8f);
+
+    EditorGUILayout.HelpBox(
+        "Synchronizes three terrain representations beneath " +
+        "WorldRoot:\n\n" +
+
+        "Preview\n" +
+        "Generated LOD0 terrain chunks used for editor preview " +
+        "and future terrain editing.\n\n" +
+
+        "Collision\n" +
+        "A TerrainCollisionStreamer on the Collision root loads " +
+        "generated collision Mesh assets through Addressables. " +
+        "No per-chunk collision GameObjects are created by the " +
+        "hierarchy generator.\n\n" +
+
+        "Clipmap\n" +
+        "The center, LOD rings, and transition stitch meshes " +
+        "used by the runtime terrain renderer.",
+        MessageType.Info
+    );
+
+    GUILayout.Space(5f);
+
+    if (
+        GUILayout.Button(
+            "Sync World Hierarchy",
+            GUILayout.ExpandWidth(true)
+        )
+    )
+    {
+        TerrainWorldHierarchyGenerator
+            .SyncWorldHierarchy(
+                worldSettings
+            );
+    }
+
+    GUILayout.EndVertical();
+}
     
     // =====================================================
     // RUNTIME VALIDATION SETTINGS
@@ -2806,14 +2809,7 @@ private void DrawClipmapGenerationSettings()
         GUILayout.EndVertical();
     }
     
-    // =====================================================
-    // COLLISION GENERATION SETTINGS
-    // =====================================================
-
-    // =====================================================
-// COLLISION GENERATION SETTINGS
-// =====================================================
-
+    
 // =====================================================
 // COLLISION GENERATION SETTINGS
 // =====================================================
@@ -3060,40 +3056,231 @@ private void DrawCollisionGenerationSettings()
     }
 
     // =====================================================
-    // PHYSICS VALIDATION
+    // RUNTIME PHYSICS STATUS
     // =====================================================
 
     GUILayout.Space(10f);
 
     EditorGUILayout.HelpBox(
-        "Validates the collision hierarchy and performs " +
-        "actual MeshCollider raycasts against the generated " +
-        "collision meshes.\n\n" +
+        "The previous collision-physics validator depended on " +
+        "one static MeshCollider GameObject for every world " +
+        "chunk.\n\n" +
 
-        "Terrain chunk roots may remain disabled. The " +
-        "validator does not activate or modify them.\n\n" +
+        "Stage A3 deliberately removes that hierarchy so " +
+        "collision Mesh assets can be genuinely streamed at " +
+        "runtime.\n\n" +
 
-        "Physics queries are performed using a temporary " +
-        "hidden MeshCollider which is destroyed when " +
-        "validation finishes.",
+        "Runtime MeshCollider pool validation will be added in " +
+        "Collision Stage B.",
         MessageType.Info
+    );
+
+    // =====================================================
+    // RUNTIME STREAMING PREPARATION
+    // =====================================================
+
+    GUILayout.Space(10f);
+
+    GUILayout.Label(
+        "Runtime Streaming",
+        EditorStyles.boldLabel
+    );
+
+    TerrainGenerationStateUtility.GenerationStatus
+        collisionStatus =
+            TerrainGenerationStateUtility
+                .GetCollisionMeshStatus(
+                    worldSettings
+                );
+
+    bool collisionMeshesCurrent =
+        collisionStatus ==
+        TerrainGenerationStateUtility
+            .GenerationStatus.Current;
+
+    TerrainCollisionManifest collisionManifest =
+        AssetDatabase
+            .LoadAssetAtPath<TerrainCollisionManifest>(
+                WorldMeshesPaths
+                    .CollisionManifestAssetPath
+            );
+
+    bool manifestMatchesCurrentGeneration =
+        collisionManifest != null
+        &&
+        collisionManifest.isComplete
+        &&
+        collisionManifest.gridWidth ==
+            Mathf.Max(
+                1,
+                worldSettings.gridWidth
+            )
+        &&
+        collisionManifest.gridHeight ==
+            Mathf.Max(
+                1,
+                worldSettings.gridHeight
+            )
+        &&
+        collisionManifest.collisionMeshGenerationRevision ==
+            worldSettings
+                .collisionMeshGenerationRevision
+        &&
+        collisionManifest.collisionSourceHeightmapGenerationRevision ==
+            worldSettings
+                .collisionSourceHeightmapGenerationRevision;
+
+    EditorGUILayout.LabelField(
+        "Collision State",
+        TerrainGenerationStateUtility
+            .GetStatusLabel(
+                collisionStatus
+            )
+    );
+
+    EditorGUILayout.LabelField(
+        "Runtime Manifest",
+        collisionManifest == null
+            ? "Not Prepared"
+            : collisionManifest.isComplete
+                ? manifestMatchesCurrentGeneration
+                    ? "Current"
+                    : "Out Of Date"
+                : "Incomplete"
+    );
+
+    int regionSpan =
+        TerrainCollisionAddressablesUtility
+            .CollisionRegionChunkSpan;
+
+    int regionGridWidth =
+        Mathf.CeilToInt(
+            (float)Mathf.Max(
+                1,
+                worldSettings.gridWidth
+            )
+            /
+            regionSpan
+        );
+
+    int regionGridHeight =
+        Mathf.CeilToInt(
+            (float)Mathf.Max(
+                1,
+                worldSettings.gridHeight
+            )
+            /
+            regionSpan
+        );
+
+    EditorGUILayout.LabelField(
+        "Runtime Meshes",
+        (
+            Mathf.Max(
+                1,
+                worldSettings.gridWidth
+            )
+            *
+            Mathf.Max(
+                1,
+                worldSettings.gridHeight
+            )
+        ).ToString("N0")
+    );
+
+    EditorGUILayout.LabelField(
+        "Region Chunk Span",
+        $"{regionSpan} x {regionSpan}"
+    );
+
+    EditorGUILayout.LabelField(
+        "Region Grid",
+        $"{regionGridWidth} x {regionGridHeight}"
+    );
+
+    EditorGUILayout.LabelField(
+        "Expected Regions",
+        (regionGridWidth * regionGridHeight)
+            .ToString("N0")
+    );
+
+    GUILayout.Space(5f);
+
+    EditorGUILayout.HelpBox(
+        "Preparing collision meshes for runtime registers " +
+        "the existing generated Mesh assets with Unity " +
+        "Addressables.\n\n" +
+
+        "Each collision chunk keeps its own deterministic " +
+        "runtime address. Chunks are additionally grouped into " +
+        "8 x 8 packaging regions so the project does not create " +
+        "one Addressables bundle per collision mesh.\n\n" +
+
+        "No collision mesh geometry is regenerated or modified.",
+        MessageType.Info
+    );
+
+    if (!collisionMeshesCurrent)
+    {
+        GUILayout.Space(5f);
+
+        EditorGUILayout.HelpBox(
+            "The generated collision meshes are not current.\n\n" +
+
+            "Generate or regenerate collision meshes before " +
+            "preparing them for runtime streaming.",
+            MessageType.Warning
+        );
+    }
+
+    EditorGUI.BeginDisabledGroup(
+        !collisionMeshesCurrent
     );
 
     if (
         GUILayout.Button(
-            "Validate Collision Physics",
+            "Prepare Collision Meshes For Runtime",
             GUILayout.ExpandWidth(true)
         )
     )
     {
-        TerrainCollisionPhysicsValidator
-            .ValidateCollisionPhysics(
+        TerrainCollisionAddressablesUtility
+            .PrepareCollisionMeshesForRuntime(
                 worldSettings
             );
+
+        Repaint();
     }
+
+    EditorGUI.EndDisabledGroup();
+
+    GUILayout.Space(5f);
+
+    EditorGUILayout.LabelField(
+        "Addressables Group",
+        TerrainCollisionAddressablesUtility
+            .CollisionAddressablesGroupName
+    );
+
+    EditorGUILayout.LabelField(
+        "Address Pattern",
+        TerrainCollisionManifest
+            .CollisionMeshAddressPrefix
+        +
+        "_X_Z"
+    );
+
+    EditorGUILayout.LabelField(
+        "Manifest Path",
+        WorldMeshesPaths
+            .CollisionManifestAssetPath
+    );
 
     GUILayout.EndVertical();
 }
+
+
+
     
     // =====================================================
     // UPDATE COLLISION SETTINGS
