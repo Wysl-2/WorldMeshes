@@ -3026,17 +3026,17 @@ private void DrawCollisionGenerationSettings()
     );
 
     // =====================================================
-    // SEAM VALIDATION
+    // ASSET SEAM VALIDATION
     // =====================================================
 
     GUILayout.Space(10f);
 
     EditorGUILayout.HelpBox(
-        "Validates every shared collision-mesh edge.\n\n" +
+        "Validates every shared generated collision-mesh edge.\n\n" +
 
         "Corresponding boundary vertices are compared " +
-        "between neighboring chunks after accounting for " +
-        "their world-grid positions.\n\n" +
+        "between neighboring chunk Mesh assets before runtime " +
+        "streaming is involved.\n\n" +
 
         "No generated assets are modified.",
         MessageType.Info
@@ -3056,24 +3056,59 @@ private void DrawCollisionGenerationSettings()
     }
 
     // =====================================================
-    // RUNTIME PHYSICS STATUS
+    // RUNTIME PHYSICS VALIDATION
     // =====================================================
 
     GUILayout.Space(10f);
 
+    GUILayout.Label(
+        "Runtime Physics Validation",
+        EditorStyles.boldLabel
+    );
+
     EditorGUILayout.HelpBox(
-        "The previous collision-physics validator depended on " +
-        "one static MeshCollider GameObject for every world " +
-        "chunk.\n\n" +
+        "Validates the collision system that is actually active " +
+        "in Play Mode.\n\n" +
 
-        "Stage A3 deliberately removes that hierarchy so " +
-        "collision Mesh assets can be genuinely streamed at " +
-        "runtime.\n\n" +
+        "The validator checks the resident Addressables window, " +
+        "the fixed MeshCollider pool, per-chunk Mesh assignments, " +
+        "real PhysX raycasts, and every seam between neighboring " +
+        "active collider chunks.\n\n" +
 
-        "Runtime MeshCollider pool validation will be added in " +
-        "Collision Stage B.",
+        "Run it only after collision streaming has finished " +
+        "synchronizing at the current Player chunk.",
         MessageType.Info
     );
+
+    if (!EditorApplication.isPlaying)
+    {
+        GUILayout.Space(5f);
+
+        EditorGUILayout.HelpBox(
+            "Enter Play Mode to validate the streamed runtime " +
+            "collision system.",
+            MessageType.None
+        );
+    }
+
+    EditorGUI.BeginDisabledGroup(
+        !EditorApplication.isPlaying
+    );
+
+    if (
+        GUILayout.Button(
+            "Validate Runtime Collision Physics",
+            GUILayout.ExpandWidth(true)
+        )
+    )
+    {
+        TerrainCollisionPhysicsValidator
+            .ValidateRuntimeCollisionPhysics(
+                worldSettings
+            );
+    }
+
+    EditorGUI.EndDisabledGroup();
 
     // =====================================================
     // RUNTIME STREAMING PREPARATION
@@ -3278,6 +3313,7 @@ private void DrawCollisionGenerationSettings()
 
     GUILayout.EndVertical();
 }
+
 
 
 
