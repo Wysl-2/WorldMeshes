@@ -159,6 +159,34 @@ public class TerrainCollisionColliderPool :
                 desiredActiveCoordinates.Count;
         }
     }
+    
+    public float MaximumSafeSingleFrameMovementDistance
+    {
+        get
+        {
+            if (worldSettings == null)
+            {
+                return 0f;
+            }
+
+            /*
+             * Limiting one controller movement step to at most one
+             * collision-chunk width guarantees that a single frame
+             * cannot skip across more than one chunk boundary on
+             * either horizontal axis.
+             *
+             * CanTargetMoveTo() is the actual safety gate.
+             * This value simply prevents extremely high movement
+             * speeds from repeatedly proposing an impossible
+             * multi-chunk jump and stalling forever.
+             */
+            return
+                Mathf.Max(
+                    0.01f,
+                    worldSettings.chunkSize
+                );
+        }
+    }
 
     // =====================================================
     // SLOT COUNT
@@ -314,6 +342,134 @@ public class TerrainCollisionColliderPool :
 
         return true;
     }
+    
+    public bool CanTargetMoveTo(
+    Vector3 targetWorldPosition
+)
+{
+    /*
+     * Stage C movement safety invariant:
+     *
+     * The Player may not advance the collision streaming center
+     * by more than one terrain chunk beyond the last completely
+     * applied collider window.
+     *
+     * With:
+     *
+     * active radius   = 2
+     * resident radius = 3
+     *
+     * a one-chunk axis OR diagonal move guarantees that every
+     * collider in the old 5 x 5 active window is still contained
+     * by the new 7 x 7 resident window while Addressables loads
+     * and the collider pool catches up.
+     *
+     * This prevents the Player from outrunning collision
+     * residency during asynchronous streaming.
+     */
+
+    if (
+        !Application.isPlaying
+        ||
+        !initialized
+        ||
+        poolFailed
+        ||
+        worldSettings == null
+        ||
+        collisionStreamer == null
+        ||
+        !collisionStreamer.enabled
+        ||
+        !collisionStreamer.IsInitialized
+        ||
+        collisionStreamer.HasFailure
+        ||
+        !collisionStreamer.HasCurrentTargetChunk
+        ||
+        !hasAppliedCenterChunk
+    )
+    {
+        return false;
+    }
+
+    if (
+        !TryCalculateMovementTargetChunk(
+            targetWorldPosition,
+            out Vector2Int targetChunk,
+            out bool targetInsideWorld
+        )
+    )
+    {
+        return false;
+    }
+
+    /*
+     * The streamer's desired/resident center is allowed to be
+     * at most one chunk ahead of the last collider window that
+     * PhysX has completely received.
+     *
+     * A larger difference means some other system moved the
+     * streaming target without respecting this movement gate.
+     */
+    if (
+        GetChunkDistance(
+            collisionStreamer.CurrentTargetChunk,
+            appliedCenterChunk
+        ) > 1
+    )
+    {
+        return false;
+    }
+
+    /*
+     * Never commit a Player move that would make the actual
+     * target more than one chunk ahead of the completely
+     * applied collider center.
+     *
+     * Once the new resident meshes finish loading,
+     * TerrainCollisionColliderPool.LateUpdate() advances
+     * appliedCenterChunk and the next chunk transition becomes
+     * available.
+     */
+    if (
+        GetChunkDistance(
+            targetChunk,
+            appliedCenterChunk
+        ) > 1
+    )
+    {
+        return false;
+    }
+
+    /*
+     * Outside the authoritative world there is intentionally no
+     * terrain collision to require.
+     *
+     * We still enforce the one-chunk streaming-center rule above
+     * so residency/collider lifetime transitions remain orderly
+     * while moving across or back through the world boundary.
+     */
+    if (!targetInsideWorld)
+    {
+        return true;
+    }
+
+    /*
+     * An in-world target must already lie over an active,
+     * enabled MeshCollider.
+     *
+     * Because the active window is a contiguous square and the
+     * Player is already inside the previous safe window, this
+     * also keeps the horizontal movement path on represented
+     * terrain.
+     */
+    return
+        TryGetActiveCollider(
+            targetChunk,
+            out _
+        );
+}
 
     // =====================================================
     // ENABLE
@@ -454,9 +610,27 @@ public class TerrainCollisionColliderPool :
                 activeRadius
             );
 
+        /*
+         * Stage C requires one complete resident preload ring around
+         * the active physics window.
+         *
+         * Example:
+         *
+         * active radius   2 -> 5 x 5 active colliders
+         * resident radius 3 -> 7 x 7 resident meshes
+         *
+         * After a one-chunk axis or diagonal center transition,
+         * every collider belonging to the previous active set still
+         * has its Mesh retained by the new resident set until the
+         * pool completes its atomic reassignment.
+         */
+        int minimumResidentRadius =
+            activeRadius +
+            1;
+
         if (
-            activeRadius >
-            collisionStreamer.ResidentRadius
+            collisionStreamer.ResidentRadius <
+            minimumResidentRadius
         )
         {
             Debug.LogError(
@@ -464,10 +638,16 @@ public class TerrainCollisionColliderPool :
 
                 $"Active Radius: {activeRadius}\n" +
                 $"Resident Radius: " +
-                $"{collisionStreamer.ResidentRadius}\n\n" +
+                $"{collisionStreamer.ResidentRadius}\n" +
+                $"Minimum Safe Resident Radius: " +
+                $"{minimumResidentRadius}\n\n" +
 
-                "The active physics radius cannot be larger than " +
-                "the resident collision-mesh radius.",
+                "Collision Stage C requires at least one complete " +
+                "resident preload ring outside the active physics " +
+                "window.\n\n" +
+
+                "Resident Radius must be at least " +
+                "Active Radius + 1.",
                 this
             );
 
@@ -1149,6 +1329,175 @@ public class TerrainCollisionColliderPool :
                     chunkSize
             );
     }
+    
+    private bool TryCalculateMovementTargetChunk(
+    Vector3 worldPosition,
+    out Vector2Int targetChunk,
+    out bool insideWorld
+)
+{
+    targetChunk =
+        default;
+
+    insideWorld =
+        false;
+
+    if (
+        worldSettings == null
+        ||
+        !IsFinite(
+            worldPosition
+        )
+    )
+    {
+        return false;
+    }
+
+    float chunkSize =
+        Mathf.Max(
+            0.01f,
+            worldSettings.chunkSize
+        );
+
+    int gridWidth =
+        Mathf.Max(
+            1,
+            worldSettings.gridWidth
+        );
+
+    int gridHeight =
+        Mathf.Max(
+            1,
+            worldSettings.gridHeight
+        );
+
+    float worldSizeX =
+        gridWidth *
+        chunkSize;
+
+    float worldSizeZ =
+        gridHeight *
+        chunkSize;
+
+    insideWorld =
+        worldPosition.x >= 0f
+        &&
+        worldPosition.z >= 0f
+        &&
+        worldPosition.x <= worldSizeX
+        &&
+        worldPosition.z <= worldSizeZ;
+
+    int chunkX =
+        Mathf.FloorToInt(
+            worldPosition.x /
+            chunkSize
+        );
+
+    int chunkZ =
+        Mathf.FloorToInt(
+            worldPosition.z /
+            chunkSize
+        );
+
+    /*
+     * Match TerrainCollisionStreamer's maximum-boundary rule.
+     *
+     * A position exactly on the world's maximum X/Z edge belongs
+     * to the final generated terrain chunk rather than a
+     * non-existent chunk one index beyond the world.
+     */
+    if (
+        Mathf.Abs(
+            worldPosition.x -
+            worldSizeX
+        ) <=
+        0.0001f
+    )
+    {
+        chunkX =
+            gridWidth -
+            1;
+    }
+
+    if (
+        Mathf.Abs(
+            worldPosition.z -
+            worldSizeZ
+        ) <=
+        0.0001f
+    )
+    {
+        chunkZ =
+            gridHeight -
+            1;
+    }
+
+    targetChunk =
+        new Vector2Int(
+            chunkX,
+            chunkZ
+        );
+
+    return true;
+}
+
+
+private static int GetChunkDistance(
+    Vector2Int a,
+    Vector2Int b
+)
+{
+    /*
+     * The collision windows are square/Chebyshev windows, so
+     * diagonal adjacency counts as one chunk transition.
+     */
+    return
+        Mathf.Max(
+            Mathf.Abs(
+                a.x -
+                b.x
+            ),
+            Mathf.Abs(
+                a.y -
+                b.y
+            )
+        );
+}
+
+
+private static bool IsFinite(
+    float value
+)
+{
+    return
+        !float.IsNaN(
+            value
+        )
+        &&
+        !float.IsInfinity(
+            value
+        );
+}
+
+
+private static bool IsFinite(
+    Vector3 value
+)
+{
+    return
+        IsFinite(
+            value.x
+        )
+        &&
+        IsFinite(
+            value.y
+        )
+        &&
+        IsFinite(
+            value.z
+        );
+}
 
     // =====================================================
     // ASSIGNMENT ORDER
