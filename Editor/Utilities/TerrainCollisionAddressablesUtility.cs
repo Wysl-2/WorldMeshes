@@ -324,6 +324,66 @@ public static class TerrainCollisionAddressablesUtility
 
             return false;
         }
+        
+        // =====================================================
+        // COLLISION BAKE MARKER PREFABS
+        // =====================================================
+
+        if (
+            !TerrainCollisionBakeMarkerUtility
+                .GenerateOrUpdateBakeMarkers(
+                    worldSettings,
+
+                    out List<
+                        TerrainCollisionBakeMarkerUtility
+                        .BakeMarkerRecord
+                    > bakeMarkerRecords
+                )
+        )
+        {
+            Debug.LogError(
+                "Could not generate collision bake " +
+                "marker prefabs."
+            );
+
+            return false;
+        }
+
+        /*
+         * Marker prefabs are also managed entries in the same
+         * Addressables group.
+         *
+         * Their MeshCollider -> Mesh references make the intended
+         * collision usage visible to Unity's build pipeline.
+         */
+        foreach (
+            TerrainCollisionBakeMarkerUtility
+                .BakeMarkerRecord markerRecord
+            in bakeMarkerRecords
+        )
+        {
+            if (
+                !expectedGuids.Add(
+                    markerRecord.guid
+                )
+            )
+            {
+                Debug.LogError(
+                    "Collision bake marker GUID collides with " +
+                    "another managed Addressables asset.\n\n" +
+
+                    $"Marker:\n{markerRecord.assetPath}\n\n" +
+
+                    $"GUID: {markerRecord.guid}"
+                );
+
+                return false;
+            }
+
+            expectedRegionLabels.Add(
+                markerRecord.regionLabel
+            );
+        }
 
         // =====================================================
         // MANIFEST — MARK INCOMPLETE BEFORE MUTATION
@@ -654,6 +714,175 @@ public static class TerrainCollisionAddressablesUtility
 
             return false;
         }
+        
+        // =====================================================
+        // CREATE / UPDATE BAKE MARKER ENTRIES
+        // =====================================================
+
+        int currentMarker =
+            0;
+
+        cancelled =
+            false;
+
+        try
+        {
+            foreach (
+                TerrainCollisionBakeMarkerUtility
+                    .BakeMarkerRecord markerRecord
+                in bakeMarkerRecords
+            )
+            {
+                cancelled =
+                    EditorUtility
+                        .DisplayCancelableProgressBar(
+                            "Preparing Collision Addressables",
+
+                            "Registering collision bake markers\n\n" +
+
+                            $"Region " +
+                            $"({markerRecord.regionX}, " +
+                            $"{markerRecord.regionZ})\n" +
+
+                            $"{currentMarker + 1} / " +
+                            $"{bakeMarkerRecords.Count}",
+
+                            bakeMarkerRecords.Count > 0
+                                ?
+                                (float)currentMarker /
+                                bakeMarkerRecords.Count
+                                :
+                                1f
+                        );
+
+                if (cancelled)
+                {
+                    break;
+                }
+
+                // -----------------------------------------
+                // Entry
+                // -----------------------------------------
+
+                AddressableAssetEntry existingEntry =
+                    settings.FindAssetEntry(
+                        markerRecord.guid
+                    );
+
+                bool needsMove =
+                    existingEntry == null
+                    ||
+                    existingEntry.parentGroup !=
+                        group;
+
+                AddressableAssetEntry entry =
+                    settings.CreateOrMoveEntry(
+                        markerRecord.guid,
+                        group,
+                        false,
+                        true
+                    );
+
+                if (entry == null)
+                {
+                    Debug.LogError(
+                        "Could not create Addressables entry " +
+                        "for collision bake marker:\n" +
+                        markerRecord.assetPath
+                    );
+
+                    return false;
+                }
+
+                if (needsMove)
+                {
+                    createdOrMovedCount++;
+                }
+
+                // -----------------------------------------
+                // Deterministic address
+                // -----------------------------------------
+
+                if (
+                    entry.address !=
+                    markerRecord.address
+                )
+                {
+                    entry.SetAddress(
+                        markerRecord.address,
+                        true
+                    );
+
+                    addressUpdatedCount++;
+                }
+
+                // -----------------------------------------
+                // Exactly one region label
+                // -----------------------------------------
+
+                bool labelsAlreadyCorrect =
+                    entry.labels.Count == 1
+                    &&
+                    entry.labels.Contains(
+                        markerRecord.regionLabel
+                    );
+
+                if (!labelsAlreadyCorrect)
+                {
+                    List<string> existingLabels =
+                        new List<string>(
+                            entry.labels
+                        );
+
+                    foreach (
+                        string existingLabel
+                        in existingLabels
+                    )
+                    {
+                        entry.SetLabel(
+                            existingLabel,
+                            false,
+                            false,
+                            true
+                        );
+                    }
+
+                    entry.SetLabel(
+                        markerRecord.regionLabel,
+                        true,
+                        false,
+                        true
+                    );
+
+                    labelUpdatedCount++;
+                }
+
+                currentMarker++;
+            }
+        }
+        finally
+        {
+            EditorUtility.ClearProgressBar();
+        }
+
+        if (cancelled)
+        {
+            EditorUtility.SetDirty(
+                settings
+            );
+
+            AssetDatabase.SaveAssets();
+
+            Debug.LogWarning(
+                "Preparing collision meshes for runtime was " +
+                "cancelled while registering collision bake " +
+                "markers.\n\n" +
+
+                "CollisionManifest remains incomplete."
+            );
+
+            return false;
+        }
 
         // =====================================================
         // REMOVE OBSOLETE ENTRIES FROM MANAGED GROUP
@@ -811,6 +1040,9 @@ public static class TerrainCollisionAddressablesUtility
 
             $"Collision Meshes: " +
             $"{expectedMeshCount:N0}\n\n" +
+            
+            $"Collision Bake Marker Prefabs: " +
+            $"{bakeMarkerRecords.Count:N0}\n\n" +
 
             $"Region Chunk Span: " +
             $"{CollisionRegionChunkSpan} x " +

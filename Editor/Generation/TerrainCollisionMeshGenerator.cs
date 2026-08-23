@@ -1063,7 +1063,7 @@ public static class TerrainCollisionMeshGenerator
         try
         {
             Physics.BakeMesh(
-                mesh.GetEntityId(),
+                mesh.GetInstanceID(),
                 TerrainCollisionPhysicsSettings.Convex,
                 TerrainCollisionPhysicsSettings.CookingOptions
             );

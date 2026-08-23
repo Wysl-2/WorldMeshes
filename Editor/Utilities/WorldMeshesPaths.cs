@@ -68,6 +68,9 @@ public static class WorldMeshesPaths
 
     public const string GeneratedCollisionMeshes =
         GeneratedMeshes + "/Collision";
+    
+    public const string GeneratedCollisionBakeMarkers =
+        GeneratedCollisionMeshes + "/BakeMarkers";
 
     public const string BaseMeshAssetPath =
         GeneratedBaseMeshes +

@@ -1220,7 +1220,7 @@ public class TerrainCollisionStreamer :
             !handle.IsValid()
             ||
             handle.Status !=
-                AsyncOperationStatus.Succeeded
+            AsyncOperationStatus.Succeeded
             ||
             handle.Result == null
         )
@@ -1241,39 +1241,71 @@ public class TerrainCollisionStreamer :
             handle.Result;
 
         // ---------------------------------------------
-        // Address -> coordinate sanity check
+        // TEMPORARY DIAGNOSTIC
+        // Pre-bake the ACTUAL Addressables Mesh instance
         // ---------------------------------------------
 
-        string expectedMeshName =
-            GetExpectedCollisionMeshName(
-                coordinate
-            );
-
-        if (
-            loadedMesh.name !=
-            expectedMeshName
-        )
+        if (!loadedMesh.isReadable)
         {
-            FailStreaming(
-                "Loaded collision mesh does not match the " +
-                "requested coordinate.\n\n" +
-
-                $"Chunk: ({coordinate.x}, {coordinate.y})\n" +
-                $"Address: {resident.address}\n" +
-                $"Expected Mesh: {expectedMeshName}\n" +
-                $"Loaded Mesh: {loadedMesh.name}",
-
-                newlyRequestedCoordinates
+            Debug.LogError(
+                $"Collision Mesh is not readable:\n" +
+                $"{loadedMesh.name}"
             );
 
             yield break;
         }
 
+        Physics.BakeMesh(
+            loadedMesh.GetInstanceID(),
+            TerrainCollisionPhysicsSettings.Convex,
+            TerrainCollisionPhysicsSettings.CookingOptions
+        );
+
         resident.mesh =
             loadedMesh;
 
         loadedCount++;
+        
+        //     Mesh loadedMesh =
+        //         handle.Result;
+        //
+        //     // ---------------------------------------------
+        //     // Address -> coordinate sanity check
+        //     // ---------------------------------------------
+        //
+        //     string expectedMeshName =
+        //         GetExpectedCollisionMeshName(
+        //             coordinate
+        //         );
+        //
+        //     if (
+        //         loadedMesh.name !=
+        //         expectedMeshName
+        //     )
+        //     {
+        //         FailStreaming(
+        //             "Loaded collision mesh does not match the " +
+        //             "requested coordinate.\n\n" +
+        //
+        //             $"Chunk: ({coordinate.x}, {coordinate.y})\n" +
+        //             $"Address: {resident.address}\n" +
+        //             $"Expected Mesh: {expectedMeshName}\n" +
+        //             $"Loaded Mesh: {loadedMesh.name}",
+        //
+        //             newlyRequestedCoordinates
+        //         );
+        //
+        //         yield break;
+        //     }
+        //
+        //     resident.mesh =
+        //         loadedMesh;
+        //
+        //     loadedCount++;
+        // }
     }
+
+
 
     // =================================================
     // COMMIT COMPLETED RESIDENCY PASS

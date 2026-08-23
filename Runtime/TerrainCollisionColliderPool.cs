@@ -1254,12 +1254,28 @@ public class TerrainCollisionColliderPool :
             slot.meshCollider.sharedMesh =
                 null;
 
+            slot.meshCollider.convex =
+                TerrainCollisionPhysicsSettings
+                    .Convex;
+
+            slot.meshCollider.isTrigger =
+                false;
+
+            slot.meshCollider.cookingOptions =
+                TerrainCollisionPhysicsSettings
+                    .CookingOptions;
+
             slot.meshCollider.sharedMesh =
                 mesh;
         }
 
         slot.meshCollider.convex =
-            false;
+            TerrainCollisionPhysicsSettings
+                .Convex;
+
+        slot.meshCollider.cookingOptions =
+            TerrainCollisionPhysicsSettings
+                .CookingOptions;
 
         slot.meshCollider.isTrigger =
             false;
