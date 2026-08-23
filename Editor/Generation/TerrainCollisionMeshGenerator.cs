@@ -667,344 +667,421 @@ public static class TerrainCollisionMeshGenerator
     // =====================================================
 
     private static bool GenerateOrUpdateCollisionMesh(
-        int chunkX,
-        int chunkZ,
+    int chunkX,
+    int chunkZ,
 
-        int localChunkX,
-        int localChunkZ,
+    int localChunkX,
+    int localChunkZ,
 
-        float chunkSize,
+    float chunkSize,
 
-        int lod0Resolution,
-        int collisionResolution,
+    int lod0Resolution,
+    int collisionResolution,
 
-        int heightSampleStep,
-        float collisionVertexSpacing,
+    int heightSampleStep,
+    float collisionVertexSpacing,
 
-        int heightSamplesPerTile,
-        NativeArray<float> heightData
+    int heightSamplesPerTile,
+    NativeArray<float> heightData
+)
+{
+    int verticesPerSide =
+        collisionResolution + 1;
+
+    int vertexCount =
+        verticesPerSide *
+        verticesPerSide;
+
+    int triangleIndexCount =
+        collisionResolution *
+        collisionResolution *
+        6;
+
+    Vector3[] vertices =
+        new Vector3[
+            vertexCount
+        ];
+
+    int[] triangles =
+        new int[
+            triangleIndexCount
+        ];
+
+    // -------------------------------------------------
+    // Source heightmap region
+    // -------------------------------------------------
+
+    int sourceStartX =
+        localChunkX *
+        lod0Resolution;
+
+    int sourceStartZ =
+        localChunkZ *
+        lod0Resolution;
+
+    // -------------------------------------------------
+    // Vertices
+    // -------------------------------------------------
+
+    for (
+        int z = 0;
+        z <= collisionResolution;
+        z++
     )
     {
-        int verticesPerSide =
-            collisionResolution + 1;
-
-        int vertexCount =
-            verticesPerSide *
-            verticesPerSide;
-
-        int triangleIndexCount =
-            collisionResolution *
-            collisionResolution *
-            6;
-
-        Vector3[] vertices =
-            new Vector3[
-                vertexCount
-            ];
-
-        int[] triangles =
-            new int[
-                triangleIndexCount
-            ];
-
-        // -------------------------------------------------
-        // Source heightmap region
-        // -------------------------------------------------
-
-        int sourceStartX =
-            localChunkX *
-            lod0Resolution;
-
-        int sourceStartZ =
-            localChunkZ *
-            lod0Resolution;
-
-        // -------------------------------------------------
-        // Vertices
-        // -------------------------------------------------
+        int sourceZ =
+            sourceStartZ +
+            z *
+            heightSampleStep;
 
         for (
-            int z = 0;
-            z <= collisionResolution;
-            z++
+            int x = 0;
+            x <= collisionResolution;
+            x++
         )
         {
-            int sourceZ =
-                sourceStartZ +
-                z *
+            int sourceX =
+                sourceStartX +
+                x *
                 heightSampleStep;
 
-            for (
-                int x = 0;
-                x <= collisionResolution;
-                x++
+            if (
+                sourceX < 0 ||
+                sourceX >= heightSamplesPerTile ||
+                sourceZ < 0 ||
+                sourceZ >= heightSamplesPerTile
             )
             {
-                int sourceX =
-                    sourceStartX +
-                    x *
-                    heightSampleStep;
+                Debug.LogError(
+                    "Collision mesh attempted to read " +
+                    "outside the heightmap tile.\n\n" +
 
-                if (
-                    sourceX < 0 ||
-                    sourceX >= heightSamplesPerTile ||
-                    sourceZ < 0 ||
-                    sourceZ >= heightSamplesPerTile
-                )
-                {
-                    Debug.LogError(
-                        "Collision mesh attempted to read " +
-                        "outside the heightmap tile.\n\n" +
-
-                        $"Chunk: ({chunkX}, {chunkZ})\n" +
-                        $"Source Sample: " +
-                        $"({sourceX}, {sourceZ})"
-                    );
-
-                    return false;
-                }
-
-                int sourceIndex =
-                    sourceZ *
-                    heightSamplesPerTile +
-                    sourceX;
-
-                float height =
-                    heightData[
-                        sourceIndex
-                    ];
-
-                if (
-                    float.IsNaN(height) ||
-                    float.IsInfinity(height)
-                )
-                {
-                    Debug.LogError(
-                        "Invalid height value encountered " +
-                        "while generating collision mesh.\n\n" +
-
-                        $"Chunk: ({chunkX}, {chunkZ})\n" +
-                        $"Source Sample: " +
-                        $"({sourceX}, {sourceZ})"
-                    );
-
-                    return false;
-                }
-
-                int vertexIndex =
-                    z *
-                    verticesPerSide +
-                    x;
-
-                vertices[
-                    vertexIndex
-                ] =
-                    new Vector3(
-                        x *
-                        collisionVertexSpacing,
-
-                        height,
-
-                        z *
-                        collisionVertexSpacing
-                    );
-            }
-        }
-
-        // -------------------------------------------------
-        // Triangles
-        // -------------------------------------------------
-
-        int triangleIndex =
-            0;
-
-        for (
-            int z = 0;
-            z < collisionResolution;
-            z++
-        )
-        {
-            for (
-                int x = 0;
-                x < collisionResolution;
-                x++
-            )
-            {
-                int bottomLeft =
-                    z *
-                    verticesPerSide +
-                    x;
-
-                int bottomRight =
-                    bottomLeft +
-                    1;
-
-                int topLeft =
-                    bottomLeft +
-                    verticesPerSide;
-
-                int topRight =
-                    topLeft +
-                    1;
-
-                /*
-                 * Counter-clockwise when viewed from above.
-                 */
-
-                triangles[
-                    triangleIndex++
-                ] =
-                    bottomLeft;
-
-                triangles[
-                    triangleIndex++
-                ] =
-                    topLeft;
-
-                triangles[
-                    triangleIndex++
-                ] =
-                    bottomRight;
-
-                triangles[
-                    triangleIndex++
-                ] =
-                    bottomRight;
-
-                triangles[
-                    triangleIndex++
-                ] =
-                    topLeft;
-
-                triangles[
-                    triangleIndex++
-                ] =
-                    topRight;
-            }
-        }
-
-        // -------------------------------------------------
-        // Mesh asset
-        // -------------------------------------------------
-
-        string assetPath =
-            GetCollisionMeshPath(
-                chunkX,
-                chunkZ
-            );
-
-        Mesh mesh =
-            AssetDatabase
-                .LoadAssetAtPath<Mesh>(
-                    assetPath
+                    $"Chunk: ({chunkX}, {chunkZ})\n" +
+                    $"Source Sample: " +
+                    $"({sourceX}, {sourceZ})"
                 );
 
-        bool isNew =
-            mesh == null;
+                return false;
+            }
+
+            int sourceIndex =
+                sourceZ *
+                heightSamplesPerTile +
+                sourceX;
+
+            float height =
+                heightData[
+                    sourceIndex
+                ];
+
+            if (
+                float.IsNaN(height) ||
+                float.IsInfinity(height)
+            )
+            {
+                Debug.LogError(
+                    "Invalid height value encountered " +
+                    "while generating collision mesh.\n\n" +
+
+                    $"Chunk: ({chunkX}, {chunkZ})\n" +
+                    $"Source Sample: " +
+                    $"({sourceX}, {sourceZ})"
+                );
+
+                return false;
+            }
+
+            int vertexIndex =
+                z *
+                verticesPerSide +
+                x;
+
+            vertices[
+                vertexIndex
+            ] =
+                new Vector3(
+                    x *
+                        collisionVertexSpacing,
+
+                    height,
+
+                    z *
+                        collisionVertexSpacing
+                );
+        }
+    }
+
+    // -------------------------------------------------
+    // Triangles
+    // -------------------------------------------------
+
+    int triangleIndex =
+        0;
+
+    for (
+        int z = 0;
+        z < collisionResolution;
+        z++
+    )
+    {
+        for (
+            int x = 0;
+            x < collisionResolution;
+            x++
+        )
+        {
+            int bottomLeft =
+                z *
+                verticesPerSide +
+                x;
+
+            int bottomRight =
+                bottomLeft +
+                1;
+
+            int topLeft =
+                bottomLeft +
+                verticesPerSide;
+
+            int topRight =
+                topLeft +
+                1;
+
+            /*
+             * Counter-clockwise when viewed from above.
+             */
+
+            triangles[
+                triangleIndex++
+            ] =
+                bottomLeft;
+
+            triangles[
+                triangleIndex++
+            ] =
+                topLeft;
+
+            triangles[
+                triangleIndex++
+            ] =
+                bottomRight;
+
+            triangles[
+                triangleIndex++
+            ] =
+                bottomRight;
+
+            triangles[
+                triangleIndex++
+            ] =
+                topLeft;
+
+            triangles[
+                triangleIndex++
+            ] =
+                topRight;
+        }
+    }
+
+    // -------------------------------------------------
+    // Mesh asset
+    // -------------------------------------------------
+
+    string assetPath =
+        GetCollisionMeshPath(
+            chunkX,
+            chunkZ
+        );
+
+    Mesh mesh =
+        AssetDatabase
+            .LoadAssetAtPath<Mesh>(
+                assetPath
+            );
+
+    bool isNew =
+        mesh == null;
+
+    if (isNew)
+    {
+        mesh =
+            new Mesh();
+    }
+    else
+    {
+        /*
+         * Update the existing asset in place so its
+         * GUID and Addressables references are preserved.
+         *
+         * Clearing/modifying the geometry also invalidates
+         * any previous physics bake. A new bake is performed
+         * below after the replacement geometry is complete.
+         */
+        mesh.Clear(
+            false
+        );
+    }
+
+    mesh.name =
+        GetCollisionMeshName(
+            chunkX,
+            chunkZ
+        );
+
+    mesh.indexFormat =
+        vertexCount > 65535
+            ? IndexFormat.UInt32
+            : IndexFormat.UInt16;
+
+    mesh.vertices =
+        vertices;
+
+    mesh.triangles =
+        triangles;
+
+    mesh.RecalculateBounds();
+
+    // -------------------------------------------------
+    // Verify horizontal dimensions
+    // -------------------------------------------------
+
+    float boundsTolerance =
+        Mathf.Max(
+            0.001f,
+            chunkSize *
+                0.00001f
+        );
+
+    if (
+        Mathf.Abs(
+            mesh.bounds.size.x -
+            chunkSize
+        ) >
+        boundsTolerance
+        ||
+        Mathf.Abs(
+            mesh.bounds.size.z -
+            chunkSize
+        ) >
+        boundsTolerance
+    )
+    {
+        Debug.LogError(
+            "Generated collision mesh has incorrect " +
+            "horizontal bounds.\n\n" +
+
+            $"Chunk: ({chunkX}, {chunkZ})\n" +
+
+            $"Expected X/Z Size: " +
+            $"{chunkSize}\n" +
+
+            $"Actual Size: " +
+            $"{mesh.bounds.size}"
+        );
 
         if (isNew)
         {
-            mesh =
-                new Mesh();
-        }
-        else
-        {
-            /*
-             * Update the existing asset in place so its
-             * GUID and references are preserved.
-             */
-            mesh.Clear(
-                false
+            Object.DestroyImmediate(
+                mesh
             );
         }
 
-        mesh.name =
-            GetCollisionMeshName(
-                chunkX,
-                chunkZ
-            );
+        return false;
+    }
 
-        mesh.indexFormat =
-            vertexCount > 65535
-                ? IndexFormat.UInt32
-                : IndexFormat.UInt16;
+    // -------------------------------------------------
+    // Make Mesh persistent before physics baking
+    // -------------------------------------------------
 
-        mesh.vertices =
-            vertices;
+    if (isNew)
+    {
+        AssetDatabase.CreateAsset(
+            mesh,
+            assetPath
+        );
+    }
 
-        mesh.triangles =
-            triangles;
+    // -------------------------------------------------
+    // Pre-bake PhysX collision data
+    // -------------------------------------------------
 
-        mesh.RecalculateBounds();
-
-        // -------------------------------------------------
-        // Verify horizontal dimensions
-        // -------------------------------------------------
-
-        float boundsTolerance =
-            Mathf.Max(
-                0.001f,
-                chunkSize *
-                0.00001f
-            );
-
-        if (
-            Mathf.Abs(
-                mesh.bounds.size.x -
-                chunkSize
-            ) >
-            boundsTolerance
-            ||
-            Mathf.Abs(
-                mesh.bounds.size.z -
-                chunkSize
-            ) >
-            boundsTolerance
+    if (
+        !BakeCollisionMesh(
+            mesh,
+            chunkX,
+            chunkZ
         )
+    )
+    {
+        /*
+         * A newly created asset should not be left behind
+         * as though generation succeeded if its physics
+         * data could not be baked.
+         */
+        if (isNew)
+        {
+            AssetDatabase.DeleteAsset(
+                assetPath
+            );
+        }
+
+        return false;
+    }
+
+    // -------------------------------------------------
+    // Save geometry + baked physics data
+    // -------------------------------------------------
+
+    EditorUtility.SetDirty(
+        mesh
+    );
+
+    AssetDatabase.SaveAssetIfDirty(
+        mesh
+    );
+
+    return true;
+}
+    
+    private static bool BakeCollisionMesh(
+        Mesh mesh,
+        int chunkX,
+        int chunkZ
+    )
+    {
+        if (mesh == null)
         {
             Debug.LogError(
-                "Generated collision mesh has incorrect " +
-                "horizontal bounds.\n\n" +
-
+                "Cannot bake collision mesh physics data.\n\n" +
                 $"Chunk: ({chunkX}, {chunkZ})\n" +
-
-                $"Expected X/Z Size: " +
-                $"{chunkSize}\n" +
-
-                $"Actual Size: " +
-                $"{mesh.bounds.size}"
+                "Mesh is null."
             );
-
-            if (isNew)
-            {
-                Object.DestroyImmediate(
-                    mesh
-                );
-            }
 
             return false;
         }
 
-        // -------------------------------------------------
-        // Save
-        // -------------------------------------------------
-
-        if (isNew)
+        try
         {
-            AssetDatabase.CreateAsset(
-                mesh,
-                assetPath
+            Physics.BakeMesh(
+                mesh.GetEntityId(),
+                TerrainCollisionPhysicsSettings.Convex,
+                TerrainCollisionPhysicsSettings.CookingOptions
             );
         }
-        else
+        catch (
+            System.Exception exception
+        )
         {
-            EditorUtility.SetDirty(
-                mesh
+            Debug.LogError(
+                "Failed to pre-bake collision mesh physics data.\n\n" +
+
+                $"Chunk: ({chunkX}, {chunkZ})\n" +
+                $"Mesh: {mesh.name}\n\n" +
+
+                exception.Message
             );
 
-            AssetDatabase.SaveAssetIfDirty(
-                mesh
-            );
+            return false;
         }
 
         return true;

@@ -39,5 +39,5 @@ MonoBehaviour:
   appliedChunkMeshGenerationRevision: 1
   appliedHeightmapGenerationRevision: 1
   lastGeneratedCollisionSignature: 5507cbe9a8b0b0c7ac52b57c6d5f7235228bf8525e67580e77c344e3dfef8dd9
-  collisionMeshGenerationRevision: 1
+  collisionMeshGenerationRevision: 2
   collisionSourceHeightmapGenerationRevision: 1

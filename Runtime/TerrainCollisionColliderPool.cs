@@ -1190,10 +1190,21 @@ public class TerrainCollisionColliderPool :
             Vector3.one;
 
         slot.meshCollider.convex =
-            false;
+            TerrainCollisionPhysicsSettings.Convex;
 
         slot.meshCollider.isTrigger =
             false;
+
+        /*
+         * Must exactly match the options used by
+         * Physics.BakeMesh() during editor generation.
+         *
+         * Set this before assigning sharedMesh so Unity can
+         * reuse the pre-baked PhysX representation.
+         */
+        slot.meshCollider.cookingOptions =
+            TerrainCollisionPhysicsSettings
+                .CookingOptions;
 
         slot.meshCollider.sharedMesh =
             mesh;
@@ -1323,10 +1334,14 @@ public class TerrainCollisionColliderPool :
         )
         {
             slot.meshCollider.convex =
-                false;
+                TerrainCollisionPhysicsSettings.Convex;
 
             slot.meshCollider.isTrigger =
                 false;
+
+            slot.meshCollider.cookingOptions =
+                TerrainCollisionPhysicsSettings
+                    .CookingOptions;
         }
     }
 
