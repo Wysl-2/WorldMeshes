@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.ResourceManagement.AsyncOperations;
+using Unity.Profiling;
 
 [DisallowMultipleComponent]
 public class TerrainCollisionStreamer :
@@ -99,6 +100,23 @@ public class TerrainCollisionStreamer :
     private bool hasCurrentTargetChunk;
 
     private Vector2Int currentTargetChunk;
+    
+    // =====================================================
+    // PROFILER MARKERS
+    // =====================================================
+    
+    private static readonly ProfilerMarker
+        BeginResidencySyncProfilerMarker =
+            new ProfilerMarker(
+                "WorldMeshes.Collision.Residency.Begin"
+            );
+
+    private static readonly ProfilerMarker
+        CommitResidencySyncProfilerMarker =
+            new ProfilerMarker(
+                "WorldMeshes.Collision.Residency.Commit"
+            );
+
 
     // =====================================================
     // PUBLIC RUNTIME STATE
@@ -954,19 +972,34 @@ public class TerrainCollisionStreamer :
             streamingFailed
             ||
             synchronizationRoutine !=
-                null
+            null
             ||
             IsDesiredSetSatisfied()
         )
         {
             return;
         }
+        
+        Debug.Log(
+            $"[Collision Profiler] RESIDENCY BEGIN | " +
+            $"Frame {Time.frameCount} | " +
+            $"Target Chunk " +
+            $"({currentTargetChunk.x}, {currentTargetChunk.y})",
+            this
+        );
 
-        synchronizationRoutine =
-            StartCoroutine(
-                SynchronizeResidencyRoutine()
-            );
+
+        using (
+            BeginResidencySyncProfilerMarker.Auto()
+        )
+        {
+            synchronizationRoutine =
+                StartCoroutine(
+                    SynchronizeResidencyRoutine()
+                );
+        }
     }
+
 
     // =====================================================
     // IS DESIRED SET SATISFIED
@@ -1023,229 +1056,241 @@ public class TerrainCollisionStreamer :
     // =====================================================
 
     private IEnumerator SynchronizeResidencyRoutine()
-    {
-        /*
-         * Snapshot the desired set for this synchronization.
-         *
-         * The Player may move again while Addressables are still
-         * loading. In that case desiredResidentCoordinates changes,
-         * but this snapshot remains stable until all requests begun
-         * by this pass have completed.
-         */
-        HashSet<Vector2Int> requestedCoordinates =
-            new HashSet<Vector2Int>(
-                desiredResidentCoordinates
-            );
-
-        List<Vector2Int> enteringCoordinates =
-            new List<Vector2Int>();
-
-        List<Vector2Int> newlyRequestedCoordinates =
-            new List<Vector2Int>();
-
-        int retainedCount =
-            0;
-
-        int loadedCount =
-            0;
-
-        // =================================================
-        // RETAINED / ENTERING
-        // =================================================
-
-        foreach (
-            Vector2Int coordinate
-            in requestedCoordinates
-        )
-        {
-            if (
-                TryKeepExistingTrackedRequest(
-                    coordinate
-                )
-            )
-            {
-                retainedCount++;
-
-                continue;
-            }
-
-            enteringCoordinates.Add(
-                coordinate
-            );
-        }
-
-        /*
-         * Deterministic ordering makes logs/debugging easier.
-         * All loads are still started before we wait for any one
-         * of them, so Addressables can make progress concurrently.
-         */
-        enteringCoordinates.Sort(
-            CompareCoordinatesForLoadOrder
+{
+    /*
+     * Snapshot the desired set for this synchronization.
+     *
+     * The Player may move again while Addressables are still
+     * loading. In that case desiredResidentCoordinates changes,
+     * but this snapshot remains stable until all requests begun
+     * by this pass have completed.
+     */
+    HashSet<Vector2Int> requestedCoordinates =
+        new HashSet<Vector2Int>(
+            desiredResidentCoordinates
         );
 
-        // =================================================
-        // BEGIN ALL ENTERING LOADS
-        // =================================================
+    List<Vector2Int> enteringCoordinates =
+        new List<Vector2Int>();
 
-        foreach (
-            Vector2Int coordinate
-            in enteringCoordinates
+    List<Vector2Int> newlyRequestedCoordinates =
+        new List<Vector2Int>();
+
+    int retainedCount =
+        0;
+
+    int loadedCount =
+        0;
+
+    // =================================================
+    // RETAINED / ENTERING
+    // =================================================
+
+    foreach (
+        Vector2Int coordinate
+        in requestedCoordinates
+    )
+    {
+        if (
+            TryKeepExistingTrackedRequest(
+                coordinate
+            )
         )
         {
-            string address =
-                collisionManifest
-                    .GetCollisionMeshAddress(
-                        coordinate.x,
-                        coordinate.y
+            retainedCount++;
+
+            continue;
+        }
+
+        enteringCoordinates.Add(
+            coordinate
+        );
+    }
+
+    /*
+     * Deterministic ordering makes logs/debugging easier.
+     * All loads are still started before we wait for any one
+     * of them, so Addressables can make progress concurrently.
+     */
+    enteringCoordinates.Sort(
+        CompareCoordinatesForLoadOrder
+    );
+
+    // =================================================
+    // BEGIN ALL ENTERING LOADS
+    // =================================================
+
+    foreach (
+        Vector2Int coordinate
+        in enteringCoordinates
+    )
+    {
+        string address =
+            collisionManifest
+                .GetCollisionMeshAddress(
+                    coordinate.x,
+                    coordinate.y
+                );
+
+        AsyncOperationHandle<Mesh> handle;
+
+        try
+        {
+            handle =
+                Addressables
+                    .LoadAssetAsync<Mesh>(
+                        address
                     );
+        }
+        catch (
+            System.Exception exception
+        )
+        {
+            FailStreaming(
+                "Failed to begin loading Addressable " +
+                "collision mesh.\n\n" +
 
-            AsyncOperationHandle<Mesh> handle;
+                $"Chunk: ({coordinate.x}, {coordinate.y})\n" +
+                $"Address: {address}\n\n" +
 
-            try
-            {
-                handle =
-                    Addressables
-                        .LoadAssetAsync<Mesh>(
-                            address
-                        );
-            }
-            catch (
-                System.Exception exception
+                exception.Message,
+
+                newlyRequestedCoordinates
+            );
+
+            yield break;
+        }
+
+        ResidentCollisionMesh resident =
+            new ResidentCollisionMesh(
+                coordinate,
+                address,
+                handle
+            );
+
+        trackedMeshes[
+            coordinate
+        ] =
+            resident;
+
+        newlyRequestedCoordinates.Add(
+            coordinate
+        );
+    }
+
+    // =================================================
+    // COMPLETE ENTERING LOADS
+    // =================================================
+
+    foreach (
+        Vector2Int coordinate
+        in newlyRequestedCoordinates
+    )
+    {
+        if (
+            !trackedMeshes.TryGetValue(
+                coordinate,
+                out ResidentCollisionMesh resident
             )
-            {
-                FailStreaming(
-                    "Failed to begin loading Addressable " +
-                    "collision mesh.\n\n" +
+            ||
+            resident == null
+        )
+        {
+            FailStreaming(
+                "A newly requested collision mesh was not " +
+                "present in the residency table.\n\n" +
 
-                    $"Chunk: ({coordinate.x}, {coordinate.y})\n" +
-                    $"Address: {address}\n\n" +
+                $"Chunk: ({coordinate.x}, {coordinate.y})",
 
-                    exception.Message,
+                newlyRequestedCoordinates
+            );
 
-                    newlyRequestedCoordinates
-                );
+            yield break;
+        }
 
-                yield break;
-            }
+        AsyncOperationHandle<Mesh> handle =
+            resident.handle;
 
-            ResidentCollisionMesh resident =
-                new ResidentCollisionMesh(
-                    coordinate,
-                    address,
-                    handle
-                );
+        if (!handle.IsDone)
+        {
+            yield return handle;
+        }
 
-            trackedMeshes[
-                coordinate
-            ] =
-                resident;
+        if (
+            !handle.IsValid()
+            ||
+            handle.Status !=
+                AsyncOperationStatus.Succeeded
+            ||
+            handle.Result == null
+        )
+        {
+            FailStreaming(
+                "Failed to load Addressable collision mesh.\n\n" +
 
-            newlyRequestedCoordinates.Add(
+                $"Chunk: ({coordinate.x}, {coordinate.y})\n" +
+                $"Address: {resident.address}",
+
+                newlyRequestedCoordinates
+            );
+
+            yield break;
+        }
+
+        Mesh loadedMesh =
+            handle.Result;
+
+        // ---------------------------------------------
+        // Address -> coordinate sanity check
+        // ---------------------------------------------
+
+        string expectedMeshName =
+            GetExpectedCollisionMeshName(
                 coordinate
             );
-        }
 
-        // =================================================
-        // COMPLETE ENTERING LOADS
-        // =================================================
-
-        foreach (
-            Vector2Int coordinate
-            in newlyRequestedCoordinates
+        if (
+            loadedMesh.name !=
+            expectedMeshName
         )
         {
-            if (
-                !trackedMeshes.TryGetValue(
-                    coordinate,
-                    out ResidentCollisionMesh resident
-                )
-                ||
-                resident == null
-            )
-            {
-                FailStreaming(
-                    "A newly requested collision mesh was not " +
-                    "present in the residency table.\n\n" +
+            FailStreaming(
+                "Loaded collision mesh does not match the " +
+                "requested coordinate.\n\n" +
 
-                    $"Chunk: ({coordinate.x}, {coordinate.y})",
+                $"Chunk: ({coordinate.x}, {coordinate.y})\n" +
+                $"Address: {resident.address}\n" +
+                $"Expected Mesh: {expectedMeshName}\n" +
+                $"Loaded Mesh: {loadedMesh.name}",
 
-                    newlyRequestedCoordinates
-                );
+                newlyRequestedCoordinates
+            );
 
-                yield break;
-            }
-
-            AsyncOperationHandle<Mesh> handle =
-                resident.handle;
-
-            if (!handle.IsDone)
-            {
-                yield return handle;
-            }
-
-            if (
-                !handle.IsValid()
-                ||
-                handle.Status !=
-                    AsyncOperationStatus.Succeeded
-                ||
-                handle.Result == null
-            )
-            {
-                FailStreaming(
-                    "Failed to load Addressable collision mesh.\n\n" +
-
-                    $"Chunk: ({coordinate.x}, {coordinate.y})\n" +
-                    $"Address: {resident.address}",
-
-                    newlyRequestedCoordinates
-                );
-
-                yield break;
-            }
-
-            Mesh loadedMesh =
-                handle.Result;
-
-            // ---------------------------------------------
-            // Address -> coordinate sanity check
-            // ---------------------------------------------
-
-            string expectedMeshName =
-                GetExpectedCollisionMeshName(
-                    coordinate
-                );
-
-            if (
-                loadedMesh.name !=
-                expectedMeshName
-            )
-            {
-                FailStreaming(
-                    "Loaded collision mesh does not match the " +
-                    "requested coordinate.\n\n" +
-
-                    $"Chunk: ({coordinate.x}, {coordinate.y})\n" +
-                    $"Address: {resident.address}\n" +
-                    $"Expected Mesh: {expectedMeshName}\n" +
-                    $"Loaded Mesh: {loadedMesh.name}",
-
-                    newlyRequestedCoordinates
-                );
-
-                yield break;
-            }
-
-            resident.mesh =
-                loadedMesh;
-
-            loadedCount++;
+            yield break;
         }
 
-        // =================================================
-        // RELEASE STALE RESIDENTS
-        // =================================================
+        resident.mesh =
+            loadedMesh;
 
+        loadedCount++;
+    }
+
+    // =================================================
+    // COMMIT COMPLETED RESIDENCY PASS
+    // =================================================
+    
+    Debug.Log(
+        $"[Collision Profiler] RESIDENCY COMMIT | " +
+        $"Frame {Time.frameCount} | " +
+        $"Target Chunk " +
+        $"({currentTargetChunk.x}, {currentTargetChunk.y})",
+        this
+    );
+
+    using (
+        CommitResidencySyncProfilerMarker.Auto()
+    )
+    {
         /*
          * Use the LATEST desired set here, not the snapshot.
          *
@@ -1255,10 +1300,6 @@ public class TerrainCollisionStreamer :
          */
         int releasedCount =
             ReleaseTrackedMeshesNotDesired();
-
-        // =================================================
-        // COMPLETE
-        // =================================================
 
         synchronizationRoutine =
             null;
@@ -1271,15 +1312,16 @@ public class TerrainCollisionStreamer :
                 releasedCount
             );
         }
-
-        /*
-         * Do not start another coroutine recursively.
-         *
-         * Update() will observe any meshes still missing from the
-         * latest desired set and start the next pass on the next
-         * frame.
-         */
     }
+
+    /*
+     * Do not start another coroutine recursively.
+     *
+     * Update() will observe any meshes still missing from the
+     * latest desired set and start the next pass on the next
+     * frame.
+     */
+}
 
     // =====================================================
     // KEEP EXISTING TRACKED REQUEST

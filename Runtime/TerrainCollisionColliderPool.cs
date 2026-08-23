@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Unity.Profiling;
 using UnityEngine;
 
 [DisallowMultipleComponent]
@@ -82,7 +83,17 @@ public class TerrainCollisionColliderPool :
     private bool hasAppliedCenterChunk;
 
     private Vector2Int appliedCenterChunk;
-
+    
+    // =====================================================
+    // PROFILER MARKERS
+    // =====================================================
+    
+    private static readonly ProfilerMarker
+        ApplyActiveSetProfilerMarker =
+            new ProfilerMarker(
+                "WorldMeshes.Collision.ApplyActiveSet"
+            );
+    
     // =====================================================
     // PUBLIC STATE
     // =====================================================
@@ -893,7 +904,19 @@ public class TerrainCollisionColliderPool :
     // =====================================================
 
     private void ApplyDesiredActiveSet(
-        Vector2Int targetChunk
+    Vector2Int targetChunk
+)
+{
+    
+    Debug.Log(
+        $"[Collision Profiler] APPLY ACTIVE SET | " +
+        $"Frame {Time.frameCount} | " +
+        $"Target Chunk ({targetChunk.x}, {targetChunk.y})",
+        this
+    );
+    
+    using (
+        ApplyActiveSetProfilerMarker.Auto()
     )
     {
         List<ColliderSlot> freeSlots =
@@ -1137,6 +1160,7 @@ public class TerrainCollisionColliderPool :
             );
         }
     }
+}
 
     // =====================================================
     // ASSIGN SLOT
