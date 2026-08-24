@@ -12,11 +12,27 @@ Shader "Custom/ClipmapTerrain"
             Color
         ) = (1, 1, 1, 1)
 
+        
         [MainTexture]
         _BaseMap(
             "Base Map",
             2D
         ) = "white" {}
+
+        _BaseMapWorldSize(
+            "Base Map World Size",
+            Float
+        ) = 8
+
+        _Metallic(
+            "Metallic",
+            Range(0, 1)
+        ) = 0
+
+        _Smoothness(
+            "Smoothness",
+            Range(0, 1)
+        ) = 0.15
 
         // =================================================
         // HEIGHT CACHE
@@ -115,9 +131,23 @@ Shader "Custom/ClipmapTerrain"
             #pragma target 3.5
             #pragma require 2darray
 
+            // ---------------------------------------------
+            // URP lighting variants
+            // ---------------------------------------------
+
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS_VERTEX _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
+            #pragma multi_compile_fragment _ _REFLECTION_PROBE_BLENDING
+            #pragma multi_compile_fragment _ _REFLECTION_PROBE_BOX_PROJECTION
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile_fragment _ _SCREEN_SPACE_OCCLUSION
+            #pragma multi_compile_fragment _ _LIGHT_COOKIES
+            #pragma multi_compile _ _FORWARD_PLUS
+            #pragma multi_compile_fog
+
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
-            #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/AmbientProbe.hlsl"
 
             // =================================================
             // VERTEX INPUT
@@ -126,7 +156,6 @@ Shader "Custom/ClipmapTerrain"
             struct Attributes
             {
                 float4 positionOS : POSITION;
-                float2 uv : TEXCOORD0;
 
                 /*
                  * Generated clipmap-specific vertex data.
@@ -144,21 +173,25 @@ Shader "Custom/ClipmapTerrain"
             // =================================================
             // VERTEX OUTPUT
             // =================================================
-
+            
             struct Varyings
             {
                 float4 positionHCS :
                     SV_POSITION;
 
-                float2 uv :
+                float3 positionWS :
                     TEXCOORD0;
 
-                float3 positionWS :
+                float3 normalWS :
                     TEXCOORD1;
 
-                float3 normalWS :
+                half3 vertexLighting :
                     TEXCOORD2;
+
+                half fogFactor :
+                    TEXCOORD3;
             };
+
 
             // =================================================
             // SURFACE TEXTURE
@@ -193,10 +226,24 @@ Shader "Custom/ClipmapTerrain"
                 float4 _BaseMap_ST;
 
                 /*
+                 * World-space XZ size covered by one complete
+                 * repetition of _BaseMap.
+                 */
+                float _BaseMapWorldSize;
+
+                /*
+                 * Standard metallic-workflow surface properties
+                 * used by URP's PBR lighting.
+                 */
+                half _Metallic;
+                half _Smoothness;
+
+                /*
                  * xy =
                  * absolute tile coordinate represented by
                  * cache-local tile (0, 0).
                  */
+            
                 float4 _HeightCacheOriginTile;
 
                 /*
@@ -697,10 +744,19 @@ Shader "Custom/ClipmapTerrain"
                         positionWS
                     );
 
-                OUT.uv =
-                    TRANSFORM_TEX(
-                        IN.uv,
-                        _BaseMap
+                /*
+                 * Support URP's optional per-vertex additional
+                 * light mode and standard fog.
+                 */
+                OUT.vertexLighting =
+                    VertexLighting(
+                        positionWS,
+                        normalWS
+                    );
+
+                OUT.fogFactor =
+                    ComputeFogFactor(
+                        OUT.positionHCS.z
                     );
 
                 return OUT;
@@ -745,6 +801,40 @@ Shader "Custom/ClipmapTerrain"
                 }
 
                 // ---------------------------------------------
+                // World-space surface UV
+                // ---------------------------------------------
+
+                float baseMapWorldSize =
+                    max(
+                        _BaseMapWorldSize,
+                        0.0001
+                    );
+
+                /*
+                 * Project the texture across the terrain using
+                 * final world-space XZ position.
+                 *
+                 * Because this is based on world position rather
+                 * than mesh UVs, center/ring/stitch boundaries
+                 * all sample the same texture coordinates.
+                 */
+                float2 baseMapUV =
+                    IN.positionWS.xz
+                    /
+                    baseMapWorldSize;
+
+                /*
+                 * Preserve the Material's standard Base Map
+                 * Tiling and Offset controls.
+                 */
+                baseMapUV =
+                    baseMapUV
+                    *
+                    _BaseMap_ST.xy
+                    +
+                    _BaseMap_ST.zw;
+
+                // ---------------------------------------------
                 // Surface colour
                 // ---------------------------------------------
 
@@ -752,7 +842,7 @@ Shader "Custom/ClipmapTerrain"
                     SAMPLE_TEXTURE2D(
                         _BaseMap,
                         sampler_BaseMap,
-                        IN.uv
+                        baseMapUV
                     )
                     *
                     _BaseColor;
@@ -766,27 +856,114 @@ Shader "Custom/ClipmapTerrain"
                         IN.normalWS
                     );
 
-                // ---------------------------------------------
-                // Main realtime light
-                // ---------------------------------------------
+                // =================================================
+                // URP PBR SURFACE DATA
+                // =================================================
 
-                Light mainLight =
-                    GetMainLight();
+                SurfaceData surfaceData =
+                    (SurfaceData)0;
 
-                half3 directLighting =
-                    LightingLambert(
-                        mainLight.color,
-                        mainLight.direction,
-                        normalWS
-                    )
-                    *
-                    mainLight.distanceAttenuation;
+                surfaceData.albedo =
+                    surfaceColor.rgb;
 
-                // ---------------------------------------------
-                // Ambient / probe lighting
-                // ---------------------------------------------
+                /*
+                 * WorldMeshes currently uses the metallic
+                 * workflow. Natural terrain should normally keep
+                 * Metallic at 0.
+                 */
+                surfaceData.metallic =
+                    saturate(
+                        _Metallic
+                    );
 
-                half3 ambientLighting =
+                surfaceData.specular =
+                    half3(
+                        0.0,
+                        0.0,
+                        0.0
+                    );
+
+                surfaceData.smoothness =
+                    saturate(
+                        _Smoothness
+                    );
+
+                /*
+                 * No tangent-space normal map is used yet.
+                 *
+                 * The actual world-space terrain normal is supplied
+                 * through InputData.normalWS below.
+                 */
+                surfaceData.normalTS =
+                    half3(
+                        0.0,
+                        0.0,
+                        1.0
+                    );
+
+                surfaceData.emission =
+                    half3(
+                        0.0,
+                        0.0,
+                        0.0
+                    );
+
+                surfaceData.occlusion =
+                    1.0;
+
+                surfaceData.alpha =
+                    surfaceColor.a;
+
+                surfaceData.clearCoatMask =
+                    0.0;
+
+                surfaceData.clearCoatSmoothness =
+                    0.0;
+
+                // =================================================
+                // URP LIGHTING INPUT
+                // =================================================
+
+                InputData inputData =
+                    (InputData)0;
+
+                inputData.positionWS =
+                    IN.positionWS;
+
+                inputData.positionCS =
+                    IN.positionHCS;
+
+                inputData.normalWS =
+                    normalWS;
+
+                inputData.viewDirectionWS =
+                    GetWorldSpaceNormalizeViewDir(
+                        IN.positionWS
+                    );
+
+                /*
+                 * Allows the terrain to receive main-light
+                 * realtime shadows when the corresponding URP
+                 * shadow variant is active.
+                 */
+                inputData.shadowCoord =
+                    TransformWorldToShadowCoord(
+                        IN.positionWS
+                    );
+
+                inputData.fogCoord =
+                    IN.fogFactor;
+
+                inputData.vertexLighting =
+                    IN.vertexLighting;
+
+                /*
+                 * Environment / probe lighting.
+                 *
+                 * This replaces the previous hand-written ambient
+                 * term and feeds URP's normal GI/PBR path.
+                 */
+                inputData.bakedGI =
                     max(
                         SampleSH(
                             normalWS
@@ -798,21 +975,41 @@ Shader "Custom/ClipmapTerrain"
                         )
                     );
 
-                // ---------------------------------------------
-                // Final lighting
-                // ---------------------------------------------
+                inputData.normalizedScreenSpaceUV =
+                    GetNormalizedScreenSpaceUV(
+                        IN.positionHCS
+                    );
 
-                half3 lighting =
-                    directLighting
-                    +
-                    ambientLighting;
+                /*
+                 * There is currently no baked shadow-mask texture
+                 * on the clipmap geometry, so use the fully-visible
+                 * default.
+                 */
+                inputData.shadowMask =
+                    half4(
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    );
 
-                return half4(
-                    surfaceColor.rgb *
-                        lighting,
+                // =================================================
+                // URP PBR LIGHTING
+                // =================================================
 
-                    surfaceColor.a
-                );
+                half4 color =
+                    UniversalFragmentPBR(
+                        inputData,
+                        surfaceData
+                    );
+
+                color.rgb =
+                    MixFog(
+                        color.rgb,
+                        inputData.fogCoord
+                    );
+
+                return color;
             }
 
             ENDHLSL

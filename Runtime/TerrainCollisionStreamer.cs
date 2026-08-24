@@ -1237,73 +1237,73 @@ public class TerrainCollisionStreamer :
             yield break;
         }
 
+        // Mesh loadedMesh =
+        //     handle.Result;
+        //
+        // // ---------------------------------------------
+        // // TEMPORARY DIAGNOSTIC
+        // // Pre-bake the ACTUAL Addressables Mesh instance
+        // // ---------------------------------------------
+        //
+        // if (!loadedMesh.isReadable)
+        // {
+        //     Debug.LogError(
+        //         $"Collision Mesh is not readable:\n" +
+        //         $"{loadedMesh.name}"
+        //     );
+        //
+        //     yield break;
+        // }
+        //
+        // Physics.BakeMesh(
+        //     loadedMesh.GetInstanceID(),
+        //     TerrainCollisionPhysicsSettings.Convex,
+        //     TerrainCollisionPhysicsSettings.CookingOptions
+        // );
+        //
+        // resident.mesh =
+        //     loadedMesh;
+        //
+        // loadedCount++;
+        
         Mesh loadedMesh =
             handle.Result;
-
+    
         // ---------------------------------------------
-        // TEMPORARY DIAGNOSTIC
-        // Pre-bake the ACTUAL Addressables Mesh instance
+        // Address -> coordinate sanity check
         // ---------------------------------------------
-
-        if (!loadedMesh.isReadable)
-        {
-            Debug.LogError(
-                $"Collision Mesh is not readable:\n" +
-                $"{loadedMesh.name}"
+    
+        string expectedMeshName =
+            GetExpectedCollisionMeshName(
+                coordinate
             );
-
+    
+        if (
+            loadedMesh.name !=
+            expectedMeshName
+        )
+        {
+            FailStreaming(
+                "Loaded collision mesh does not match the " +
+                "requested coordinate.\n\n" +
+    
+                $"Chunk: ({coordinate.x}, {coordinate.y})\n" +
+                $"Address: {resident.address}\n" +
+                $"Expected Mesh: {expectedMeshName}\n" +
+                $"Loaded Mesh: {loadedMesh.name}",
+    
+                newlyRequestedCoordinates
+            );
+    
             yield break;
         }
-
-        Physics.BakeMesh(
-            loadedMesh.GetInstanceID(),
-            TerrainCollisionPhysicsSettings.Convex,
-            TerrainCollisionPhysicsSettings.CookingOptions
-        );
-
+    
         resident.mesh =
             loadedMesh;
-
+    
         loadedCount++;
-        
-        //     Mesh loadedMesh =
-        //         handle.Result;
-        //
-        //     // ---------------------------------------------
-        //     // Address -> coordinate sanity check
-        //     // ---------------------------------------------
-        //
-        //     string expectedMeshName =
-        //         GetExpectedCollisionMeshName(
-        //             coordinate
-        //         );
-        //
-        //     if (
-        //         loadedMesh.name !=
-        //         expectedMeshName
-        //     )
-        //     {
-        //         FailStreaming(
-        //             "Loaded collision mesh does not match the " +
-        //             "requested coordinate.\n\n" +
-        //
-        //             $"Chunk: ({coordinate.x}, {coordinate.y})\n" +
-        //             $"Address: {resident.address}\n" +
-        //             $"Expected Mesh: {expectedMeshName}\n" +
-        //             $"Loaded Mesh: {loadedMesh.name}",
-        //
-        //             newlyRequestedCoordinates
-        //         );
-        //
-        //         yield break;
-        //     }
-        //
-        //     resident.mesh =
-        //         loadedMesh;
-        //
-        //     loadedCount++;
-        // }
     }
+    
 
 
 
