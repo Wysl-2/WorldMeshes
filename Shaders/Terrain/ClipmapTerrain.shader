@@ -8,21 +8,58 @@ Shader "Custom/ClipmapTerrain"
 
         [MainColor]
         _BaseColor(
-            "Base Color",
+            "Ground Color",
             Color
         ) = (1, 1, 1, 1)
 
-        
         [MainTexture]
         _BaseMap(
-            "Base Map",
+            "Ground Map",
             2D
         ) = "white" {}
 
         _BaseMapWorldSize(
-            "Base Map World Size",
+            "Ground World Size",
             Float
         ) = 8
+
+        // =================================================
+        // SLOPE / ROCK
+        // =================================================
+
+        _SlopeColor(
+            "Rock Color",
+            Color
+        ) = (1, 1, 1, 1)
+
+        _SlopeMap(
+            "Rock Map",
+            2D
+        ) = "white" {}
+
+        _SlopeMapWorldSize(
+            "Rock World Size",
+            Float
+        ) = 6
+
+        _SlopeBlendStart(
+            "Rock Blend Start",
+            Range(0, 1)
+        ) = 0.2
+
+        _SlopeBlendEnd(
+            "Rock Blend End",
+            Range(0, 1)
+        ) = 0.5
+
+        _SlopeTriplanarSharpness(
+            "Rock Triplanar Sharpness",
+            Range(1, 16)
+        ) = 4
+
+        // =================================================
+        // PBR
+        // =================================================
 
         _Metallic(
             "Metallic",
@@ -205,6 +242,14 @@ Shader "Custom/ClipmapTerrain"
                 sampler_BaseMap
             );
 
+            TEXTURE2D(
+                _SlopeMap
+            );
+
+            SAMPLER(
+                sampler_SlopeMap
+            );
+
             // =================================================
             // HEIGHT CACHE
             // =================================================
@@ -227,9 +272,36 @@ Shader "Custom/ClipmapTerrain"
 
                 /*
                  * World-space XZ size covered by one complete
-                 * repetition of _BaseMap.
+                 * repetition of the ground texture.
                  */
                 float _BaseMapWorldSize;
+
+                half4 _SlopeColor;
+
+                float4 _SlopeMap_ST;
+
+                /*
+                 * World-space size covered by one complete
+                 * repetition of the rock texture.
+                 */
+                float _SlopeMapWorldSize;
+
+                /*
+                 * Slope amount is derived as:
+                 *
+                 *     1 - normalWS.y
+                 *
+                 * 0 = flat/upward-facing
+                 * 1 = vertical
+                 */
+                float _SlopeBlendStart;
+                float _SlopeBlendEnd;
+
+                /*
+                 * Controls how strongly the triplanar sampler
+                 * favors the projection facing the surface.
+                 */
+                float _SlopeTriplanarSharpness;
 
                 /*
                  * Standard metallic-workflow surface properties
@@ -644,6 +716,126 @@ Shader "Custom/ClipmapTerrain"
             }
 
             // =================================================
+            // SAMPLE ROCK TEXTURE - TRIPLANAR
+            // =================================================
+
+            half4 SampleSlopeTriplanar(
+                float3 positionWS,
+                half3 normalWS
+            )
+            {
+                float worldSize =
+                    max(
+                        _SlopeMapWorldSize,
+                        0.0001
+                    );
+
+                /*
+                 * Weight each projection by the absolute
+                 * world-space surface normal.
+                 *
+                 * X-facing surfaces use the YZ projection.
+                 * Y-facing surfaces use the XZ projection.
+                 * Z-facing surfaces use the XY projection.
+                 */
+                float3 weights =
+                    pow(
+                        abs(
+                            (float3)normalWS
+                        ),
+                        max(
+                            _SlopeTriplanarSharpness,
+                            1.0
+                        )
+                    );
+
+                weights /=
+                    max(
+                        weights.x
+                        +
+                        weights.y
+                        +
+                        weights.z,
+                        0.0001
+                    );
+
+                float2 uvX =
+                    positionWS.zy
+                    /
+                    worldSize;
+
+                float2 uvY =
+                    positionWS.xz
+                    /
+                    worldSize;
+
+                float2 uvZ =
+                    positionWS.xy
+                    /
+                    worldSize;
+
+                /*
+                 * Preserve the rock texture's normal Material
+                 * Tiling and Offset controls on all projections.
+                 */
+                uvX =
+                    uvX
+                    *
+                    _SlopeMap_ST.xy
+                    +
+                    _SlopeMap_ST.zw;
+
+                uvY =
+                    uvY
+                    *
+                    _SlopeMap_ST.xy
+                    +
+                    _SlopeMap_ST.zw;
+
+                uvZ =
+                    uvZ
+                    *
+                    _SlopeMap_ST.xy
+                    +
+                    _SlopeMap_ST.zw;
+
+                half4 sampleX =
+                    SAMPLE_TEXTURE2D(
+                        _SlopeMap,
+                        sampler_SlopeMap,
+                        uvX
+                    );
+
+                half4 sampleY =
+                    SAMPLE_TEXTURE2D(
+                        _SlopeMap,
+                        sampler_SlopeMap,
+                        uvY
+                    );
+
+                half4 sampleZ =
+                    SAMPLE_TEXTURE2D(
+                        _SlopeMap,
+                        sampler_SlopeMap,
+                        uvZ
+                    );
+
+                return
+                    (
+                        sampleX *
+                            weights.x
+                        +
+                        sampleY *
+                            weights.y
+                        +
+                        sampleZ *
+                            weights.z
+                    )
+                    *
+                    _SlopeColor;
+            }
+
+            // =================================================
             // VERTEX SHADER
             // =================================================
 
@@ -801,7 +993,16 @@ Shader "Custom/ClipmapTerrain"
                 }
 
                 // ---------------------------------------------
-                // World-space surface UV
+                // Terrain normal
+                // ---------------------------------------------
+
+                half3 normalWS =
+                    normalize(
+                        IN.normalWS
+                    );
+
+                // ---------------------------------------------
+                // Ground texture - world-space XZ
                 // ---------------------------------------------
 
                 float baseMapWorldSize =
@@ -811,22 +1012,15 @@ Shader "Custom/ClipmapTerrain"
                     );
 
                 /*
-                 * Project the texture across the terrain using
-                 * final world-space XZ position.
-                 *
-                 * Because this is based on world position rather
-                 * than mesh UVs, center/ring/stitch boundaries
-                 * all sample the same texture coordinates.
+                 * The ground texture uses world-space XZ
+                 * projection so it remains seamless across all
+                 * clipmap center/ring/stitch meshes.
                  */
                 float2 baseMapUV =
                     IN.positionWS.xz
                     /
                     baseMapWorldSize;
 
-                /*
-                 * Preserve the Material's standard Base Map
-                 * Tiling and Offset controls.
-                 */
                 baseMapUV =
                     baseMapUV
                     *
@@ -834,11 +1028,7 @@ Shader "Custom/ClipmapTerrain"
                     +
                     _BaseMap_ST.zw;
 
-                // ---------------------------------------------
-                // Surface colour
-                // ---------------------------------------------
-
-                half4 surfaceColor =
+                half4 groundColor =
                     SAMPLE_TEXTURE2D(
                         _BaseMap,
                         sampler_BaseMap,
@@ -848,12 +1038,70 @@ Shader "Custom/ClipmapTerrain"
                     _BaseColor;
 
                 // ---------------------------------------------
-                // Terrain normal
+                // Rock texture - world-space triplanar
                 // ---------------------------------------------
 
-                half3 normalWS =
-                    normalize(
-                        IN.normalWS
+                half4 rockColor =
+                    SampleSlopeTriplanar(
+                        IN.positionWS,
+                        normalWS
+                    );
+
+                // ---------------------------------------------
+                // Slope blend
+                // ---------------------------------------------
+
+                /*
+                 * For a heightfield:
+                 *
+                 * normalWS.y ~= 1 on flat ground
+                 * normalWS.y ~= 0 on a vertical slope
+                 */
+                float slopeAmount =
+                    1.0
+                    -
+                    saturate(
+                        normalWS.y
+                    );
+
+                /*
+                 * Permit the two material values to be entered
+                 * in either order without creating an invalid
+                 * smoothstep range.
+                 */
+                float blendStart =
+                    min(
+                        _SlopeBlendStart,
+                        _SlopeBlendEnd
+                    );
+
+                float blendEnd =
+                    max(
+                        max(
+                            _SlopeBlendStart,
+                            _SlopeBlendEnd
+                        ),
+                        blendStart
+                        +
+                        0.0001
+                    );
+
+                float rockBlend =
+                    smoothstep(
+                        blendStart,
+                        blendEnd,
+                        slopeAmount
+                    );
+
+                // ---------------------------------------------
+                // Final surface colour
+                // ---------------------------------------------
+
+                half4 surfaceColor =
+                    lerp(
+                        groundColor,
+                        rockColor,
+                        rockBlend
                     );
 
                 // =================================================
