@@ -1,10 +1,21 @@
- 
 # ============================================================
 # WorldMeshes - generated terrain data
 # ============================================================
 
 # Everything below Generated/ can be recreated by the tool.
 Generated/
+
+
+# ============================================================
+# WorldMeshes - authoring height tiles
+# ============================================================
+
+# Committed authoring height tiles can be regenerated/recreated
+# by the terrain authoring tools and should not be stored in Git.
+#
+# This ignores the contents of the Tiles folder while allowing
+# Unity's Authoring/Height/Tiles.meta file to remain tracked.
+Authoring/Height/Tiles/
 
 
 # ============================================================
