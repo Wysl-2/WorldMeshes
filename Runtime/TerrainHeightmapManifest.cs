@@ -7,26 +7,46 @@ public class TerrainHeightmapManifest :
     // ADDRESSABLES
     // =====================================================
 
-    /*
-     * Runtime Addressables prefix used for generated
-     * heightmap tiles.
-     *
-     * Example:
-     *
-     * TerrainHeight/HeightTile_3_5
-     */
     public const string HeightTileAddressPrefix =
         "TerrainHeight/HeightTile";
 
     // =====================================================
-    // GENERATION STATE
+    // GENERATED OUTPUT STATE
     // =====================================================
 
     public bool isComplete =
         false;
 
+    /*
+     * Legacy field retained while older terrain-generation
+     * utilities and validators still exist in the project.
+     */
     public int generatorVersion =
         1;
+
+    /*
+     * Version of the authoring -> runtime compilation logic.
+     */
+    public int compilerVersion =
+        0;
+
+    // =====================================================
+    // AUTHORING SOURCE
+    // =====================================================
+
+    public int sourceAuthoringRevision =
+        0;
+
+    public string sourceAuthoringSignature =
+        "";
+
+    /*
+     * Hash of the committed source tile assets used by the
+     * successful compilation. This is primarily diagnostic
+     * and provides a precise record of compiled source data.
+     */
+    public string sourceAuthoringContentHash =
+        "";
 
     // =====================================================
     // WORLD
@@ -59,8 +79,15 @@ public class TerrainHeightmapManifest :
     public int heightTileSamplesPerSide;
 
     // =====================================================
-    // NOISE SETTINGS
+    // LEGACY PROCEDURAL SETTINGS
     // =====================================================
+
+    /*
+     * These remain temporarily because the existing
+     * TerrainHeightmapValidator still compares them against
+     * WorldSettings. They are no longer the source of the
+     * runtime terrain once TerrainRuntimeHeightCompiler is used.
+     */
 
     public int heightSeed;
 
@@ -80,17 +107,6 @@ public class TerrainHeightmapManifest :
     // DERIVED RUNTIME VALUES
     // =====================================================
 
-    /*
-     * Number of actual height intervals in one tile.
-     *
-     * Example:
-     *
-     * 257 samples
-     * =
-     * 256 intervals
-     *
-     * Neighboring tiles share their boundary sample.
-     */
     public int HeightTileIntervalsPerSide
     {
         get
@@ -103,17 +119,6 @@ public class TerrainHeightmapManifest :
         }
     }
 
-    /*
-     * World-space distance between adjacent samples in
-     * the generated heightfield.
-     *
-     * Example:
-     *
-     * Chunk Size = 128
-     * LOD0 Resolution = 128
-     *
-     * Sample Spacing = 1 metre.
-     */
     public float HeightSampleSpacing
     {
         get
@@ -131,13 +136,6 @@ public class TerrainHeightmapManifest :
         }
     }
 
-    /*
-     * Exact playable/renderable world dimensions implied
-     * by the chunk grid.
-     *
-     * Height tiles may extend beyond these values when
-     * the final tile is only partially used.
-     */
     public float WorldSizeX
     {
         get
@@ -184,16 +182,6 @@ public class TerrainHeightmapManifest :
         }
     }
 
-    /*
-     * Maximum valid global height-sample coordinate for
-     * the actual world.
-     *
-     * Because the sample grid includes both ends:
-     *
-     * 128 metres at 1 metre spacing
-     *
-     * samples 0 ... 128
-     */
     public int WorldMaxSampleX
     {
         get
@@ -273,13 +261,6 @@ public class TerrainHeightmapManifest :
     // WORLD POSITION -> TILE
     // =====================================================
 
-    /*
-     * Converts a world-space X/Z point into the height
-     * tile containing that point.
-     *
-     * This method does not clamp positions outside the
-     * world. It returns false instead.
-     */
     public bool TryGetHeightTileCoordinate(
         Vector2 worldPositionXZ,
         out Vector2Int tileCoordinate
@@ -318,11 +299,6 @@ public class TerrainHeightmapManifest :
                     heightTileWorldSize
                 )
             );
-
-        /*
-         * A point exactly on the maximum world edge can
-         * otherwise calculate one tile beyond the grid.
-         */
 
         tileX =
             Mathf.Clamp(

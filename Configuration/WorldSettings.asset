@@ -34,8 +34,8 @@ MonoBehaviour:
   lastSyncedLOD0Resolution: 128
   lastSyncedBaseMeshHash: b0b87379942a69937a5b5be3a79926c3
   chunkMeshGenerationRevision: 1
-  lastGeneratedHeightSignature: e209716b7061b4a6fec273467e35cb890e22efee65255ead4b42fddfab26b030
-  heightmapGenerationRevision: 1
+  lastGeneratedHeightSignature: ed5ba86ee24df874af836ec9ec5ddf4e697f31cb823558a37e92796beaa0cbac
+  heightmapGenerationRevision: 4
   appliedChunkMeshGenerationRevision: 1
   appliedHeightmapGenerationRevision: 1
   lastGeneratedCollisionSignature: 5507cbe9a8b0b0c7ac52b57c6d5f7235228bf8525e67580e77c344e3dfef8dd9

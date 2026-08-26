@@ -4,6 +4,7 @@ using UnityEditor.AddressableAssets;
 using UnityEditor.AddressableAssets.Settings;
 using UnityEditor.AddressableAssets.Settings.GroupSchemas;
 using UnityEngine;
+using UnityEditor.AddressableAssets.Build;
 
 public static class TerrainHeightmapAddressablesUtility
 {
@@ -563,6 +564,147 @@ public static class TerrainHeightmapAddressablesUtility
 
             $"Address Pattern:\n" +
             $"{TerrainHeightmapManifest.HeightTileAddressPrefix}_X_Z"
+        );
+
+        return true;
+    }
+    
+    // =====================================================
+    // PREPARE + BUILD
+    // =====================================================
+
+    public static bool PrepareAndBuildHeightmapTilesForRuntime()
+    {
+        TerrainHeightmapManifest manifest =
+            AssetDatabase
+                .LoadAssetAtPath<TerrainHeightmapManifest>(
+                    HeightmapManifestPath
+                );
+
+        if (manifest == null)
+        {
+            Debug.LogError(
+                "Cannot prepare and build heightmap Addressables.\n\n" +
+                "Heightmap manifest does not exist:\n" +
+                HeightmapManifestPath
+            );
+
+            return false;
+        }
+
+        // -------------------------------------------------
+        // First make sure the Addressables group and entries
+        // point at the latest generated heightmap assets.
+        // -------------------------------------------------
+
+        if (
+            !PrepareHeightmapTilesForRuntime(
+                manifest
+            )
+        )
+        {
+            return false;
+        }
+
+        // -------------------------------------------------
+        // Then rebuild the actual Addressables runtime data.
+        // -------------------------------------------------
+
+        return BuildAddressablesContent();
+    }
+
+
+    // =====================================================
+    // BUILD ADDRESSABLES CONTENT
+    // =====================================================
+
+    public static bool BuildAddressablesContent()
+    {
+        if (
+            EditorApplication
+                .isPlayingOrWillChangePlaymode
+        )
+        {
+            Debug.LogError(
+                "Addressables content cannot be rebuilt while " +
+                "entering or running Play Mode."
+            );
+
+            return false;
+        }
+
+        AddressableAssetSettings settings =
+            AddressableAssetSettingsDefaultObject
+                .GetSettings(
+                    false
+                );
+
+        if (settings == null)
+        {
+            Debug.LogError(
+                "Cannot build Addressables content.\n\n" +
+                "AddressableAssetSettings could not be loaded."
+            );
+
+            return false;
+        }
+
+        // -------------------------------------------------
+        // Ensure all asset and Addressables setting changes
+        // have been written before starting the build.
+        // -------------------------------------------------
+
+        AssetDatabase.SaveAssets();
+        AssetDatabase.Refresh();
+
+        Debug.Log(
+            "Building Addressables player content..."
+        );
+
+        AddressableAssetSettings
+            .BuildPlayerContent(
+                out AddressablesPlayerBuildResult result
+            );
+
+        // -------------------------------------------------
+        // Build result
+        // -------------------------------------------------
+
+        if (result == null)
+        {
+            Debug.LogError(
+                "Addressables content build failed.\n\n" +
+                "No build result was returned."
+            );
+
+            return false;
+        }
+
+        if (
+            !string.IsNullOrEmpty(
+                result.Error
+            )
+        )
+        {
+            Debug.LogError(
+                "Addressables content build failed.\n\n" +
+                result.Error
+            );
+
+            return false;
+        }
+
+        Debug.Log(
+            "Addressables content build complete.\n\n" +
+
+            $"Output Path:\n" +
+            $"{result.OutputPath}\n\n" +
+
+            $"Build Duration: " +
+            $"{result.Duration:0.00} seconds\n\n" +
+
+            "Use Existing Build will now use the latest " +
+            "compiled runtime heightmap assets."
         );
 
         return true;
