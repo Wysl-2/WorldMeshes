@@ -1766,7 +1766,7 @@ private static bool SynchronizeCollisionColliderSlot(
         TerrainHeightmapManifest manifest =
             AssetDatabase
                 .LoadAssetAtPath<TerrainHeightmapManifest>(
-                    TerrainHeightmapGenerator
+                    TerrainRuntimeHeightAssetUtility
                         .HeightmapManifestPath
                 );
 

@@ -7,10 +7,6 @@ using UnityEngine.Rendering;
 
 public static class TerrainAuthoringHeightInitializer
 {
-    // =====================================================
-    // PATHS
-    // =====================================================
-
     public const string AuthoringHeightRootFolder =
         WorldMeshesPaths.AuthoringHeight;
 
@@ -20,18 +16,6 @@ public static class TerrainAuthoringHeightInitializer
     private const string ComputeShaderPath =
         WorldMeshesPaths.TerrainHeightmapComputeShaderPath;
 
-    // =====================================================
-    // COMPUTE KERNELS
-    // =====================================================
-
-    /*
-     * Procedural initialization deliberately reuses the
-     * existing height-generation kernel.
-     *
-     * This ensures procedural authoring initialization
-     * produces the same height values as the current
-     * TerrainHeightmapGenerator.
-     */
     private const string ProceduralKernelName =
         "GenerateHeight";
 
@@ -44,10 +28,6 @@ public static class TerrainAuthoringHeightInitializer
         TerrainAuthoringData authoringData
     )
     {
-        // -------------------------------------------------
-        // Validate inputs
-        // -------------------------------------------------
-
         if (worldSettings == null)
         {
             Debug.LogError(
@@ -81,22 +61,11 @@ public static class TerrainAuthoringHeightInitializer
             return;
         }
 
-        // -------------------------------------------------
-        // Imported placeholder
-        // -------------------------------------------------
-
         /*
-         * IMPORTANT:
-         *
-         * Imported initialization is intentionally handled
-         * before folders or existing authoring tiles are
-         * touched.
-         *
-         * Selecting Imported must therefore never destroy or
-         * modify an existing authoring heightfield while the
-         * import pipeline is still unimplemented.
+         * Imported initialization remains intentionally
+         * unimplemented. Reject it before touching the current
+         * authoring manifest or committed height tiles.
          */
-
         if (
             authoringData.sourceMode ==
             TerrainHeightSourceMode.Imported
@@ -105,17 +74,12 @@ public static class TerrainAuthoringHeightInitializer
             Debug.LogWarning(
                 "Imported terrain height initialization " +
                 "is not implemented yet.\n\n" +
-
                 "The existing authoring heightfield has " +
                 "not been modified."
             );
 
             return;
         }
-
-        // -------------------------------------------------
-        // RFloat support
-        // -------------------------------------------------
 
         if (
             !SystemInfo.SupportsTextureFormat(
@@ -125,7 +89,6 @@ public static class TerrainAuthoringHeightInitializer
         {
             Debug.LogError(
                 "Cannot initialize authoring heightfield.\n\n" +
-
                 "TextureFormat.RFloat is not supported " +
                 "by the current graphics device."
             );
@@ -133,21 +96,14 @@ public static class TerrainAuthoringHeightInitializer
             return;
         }
 
-        // -------------------------------------------------
-        // Derived heightfield layout
-        // -------------------------------------------------
-
         int tileGridWidth =
-            worldSettings
-                .HeightTileGridWidth;
+            worldSettings.HeightTileGridWidth;
 
         int tileGridHeight =
-            worldSettings
-                .HeightTileGridHeight;
+            worldSettings.HeightTileGridHeight;
 
         int samplesPerSide =
-            worldSettings
-                .HeightTileSamplesPerSide;
+            worldSettings.HeightTileSamplesPerSide;
 
         int intervalsPerSide =
             samplesPerSide - 1;
@@ -172,10 +128,6 @@ public static class TerrainAuthoringHeightInitializer
             tileGridWidth *
             tileGridHeight;
 
-        // -------------------------------------------------
-        // Validate tile texture size
-        // -------------------------------------------------
-
         if (
             samplesPerSide >
             SystemInfo.maxTextureSize
@@ -183,16 +135,11 @@ public static class TerrainAuthoringHeightInitializer
         {
             Debug.LogError(
                 "Cannot initialize authoring heightfield.\n\n" +
-
                 $"Authoring height tile requires " +
-                $"{samplesPerSide} x " +
-                $"{samplesPerSide} samples.\n\n" +
-
+                $"{samplesPerSide} x {samplesPerSide} samples.\n\n" +
                 $"Maximum supported texture size: " +
                 $"{SystemInfo.maxTextureSize}\n\n" +
-
-                "Reduce Tile Chunk Span or " +
-                "LOD0 Resolution."
+                "Reduce Tile Chunk Span or LOD0 Resolution."
             );
 
             return;
@@ -222,10 +169,8 @@ public static class TerrainAuthoringHeightInitializer
             if (
                 !TryPrepareProceduralGenerator(
                     samplesPerSide,
-
                     out proceduralComputeShader,
                     out proceduralKernel,
-
                     out dispatchGroupsX,
                     out dispatchGroupsY
                 )
@@ -235,23 +180,40 @@ public static class TerrainAuthoringHeightInitializer
             }
         }
 
-        // -------------------------------------------------
-        // Ensure output folders
-        // -------------------------------------------------
-
         EnsureFoldersExist();
 
-        // -------------------------------------------------
-        // Existing authoring tiles
-        // -------------------------------------------------
+        // =================================================
+        // AUTHORING MANIFEST TRANSACTION BOUNDARY
+        // =================================================
+
+        TerrainAuthoringHeightManifest manifest =
+            TerrainAuthoringStateUtility
+                .GetOrCreateAuthoringHeightManifest();
+
+        if (manifest == null)
+        {
+            Debug.LogError(
+                "Could not create or load the authoring " +
+                "heightfield manifest."
+            );
+
+            return;
+        }
+
+        /*
+         * From this point until successful finalization, the
+         * committed authoring tile set must not be used as a
+         * compilation source.
+         */
+        TerrainAuthoringStateUtility
+            .MarkAuthoringHeightfieldIncomplete(
+                manifest,
+                worldSettings
+            );
 
         Dictionary<Vector2Int, Texture2D>
             existingTiles =
                 FindExistingAuthoringHeightTiles();
-
-        // -------------------------------------------------
-        // Statistics
-        // -------------------------------------------------
 
         int createdCount =
             0;
@@ -275,37 +237,24 @@ public static class TerrainAuthoringHeightInitializer
         int currentOperation =
             0;
 
-        // =================================================
-        // INITIALIZATION
-        // =================================================
-
         try
         {
             // =============================================
-            // PHASE 1
-            // Remove obsolete authoring tiles
+            // REMOVE OBSOLETE TILES
             // =============================================
 
             foreach (
-                KeyValuePair<Vector2Int, Texture2D>
-                    pair
+                KeyValuePair<Vector2Int, Texture2D> pair
                 in existingTiles
             )
             {
                 Vector2Int coordinate =
                     pair.Key;
 
-                Texture2D texture =
-                    pair.Value;
-
                 cancelled =
                     ShowProgress(
                         "Checking existing authoring tiles",
-
-                        $"Tile " +
-                        $"({coordinate.x}, " +
-                        $"{coordinate.y})",
-
+                        $"Tile ({coordinate.x}, {coordinate.y})",
                         currentOperation,
                         totalOperations
                     );
@@ -320,21 +269,23 @@ public static class TerrainAuthoringHeightInitializer
                     ||
                     coordinate.y < 0
                     ||
-                    coordinate.x >=
-                        tileGridWidth
+                    coordinate.x >= tileGridWidth
                     ||
-                    coordinate.y >=
-                        tileGridHeight;
+                    coordinate.y >= tileGridHeight;
 
                 if (outsideGrid)
                 {
                     string assetPath =
                         AssetDatabase
                             .GetAssetPath(
-                                texture
+                                pair.Value
                             );
 
                     if (
+                        !string.IsNullOrEmpty(
+                            assetPath
+                        )
+                        &&
                         AssetDatabase.DeleteAsset(
                             assetPath
                         )
@@ -342,17 +293,24 @@ public static class TerrainAuthoringHeightInitializer
                     {
                         removedCount++;
                     }
+                    else
+                    {
+                        failedCount++;
+                    }
                 }
 
                 currentOperation++;
             }
 
             // =============================================
-            // PHASE 2
-            // Initialize required authoring tiles
+            // WRITE REQUIRED TILES
             // =============================================
 
-            if (!cancelled)
+            if (
+                !cancelled
+                &&
+                failedCount == 0
+            )
             {
                 for (
                     int tileZ = 0;
@@ -371,12 +329,9 @@ public static class TerrainAuthoringHeightInitializer
                                 GetGenerationOperationLabel(
                                     authoringData.sourceMode
                                 ),
-
-                                $"Tile " +
-                                $"({tileX}, {tileZ}) " +
+                                $"Tile ({tileX}, {tileZ}) " +
                                 $"{tileX + tileZ * tileGridWidth + 1} " +
                                 $"/ {totalTiles}",
-
                                 currentOperation,
                                 totalOperations
                             );
@@ -404,28 +359,18 @@ public static class TerrainAuthoringHeightInitializer
                             authoringData.sourceMode
                         )
                         {
-                            // =============================
-                            // FLAT
-                            // =============================
-
                             case TerrainHeightSourceMode.Flat:
                             {
                                 success =
                                     GenerateAndSaveFlatTile(
                                         authoringData.flatHeight,
-
                                         tileX,
                                         tileZ,
-
                                         samplesPerSide
                                     );
 
                                 break;
                             }
-
-                            // =============================
-                            // PROCEDURAL
-                            // =============================
 
                             case TerrainHeightSourceMode.Procedural:
                             {
@@ -433,16 +378,12 @@ public static class TerrainAuthoringHeightInitializer
                                     GenerateAndSaveProceduralTile(
                                         proceduralComputeShader,
                                         proceduralKernel,
-
                                         worldSettings,
-
                                         tileX,
                                         tileZ,
-
                                         samplesPerSide,
                                         intervalsPerSide,
                                         sampleSpacing,
-
                                         dispatchGroupsX,
                                         dispatchGroupsY
                                     );
@@ -450,20 +391,6 @@ public static class TerrainAuthoringHeightInitializer
                                 break;
                             }
 
-                            // =============================
-                            // IMPORTED
-                            // =============================
-
-                            /*
-                             * Imported has already been
-                             * rejected before generation
-                             * begins.
-                             *
-                             * This case only exists to keep
-                             * the switch exhaustive.
-                             */
-
-                            case TerrainHeightSourceMode.Imported:
                             default:
                             {
                                 success =
@@ -501,43 +428,60 @@ public static class TerrainAuthoringHeightInitializer
             EditorUtility.ClearProgressBar();
         }
 
-        // =================================================
-        // CANCELLED
-        // =================================================
-
         if (cancelled)
         {
             Debug.LogWarning(
                 "Authoring heightfield initialization " +
                 "was cancelled.\n\n" +
-
                 $"Created: {createdCount}\n" +
                 $"Updated: {updatedCount}\n" +
                 $"Removed: {removedCount}\n" +
                 $"Failed: {failedCount}\n\n" +
-
-                "The authoring revision was not changed."
+                "The authoring manifest remains incomplete. " +
+                "Runtime compilation is blocked until the " +
+                "authoring heightfield is reinitialized successfully."
             );
 
             return;
         }
-
-        // =================================================
-        // FAILED
-        // =================================================
 
         if (failedCount > 0)
         {
             Debug.LogError(
                 "Authoring heightfield initialization " +
                 "did not complete successfully.\n\n" +
-
                 $"Created: {createdCount}\n" +
                 $"Updated: {updatedCount}\n" +
                 $"Removed: {removedCount}\n" +
                 $"Failed: {failedCount}\n\n" +
+                "The authoring manifest remains incomplete."
+            );
 
-                "The authoring revision was not changed."
+            return;
+        }
+
+        // =================================================
+        // VERIFY COMPLETE COMMITTED SET
+        // =================================================
+
+        AssetDatabase.SaveAssets();
+        AssetDatabase.Refresh();
+
+        if (
+            !TerrainAuthoringStateUtility
+                .TryCalculateCommittedHeightContentHash(
+                    worldSettings,
+                    out string committedContentHash,
+                    out string contentHashError
+                )
+        )
+        {
+            Debug.LogError(
+                "Authoring heightfield initialization wrote all " +
+                "requested tiles, but final committed-heightfield " +
+                "validation failed.\n\n" +
+                contentHashError +
+                "\n\nThe authoring manifest remains incomplete."
             );
 
             return;
@@ -546,17 +490,6 @@ public static class TerrainAuthoringHeightInitializer
         // =================================================
         // SUCCESS
         // =================================================
-
-        AssetDatabase.SaveAssets();
-
-        // -------------------------------------------------
-        // Increment authoring revision
-        // -------------------------------------------------
-
-        Undo.RecordObject(
-            authoringData,
-            "Initialize Terrain Authoring Heightfield"
-        );
 
         if (
             authoringData.authoringRevision < 0
@@ -576,50 +509,50 @@ public static class TerrainAuthoringHeightInitializer
             authoringData
         );
 
-        AssetDatabase.SaveAssets();
+        if (
+            !TerrainAuthoringStateUtility
+                .FinalizeAuthoringHeightfield(
+                    manifest,
+                    worldSettings,
+                    authoringData,
+                    committedContentHash,
+                    out string finalizeError
+                )
+        )
+        {
+            Debug.LogError(
+                "Authoring tiles were written successfully, " +
+                "but the authoring manifest could not be finalized.\n\n" +
+                finalizeError
+            );
 
-        // -------------------------------------------------
-        // Selection
-        // -------------------------------------------------
+            return;
+        }
+
+        AssetDatabase.SaveAssets();
 
         Selection.activeObject =
             authoringData;
 
-        // -------------------------------------------------
-        // Result
-        // -------------------------------------------------
-
         Debug.Log(
             "Authoring heightfield initialization complete.\n\n" +
-
-            $"Source Mode: " +
-            $"{authoringData.sourceMode}\n\n" +
-
+            $"Source Mode: {authoringData.sourceMode}\n\n" +
             $"Height Tile Grid: " +
-            $"{tileGridWidth} x " +
-            $"{tileGridHeight}\n" +
-
-            $"Total Tiles: " +
-            $"{totalTiles}\n\n" +
-
+            $"{tileGridWidth} x {tileGridHeight}\n" +
+            $"Total Tiles: {totalTiles}\n\n" +
             $"Tile World Size: " +
             $"{worldSettings.HeightTileWorldSize}\n" +
-
             $"Samples Per Tile: " +
-            $"{samplesPerSide} x " +
-            $"{samplesPerSide}\n" +
-
-            $"Sample Spacing: " +
-            $"{sampleSpacing}\n\n" +
-
+            $"{samplesPerSide} x {samplesPerSide}\n" +
+            $"Sample Spacing: {sampleSpacing}\n\n" +
             $"Created: {createdCount}\n" +
             $"Updated: {updatedCount}\n" +
             $"Removed: {removedCount}\n" +
             $"Failed: {failedCount}\n\n" +
-
             $"Authoring Revision: " +
             $"{authoringData.authoringRevision}\n\n" +
-
+            $"Authoring Content Hash:\n" +
+            $"{committedContentHash}\n\n" +
             $"Saved To:\n" +
             $"{AuthoringHeightTileFolder}"
         );
@@ -631,10 +564,8 @@ public static class TerrainAuthoringHeightInitializer
 
     private static bool TryPrepareProceduralGenerator(
         int samplesPerSide,
-
         out ComputeShader computeShader,
         out int kernel,
-
         out int dispatchGroupsX,
         out int dispatchGroupsY
     )
@@ -651,16 +582,11 @@ public static class TerrainAuthoringHeightInitializer
         dispatchGroupsY =
             0;
 
-        // -------------------------------------------------
-        // Compute support
-        // -------------------------------------------------
-
         if (!SystemInfo.supportsComputeShaders)
         {
             Debug.LogError(
                 "Cannot initialize procedural authoring " +
                 "heightfield.\n\n" +
-
                 "Compute shaders are not supported " +
                 "by the current graphics device."
             );
@@ -668,26 +594,17 @@ public static class TerrainAuthoringHeightInitializer
             return false;
         }
 
-        // -------------------------------------------------
-        // Async readback support
-        // -------------------------------------------------
-
         if (!SystemInfo.supportsAsyncGPUReadback)
         {
             Debug.LogError(
                 "Cannot initialize procedural authoring " +
                 "heightfield.\n\n" +
-
                 "Async GPU readback is not supported " +
                 "by the current graphics device."
             );
 
             return false;
         }
-
-        // -------------------------------------------------
-        // Load compute shader
-        // -------------------------------------------------
 
         computeShader =
             AssetDatabase
@@ -700,17 +617,12 @@ public static class TerrainAuthoringHeightInitializer
             Debug.LogError(
                 "Cannot initialize procedural authoring " +
                 "heightfield.\n\n" +
-
                 "Compute shader could not be found:\n" +
                 ComputeShaderPath
             );
 
             return false;
         }
-
-        // -------------------------------------------------
-        // Find kernel
-        // -------------------------------------------------
 
         try
         {
@@ -724,7 +636,6 @@ public static class TerrainAuthoringHeightInitializer
             Debug.LogError(
                 "Cannot initialize procedural authoring " +
                 "heightfield.\n\n" +
-
                 $"Kernel '{ProceduralKernelName}' could not " +
                 $"be found in:\n" +
                 ComputeShaderPath
@@ -733,17 +644,11 @@ public static class TerrainAuthoringHeightInitializer
             return false;
         }
 
-        // -------------------------------------------------
-        // Thread group dimensions
-        // -------------------------------------------------
-
         computeShader
             .GetKernelThreadGroupSizes(
                 kernel,
-
                 out uint threadGroupSizeX,
                 out uint threadGroupSizeY,
-
                 out _
             );
 
@@ -756,7 +661,6 @@ public static class TerrainAuthoringHeightInitializer
             Debug.LogError(
                 "Cannot initialize procedural authoring " +
                 "heightfield.\n\n" +
-
                 "The procedural compute kernel reported " +
                 "an invalid thread-group size."
             );
@@ -780,15 +684,13 @@ public static class TerrainAuthoringHeightInitializer
     }
 
     // =====================================================
-    // GENERATE FLAT TILE
+    // FLAT TILE
     // =====================================================
 
     private static bool GenerateAndSaveFlatTile(
         float flatHeight,
-
         int tileX,
         int tileZ,
-
         int samplesPerSide
     )
     {
@@ -805,10 +707,6 @@ public static class TerrainAuthoringHeightInitializer
 
         try
         {
-            // -------------------------------------------------
-            // Fill every sample with the same world-space height
-            // -------------------------------------------------
-
             for (
                 int index = 0;
                 index < sampleCount;
@@ -819,16 +717,10 @@ public static class TerrainAuthoringHeightInitializer
                     flatHeight;
             }
 
-            // -------------------------------------------------
-            // Save
-            // -------------------------------------------------
-
             return SaveOrUpdateAuthoringHeightTile(
                 tileX,
                 tileZ,
-
                 samplesPerSide,
-
                 heightData
             );
         }
@@ -842,22 +734,18 @@ public static class TerrainAuthoringHeightInitializer
     }
 
     // =====================================================
-    // GENERATE PROCEDURAL TILE
+    // PROCEDURAL TILE
     // =====================================================
 
     private static bool GenerateAndSaveProceduralTile(
         ComputeShader computeShader,
         int kernel,
-
         WorldSettings worldSettings,
-
         int tileX,
         int tileZ,
-
         int samplesPerSide,
         int intervalsPerSide,
         float sampleSpacing,
-
         int dispatchGroupsX,
         int dispatchGroupsY
     )
@@ -871,19 +759,11 @@ public static class TerrainAuthoringHeightInitializer
 
         try
         {
-            // -------------------------------------------------
-            // GPU height buffer
-            // -------------------------------------------------
-
             heightBuffer =
                 new ComputeBuffer(
                     sampleCount,
                     sizeof(float)
                 );
-
-            // -------------------------------------------------
-            // Tile layout
-            // -------------------------------------------------
 
             computeShader.SetInt(
                 "_SamplesPerSide",
@@ -909,18 +789,6 @@ public static class TerrainAuthoringHeightInitializer
                 "_SampleSpacing",
                 sampleSpacing
             );
-
-            // -------------------------------------------------
-            // Procedural height settings
-            // -------------------------------------------------
-
-            /*
-             * These deliberately match the current
-             * TerrainHeightmapGenerator exactly.
-             *
-             * At this stage the procedural settings still live
-             * in WorldSettings.
-             */
 
             computeShader.SetInt(
                 "_Seed",
@@ -957,19 +825,11 @@ public static class TerrainAuthoringHeightInitializer
                 worldSettings.heightLacunarity
             );
 
-            // -------------------------------------------------
-            // Output buffer
-            // -------------------------------------------------
-
             computeShader.SetBuffer(
                 kernel,
                 "_HeightData",
                 heightBuffer
             );
-
-            // -------------------------------------------------
-            // Dispatch
-            // -------------------------------------------------
 
             computeShader.Dispatch(
                 kernel,
@@ -978,23 +838,10 @@ public static class TerrainAuthoringHeightInitializer
                 1
             );
 
-            // -------------------------------------------------
-            // GPU -> CPU
-            // -------------------------------------------------
-
             AsyncGPUReadbackRequest request =
                 AsyncGPUReadback.Request(
                     heightBuffer
                 );
-
-            /*
-             * This is currently an Editor initialization task,
-             * so processing one complete tile at a time is
-             * acceptable.
-             *
-             * The readbacks can be pipelined later if authoring
-             * initialization performance becomes important.
-             */
 
             request.WaitForCompletion();
 
@@ -1021,7 +868,6 @@ public static class TerrainAuthoringHeightInitializer
                     "Unexpected procedural authoring " +
                     "height data size for tile " +
                     $"({tileX}, {tileZ}).\n\n" +
-
                     $"Expected: {sampleCount}\n" +
                     $"Received: {heightData.Length}"
                 );
@@ -1029,16 +875,10 @@ public static class TerrainAuthoringHeightInitializer
                 return false;
             }
 
-            // -------------------------------------------------
-            // Save
-            // -------------------------------------------------
-
             return SaveOrUpdateAuthoringHeightTile(
                 tileX,
                 tileZ,
-
                 samplesPerSide,
-
                 heightData
             );
         }
@@ -1058,9 +898,7 @@ public static class TerrainAuthoringHeightInitializer
     private static bool SaveOrUpdateAuthoringHeightTile(
         int tileX,
         int tileZ,
-
         int samplesPerSide,
-
         NativeArray<float> heightData
     )
     {
@@ -1076,19 +914,13 @@ public static class TerrainAuthoringHeightInitializer
                     assetPath
                 );
 
-        // -------------------------------------------------
-        // Create
-        // -------------------------------------------------
-
         if (existingTexture == null)
         {
             Texture2D texture =
                 new Texture2D(
                     samplesPerSide,
                     samplesPerSide,
-
                     TextureFormat.RFloat,
-
                     false,
                     true
                 );
@@ -1123,17 +955,11 @@ public static class TerrainAuthoringHeightInitializer
             return true;
         }
 
-        // -------------------------------------------------
-        // Update existing asset in place
-        // -------------------------------------------------
-
         bool reinitialized =
             existingTexture.Reinitialize(
                 samplesPerSide,
                 samplesPerSide,
-
                 TextureFormat.RFloat,
-
                 false
             );
 
@@ -1203,7 +1029,6 @@ public static class TerrainAuthoringHeightInitializer
         string[] guids =
             AssetDatabase.FindAssets(
                 "t:Texture2D",
-
                 new[]
                 {
                     AuthoringHeightTileFolder
@@ -1223,7 +1048,6 @@ public static class TerrainAuthoringHeightInitializer
             if (
                 !TryGetAuthoringHeightTileCoordinates(
                     path,
-
                     out int tileX,
                     out int tileZ
                 )
@@ -1265,9 +1089,11 @@ public static class TerrainAuthoringHeightInitializer
     )
     {
         return
-            $"{AuthoringHeightTileFolder}/" +
-            $"{GetAuthoringHeightTileName(tileX, tileZ)}" +
-            ".asset";
+            TerrainAuthoringStateUtility
+                .GetAuthoringHeightTilePath(
+                    tileX,
+                    tileZ
+                );
     }
 
     public static string GetAuthoringHeightTileName(
@@ -1276,88 +1102,59 @@ public static class TerrainAuthoringHeightInitializer
     )
     {
         return
-            $"HeightTile_{tileX}_{tileZ}";
+            TerrainAuthoringStateUtility
+                .GetAuthoringHeightTileName(
+                    tileX,
+                    tileZ
+                );
     }
-
-    // =====================================================
-    // PARSE TILE COORDINATES
-    // =====================================================
 
     private static bool TryGetAuthoringHeightTileCoordinates(
         string assetPath,
-
         out int tileX,
         out int tileZ
     )
     {
-        tileX =
-            0;
-
-        tileZ =
-            0;
+        tileX = 0;
+        tileZ = 0;
 
         string fileName =
             Path.GetFileNameWithoutExtension(
                 assetPath
             );
 
-        /*
-         * Expected:
-         *
-         * HeightTile_12_7
-         */
-
         string[] parts =
             fileName.Split(
                 '_'
             );
 
-        if (parts.Length != 3)
-        {
-            return false;
-        }
-
         if (
-            parts[0] !=
-            "HeightTile"
+            parts.Length != 3
+            ||
+            parts[0] != "HeightTile"
         )
         {
             return false;
         }
 
-        if (
-            !int.TryParse(
+        return
+            int.TryParse(
                 parts[1],
                 out tileX
             )
-        )
-        {
-            return false;
-        }
-
-        if (
-            !int.TryParse(
+            &&
+            int.TryParse(
                 parts[2],
                 out tileZ
-            )
-        )
-        {
-            return false;
-        }
-
-        return true;
+            );
     }
 
     // =====================================================
-    // ENSURE FOLDERS
+    // FOLDERS
     // =====================================================
 
     private static void EnsureFoldersExist()
     {
-        // -------------------------------------------------
-        // Authoring
-        // -------------------------------------------------
-
         if (
             !AssetDatabase.IsValidFolder(
                 WorldMeshesPaths.Authoring
@@ -1370,10 +1167,6 @@ public static class TerrainAuthoringHeightInitializer
             );
         }
 
-        // -------------------------------------------------
-        // Authoring/Height
-        // -------------------------------------------------
-
         if (
             !AssetDatabase.IsValidFolder(
                 AuthoringHeightRootFolder
@@ -1385,10 +1178,6 @@ public static class TerrainAuthoringHeightInitializer
                 "Height"
             );
         }
-
-        // -------------------------------------------------
-        // Authoring/Height/Tiles
-        // -------------------------------------------------
 
         if (
             !AssetDatabase.IsValidFolder(
@@ -1403,10 +1192,6 @@ public static class TerrainAuthoringHeightInitializer
         }
     }
 
-    // =====================================================
-    // GENERATION OPERATION LABEL
-    // =====================================================
-
     private static string GetGenerationOperationLabel(
         TerrainHeightSourceMode sourceMode
     )
@@ -1414,34 +1199,22 @@ public static class TerrainAuthoringHeightInitializer
         switch (sourceMode)
         {
             case TerrainHeightSourceMode.Flat:
-            {
                 return
                     "Initializing flat authoring heightfield";
-            }
 
             case TerrainHeightSourceMode.Procedural:
-            {
                 return
                     "Initializing procedural authoring heightfield";
-            }
 
-            case TerrainHeightSourceMode.Imported:
             default:
-            {
                 return
                     "Initializing authoring heightfield";
-            }
         }
     }
-
-    // =====================================================
-    // PROGRESS
-    // =====================================================
 
     private static bool ShowProgress(
         string operation,
         string detail,
-
         int current,
         int total
     )
@@ -1456,11 +1229,9 @@ public static class TerrainAuthoringHeightInitializer
             EditorUtility
                 .DisplayCancelableProgressBar(
                     "Terrain Authoring Height Initialization",
-
                     operation +
                     "\n\n" +
                     detail,
-
                     progress
                 );
     }

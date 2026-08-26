@@ -1,37 +1,15 @@
 using System.Collections.Generic;
-using System.IO;
 using Unity.Collections;
 using UnityEditor;
 using UnityEngine;
 
 public static class TerrainRuntimeHeightCompiler
 {
-    // =====================================================
-    // PATHS
-    // =====================================================
-
-    public const string HeightmapRootFolder =
-        WorldMeshesPaths.GeneratedHeightmaps;
-
-    public const string HeightmapTileFolder =
-        WorldMeshesPaths.HeightmapTiles;
-
-    public const string HeightmapManifestPath =
-        WorldMeshesPaths.HeightmapManifestAssetPath;
-
-    // =====================================================
-    // COMPILE RUNTIME HEIGHTMAPS
-    // =====================================================
-
     public static void CompileRuntimeHeightmaps(
         WorldSettings worldSettings,
         TerrainAuthoringData authoringData
     )
     {
-        // -------------------------------------------------
-        // Basic validation
-        // -------------------------------------------------
-
         if (worldSettings == null)
         {
             Debug.LogError(
@@ -80,16 +58,17 @@ public static class TerrainRuntimeHeightCompiler
             return;
         }
 
-        // -------------------------------------------------
-        // Validate the complete committed authoring source
-        // and calculate its compile-time content hash.
-        // -------------------------------------------------
+        // =================================================
+        // AUTHORITATIVE SOURCE VALIDATION
+        // =================================================
 
         if (
             !TerrainAuthoringStateUtility
-                .TryGetCurrentAuthoringContentHash(
+                .TryValidateCommittedHeightfield(
                     worldSettings,
                     authoringData,
+                    out TerrainAuthoringHeightManifest
+                        authoringManifest,
                     out string authoringContentHash,
                     out string authoringValidationError
                 )
@@ -138,43 +117,31 @@ public static class TerrainRuntimeHeightCompiler
             tileGridWidth *
             tileGridHeight;
 
-        // -------------------------------------------------
-        // Ensure generated output folders exist.
-        // -------------------------------------------------
-
         EnsureFoldersExist();
 
-        // -------------------------------------------------
-        // Runtime manifest
-        // -------------------------------------------------
+        TerrainHeightmapManifest runtimeManifest =
+            GetOrCreateRuntimeManifest();
 
-        TerrainHeightmapManifest manifest =
-            GetOrCreateManifest();
-
-        if (manifest == null)
+        if (runtimeManifest == null)
         {
             return;
         }
 
         /*
-         * The generated output is considered invalid from the
-         * moment compilation starts until every required tile
-         * and the manifest have completed successfully.
+         * Generated output is invalid while a compile is in
+         * progress. It becomes complete only after every tile
+         * and manifest field is written successfully.
          */
-        manifest.isComplete =
+        runtimeManifest.isComplete =
             false;
 
         EditorUtility.SetDirty(
-            manifest
+            runtimeManifest
         );
 
         AssetDatabase.SaveAssetIfDirty(
-            manifest
+            runtimeManifest
         );
-
-        // -------------------------------------------------
-        // Existing runtime output
-        // -------------------------------------------------
 
         Dictionary<Vector2Int, Texture2D>
             existingTiles =
@@ -230,12 +197,12 @@ public static class TerrainRuntimeHeightCompiler
         bool cancelled =
             false;
 
-        // =================================================
-        // COMPILE REQUIRED TILES
-        // =================================================
-
         try
         {
+            // =============================================
+            // COMPILE REQUIRED TILES
+            // =============================================
+
             for (
                 int tileZ = 0;
                 tileZ < tileGridHeight;
@@ -251,11 +218,9 @@ public static class TerrainRuntimeHeightCompiler
                     cancelled =
                         ShowProgress(
                             "Compiling runtime heightmap tiles",
-
                             $"Tile ({tileX}, {tileZ}) " +
                             $"{tileX + tileZ * tileGridWidth + 1} " +
                             $"/ {totalTiles}",
-
                             currentOperation,
                             totalOperations
                         );
@@ -326,10 +291,7 @@ public static class TerrainRuntimeHeightCompiler
                     cancelled =
                         ShowProgress(
                             "Removing obsolete runtime heightmap tiles",
-
-                            $"Tile ({coordinate.x}, " +
-                            $"{coordinate.y})",
-
+                            $"Tile ({coordinate.x}, {coordinate.y})",
                             currentOperation,
                             totalOperations
                         );
@@ -368,20 +330,14 @@ public static class TerrainRuntimeHeightCompiler
             EditorUtility.ClearProgressBar();
         }
 
-        // =================================================
-        // CANCELLED / FAILED
-        // =================================================
-
         if (cancelled)
         {
             Debug.LogWarning(
                 "Runtime heightmap compilation was cancelled.\n\n" +
-
                 $"Created: {createdCount}\n" +
                 $"Updated: {updatedCount}\n" +
                 $"Removed: {removedCount}\n" +
                 $"Failed: {failedCount}\n\n" +
-
                 "The runtime heightmap manifest remains incomplete."
             );
 
@@ -393,46 +349,37 @@ public static class TerrainRuntimeHeightCompiler
             Debug.LogError(
                 "Runtime heightmap compilation did not complete " +
                 "successfully.\n\n" +
-
                 $"Created: {createdCount}\n" +
                 $"Updated: {updatedCount}\n" +
                 $"Removed: {removedCount}\n" +
                 $"Failed: {failedCount}\n\n" +
-
                 "The runtime heightmap manifest remains incomplete."
             );
 
             return;
         }
 
-        // =================================================
-        // SUCCESSFUL MANIFEST
-        // =================================================
-
-        UpdateManifest(
-            manifest,
+        UpdateRuntimeManifest(
+            runtimeManifest,
             worldSettings,
             authoringData,
+            authoringManifest,
             authoringSignature,
             authoringContentHash
         );
 
-        manifest.isComplete =
+        runtimeManifest.isComplete =
             true;
 
         EditorUtility.SetDirty(
-            manifest
+            runtimeManifest
         );
 
         AssetDatabase.SaveAssetIfDirty(
-            manifest
+            runtimeManifest
         );
 
         AssetDatabase.SaveAssets();
-
-        // -------------------------------------------------
-        // Generated height revision / dependency state
-        // -------------------------------------------------
 
         TerrainGenerationStateUtility
             .MarkHeightmapsCompiled(
@@ -443,34 +390,27 @@ public static class TerrainRuntimeHeightCompiler
         AssetDatabase.SaveAssets();
 
         Selection.activeObject =
-            manifest;
+            runtimeManifest;
 
         Debug.Log(
             "Runtime heightmap compilation complete.\n\n" +
-
             $"Authoring Revision: " +
             $"{authoringData.authoringRevision}\n" +
-
             $"Authoring Signature: " +
-            $"{authoringSignature}\n\n" +
-
+            $"{authoringSignature}\n" +
+            $"Authoring Content Hash: " +
+            $"{authoringContentHash}\n\n" +
             $"Height Tile Grid: " +
-            $"{tileGridWidth} x " +
-            $"{tileGridHeight}\n" +
-
+            $"{tileGridWidth} x {tileGridHeight}\n" +
             $"Total Tiles: {totalTiles}\n" +
-
             $"Samples Per Tile: " +
-            $"{samplesPerSide} x " +
-            $"{samplesPerSide}\n\n" +
-
+            $"{samplesPerSide} x {samplesPerSide}\n\n" +
             $"Created: {createdCount}\n" +
             $"Updated: {updatedCount}\n" +
             $"Removed: {removedCount}\n" +
             $"Failed: {failedCount}\n\n" +
-
             $"Saved To:\n" +
-            $"{HeightmapTileFolder}"
+            $"{TerrainRuntimeHeightAssetUtility.HeightmapTileFolder}"
         );
     }
 
@@ -550,10 +490,11 @@ public static class TerrainRuntimeHeightCompiler
     )
     {
         string assetPath =
-            GetRuntimeHeightTilePath(
-                tileX,
-                tileZ
-            );
+            TerrainRuntimeHeightAssetUtility
+                .GetHeightTilePath(
+                    tileX,
+                    tileZ
+                );
 
         Texture2D existingTexture =
             AssetDatabase
@@ -573,10 +514,11 @@ public static class TerrainRuntimeHeightCompiler
                 );
 
             texture.name =
-                GetRuntimeHeightTileName(
-                    tileX,
-                    tileZ
-                );
+                TerrainRuntimeHeightAssetUtility
+                    .GetHeightTileName(
+                        tileX,
+                        tileZ
+                    );
 
             texture.wrapMode =
                 TextureWrapMode.Clamp;
@@ -622,10 +564,11 @@ public static class TerrainRuntimeHeightCompiler
         }
 
         existingTexture.name =
-            GetRuntimeHeightTileName(
-                tileX,
-                tileZ
-            );
+            TerrainRuntimeHeightAssetUtility
+                .GetHeightTileName(
+                    tileX,
+                    tileZ
+                );
 
         existingTexture.wrapMode =
             TextureWrapMode.Clamp;
@@ -655,16 +598,17 @@ public static class TerrainRuntimeHeightCompiler
     }
 
     // =====================================================
-    // MANIFEST
+    // RUNTIME MANIFEST
     // =====================================================
 
     private static TerrainHeightmapManifest
-        GetOrCreateManifest()
+        GetOrCreateRuntimeManifest()
     {
         TerrainHeightmapManifest manifest =
             AssetDatabase
                 .LoadAssetAtPath<TerrainHeightmapManifest>(
-                    HeightmapManifestPath
+                    TerrainRuntimeHeightAssetUtility
+                        .HeightmapManifestPath
                 );
 
         if (manifest != null)
@@ -681,7 +625,8 @@ public static class TerrainRuntimeHeightCompiler
 
         AssetDatabase.CreateAsset(
             manifest,
-            HeightmapManifestPath
+            TerrainRuntimeHeightAssetUtility
+                .HeightmapManifestPath
         );
 
         AssetDatabase.SaveAssetIfDirty(
@@ -691,93 +636,54 @@ public static class TerrainRuntimeHeightCompiler
         return manifest;
     }
 
-    private static void UpdateManifest(
-        TerrainHeightmapManifest manifest,
+    private static void UpdateRuntimeManifest(
+        TerrainHeightmapManifest runtimeManifest,
         WorldSettings worldSettings,
         TerrainAuthoringData authoringData,
+        TerrainAuthoringHeightManifest authoringManifest,
         string authoringSignature,
         string authoringContentHash
     )
     {
-        manifest.generatorVersion =
-            TerrainGenerationStateUtility
-                .HeightGeneratorVersion;
-
-        manifest.compilerVersion =
+        runtimeManifest.compilerVersion =
             TerrainGenerationStateUtility
                 .RuntimeHeightCompilerVersion;
 
-        manifest.sourceAuthoringRevision =
+        runtimeManifest.sourceAuthoringRevision =
             authoringData.authoringRevision;
 
-        manifest.sourceAuthoringSignature =
+        runtimeManifest.sourceAuthoringSignature =
             authoringSignature;
 
-        manifest.sourceAuthoringContentHash =
+        runtimeManifest.sourceAuthoringContentHash =
             authoringContentHash;
 
-        // -------------------------------------------------
-        // World
-        // -------------------------------------------------
-
-        manifest.gridWidth =
+        runtimeManifest.gridWidth =
             worldSettings.gridWidth;
 
-        manifest.gridHeight =
+        runtimeManifest.gridHeight =
             worldSettings.gridHeight;
 
-        // -------------------------------------------------
-        // Mesh / height layout
-        // -------------------------------------------------
-
-        manifest.chunkSize =
+        runtimeManifest.chunkSize =
             worldSettings.chunkSize;
 
-        manifest.lod0Resolution =
+        runtimeManifest.lod0Resolution =
             worldSettings.lod0Resolution;
 
-        manifest.heightTileChunkSpan =
+        runtimeManifest.heightTileChunkSpan =
             worldSettings.heightTileChunkSpan;
 
-        manifest.heightTileGridWidth =
+        runtimeManifest.heightTileGridWidth =
             worldSettings.HeightTileGridWidth;
 
-        manifest.heightTileGridHeight =
+        runtimeManifest.heightTileGridHeight =
             worldSettings.HeightTileGridHeight;
 
-        manifest.heightTileWorldSize =
+        runtimeManifest.heightTileWorldSize =
             worldSettings.HeightTileWorldSize;
 
-        manifest.heightTileSamplesPerSide =
+        runtimeManifest.heightTileSamplesPerSide =
             worldSettings.HeightTileSamplesPerSide;
-
-        /*
-         * These fields are retained for compatibility with the
-         * current TerrainHeightmapValidator while the project is
-         * transitioning away from direct procedural runtime
-         * generation. They no longer define the runtime terrain
-         * source of truth.
-         */
-        manifest.heightSeed =
-            worldSettings.heightSeed;
-
-        manifest.heightNoiseScale =
-            worldSettings.heightNoiseScale;
-
-        manifest.heightBaseHeight =
-            worldSettings.heightBaseHeight;
-
-        manifest.heightAmplitude =
-            worldSettings.heightAmplitude;
-
-        manifest.heightOctaves =
-            worldSettings.heightOctaves;
-
-        manifest.heightPersistence =
-            worldSettings.heightPersistence;
-
-        manifest.heightLacunarity =
-            worldSettings.heightLacunarity;
     }
 
     // =====================================================
@@ -792,7 +698,8 @@ public static class TerrainRuntimeHeightCompiler
 
         if (
             !AssetDatabase.IsValidFolder(
-                HeightmapTileFolder
+                TerrainRuntimeHeightAssetUtility
+                    .HeightmapTileFolder
             )
         )
         {
@@ -804,7 +711,8 @@ public static class TerrainRuntimeHeightCompiler
                 "t:Texture2D",
                 new[]
                 {
-                    HeightmapTileFolder
+                    TerrainRuntimeHeightAssetUtility
+                        .HeightmapTileFolder
                 }
             );
 
@@ -819,11 +727,12 @@ public static class TerrainRuntimeHeightCompiler
                 );
 
             if (
-                !TryGetRuntimeHeightTileCoordinates(
-                    path,
-                    out int tileX,
-                    out int tileZ
-                )
+                !TerrainRuntimeHeightAssetUtility
+                    .TryGetHeightTileCoordinates(
+                        path,
+                        out int tileX,
+                        out int tileZ
+                    )
             )
             {
                 continue;
@@ -853,79 +762,6 @@ public static class TerrainRuntimeHeightCompiler
     }
 
     // =====================================================
-    // RUNTIME TILE PATH / NAME
-    // =====================================================
-
-    public static string GetRuntimeHeightTilePath(
-        int tileX,
-        int tileZ
-    )
-    {
-        return
-            $"{HeightmapTileFolder}/" +
-            $"{GetRuntimeHeightTileName(tileX, tileZ)}" +
-            ".asset";
-    }
-
-    public static string GetRuntimeHeightTileName(
-        int tileX,
-        int tileZ
-    )
-    {
-        return
-            $"HeightTile_{tileX}_{tileZ}";
-    }
-
-    private static bool TryGetRuntimeHeightTileCoordinates(
-        string assetPath,
-        out int tileX,
-        out int tileZ
-    )
-    {
-        tileX =
-            0;
-
-        tileZ =
-            0;
-
-        string fileName =
-            Path.GetFileNameWithoutExtension(
-                assetPath
-            );
-
-        string[] parts =
-            fileName.Split(
-                '_'
-            );
-
-        if (
-            parts.Length != 3
-            ||
-            parts[0] != "HeightTile"
-        )
-        {
-            return false;
-        }
-
-        if (
-            !int.TryParse(
-                parts[1],
-                out tileX
-            )
-            ||
-            !int.TryParse(
-                parts[2],
-                out tileZ
-            )
-        )
-        {
-            return false;
-        }
-
-        return true;
-    }
-
-    // =====================================================
     // FOLDERS
     // =====================================================
 
@@ -945,7 +781,7 @@ public static class TerrainRuntimeHeightCompiler
 
         if (
             !AssetDatabase.IsValidFolder(
-                HeightmapRootFolder
+                WorldMeshesPaths.GeneratedHeightmaps
             )
         )
         {
@@ -957,12 +793,12 @@ public static class TerrainRuntimeHeightCompiler
 
         if (
             !AssetDatabase.IsValidFolder(
-                HeightmapTileFolder
+                WorldMeshesPaths.HeightmapTiles
             )
         )
         {
             AssetDatabase.CreateFolder(
-                HeightmapRootFolder,
+                WorldMeshesPaths.GeneratedHeightmaps,
                 "Tiles"
             );
         }

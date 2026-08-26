@@ -11,12 +11,183 @@ public static class TerrainAuthoringStateUtility
     // VERSION
     // =====================================================
 
-    /*
-     * Increment this whenever the meaning of the committed
-     * authoring-state signature changes.
-     */
     public const int AuthoringStateVersion =
-        1;
+        2;
+
+    // =====================================================
+    // AUTHORING MANIFEST
+    // =====================================================
+
+    public static TerrainAuthoringHeightManifest
+        LoadAuthoringHeightManifest()
+    {
+        return
+            AssetDatabase
+                .LoadAssetAtPath<TerrainAuthoringHeightManifest>(
+                    WorldMeshesPaths
+                        .AuthoringHeightManifestAssetPath
+                );
+    }
+
+    public static TerrainAuthoringHeightManifest
+        GetOrCreateAuthoringHeightManifest()
+    {
+        TerrainAuthoringHeightManifest manifest =
+            LoadAuthoringHeightManifest();
+
+        if (manifest != null)
+        {
+            return manifest;
+        }
+
+        EnsureAuthoringFoldersExist();
+
+        manifest =
+            ScriptableObject
+                .CreateInstance<TerrainAuthoringHeightManifest>();
+
+        manifest.name =
+            "AuthoringHeightManifest";
+
+        manifest.manifestVersion =
+            TerrainAuthoringHeightManifest
+                .CurrentVersion;
+
+        manifest.isComplete =
+            false;
+
+        AssetDatabase.CreateAsset(
+            manifest,
+            WorldMeshesPaths
+                .AuthoringHeightManifestAssetPath
+        );
+
+        AssetDatabase.SaveAssetIfDirty(
+            manifest
+        );
+
+        return manifest;
+    }
+
+    public static void MarkAuthoringHeightfieldIncomplete(
+        TerrainAuthoringHeightManifest manifest,
+        WorldSettings worldSettings
+    )
+    {
+        if (manifest == null)
+        {
+            return;
+        }
+
+        manifest.manifestVersion =
+            TerrainAuthoringHeightManifest
+                .CurrentVersion;
+
+        manifest.isComplete =
+            false;
+
+        manifest.committedContentHash =
+            "";
+
+        if (worldSettings != null)
+        {
+            CopyLayoutToManifest(
+                manifest,
+                worldSettings
+            );
+        }
+
+        EditorUtility.SetDirty(
+            manifest
+        );
+
+        AssetDatabase.SaveAssetIfDirty(
+            manifest
+        );
+    }
+
+    public static bool FinalizeAuthoringHeightfield(
+        TerrainAuthoringHeightManifest manifest,
+        WorldSettings worldSettings,
+        TerrainAuthoringData authoringData,
+        string committedContentHash,
+        out string errorMessage
+    )
+    {
+        errorMessage =
+            "";
+
+        if (manifest == null)
+        {
+            errorMessage =
+                "TerrainAuthoringHeightManifest is null.";
+
+            return false;
+        }
+
+        if (worldSettings == null)
+        {
+            errorMessage =
+                "WorldSettings is null.";
+
+            return false;
+        }
+
+        if (authoringData == null)
+        {
+            errorMessage =
+                "TerrainAuthoringData is null.";
+
+            return false;
+        }
+
+        if (
+            string.IsNullOrEmpty(
+                committedContentHash
+            )
+        )
+        {
+            errorMessage =
+                "Committed authoring content hash is empty.";
+
+            return false;
+        }
+
+        manifest.manifestVersion =
+            TerrainAuthoringHeightManifest
+                .CurrentVersion;
+
+        CopyLayoutToManifest(
+            manifest,
+            worldSettings
+        );
+
+        if (
+            manifest.committedHeightRevision < 0
+        )
+        {
+            manifest.committedHeightRevision =
+                0;
+        }
+
+        manifest.committedHeightRevision++;
+
+        manifest.committedContentHash =
+            committedContentHash;
+
+        manifest.isComplete =
+            true;
+
+        EditorUtility.SetDirty(
+            manifest
+        );
+
+        AssetDatabase.SaveAssetIfDirty(
+            manifest
+        );
+
+        return true;
+    }
 
     // =====================================================
     // AUTHORING TILE PATH / NAME
@@ -47,16 +218,9 @@ public static class TerrainAuthoringStateUtility
     // =====================================================
 
     /*
-     * This signature is intentionally cheap to calculate.
-     *
-     * It is used by editor UI generation-state checks, which
-     * may run frequently while the WorldMeshes window is open.
-     *
-     * Normal authoring tools must increment authoringRevision
-     * whenever the authored terrain result changes.
-     *
-     * The compiler separately calculates a content hash across
-     * the committed height-tile assets when compilation occurs.
+     * This is intentionally cheap enough for editor status
+     * checks. The expensive physical tile-content verification
+     * is performed during explicit validation/compilation.
      */
     public static string GetCurrentAuthoringSignature(
         WorldSettings worldSettings,
@@ -67,6 +231,32 @@ public static class TerrainAuthoringStateUtility
             worldSettings == null
             ||
             authoringData == null
+        )
+        {
+            return "";
+        }
+
+        TerrainAuthoringHeightManifest manifest =
+            LoadAuthoringHeightManifest();
+
+        if (
+            manifest == null
+            ||
+            !manifest.isComplete
+            ||
+            manifest.manifestVersion !=
+                TerrainAuthoringHeightManifest.CurrentVersion
+            ||
+            manifest.committedHeightRevision <= 0
+            ||
+            !ManifestMatchesWorldSettings(
+                manifest,
+                worldSettings
+            )
+            ||
+            string.IsNullOrEmpty(
+                manifest.committedContentHash
+            )
         )
         {
             return "";
@@ -86,58 +276,42 @@ public static class TerrainAuthoringStateUtility
 
         AppendValue(
             builder,
-            Mathf.Max(
-                0,
-                authoringData.authoringRevision
-            )
-        );
-
-        // -------------------------------------------------
-        // World layout
-        // -------------------------------------------------
-
-        AppendValue(
-            builder,
-            Mathf.Max(
-                1,
-                worldSettings.gridWidth
-            )
+            manifest.manifestVersion
         );
 
         AppendValue(
             builder,
-            Mathf.Max(
-                1,
-                worldSettings.gridHeight
-            )
+            authoringData.authoringRevision
         );
 
         AppendValue(
             builder,
-            Mathf.Max(
-                0.01f,
-                worldSettings.chunkSize
-            )
+            manifest.committedHeightRevision
         );
 
         AppendValue(
             builder,
-            Mathf.Max(
-                1,
-                worldSettings.lod0Resolution
-            )
+            worldSettings.gridWidth
         );
-
-        // -------------------------------------------------
-        // Heightfield layout
-        // -------------------------------------------------
 
         AppendValue(
             builder,
-            Mathf.Max(
-                1,
-                worldSettings.heightTileChunkSpan
-            )
+            worldSettings.gridHeight
+        );
+
+        AppendValue(
+            builder,
+            worldSettings.chunkSize
+        );
+
+        AppendValue(
+            builder,
+            worldSettings.lod0Resolution
+        );
+
+        AppendValue(
+            builder,
+            worldSettings.heightTileChunkSpan
         );
 
         AppendValue(
@@ -155,6 +329,12 @@ public static class TerrainAuthoringStateUtility
             worldSettings.HeightTileSamplesPerSide
         );
 
+        builder.Append('|');
+
+        builder.Append(
+            manifest.committedContentHash
+        );
+
         return ComputeSHA256(
             builder.ToString()
         );
@@ -167,9 +347,17 @@ public static class TerrainAuthoringStateUtility
     public static bool TryValidateCommittedHeightfield(
         WorldSettings worldSettings,
         TerrainAuthoringData authoringData,
+        out TerrainAuthoringHeightManifest manifest,
+        out string currentContentHash,
         out string errorMessage
     )
     {
+        manifest =
+            null;
+
+        currentContentHash =
+            "";
+
         errorMessage =
             "";
 
@@ -189,6 +377,46 @@ public static class TerrainAuthoringStateUtility
             return false;
         }
 
+        manifest =
+            LoadAuthoringHeightManifest();
+
+        if (manifest == null)
+        {
+            errorMessage =
+                "The authoring heightfield manifest does not exist.\n\n" +
+                "Reinitialize the authoring heightfield once to " +
+                "create the new manifest.";
+
+            return false;
+        }
+
+        if (!manifest.isComplete)
+        {
+            errorMessage =
+                "The committed authoring heightfield is marked " +
+                "incomplete.\n\n" +
+                "This normally means initialization or a future " +
+                "bake operation was cancelled or failed.\n\n" +
+                "Reinitialize the authoring heightfield before compiling.";
+
+            return false;
+        }
+
+        if (
+            manifest.manifestVersion !=
+            TerrainAuthoringHeightManifest.CurrentVersion
+        )
+        {
+            errorMessage =
+                "The authoring heightfield manifest version is " +
+                "out of date.\n\n" +
+                $"Expected: {TerrainAuthoringHeightManifest.CurrentVersion}\n" +
+                $"Actual: {manifest.manifestVersion}\n\n" +
+                "Reinitialize the authoring heightfield.";
+
+            return false;
+        }
+
         if (
             authoringData.authoringRevision <= 0
         )
@@ -196,6 +424,92 @@ public static class TerrainAuthoringStateUtility
             errorMessage =
                 "The authoring heightfield has not been " +
                 "successfully initialized yet.";
+
+            return false;
+        }
+
+        if (
+            manifest.committedHeightRevision <= 0
+        )
+        {
+            errorMessage =
+                "The committed authoring heightfield does not have " +
+                "a valid committed revision.";
+
+            return false;
+        }
+
+        if (
+            !ManifestMatchesWorldSettings(
+                manifest,
+                worldSettings
+            )
+        )
+        {
+            errorMessage =
+                "The committed authoring heightfield layout does not " +
+                "match the current WorldSettings.\n\n" +
+                "Reinitialize the authoring heightfield for the " +
+                "current world/height-tile layout.";
+
+            return false;
+        }
+
+        if (
+            !TryCalculateCommittedHeightContentHash(
+                worldSettings,
+                out currentContentHash,
+                out errorMessage
+            )
+        )
+        {
+            return false;
+        }
+
+        if (
+            manifest.committedContentHash !=
+            currentContentHash
+        )
+        {
+            errorMessage =
+                "The committed authoring tile assets have changed " +
+                "without the authoring manifest being updated.\n\n" +
+                "This prevents the compiler from treating an unknown " +
+                "or partially modified tile set as valid.\n\n" +
+                $"Manifest Hash:\n{manifest.committedContentHash}\n\n" +
+                $"Current Hash:\n{currentContentHash}";
+
+            return false;
+        }
+
+        return true;
+    }
+
+    // =====================================================
+    // PHYSICAL TILE VALIDATION + CONTENT HASH
+    // =====================================================
+
+    /*
+     * This does not require the manifest to be complete.
+     * The initializer uses it after writing every tile but
+     * before finalizing the authoring manifest.
+     */
+    public static bool TryCalculateCommittedHeightContentHash(
+        WorldSettings worldSettings,
+        out string contentHash,
+        out string errorMessage
+    )
+    {
+        contentHash =
+            "";
+
+        errorMessage =
+            "";
+
+        if (worldSettings == null)
+        {
+            errorMessage =
+                "WorldSettings is null.";
 
             return false;
         }
@@ -225,6 +539,28 @@ public static class TerrainAuthoringStateUtility
         int expectedSampleCount =
             samplesPerSide *
             samplesPerSide;
+
+        StringBuilder builder =
+            new StringBuilder();
+
+        builder.Append(
+            "WorldMeshesCommittedHeightTiles"
+        );
+
+        AppendValue(
+            builder,
+            tileGridWidth
+        );
+
+        AppendValue(
+            builder,
+            tileGridHeight
+        );
+
+        AppendValue(
+            builder,
+            samplesPerSide
+        );
 
         for (
             int tileZ = 0;
@@ -261,23 +597,16 @@ public static class TerrainAuthoringStateUtility
                 }
 
                 if (
-                    texture.width !=
-                        samplesPerSide
+                    texture.width != samplesPerSide
                     ||
-                    texture.height !=
-                        samplesPerSide
+                    texture.height != samplesPerSide
                 )
                 {
                     errorMessage =
                         $"Authoring height tile ({tileX}, {tileZ}) " +
                         "has the wrong dimensions.\n\n" +
-
-                        $"Expected: {samplesPerSide} x " +
-                        $"{samplesPerSide}\n" +
-
-                        $"Actual: {texture.width} x " +
-                        $"{texture.height}\n\n" +
-
+                        $"Expected: {samplesPerSide} x {samplesPerSide}\n" +
+                        $"Actual: {texture.width} x {texture.height}\n\n" +
                         $"Path:\n{path}";
 
                     return false;
@@ -291,9 +620,7 @@ public static class TerrainAuthoringStateUtility
                     errorMessage =
                         $"Authoring height tile ({tileX}, {tileZ}) " +
                         "does not use TextureFormat.RFloat.\n\n" +
-
                         $"Actual Format: {texture.format}\n\n" +
-
                         $"Path:\n{path}";
 
                     return false;
@@ -330,10 +657,8 @@ public static class TerrainAuthoringStateUtility
                     errorMessage =
                         $"Authoring height tile ({tileX}, {tileZ}) " +
                         "contains the wrong number of samples.\n\n" +
-
                         $"Expected: {expectedSampleCount:N0}\n" +
                         $"Actual: {heightData.Length:N0}\n\n" +
-
                         $"Path:\n{path}";
 
                     return false;
@@ -357,86 +682,13 @@ public static class TerrainAuthoringStateUtility
                         errorMessage =
                             $"Authoring height tile ({tileX}, {tileZ}) " +
                             "contains an invalid height sample.\n\n" +
-
                             $"Sample Index: {index}\n" +
                             $"Value: {height}\n\n" +
-
                             $"Path:\n{path}";
 
                         return false;
                     }
                 }
-            }
-        }
-
-        return true;
-    }
-
-    // =====================================================
-    // COMMITTED CONTENT HASH
-    // =====================================================
-
-    /*
-     * This is intentionally more expensive than
-     * GetCurrentAuthoringSignature().
-     *
-     * It is intended for explicit compile/bake operations,
-     * not per-frame or per-OnGUI status checks.
-     */
-    public static bool TryGetCurrentAuthoringContentHash(
-        WorldSettings worldSettings,
-        TerrainAuthoringData authoringData,
-        out string contentHash,
-        out string errorMessage
-    )
-    {
-        contentHash =
-            "";
-
-        if (
-            !TryValidateCommittedHeightfield(
-                worldSettings,
-                authoringData,
-                out errorMessage
-            )
-        )
-        {
-            return false;
-        }
-
-        StringBuilder builder =
-            new StringBuilder();
-
-        builder.Append(
-            GetCurrentAuthoringSignature(
-                worldSettings,
-                authoringData
-            )
-        );
-
-        int tileGridWidth =
-            worldSettings.HeightTileGridWidth;
-
-        int tileGridHeight =
-            worldSettings.HeightTileGridHeight;
-
-        for (
-            int tileZ = 0;
-            tileZ < tileGridHeight;
-            tileZ++
-        )
-        {
-            for (
-                int tileX = 0;
-                tileX < tileGridWidth;
-                tileX++
-            )
-            {
-                string path =
-                    GetAuthoringHeightTilePath(
-                        tileX,
-                        tileZ
-                    );
 
                 Hash128 dependencyHash =
                     AssetDatabase
@@ -467,10 +719,143 @@ public static class TerrainAuthoringStateUtility
                 builder.ToString()
             );
 
-        errorMessage =
-            "";
-
         return true;
+    }
+
+    // =====================================================
+    // MANIFEST LAYOUT
+    // =====================================================
+
+    public static bool ManifestMatchesWorldSettings(
+        TerrainAuthoringHeightManifest manifest,
+        WorldSettings worldSettings
+    )
+    {
+        if (
+            manifest == null
+            ||
+            worldSettings == null
+        )
+        {
+            return false;
+        }
+
+        return
+            manifest.gridWidth ==
+                worldSettings.gridWidth
+            &&
+            manifest.gridHeight ==
+                worldSettings.gridHeight
+            &&
+            FloatMatches(
+                manifest.chunkSize,
+                worldSettings.chunkSize
+            )
+            &&
+            manifest.lod0Resolution ==
+                worldSettings.lod0Resolution
+            &&
+            manifest.heightTileChunkSpan ==
+                worldSettings.heightTileChunkSpan
+            &&
+            manifest.heightTileGridWidth ==
+                worldSettings.HeightTileGridWidth
+            &&
+            manifest.heightTileGridHeight ==
+                worldSettings.HeightTileGridHeight
+            &&
+            FloatMatches(
+                manifest.heightTileWorldSize,
+                worldSettings.HeightTileWorldSize
+            )
+            &&
+            manifest.heightTileSamplesPerSide ==
+                worldSettings.HeightTileSamplesPerSide;
+    }
+
+    public static void CopyLayoutToManifest(
+        TerrainAuthoringHeightManifest manifest,
+        WorldSettings worldSettings
+    )
+    {
+        if (
+            manifest == null
+            ||
+            worldSettings == null
+        )
+        {
+            return;
+        }
+
+        manifest.gridWidth =
+            worldSettings.gridWidth;
+
+        manifest.gridHeight =
+            worldSettings.gridHeight;
+
+        manifest.chunkSize =
+            worldSettings.chunkSize;
+
+        manifest.lod0Resolution =
+            worldSettings.lod0Resolution;
+
+        manifest.heightTileChunkSpan =
+            worldSettings.heightTileChunkSpan;
+
+        manifest.heightTileGridWidth =
+            worldSettings.HeightTileGridWidth;
+
+        manifest.heightTileGridHeight =
+            worldSettings.HeightTileGridHeight;
+
+        manifest.heightTileWorldSize =
+            worldSettings.HeightTileWorldSize;
+
+        manifest.heightTileSamplesPerSide =
+            worldSettings.HeightTileSamplesPerSide;
+    }
+
+    // =====================================================
+    // FOLDERS
+    // =====================================================
+
+    private static void EnsureAuthoringFoldersExist()
+    {
+        if (
+            !AssetDatabase.IsValidFolder(
+                WorldMeshesPaths.Authoring
+            )
+        )
+        {
+            AssetDatabase.CreateFolder(
+                WorldMeshesPaths.Root,
+                "Authoring"
+            );
+        }
+
+        if (
+            !AssetDatabase.IsValidFolder(
+                WorldMeshesPaths.AuthoringHeight
+            )
+        )
+        {
+            AssetDatabase.CreateFolder(
+                WorldMeshesPaths.Authoring,
+                "Height"
+            );
+        }
+
+        if (
+            !AssetDatabase.IsValidFolder(
+                WorldMeshesPaths.AuthoringHeightTiles
+            )
+        )
+        {
+            AssetDatabase.CreateFolder(
+                WorldMeshesPaths.AuthoringHeight,
+                "Tiles"
+            );
+        }
     }
 
     // =====================================================
@@ -547,5 +932,18 @@ public static class TerrainAuthoringStateUtility
         }
 
         return result.ToString();
+    }
+
+    private static bool FloatMatches(
+        float a,
+        float b
+    )
+    {
+        return
+            Mathf.Abs(
+                a - b
+            )
+            <=
+            0.0001f;
     }
 }

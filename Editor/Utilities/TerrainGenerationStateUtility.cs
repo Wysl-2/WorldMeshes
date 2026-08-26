@@ -20,13 +20,6 @@ public static class TerrainGenerationStateUtility
     // VERSIONS
     // =====================================================
 
-    /*
-     * Legacy procedural runtime-generator version.
-     * Keep this while TerrainHeightmapGenerator remains in
-     * the project for compatibility with older utilities.
-     */
-    public const int HeightGeneratorVersion =
-        1;
 
     /*
      * Increment whenever the authoring -> runtime height
@@ -34,7 +27,7 @@ public static class TerrainGenerationStateUtility
      * existing runtime heightmaps to be recompiled.
      */
     public const int RuntimeHeightCompilerVersion =
-        1;
+        2;
 
     public const int CollisionGeneratorVersion =
         1;
@@ -231,26 +224,23 @@ public static class TerrainGenerationStateUtility
             return GenerationStatus.NotGenerated;
         }
 
-        TerrainHeightmapManifest manifest =
+        TerrainHeightmapManifest runtimeManifest =
             AssetDatabase
                 .LoadAssetAtPath<TerrainHeightmapManifest>(
-                    WorldMeshesPaths
-                        .HeightmapManifestAssetPath
+                    TerrainRuntimeHeightAssetUtility
+                        .HeightmapManifestPath
                 );
 
-        if (manifest == null)
+        if (runtimeManifest == null)
         {
             return GenerationStatus.NotGenerated;
         }
 
-        if (!manifest.isComplete)
-        {
-            return GenerationStatus.OutOfDate;
-        }
-
         if (
-            manifest.compilerVersion !=
-            RuntimeHeightCompilerVersion
+            !runtimeManifest.isComplete
+            ||
+            runtimeManifest.compilerVersion !=
+                RuntimeHeightCompilerVersion
         )
         {
             return GenerationStatus.OutOfDate;
@@ -267,6 +257,30 @@ public static class TerrainGenerationStateUtility
             authoringData == null
             ||
             authoringData.authoringRevision <= 0
+        )
+        {
+            return GenerationStatus.OutOfDate;
+        }
+
+        TerrainAuthoringHeightManifest authoringManifest =
+            TerrainAuthoringStateUtility
+                .LoadAuthoringHeightManifest();
+
+        if (
+            authoringManifest == null
+            ||
+            !authoringManifest.isComplete
+            ||
+            authoringManifest.manifestVersion !=
+                TerrainAuthoringHeightManifest.CurrentVersion
+            ||
+            authoringManifest.committedHeightRevision <= 0
+            ||
+            !TerrainAuthoringStateUtility
+                .ManifestMatchesWorldSettings(
+                    authoringManifest,
+                    worldSettings
+                )
         )
         {
             return GenerationStatus.OutOfDate;
@@ -289,24 +303,17 @@ public static class TerrainGenerationStateUtility
         }
 
         if (
-            manifest.sourceAuthoringRevision !=
-            authoringData.authoringRevision
-        )
-        {
-            return GenerationStatus.OutOfDate;
-        }
-
-        if (
-            manifest.sourceAuthoringSignature !=
-            currentAuthoringSignature
-        )
-        {
-            return GenerationStatus.OutOfDate;
-        }
-
-        if (
+            runtimeManifest.sourceAuthoringRevision !=
+                authoringData.authoringRevision
+            ||
+            runtimeManifest.sourceAuthoringSignature !=
+                currentAuthoringSignature
+            ||
+            runtimeManifest.sourceAuthoringContentHash !=
+                authoringManifest.committedContentHash
+            ||
             worldSettings.lastGeneratedHeightSignature !=
-            currentAuthoringSignature
+                currentAuthoringSignature
         )
         {
             return GenerationStatus.OutOfDate;
@@ -527,44 +534,6 @@ public static class TerrainGenerationStateUtility
         );
     }
 
-    // =====================================================
-    // LEGACY PROCEDURAL HEIGHTMAP GENERATION
-    // =====================================================
-
-    /*
-     * Keep this method while TerrainHeightmapGenerator remains
-     * in the project. Runtime heightmap status will not consider
-     * legacy procedural output current under the new compiler
-     * model unless it also has valid authoring-source metadata.
-     */
-    public static void MarkHeightmapsGenerated(
-        WorldSettings worldSettings
-    )
-    {
-        if (worldSettings == null)
-        {
-            return;
-        }
-
-        worldSettings.lastGeneratedHeightSignature =
-            GetCurrentHeightSettingsSignature(
-                worldSettings
-            );
-
-        if (
-            worldSettings.heightmapGenerationRevision < 0
-        )
-        {
-            worldSettings.heightmapGenerationRevision =
-                0;
-        }
-
-        worldSettings.heightmapGenerationRevision++;
-
-        SaveWorldSettings(
-            worldSettings
-        );
-    }
 
     // =====================================================
     // SUCCESSFUL HEIGHT APPLICATION
@@ -688,44 +657,7 @@ public static class TerrainGenerationStateUtility
         );
     }
 
-    // =====================================================
-    // LEGACY HEIGHT SETTINGS SIGNATURE
-    // =====================================================
 
-    public static string GetCurrentHeightSettingsSignature(
-        WorldSettings worldSettings
-    )
-    {
-        if (worldSettings == null)
-        {
-            return "";
-        }
-
-        StringBuilder builder =
-            new StringBuilder();
-
-        builder.Append(
-            "TerrainHeightGenerator"
-        );
-
-        AppendValue(builder, HeightGeneratorVersion);
-        AppendValue(builder, Mathf.Max(1, worldSettings.gridWidth));
-        AppendValue(builder, Mathf.Max(1, worldSettings.gridHeight));
-        AppendValue(builder, Mathf.Max(0.01f, worldSettings.chunkSize));
-        AppendValue(builder, Mathf.Max(1, worldSettings.lod0Resolution));
-        AppendValue(builder, Mathf.Max(1, worldSettings.heightTileChunkSpan));
-        AppendValue(builder, worldSettings.heightSeed);
-        AppendValue(builder, Mathf.Max(0.0001f, worldSettings.heightNoiseScale));
-        AppendValue(builder, worldSettings.heightBaseHeight);
-        AppendValue(builder, Mathf.Max(0f, worldSettings.heightAmplitude));
-        AppendValue(builder, Mathf.Clamp(worldSettings.heightOctaves, 1, 12));
-        AppendValue(builder, Mathf.Clamp01(worldSettings.heightPersistence));
-        AppendValue(builder, Mathf.Max(1f, worldSettings.heightLacunarity));
-
-        return ComputeSHA256(
-            builder.ToString()
-        );
-    }
 
     // =====================================================
     // CURRENT BASE MESH HASH

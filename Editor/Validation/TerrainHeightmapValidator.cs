@@ -5,10 +5,6 @@ using UnityEngine;
 
 public static class TerrainHeightmapValidator
 {
-    // =====================================================
-    // VALIDATION
-    // =====================================================
-
     private const float EdgeTolerance =
         0.000001f;
 
@@ -16,69 +12,66 @@ public static class TerrainHeightmapValidator
         0.0001f;
 
     // =====================================================
-    // VALIDATE HEIGHTMAPS
+    // VALIDATE RUNTIME HEIGHTMAPS
     // =====================================================
 
     public static bool ValidateHeightmaps(
         WorldSettings worldSettings
     )
     {
-        // -------------------------------------------------
-        // Validate WorldSettings
-        // -------------------------------------------------
-
         if (worldSettings == null)
         {
             Debug.LogError(
-                "Cannot validate heightmaps: " +
+                "Cannot validate runtime heightmaps: " +
                 "WorldSettings is null."
             );
 
             return false;
         }
 
-        // -------------------------------------------------
-        // Load manifest
-        // -------------------------------------------------
-
         TerrainHeightmapManifest manifest =
             AssetDatabase
-                .LoadAssetAtPath
-                    <TerrainHeightmapManifest>(
-                        TerrainHeightmapGenerator
-                            .HeightmapManifestPath
-                    );
+                .LoadAssetAtPath<TerrainHeightmapManifest>(
+                    TerrainRuntimeHeightAssetUtility
+                        .HeightmapManifestPath
+                );
 
         if (manifest == null)
         {
             Debug.LogError(
-                "Cannot validate heightmaps.\n\n" +
-                "Heightmap manifest does not exist.\n\n" +
-                "Generate the heightmaps first."
+                "Cannot validate runtime heightmaps.\n\n" +
+                "Runtime heightmap manifest does not exist.\n\n" +
+                "Compile the runtime heightmaps first."
             );
 
             return false;
         }
-
-        // -------------------------------------------------
-        // Manifest completeness
-        // -------------------------------------------------
 
         if (!manifest.isComplete)
         {
             Debug.LogError(
-                "Cannot validate heightmaps.\n\n" +
-                "The heightmap manifest is marked " +
-                "as incomplete.\n\n" +
-                "Generate the heightmaps again."
+                "Cannot validate runtime heightmaps.\n\n" +
+                "The runtime heightmap manifest is marked incomplete.\n\n" +
+                "Compile the runtime heightmaps again."
             );
 
             return false;
         }
 
-        // -------------------------------------------------
-        // Manifest vs current WorldSettings
-        // -------------------------------------------------
+        if (
+            manifest.compilerVersion !=
+            TerrainGenerationStateUtility
+                .RuntimeHeightCompilerVersion
+        )
+        {
+            Debug.LogError(
+                "Cannot validate runtime heightmaps.\n\n" +
+                "The runtime heightmap compiler version is out of date.\n\n" +
+                "Compile the runtime heightmaps again."
+            );
+
+            return false;
+        }
 
         if (
             !ManifestMatchesWorldSettings(
@@ -88,18 +81,80 @@ public static class TerrainHeightmapValidator
         )
         {
             Debug.LogError(
-                "Cannot validate heightmaps.\n\n" +
-                "The generated heightmaps do not match " +
+                "Cannot validate runtime heightmaps.\n\n" +
+                "The generated heightmap layout does not match " +
                 "the current saved WorldSettings.\n\n" +
-                "Generate the heightmaps again."
+                "Compile the runtime heightmaps again."
             );
 
             return false;
         }
 
-        // -------------------------------------------------
-        // Expected layout
-        // -------------------------------------------------
+        TerrainAuthoringData authoringData =
+            AssetDatabase
+                .LoadAssetAtPath<TerrainAuthoringData>(
+                    WorldMeshesPaths
+                        .TerrainAuthoringDataAssetPath
+                );
+
+        if (authoringData == null)
+        {
+            Debug.LogError(
+                "Cannot validate runtime heightmaps.\n\n" +
+                "TerrainAuthoringData could not be loaded."
+            );
+
+            return false;
+        }
+
+        if (
+            !TerrainAuthoringStateUtility
+                .TryValidateCommittedHeightfield(
+                    worldSettings,
+                    authoringData,
+                    out TerrainAuthoringHeightManifest
+                        authoringManifest,
+                    out string currentAuthoringContentHash,
+                    out string authoringValidationError
+                )
+        )
+        {
+            Debug.LogError(
+                "Cannot validate runtime heightmaps because the " +
+                "committed authoring heightfield is invalid.\n\n" +
+                authoringValidationError
+            );
+
+            return false;
+        }
+
+        string currentAuthoringSignature =
+            TerrainAuthoringStateUtility
+                .GetCurrentAuthoringSignature(
+                    worldSettings,
+                    authoringData
+                );
+
+        if (
+            manifest.sourceAuthoringRevision !=
+                authoringData.authoringRevision
+            ||
+            manifest.sourceAuthoringSignature !=
+                currentAuthoringSignature
+            ||
+            manifest.sourceAuthoringContentHash !=
+                currentAuthoringContentHash
+        )
+        {
+            Debug.LogError(
+                "Runtime heightmap validation failed.\n\n" +
+                "The runtime heightmaps were compiled from an older " +
+                "authoring state.\n\n" +
+                "Compile the runtime heightmaps again."
+            );
+
+            return false;
+        }
 
         int tileGridWidth =
             worldSettings.HeightTileGridWidth;
@@ -118,10 +173,6 @@ public static class TerrainHeightmapValidator
             tileGridWidth *
             tileGridHeight;
 
-        // -------------------------------------------------
-        // Load and validate every tile
-        // -------------------------------------------------
-
         Dictionary<Vector2Int, Texture2D> tiles =
             new Dictionary<Vector2Int, Texture2D>();
 
@@ -130,6 +181,10 @@ public static class TerrainHeightmapValidator
 
         int invalidHeightSampleCount =
             0;
+
+        // =================================================
+        // LOAD + VALIDATE EVERY RUNTIME TILE
+        // =================================================
 
         for (
             int tileZ = 0;
@@ -144,7 +199,7 @@ public static class TerrainHeightmapValidator
             )
             {
                 string path =
-                    TerrainHeightmapGenerator
+                    TerrainRuntimeHeightAssetUtility
                         .GetHeightTilePath(
                             tileX,
                             tileZ
@@ -156,14 +211,10 @@ public static class TerrainHeightmapValidator
                             path
                         );
 
-                // -----------------------------------------
-                // Missing asset
-                // -----------------------------------------
-
                 if (texture == null)
                 {
                     Debug.LogError(
-                        "Missing heightmap tile:\n" +
+                        "Missing runtime heightmap tile:\n" +
                         path
                     );
 
@@ -175,39 +226,22 @@ public static class TerrainHeightmapValidator
                 bool tileValid =
                     true;
 
-                // -----------------------------------------
-                // Dimensions
-                // -----------------------------------------
-
                 if (
-                    texture.width !=
-                        samplesPerSide
+                    texture.width != samplesPerSide
                     ||
-                    texture.height !=
-                        samplesPerSide
+                    texture.height != samplesPerSide
                 )
                 {
                     Debug.LogError(
-                        $"Invalid dimensions for " +
-                        $"heightmap tile " +
-                        $"({tileX}, {tileZ}).\n\n" +
-
-                        $"Expected: " +
-                        $"{samplesPerSide} x " +
-                        $"{samplesPerSide}\n" +
-
-                        $"Actual: " +
-                        $"{texture.width} x " +
-                        $"{texture.height}"
+                        $"Invalid dimensions for runtime heightmap " +
+                        $"tile ({tileX}, {tileZ}).\n\n" +
+                        $"Expected: {samplesPerSide} x {samplesPerSide}\n" +
+                        $"Actual: {texture.width} x {texture.height}"
                     );
 
                     tileValid =
                         false;
                 }
-
-                // -----------------------------------------
-                // Texture format
-                // -----------------------------------------
 
                 if (
                     texture.format !=
@@ -215,24 +249,15 @@ public static class TerrainHeightmapValidator
                 )
                 {
                     Debug.LogError(
-                        $"Invalid texture format for " +
-                        $"heightmap tile " +
-                        $"({tileX}, {tileZ}).\n\n" +
-
-                        $"Expected: " +
-                        $"{TextureFormat.RFloat}\n" +
-
-                        $"Actual: " +
-                        $"{texture.format}"
+                        $"Invalid texture format for runtime heightmap " +
+                        $"tile ({tileX}, {tileZ}).\n\n" +
+                        $"Expected: {TextureFormat.RFloat}\n" +
+                        $"Actual: {texture.format}"
                     );
 
                     tileValid =
                         false;
                 }
-
-                // -----------------------------------------
-                // Stop before reading malformed tile
-                // -----------------------------------------
 
                 if (!tileValid)
                 {
@@ -240,10 +265,6 @@ public static class TerrainHeightmapValidator
 
                     continue;
                 }
-
-                // -----------------------------------------
-                // Read raw height data
-                // -----------------------------------------
 
                 NativeArray<float> heightData;
 
@@ -259,7 +280,7 @@ public static class TerrainHeightmapValidator
                 )
                 {
                     Debug.LogError(
-                        $"Could not read heightmap tile " +
+                        $"Could not read runtime heightmap tile " +
                         $"({tileX}, {tileZ}).\n\n" +
                         exception.Message
                     );
@@ -269,25 +290,16 @@ public static class TerrainHeightmapValidator
                     continue;
                 }
 
-                // -----------------------------------------
-                // Sample count
-                // -----------------------------------------
-
                 if (
                     heightData.Length !=
                     expectedSampleCount
                 )
                 {
                     Debug.LogError(
-                        $"Invalid sample count for " +
-                        $"heightmap tile " +
-                        $"({tileX}, {tileZ}).\n\n" +
-
-                        $"Expected: " +
-                        $"{expectedSampleCount:N0}\n" +
-
-                        $"Actual: " +
-                        $"{heightData.Length:N0}"
+                        $"Invalid sample count for runtime heightmap " +
+                        $"tile ({tileX}, {tileZ}).\n\n" +
+                        $"Expected: {expectedSampleCount:N0}\n" +
+                        $"Actual: {heightData.Length:N0}"
                     );
 
                     invalidTileCount++;
@@ -295,30 +307,22 @@ public static class TerrainHeightmapValidator
                     continue;
                 }
 
-                // -----------------------------------------
-                // Validate individual heights
-                // -----------------------------------------
-
                 bool containsInvalidHeight =
                     false;
 
                 for (
-                    int i = 0;
-                    i < heightData.Length;
-                    i++
+                    int index = 0;
+                    index < heightData.Length;
+                    index++
                 )
                 {
                     float height =
-                        heightData[i];
+                        heightData[index];
 
                     if (
-                        float.IsNaN(
-                            height
-                        )
+                        float.IsNaN(height)
                         ||
-                        float.IsInfinity(
-                            height
-                        )
+                        float.IsInfinity(height)
                     )
                     {
                         invalidHeightSampleCount++;
@@ -331,7 +335,7 @@ public static class TerrainHeightmapValidator
                 if (containsInvalidHeight)
                 {
                     Debug.LogError(
-                        $"Heightmap tile " +
+                        $"Runtime heightmap tile " +
                         $"({tileX}, {tileZ}) contains " +
                         "invalid height values."
                     );
@@ -340,10 +344,6 @@ public static class TerrainHeightmapValidator
 
                     continue;
                 }
-
-                // -----------------------------------------
-                // Valid tile
-                // -----------------------------------------
 
                 tiles[
                     new Vector2Int(
@@ -355,27 +355,17 @@ public static class TerrainHeightmapValidator
             }
         }
 
-        // -------------------------------------------------
-        // Invalid tile set
-        // -------------------------------------------------
-
         if (
-            invalidTileCount > 0 ||
+            invalidTileCount > 0
+            ||
             tiles.Count != expectedTileCount
         )
         {
             Debug.LogError(
-                "Heightmap validation failed.\n\n" +
-
-                $"Expected Tiles: " +
-                $"{expectedTileCount}\n" +
-
-                $"Valid Tiles: " +
-                $"{tiles.Count}\n" +
-
-                $"Invalid Tiles: " +
-                $"{invalidTileCount}\n" +
-
+                "Runtime heightmap validation failed.\n\n" +
+                $"Expected Tiles: {expectedTileCount}\n" +
+                $"Valid Tiles: {tiles.Count}\n" +
+                $"Invalid Tiles: {invalidTileCount}\n" +
                 $"Invalid Height Samples: " +
                 $"{invalidHeightSampleCount:N0}"
             );
@@ -383,9 +373,9 @@ public static class TerrainHeightmapValidator
             return false;
         }
 
-        // -------------------------------------------------
-        // Edge validation statistics
-        // -------------------------------------------------
+        // =================================================
+        // SEAM VALIDATION
+        // =================================================
 
         int boundaryPairCount =
             0;
@@ -402,12 +392,6 @@ public static class TerrainHeightmapValidator
         string firstMismatch =
             null;
 
-        // =================================================
-        // HORIZONTAL NEIGHBORS
-        //
-        // A right edge vs B left edge
-        // =================================================
-
         for (
             int tileZ = 0;
             tileZ < tileGridHeight;
@@ -420,29 +404,25 @@ public static class TerrainHeightmapValidator
                 tileX++
             )
             {
-                Texture2D leftTile =
+                NativeArray<float> leftData =
                     tiles[
                         new Vector2Int(
                             tileX,
                             tileZ
                         )
-                    ];
+                    ]
+                    .GetPixelData<float>(
+                        0
+                    );
 
-                Texture2D rightTile =
+                NativeArray<float> rightData =
                     tiles[
                         new Vector2Int(
                             tileX + 1,
                             tileZ
                         )
-                    ];
-
-                NativeArray<float> leftData =
-                    leftTile.GetPixelData<float>(
-                        0
-                    );
-
-                NativeArray<float> rightData =
-                    rightTile.GetPixelData<float>(
+                    ]
+                    .GetPixelData<float>(
                         0
                     );
 
@@ -456,8 +436,7 @@ public static class TerrainHeightmapValidator
                 {
                     int leftIndex =
                         sampleZ *
-                        samplesPerSide
-                        +
+                        samplesPerSide +
                         (
                             samplesPerSide -
                             1
@@ -467,69 +446,21 @@ public static class TerrainHeightmapValidator
                         sampleZ *
                         samplesPerSide;
 
-                    float leftHeight =
-                        leftData[
-                            leftIndex
-                        ];
-
-                    float rightHeight =
-                        rightData[
-                            rightIndex
-                        ];
-
-                    float difference =
-                        Mathf.Abs(
-                            leftHeight -
-                            rightHeight
-                        );
-
-                    maximumEdgeDifference =
-                        Mathf.Max(
-                            maximumEdgeDifference,
-                            difference
-                        );
-
-                    edgeSampleComparisonCount++;
-
-                    if (
-                        difference >
-                        EdgeTolerance
-                    )
-                    {
-                        edgeMismatchCount++;
-
-                        if (firstMismatch == null)
-                        {
-                            firstMismatch =
-                                "Horizontal boundary:\n" +
-                                $"Tile ({tileX}, {tileZ}) " +
-                                "right edge\n" +
-                                "vs\n" +
-                                $"Tile ({tileX + 1}, " +
-                                $"{tileZ}) left edge\n\n" +
-
-                                $"Edge Sample Z: " +
-                                $"{sampleZ}\n" +
-
-                                $"Left Height: " +
-                                $"{leftHeight:R}\n" +
-
-                                $"Right Height: " +
-                                $"{rightHeight:R}\n" +
-
-                                $"Difference: " +
-                                $"{difference:R}";
-                        }
-                    }
+                    RecordEdgeComparison(
+                        $"Horizontal boundary: " +
+                        $"Tile ({tileX}, {tileZ}) right edge vs " +
+                        $"Tile ({tileX + 1}, {tileZ}) left edge, " +
+                        $"sample Z {sampleZ}",
+                        leftData[leftIndex],
+                        rightData[rightIndex],
+                        ref edgeSampleComparisonCount,
+                        ref edgeMismatchCount,
+                        ref maximumEdgeDifference,
+                        ref firstMismatch
+                    );
                 }
             }
         }
-
-        // =================================================
-        // VERTICAL NEIGHBORS
-        //
-        // A upper Z edge vs B lower Z edge
-        // =================================================
 
         for (
             int tileZ = 0;
@@ -543,29 +474,25 @@ public static class TerrainHeightmapValidator
                 tileX++
             )
             {
-                Texture2D lowerTile =
+                NativeArray<float> lowerData =
                     tiles[
                         new Vector2Int(
                             tileX,
                             tileZ
                         )
-                    ];
+                    ]
+                    .GetPixelData<float>(
+                        0
+                    );
 
-                Texture2D upperTile =
+                NativeArray<float> upperData =
                     tiles[
                         new Vector2Int(
                             tileX,
                             tileZ + 1
                         )
-                    ];
-
-                NativeArray<float> lowerData =
-                    lowerTile.GetPixelData<float>(
-                        0
-                    );
-
-                NativeArray<float> upperData =
-                    upperTile.GetPixelData<float>(
+                    ]
+                    .GetPixelData<float>(
                         0
                     );
 
@@ -583,141 +510,108 @@ public static class TerrainHeightmapValidator
                             1
                         )
                         *
-                        samplesPerSide
-                        +
+                        samplesPerSide +
                         sampleX;
 
                     int upperIndex =
                         sampleX;
 
-                    float lowerHeight =
-                        lowerData[
-                            lowerIndex
-                        ];
-
-                    float upperHeight =
-                        upperData[
-                            upperIndex
-                        ];
-
-                    float difference =
-                        Mathf.Abs(
-                            lowerHeight -
-                            upperHeight
-                        );
-
-                    maximumEdgeDifference =
-                        Mathf.Max(
-                            maximumEdgeDifference,
-                            difference
-                        );
-
-                    edgeSampleComparisonCount++;
-
-                    if (
-                        difference >
-                        EdgeTolerance
-                    )
-                    {
-                        edgeMismatchCount++;
-
-                        if (firstMismatch == null)
-                        {
-                            firstMismatch =
-                                "Vertical boundary:\n" +
-                                $"Tile ({tileX}, {tileZ}) " +
-                                "upper Z edge\n" +
-                                "vs\n" +
-                                $"Tile ({tileX}, " +
-                                $"{tileZ + 1}) lower Z edge\n\n" +
-
-                                $"Edge Sample X: " +
-                                $"{sampleX}\n" +
-
-                                $"Lower Height: " +
-                                $"{lowerHeight:R}\n" +
-
-                                $"Upper Height: " +
-                                $"{upperHeight:R}\n" +
-
-                                $"Difference: " +
-                                $"{difference:R}";
-                        }
-                    }
+                    RecordEdgeComparison(
+                        $"Vertical boundary: " +
+                        $"Tile ({tileX}, {tileZ}) upper edge vs " +
+                        $"Tile ({tileX}, {tileZ + 1}) lower edge, " +
+                        $"sample X {sampleX}",
+                        lowerData[lowerIndex],
+                        upperData[upperIndex],
+                        ref edgeSampleComparisonCount,
+                        ref edgeMismatchCount,
+                        ref maximumEdgeDifference,
+                        ref firstMismatch
+                    );
                 }
             }
         }
 
-        // -------------------------------------------------
-        // Edge failure
-        // -------------------------------------------------
-
         if (edgeMismatchCount > 0)
         {
             Debug.LogError(
-                "Heightmap tile seam validation failed.\n\n" +
-
-                $"Boundary Pairs: " +
-                $"{boundaryPairCount}\n" +
-
+                "Runtime heightmap tile seam validation failed.\n\n" +
+                $"Boundary Pairs: {boundaryPairCount}\n" +
                 $"Edge Samples Compared: " +
                 $"{edgeSampleComparisonCount:N0}\n" +
-
-                $"Mismatched Samples: " +
-                $"{edgeMismatchCount:N0}\n" +
-
-                $"Maximum Difference: " +
-                $"{maximumEdgeDifference:R}\n\n" +
-
-                $"Tolerance: " +
-                $"{EdgeTolerance:R}\n\n" +
-
-                $"First Mismatch:\n" +
-                $"{firstMismatch}"
+                $"Mismatched Samples: {edgeMismatchCount:N0}\n" +
+                $"Maximum Difference: {maximumEdgeDifference:R}\n\n" +
+                $"Tolerance: {EdgeTolerance:R}\n\n" +
+                $"First Mismatch:\n{firstMismatch}"
             );
 
             return false;
         }
 
-        // -------------------------------------------------
-        // Success
-        // -------------------------------------------------
-
         Debug.Log(
-            "Heightmap validation passed.\n\n" +
-
-            $"Tile Grid: " +
-            $"{tileGridWidth} x " +
-            $"{tileGridHeight}\n" +
-
-            $"Tiles Validated: " +
-            $"{tiles.Count}\n" +
-
+            "Runtime heightmap validation passed.\n\n" +
+            $"Tile Grid: {tileGridWidth} x {tileGridHeight}\n" +
+            $"Tiles Validated: {tiles.Count}\n" +
             $"Samples Per Tile: " +
-            $"{samplesPerSide} x " +
-            $"{samplesPerSide}\n\n" +
-
-            $"Boundary Pairs: " +
-            $"{boundaryPairCount}\n" +
-
+            $"{samplesPerSide} x {samplesPerSide}\n\n" +
+            $"Authoring Revision: " +
+            $"{authoringData.authoringRevision}\n" +
+            $"Authoring Content Hash: " +
+            $"{authoringManifest.committedContentHash}\n\n" +
+            $"Boundary Pairs: {boundaryPairCount}\n" +
             $"Edge Samples Compared: " +
             $"{edgeSampleComparisonCount:N0}\n" +
-
-            $"Mismatched Samples: 0\n" +
-
+            "Mismatched Samples: 0\n" +
             $"Maximum Edge Difference: " +
-            $"{maximumEdgeDifference:R}\n\n" +
-
-            "The tiled heightmap set is valid and " +
-            "ready to be applied to terrain meshes."
+            $"{maximumEdgeDifference:R}"
         );
 
         return true;
     }
 
-    // =====================================================
-    // MANIFEST VALIDATION
-    // =====================================================
+    private static void RecordEdgeComparison(
+        string description,
+        float a,
+        float b,
+        ref int comparisonCount,
+        ref int mismatchCount,
+        ref float maximumDifference,
+        ref string firstMismatch
+    )
+    {
+        float difference =
+            Mathf.Abs(
+                a - b
+            );
+
+        maximumDifference =
+            Mathf.Max(
+                maximumDifference,
+                difference
+            );
+
+        comparisonCount++;
+
+        if (
+            difference <=
+            EdgeTolerance
+        )
+        {
+            return;
+        }
+
+        mismatchCount++;
+
+        if (firstMismatch == null)
+        {
+            firstMismatch =
+                description +
+                "\n\n" +
+                $"A: {a:R}\n" +
+                $"B: {b:R}\n" +
+                $"Difference: {difference:R}";
+        }
+    }
 
     private static bool ManifestMatchesWorldSettings(
         TerrainHeightmapManifest manifest,
@@ -730,127 +624,31 @@ public static class TerrainHeightmapValidator
             ||
             manifest.gridHeight !=
                 worldSettings.gridHeight
-        )
-        {
-            return false;
-        }
-
-        if (
+            ||
             !FloatMatches(
                 manifest.chunkSize,
                 worldSettings.chunkSize
             )
-        )
-        {
-            return false;
-        }
-
-        if (
+            ||
             manifest.lod0Resolution !=
-            worldSettings.lod0Resolution
-        )
-        {
-            return false;
-        }
-
-        if (
+                worldSettings.lod0Resolution
+            ||
             manifest.heightTileChunkSpan !=
-            worldSettings.heightTileChunkSpan
-        )
-        {
-            return false;
-        }
-
-        if (
+                worldSettings.heightTileChunkSpan
+            ||
             manifest.heightTileGridWidth !=
-            worldSettings.HeightTileGridWidth
+                worldSettings.HeightTileGridWidth
             ||
             manifest.heightTileGridHeight !=
-            worldSettings.HeightTileGridHeight
-        )
-        {
-            return false;
-        }
-
-        if (
+                worldSettings.HeightTileGridHeight
+            ||
             !FloatMatches(
                 manifest.heightTileWorldSize,
                 worldSettings.HeightTileWorldSize
             )
-        )
-        {
-            return false;
-        }
-
-        if (
+            ||
             manifest.heightTileSamplesPerSide !=
-            worldSettings.HeightTileSamplesPerSide
-        )
-        {
-            return false;
-        }
-
-        if (
-            manifest.heightSeed !=
-            worldSettings.heightSeed
-        )
-        {
-            return false;
-        }
-
-        if (
-            !FloatMatches(
-                manifest.heightNoiseScale,
-                worldSettings.heightNoiseScale
-            )
-        )
-        {
-            return false;
-        }
-
-        if (
-            !FloatMatches(
-                manifest.heightBaseHeight,
-                worldSettings.heightBaseHeight
-            )
-        )
-        {
-            return false;
-        }
-
-        if (
-            !FloatMatches(
-                manifest.heightAmplitude,
-                worldSettings.heightAmplitude
-            )
-        )
-        {
-            return false;
-        }
-
-        if (
-            manifest.heightOctaves !=
-            worldSettings.heightOctaves
-        )
-        {
-            return false;
-        }
-
-        if (
-            !FloatMatches(
-                manifest.heightPersistence,
-                worldSettings.heightPersistence
-            )
-        )
-        {
-            return false;
-        }
-
-        if (
-            !FloatMatches(
-                manifest.heightLacunarity,
-                worldSettings.heightLacunarity
-            )
+                worldSettings.HeightTileSamplesPerSide
         )
         {
             return false;
@@ -858,10 +656,6 @@ public static class TerrainHeightmapValidator
 
         return true;
     }
-
-    // =====================================================
-    // FLOAT COMPARISON
-    // =====================================================
 
     private static bool FloatMatches(
         float a,

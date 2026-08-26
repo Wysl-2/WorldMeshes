@@ -1524,7 +1524,7 @@ public static class TerrainHeightApplicator
                     }
 
                     string path =
-                        TerrainHeightmapGenerator
+                        TerrainRuntimeHeightAssetUtility
                             .GetHeightTilePath(
                                 tileX,
                                 tileZ
@@ -1683,123 +1683,159 @@ public static class TerrainHeightApplicator
     // =====================================================
 
     private static bool ValidateHeightmapManifest(
-        WorldSettings worldSettings
+    WorldSettings worldSettings
+)
+{
+    TerrainHeightmapManifest manifest =
+        AssetDatabase
+            .LoadAssetAtPath<TerrainHeightmapManifest>(
+                TerrainRuntimeHeightAssetUtility
+                    .HeightmapManifestPath
+            );
+
+    // -------------------------------------------------
+    // Manifest exists
+    // -------------------------------------------------
+
+    if (manifest == null)
+    {
+        Debug.LogError(
+            "Cannot apply heightmaps.\n\n" +
+
+            "Runtime heightmap manifest does not exist.\n\n" +
+
+            "Compile the runtime heightmaps first."
+        );
+
+        return false;
+    }
+
+    // -------------------------------------------------
+    // Manifest is complete
+    // -------------------------------------------------
+
+    if (!manifest.isComplete)
+    {
+        Debug.LogError(
+            "Cannot apply heightmaps.\n\n" +
+
+            "The runtime heightmap manifest is marked " +
+            "as incomplete.\n\n" +
+
+            "Compile the runtime heightmaps again."
+        );
+
+        return false;
+    }
+
+    // -------------------------------------------------
+    // Compiler version
+    // -------------------------------------------------
+
+    if (
+        manifest.compilerVersion !=
+        TerrainGenerationStateUtility
+            .RuntimeHeightCompilerVersion
     )
     {
-        TerrainHeightmapManifest manifest =
-            AssetDatabase
-                .LoadAssetAtPath
-                    <TerrainHeightmapManifest>(
-                        TerrainHeightmapGenerator
-                            .HeightmapManifestPath
-                    );
+        Debug.LogError(
+            "Cannot apply heightmaps.\n\n" +
 
-        if (manifest == null)
-        {
-            Debug.LogError(
-                "Cannot apply heightmaps.\n\n" +
+            "The runtime heightmaps were produced by an " +
+            "out-of-date heightmap compiler.\n\n" +
 
-                "Heightmap manifest does not exist.\n\n" +
+            "Compile the runtime heightmaps again."
+        );
 
-                "Generate the heightmaps first."
-            );
-
-            return false;
-        }
-
-        if (!manifest.isComplete)
-        {
-            Debug.LogError(
-                "Cannot apply heightmaps.\n\n" +
-
-                "The heightmap manifest is marked " +
-                "as incomplete.\n\n" +
-
-                "Generate the heightmaps again."
-            );
-
-            return false;
-        }
-
-        if (
-            manifest.gridWidth !=
-                worldSettings.gridWidth
-            ||
-            manifest.gridHeight !=
-                worldSettings.gridHeight
-            ||
-            !FloatMatches(
-                manifest.chunkSize,
-                worldSettings.chunkSize
-            )
-            ||
-            manifest.lod0Resolution !=
-                worldSettings.lod0Resolution
-            ||
-            manifest.heightTileChunkSpan !=
-                worldSettings.heightTileChunkSpan
-            ||
-            manifest.heightTileGridWidth !=
-                worldSettings.HeightTileGridWidth
-            ||
-            manifest.heightTileGridHeight !=
-                worldSettings.HeightTileGridHeight
-            ||
-            !FloatMatches(
-                manifest.heightTileWorldSize,
-                worldSettings.HeightTileWorldSize
-            )
-            ||
-            manifest.heightTileSamplesPerSide !=
-                worldSettings.HeightTileSamplesPerSide
-            ||
-            manifest.heightSeed !=
-                worldSettings.heightSeed
-            ||
-            !FloatMatches(
-                manifest.heightNoiseScale,
-                worldSettings.heightNoiseScale
-            )
-            ||
-            !FloatMatches(
-                manifest.heightBaseHeight,
-                worldSettings.heightBaseHeight
-            )
-            ||
-            !FloatMatches(
-                manifest.heightAmplitude,
-                worldSettings.heightAmplitude
-            )
-            ||
-            manifest.heightOctaves !=
-                worldSettings.heightOctaves
-            ||
-            !FloatMatches(
-                manifest.heightPersistence,
-                worldSettings.heightPersistence
-            )
-            ||
-            !FloatMatches(
-                manifest.heightLacunarity,
-                worldSettings.heightLacunarity
-            )
-        )
-        {
-            Debug.LogError(
-                "Cannot apply heightmaps.\n\n" +
-
-                "The generated heightmaps do not match " +
-                "the current saved WorldSettings.\n\n" +
-
-                "Regenerate and validate the heightmaps " +
-                "before applying them."
-            );
-
-            return false;
-        }
-
-        return true;
+        return false;
     }
+
+    // -------------------------------------------------
+    // World / heightfield layout
+    // -------------------------------------------------
+
+    if (
+        manifest.gridWidth !=
+            worldSettings.gridWidth
+        ||
+        manifest.gridHeight !=
+            worldSettings.gridHeight
+        ||
+        !FloatMatches(
+            manifest.chunkSize,
+            worldSettings.chunkSize
+        )
+        ||
+        manifest.lod0Resolution !=
+            worldSettings.lod0Resolution
+        ||
+        manifest.heightTileChunkSpan !=
+            worldSettings.heightTileChunkSpan
+        ||
+        manifest.heightTileGridWidth !=
+            worldSettings.HeightTileGridWidth
+        ||
+        manifest.heightTileGridHeight !=
+            worldSettings.HeightTileGridHeight
+        ||
+        !FloatMatches(
+            manifest.heightTileWorldSize,
+            worldSettings.HeightTileWorldSize
+        )
+        ||
+        manifest.heightTileSamplesPerSide !=
+            worldSettings.HeightTileSamplesPerSide
+    )
+    {
+        Debug.LogError(
+            "Cannot apply heightmaps.\n\n" +
+
+            "The compiled runtime heightmap layout does not " +
+            "match the current WorldSettings.\n\n" +
+
+            "Reinitialize the authoring heightfield if the " +
+            "heightfield layout changed, then compile the " +
+            "runtime heightmaps again."
+        );
+
+        return false;
+    }
+
+    // -------------------------------------------------
+    // Authoring -> runtime generation state
+    // -------------------------------------------------
+
+    TerrainGenerationStateUtility.GenerationStatus
+        heightmapStatus =
+            TerrainGenerationStateUtility
+                .GetHeightmapStatus(
+                    worldSettings
+                );
+
+    if (
+        heightmapStatus !=
+        TerrainGenerationStateUtility
+            .GenerationStatus.Current
+    )
+    {
+        Debug.LogError(
+            "Cannot apply heightmaps.\n\n" +
+
+            "The compiled runtime heightmaps are not current " +
+            "with the committed authoring heightfield.\n\n" +
+
+            $"Heightmap State: " +
+            $"{TerrainGenerationStateUtility.GetStatusLabel(heightmapStatus)}\n\n" +
+
+            "Compile the runtime heightmaps again before " +
+            "applying them to the chunk meshes."
+        );
+
+        return false;
+    }
+
+    return true;
+}
 
     // =====================================================
     // FLOAT COMPARISON
@@ -2126,7 +2162,7 @@ public static class TerrainHeightApplicator
             // ---------------------------------------------
 
             string path =
-                TerrainHeightmapGenerator
+                TerrainRuntimeHeightAssetUtility
                     .GetHeightTilePath(
                         coordinate.x,
                         coordinate.y

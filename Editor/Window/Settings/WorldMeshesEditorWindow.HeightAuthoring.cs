@@ -872,11 +872,47 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             MessageType.Info
         );
 
+        TerrainAuthoringHeightManifest authoringManifest =
+            TerrainAuthoringStateUtility
+                .LoadAuthoringHeightManifest();
+
+        string authoringHeightfieldState;
+
+        if (authoringManifest == null)
+        {
+            authoringHeightfieldState =
+                "Manifest Missing";
+        }
+        else if (!authoringManifest.isComplete)
+        {
+            authoringHeightfieldState =
+                "Incomplete";
+        }
+        else
+        {
+            authoringHeightfieldState =
+                "Complete";
+        }
+
         EditorGUILayout.LabelField(
             "Authoring Revision",
             terrainAuthoringData
                 .authoringRevision
                 .ToString()
+        );
+
+        EditorGUILayout.LabelField(
+            "Authoring Heightfield State",
+            authoringHeightfieldState
+        );
+
+        EditorGUILayout.LabelField(
+            "Committed Height Revision",
+            authoringManifest != null
+                ? authoringManifest
+                    .committedHeightRevision
+                    .ToString()
+                : "-"
         );
 
         EditorGUILayout.LabelField(
@@ -886,30 +922,32 @@ public partial class WorldMeshesEditorWindow : EditorWindow
 
         EditorGUILayout.LabelField(
             "Runtime Output Folder",
-            TerrainRuntimeHeightCompiler
+            TerrainRuntimeHeightAssetUtility
                 .HeightmapTileFolder
         );
 
-        // =================================================
-        // COMPILE
-        // =================================================
-
         GUILayout.Space(8f);
 
-        bool authoringInitialized =
-            terrainAuthoringData.authoringRevision > 0;
+        bool authoringReady =
+            terrainAuthoringData.authoringRevision > 0
+            &&
+            authoringManifest != null
+            &&
+            authoringManifest.isComplete;
 
-        if (!authoringInitialized)
+        if (!authoringReady)
         {
             EditorGUILayout.HelpBox(
-                "Initialize the authoring heightfield before " +
-                "compiling runtime heightmaps.",
+                "The committed authoring heightfield is not " +
+                "currently valid for runtime compilation.\n\n" +
+                "Initialize/Reinitialize the authoring heightfield " +
+                "successfully before compiling.",
                 MessageType.Warning
             );
         }
 
         EditorGUI.BeginDisabledGroup(
-            !authoringInitialized
+            !authoringReady
         );
 
         if (
@@ -930,10 +968,6 @@ public partial class WorldMeshesEditorWindow : EditorWindow
 
         EditorGUI.EndDisabledGroup();
 
-        // =================================================
-        // VALIDATION
-        // =================================================
-
         GUILayout.Space(5f);
 
         if (
@@ -948,10 +982,6 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                     worldSettings
                 );
         }
-
-        // =================================================
-        // GENERATION STATE
-        // =================================================
 
         GUILayout.Space(10f);
 
@@ -983,16 +1013,16 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         {
             EditorGUILayout.HelpBox(
                 "The compiled runtime heightmaps are out of date " +
-                "with the current authoring heightfield or " +
-                "heightfield layout. Compile them again before " +
+                "with the current committed authoring heightfield " +
+                "or heightfield layout. Compile them again before " +
                 "preparing runtime streaming data.",
                 MessageType.Warning
             );
         }
 
         // =================================================
-// ADDRESSABLES
-// =================================================
+        // ADDRESSABLES
+        // =================================================
 
         EditorGUI.BeginDisabledGroup(
             !heightmapsCurrent
@@ -1058,7 +1088,5 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             "compiling new runtime heightmaps.",
             MessageType.Info
         );
-
-        EditorGUI.EndDisabledGroup();
     }
 }

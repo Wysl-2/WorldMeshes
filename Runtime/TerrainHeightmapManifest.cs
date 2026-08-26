@@ -17,12 +17,6 @@ public class TerrainHeightmapManifest :
     public bool isComplete =
         false;
 
-    /*
-     * Legacy field retained while older terrain-generation
-     * utilities and validators still exist in the project.
-     */
-    public int generatorVersion =
-        1;
 
     /*
      * Version of the authoring -> runtime compilation logic.
@@ -77,31 +71,6 @@ public class TerrainHeightmapManifest :
     public float heightTileWorldSize;
 
     public int heightTileSamplesPerSide;
-
-    // =====================================================
-    // LEGACY PROCEDURAL SETTINGS
-    // =====================================================
-
-    /*
-     * These remain temporarily because the existing
-     * TerrainHeightmapValidator still compares them against
-     * WorldSettings. They are no longer the source of the
-     * runtime terrain once TerrainRuntimeHeightCompiler is used.
-     */
-
-    public int heightSeed;
-
-    public float heightNoiseScale;
-
-    public float heightBaseHeight;
-
-    public float heightAmplitude;
-
-    public int heightOctaves;
-
-    public float heightPersistence;
-
-    public float heightLacunarity;
 
     // =====================================================
     // DERIVED RUNTIME VALUES

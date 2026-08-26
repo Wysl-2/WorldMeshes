@@ -313,7 +313,7 @@ public static class TerrainCollisionMeshGenerator
                     )
                     {
                         string heightTilePath =
-                            TerrainHeightmapGenerator
+                            TerrainRuntimeHeightAssetUtility
                                 .GetHeightTilePath(
                                     tileX,
                                     tileZ

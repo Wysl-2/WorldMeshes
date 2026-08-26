@@ -17,6 +17,10 @@ public static class WorldMeshesPaths
     public const string WorldSettingsAssetPath =
         Configuration + "/WorldSettings.asset";
 
+    public const string TerrainAuthoringDataAssetPath =
+        Configuration +
+        "/TerrainAuthoringData.asset";
+
     // =====================================================
     // MATERIALS
     // =====================================================
@@ -44,15 +48,28 @@ public static class WorldMeshesPaths
         ComputeShaders + "/TerrainHeightmap.compute";
 
     // =====================================================
+    // AUTHORING
+    // =====================================================
+
+    public const string Authoring =
+        Root + "/Authoring";
+
+    public const string AuthoringHeight =
+        Authoring + "/Height";
+
+    public const string AuthoringHeightTiles =
+        AuthoringHeight + "/Tiles";
+
+    public const string AuthoringHeightManifestAssetPath =
+        AuthoringHeight +
+        "/AuthoringHeightManifest.asset";
+
+    // =====================================================
     // GENERATED
     // =====================================================
 
     public const string Generated =
         Root + "/Generated";
-
-    // =====================================================
-    // GENERATED MESHES
-    // =====================================================
 
     public const string GeneratedMeshes =
         Generated + "/Meshes";
@@ -68,7 +85,7 @@ public static class WorldMeshesPaths
 
     public const string GeneratedCollisionMeshes =
         GeneratedMeshes + "/Collision";
-    
+
     public const string GeneratedCollisionBakeMarkers =
         GeneratedCollisionMeshes + "/BakeMarkers";
 
@@ -93,22 +110,4 @@ public static class WorldMeshesPaths
     public const string HeightmapManifestAssetPath =
         GeneratedHeightmaps +
         "/HeightmapManifest.asset";
-    
-    // =====================================================
-    // Authoring
-    // =====================================================
-    
-    public const string Authoring =
-        Root + "/Authoring";
-
-    public const string AuthoringHeight =
-        Authoring + "/Height";
-
-    public const string AuthoringHeightTiles =
-        AuthoringHeight + "/Tiles";
-
-    public const string TerrainAuthoringDataAssetPath =
-        Configuration +
-        "/TerrainAuthoringData.asset";
-    
 }

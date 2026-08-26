@@ -1,22 +1,15 @@
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEditor.AddressableAssets;
+using UnityEditor.AddressableAssets.Build;
 using UnityEditor.AddressableAssets.Settings;
 using UnityEditor.AddressableAssets.Settings.GroupSchemas;
 using UnityEngine;
-using UnityEditor.AddressableAssets.Build;
 
 public static class TerrainHeightmapAddressablesUtility
 {
-    // =====================================================
-    // SETTINGS
-    // =====================================================
-
     public const string HeightmapAddressablesGroupName =
         "Terrain Heightmap Tiles";
-
-    private const string HeightmapManifestPath =
-        WorldMeshesPaths.HeightmapManifestAssetPath;
 
     // =====================================================
     // PREPARE FROM GENERATED MANIFEST
@@ -27,17 +20,17 @@ public static class TerrainHeightmapAddressablesUtility
         TerrainHeightmapManifest manifest =
             AssetDatabase
                 .LoadAssetAtPath<TerrainHeightmapManifest>(
-                    HeightmapManifestPath
+                    TerrainRuntimeHeightAssetUtility
+                        .HeightmapManifestPath
                 );
 
         if (manifest == null)
         {
             Debug.LogError(
                 "Cannot prepare heightmap tiles for runtime.\n\n" +
-
                 "Heightmap manifest does not exist:\n" +
-
-                $"{HeightmapManifestPath}"
+                TerrainRuntimeHeightAssetUtility
+                    .HeightmapManifestPath
             );
 
             return;
@@ -48,7 +41,6 @@ public static class TerrainHeightmapAddressablesUtility
         );
     }
 
-
     // =====================================================
     // PREPARE
     // =====================================================
@@ -57,10 +49,6 @@ public static class TerrainHeightmapAddressablesUtility
         TerrainHeightmapManifest manifest
     )
     {
-        // -------------------------------------------------
-        // Validate manifest
-        // -------------------------------------------------
-
         if (manifest == null)
         {
             Debug.LogError(
@@ -75,10 +63,8 @@ public static class TerrainHeightmapAddressablesUtility
         {
             Debug.LogError(
                 "Cannot prepare heightmap tiles for runtime.\n\n" +
-
                 "The heightmap manifest is incomplete.\n\n" +
-
-                "Generate or regenerate the heightmaps first."
+                "Compile the runtime heightmaps first."
             );
 
             return false;
@@ -100,10 +86,6 @@ public static class TerrainHeightmapAddressablesUtility
             tileGridWidth *
             tileGridHeight;
 
-        // =====================================================
-        // ADDRESSABLE SETTINGS
-        // =====================================================
-
         AddressableAssetSettings settings =
             AddressableAssetSettingsDefaultObject
                 .GetSettings(
@@ -119,10 +101,6 @@ public static class TerrainHeightmapAddressablesUtility
             return false;
         }
 
-        // =====================================================
-        // GROUP
-        // =====================================================
-
         AddressableAssetGroup group =
             settings.FindGroup(
                 HeightmapAddressablesGroupName
@@ -130,12 +108,6 @@ public static class TerrainHeightmapAddressablesUtility
 
         if (group == null)
         {
-            /*
-             * Copy the schemas from the project's default
-             * Addressables group so this new group inherits
-             * the project's local build/load path setup.
-             */
-
             List<AddressableAssetGroupSchema>
                 schemasToCopy =
                     settings.DefaultGroup != null
@@ -147,11 +119,9 @@ public static class TerrainHeightmapAddressablesUtility
             group =
                 settings.CreateGroup(
                     HeightmapAddressablesGroupName,
-
                     false,
                     false,
                     true,
-
                     schemasToCopy
                 );
         }
@@ -160,16 +130,11 @@ public static class TerrainHeightmapAddressablesUtility
         {
             Debug.LogError(
                 "Could not create Addressables group:\n" +
-
                 HeightmapAddressablesGroupName
             );
 
             return false;
         }
-
-        // =====================================================
-        // BUNDLED-ASSET SCHEMA
-        // =====================================================
 
         BundledAssetGroupSchema bundledSchema =
             group
@@ -194,23 +159,10 @@ public static class TerrainHeightmapAddressablesUtility
             return false;
         }
 
-        /*
-         * For the first streaming implementation, package
-         * each tile independently.
-         *
-         * This gives the runtime streamer straightforward
-         * per-tile loading/releasing behaviour.
-         */
-
         bundledSchema.BundleMode =
             BundledAssetGroupSchema
                 .BundlePackingMode
                 .PackSeparately;
-
-        /*
-         * We load tiles by their explicit address, so those
-         * addresses must be included in the catalog.
-         */
 
         bundledSchema.IncludeAddressInCatalog =
             true;
@@ -218,10 +170,6 @@ public static class TerrainHeightmapAddressablesUtility
         EditorUtility.SetDirty(
             bundledSchema
         );
-
-        // =====================================================
-        // EXPECTED TILE GUIDS
-        // =====================================================
 
         HashSet<string> expectedGuids =
             new HashSet<string>();
@@ -256,11 +204,9 @@ public static class TerrainHeightmapAddressablesUtility
                         EditorUtility
                             .DisplayCancelableProgressBar(
                                 "Preparing Heightmap Addressables",
-
                                 $"Tile ({tileX}, {tileZ})\n\n" +
                                 $"{currentTile + 1} / " +
                                 $"{expectedTileCount}",
-
                                 expectedTileCount > 0
                                     ? (float)currentTile /
                                       expectedTileCount
@@ -272,12 +218,8 @@ public static class TerrainHeightmapAddressablesUtility
                         break;
                     }
 
-                    // -----------------------------------------
-                    // Asset
-                    // -----------------------------------------
-
                     string assetPath =
-                        TerrainHeightmapGenerator
+                        TerrainRuntimeHeightAssetUtility
                             .GetHeightTilePath(
                                 tileX,
                                 tileZ
@@ -294,20 +236,12 @@ public static class TerrainHeightmapAddressablesUtility
                         Debug.LogError(
                             "Cannot prepare heightmap tiles " +
                             "for runtime.\n\n" +
-
-                            $"Missing Tile: " +
-                            $"({tileX}, {tileZ})\n\n" +
-
-                            $"Asset:\n" +
-                            $"{assetPath}"
+                            $"Missing Tile: ({tileX}, {tileZ})\n\n" +
+                            $"Asset:\n{assetPath}"
                         );
 
                         return false;
                     }
-
-                    // -----------------------------------------
-                    // Validate dimensions
-                    // -----------------------------------------
 
                     if (
                         texture.width !=
@@ -320,25 +254,17 @@ public static class TerrainHeightmapAddressablesUtility
                         Debug.LogError(
                             "Cannot prepare heightmap tiles " +
                             "for runtime.\n\n" +
-
                             $"Tile ({tileX}, {tileZ}) has " +
                             "unexpected dimensions.\n\n" +
-
                             $"Expected: " +
                             $"{manifest.heightTileSamplesPerSide} x " +
                             $"{manifest.heightTileSamplesPerSide}\n" +
-
-                            $"Actual: " +
-                            $"{texture.width} x " +
+                            $"Actual: {texture.width} x " +
                             $"{texture.height}"
                         );
 
                         return false;
                     }
-
-                    // -----------------------------------------
-                    // Validate format
-                    // -----------------------------------------
 
                     if (
                         texture.format !=
@@ -348,20 +274,13 @@ public static class TerrainHeightmapAddressablesUtility
                         Debug.LogError(
                             "Cannot prepare heightmap tiles " +
                             "for runtime.\n\n" +
-
                             $"Tile ({tileX}, {tileZ}) does not " +
                             "use TextureFormat.RFloat.\n\n" +
-
-                            $"Actual Format: " +
-                            $"{texture.format}"
+                            $"Actual Format: {texture.format}"
                         );
 
                         return false;
                     }
-
-                    // -----------------------------------------
-                    // GUID
-                    // -----------------------------------------
 
                     string guid =
                         AssetDatabase
@@ -387,10 +306,6 @@ public static class TerrainHeightmapAddressablesUtility
                         guid
                     );
 
-                    // -----------------------------------------
-                    // Existing entry
-                    // -----------------------------------------
-
                     AddressableAssetEntry existingEntry =
                         settings
                             .FindAssetEntry(
@@ -402,10 +317,6 @@ public static class TerrainHeightmapAddressablesUtility
                         ||
                         existingEntry.parentGroup !=
                             group;
-
-                    // -----------------------------------------
-                    // Create / move
-                    // -----------------------------------------
 
                     AddressableAssetEntry entry =
                         settings
@@ -421,7 +332,6 @@ public static class TerrainHeightmapAddressablesUtility
                         Debug.LogError(
                             "Could not create Addressables " +
                             "entry for:\n" +
-
                             assetPath
                         );
 
@@ -432,10 +342,6 @@ public static class TerrainHeightmapAddressablesUtility
                     {
                         createdOrMovedCount++;
                     }
-
-                    // -----------------------------------------
-                    // Address
-                    // -----------------------------------------
 
                     string expectedAddress =
                         manifest
@@ -471,10 +377,6 @@ public static class TerrainHeightmapAddressablesUtility
             EditorUtility.ClearProgressBar();
         }
 
-        // -------------------------------------------------
-        // Cancelled
-        // -------------------------------------------------
-
         if (cancelled)
         {
             AssetDatabase.SaveAssets();
@@ -482,17 +384,12 @@ public static class TerrainHeightmapAddressablesUtility
             Debug.LogWarning(
                 "Preparing heightmap Addressables was " +
                 "cancelled.\n\n" +
-
                 "Entries processed before cancellation " +
                 "were preserved."
             );
 
             return false;
         }
-
-        // =====================================================
-        // REMOVE OBSOLETE ENTRIES
-        // =====================================================
 
         List<AddressableAssetEntry> obsoleteEntries =
             new List<AddressableAssetEntry>();
@@ -525,10 +422,6 @@ public static class TerrainHeightmapAddressablesUtility
             );
         }
 
-        // =====================================================
-        // SAVE
-        // =====================================================
-
         EditorUtility.SetDirty(
             settings
         );
@@ -536,39 +429,26 @@ public static class TerrainHeightmapAddressablesUtility
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
 
-        // =====================================================
-        // COMPLETE
-        // =====================================================
-
         Debug.Log(
             "Heightmap tiles prepared for runtime streaming.\n\n" +
-
             $"Addressables Group: " +
             $"{HeightmapAddressablesGroupName}\n\n" +
-
             $"Tile Grid: " +
-            $"{tileGridWidth} x " +
-            $"{tileGridHeight}\n" +
-
-            $"Tiles: " +
-            $"{expectedTileCount}\n\n" +
-
+            $"{tileGridWidth} x {tileGridHeight}\n" +
+            $"Tiles: {expectedTileCount}\n\n" +
             $"Created / Moved Entries: " +
             $"{createdOrMovedCount}\n" +
-
             $"Addresses Updated: " +
             $"{addressUpdatedCount}\n" +
-
             $"Obsolete Entries Removed: " +
             $"{obsoleteEntries.Count}\n\n" +
-
             $"Address Pattern:\n" +
             $"{TerrainHeightmapManifest.HeightTileAddressPrefix}_X_Z"
         );
 
         return true;
     }
-    
+
     // =====================================================
     // PREPARE + BUILD
     // =====================================================
@@ -578,7 +458,8 @@ public static class TerrainHeightmapAddressablesUtility
         TerrainHeightmapManifest manifest =
             AssetDatabase
                 .LoadAssetAtPath<TerrainHeightmapManifest>(
-                    HeightmapManifestPath
+                    TerrainRuntimeHeightAssetUtility
+                        .HeightmapManifestPath
                 );
 
         if (manifest == null)
@@ -586,16 +467,12 @@ public static class TerrainHeightmapAddressablesUtility
             Debug.LogError(
                 "Cannot prepare and build heightmap Addressables.\n\n" +
                 "Heightmap manifest does not exist:\n" +
-                HeightmapManifestPath
+                TerrainRuntimeHeightAssetUtility
+                    .HeightmapManifestPath
             );
 
             return false;
         }
-
-        // -------------------------------------------------
-        // First make sure the Addressables group and entries
-        // point at the latest generated heightmap assets.
-        // -------------------------------------------------
 
         if (
             !PrepareHeightmapTilesForRuntime(
@@ -606,13 +483,8 @@ public static class TerrainHeightmapAddressablesUtility
             return false;
         }
 
-        // -------------------------------------------------
-        // Then rebuild the actual Addressables runtime data.
-        // -------------------------------------------------
-
         return BuildAddressablesContent();
     }
-
 
     // =====================================================
     // BUILD ADDRESSABLES CONTENT
@@ -649,11 +521,6 @@ public static class TerrainHeightmapAddressablesUtility
             return false;
         }
 
-        // -------------------------------------------------
-        // Ensure all asset and Addressables setting changes
-        // have been written before starting the build.
-        // -------------------------------------------------
-
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
 
@@ -665,10 +532,6 @@ public static class TerrainHeightmapAddressablesUtility
             .BuildPlayerContent(
                 out AddressablesPlayerBuildResult result
             );
-
-        // -------------------------------------------------
-        // Build result
-        // -------------------------------------------------
 
         if (result == null)
         {
@@ -696,13 +559,10 @@ public static class TerrainHeightmapAddressablesUtility
 
         Debug.Log(
             "Addressables content build complete.\n\n" +
-
             $"Output Path:\n" +
             $"{result.OutputPath}\n\n" +
-
             $"Build Duration: " +
             $"{result.Duration:0.00} seconds\n\n" +
-
             "Use Existing Build will now use the latest " +
             "compiled runtime heightmap assets."
         );

@@ -17,7 +17,7 @@ MonoBehaviour:
   chunkSize: 128
   lod0Resolution: 128
   heightTileChunkSpan: 2
-  heightSeed: 12345
+  heightSeed: 54321
   heightNoiseScale: 400
   heightBaseHeight: 0
   heightAmplitude: 80
@@ -34,8 +34,8 @@ MonoBehaviour:
   lastSyncedLOD0Resolution: 128
   lastSyncedBaseMeshHash: b0b87379942a69937a5b5be3a79926c3
   chunkMeshGenerationRevision: 1
-  lastGeneratedHeightSignature: ed5ba86ee24df874af836ec9ec5ddf4e697f31cb823558a37e92796beaa0cbac
-  heightmapGenerationRevision: 4
+  lastGeneratedHeightSignature: fd88954e4dcc05726fddd78ff84b6d17bbbf4eddeb984020bd158cb0ceb4c304
+  heightmapGenerationRevision: 7
   appliedChunkMeshGenerationRevision: 1
   appliedHeightmapGenerationRevision: 1
   lastGeneratedCollisionSignature: 5507cbe9a8b0b0c7ac52b57c6d5f7235228bf8525e67580e77c344e3dfef8dd9

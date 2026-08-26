@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0ef78fb91c27e0050ad2fac4a19fc2ce, type: 3}
   m_Name: TerrainAuthoringData
   m_EditorClassIdentifier: Assembly-CSharp::TerrainAuthoringData
-  sourceMode: 0
+  sourceMode: 1
   flatHeight: 0
   importedHeightmap: {fileID: 0}
-  authoringRevision: 4
+  authoringRevision: 7
