@@ -93,4 +93,22 @@ public static class WorldMeshesPaths
     public const string HeightmapManifestAssetPath =
         GeneratedHeightmaps +
         "/HeightmapManifest.asset";
+    
+    // =====================================================
+    // Authoring
+    // =====================================================
+    
+    public const string Authoring =
+        Root + "/Authoring";
+
+    public const string AuthoringHeight =
+        Authoring + "/Height";
+
+    public const string AuthoringHeightTiles =
+        AuthoringHeight + "/Tiles";
+
+    public const string TerrainAuthoringDataAssetPath =
+        Configuration +
+        "/TerrainAuthoringData.asset";
+    
 }

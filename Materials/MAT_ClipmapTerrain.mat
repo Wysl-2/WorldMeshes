@@ -20,7 +20,7 @@ Material:
   stringTagMap: {}
   disabledShaderPasses:
   - MOTIONVECTORS
-  m_LockedProperties: 
+  m_LockedProperties: _SlopeMap
   m_SavedProperties:
     serializedVersion: 3
     m_TexEnvs:
@@ -93,7 +93,7 @@ Material:
     - _AddPrecomputedVelocity: 0
     - _AlphaClip: 0
     - _AlphaToMask: 0
-    - _BaseMapWorldSize: 6
+    - _BaseMapWorldSize: 24
     - _Blend: 0
     - _BlendModePreserveSpecular: 1
     - _BumpScale: 1
@@ -117,9 +117,9 @@ Material:
     - _Parallax: 0.005
     - _QueueOffset: 0
     - _ReceiveShadows: 1
-    - _SlopeBlendEnd: 0.5
-    - _SlopeBlendStart: 0.2
-    - _SlopeMapWorldSize: 6
+    - _SlopeBlendEnd: 0.85
+    - _SlopeBlendStart: 0.01
+    - _SlopeMapWorldSize: 16
     - _SlopeTriplanarSharpness: 4
     - _Smoothness: 0
     - _SmoothnessTextureChannel: 0
