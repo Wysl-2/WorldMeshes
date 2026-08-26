@@ -84,6 +84,30 @@ public class WorldMeshesEditorWindow : EditorWindow
 
     [SerializeField]
     private float inputHeightLacunarity = 2f;
+    
+    // =====================================================
+    // TERRAIN AUTHORING DATA
+    // =====================================================
+
+    private const string DefaultTerrainAuthoringDataPath =
+        WorldMeshesPaths.TerrainAuthoringDataAssetPath;
+
+    [SerializeField]
+    private TerrainAuthoringData terrainAuthoringData;
+
+    // Temporary editor inputs.
+    // The saved values live in TerrainAuthoringData.
+
+    [SerializeField]
+    private TerrainHeightSourceMode inputHeightSourceMode =
+        TerrainHeightSourceMode.Procedural;
+
+    [SerializeField]
+    private float inputFlatHeight =
+        0f;
+
+    [SerializeField]
+    private Texture2D inputImportedHeightmap;
 
     // =====================================================
     // GRID DISPLAY
@@ -138,8 +162,10 @@ public class WorldMeshesEditorWindow : EditorWindow
 
     private void OnEnable()
     {
-        // Attempt to automatically load the default
-        // WorldSettings asset if one already exists.
+        // -------------------------------------------------
+        // WorldSettings
+        // -------------------------------------------------
+
         if (worldSettings == null)
         {
             worldSettings =
@@ -148,9 +174,31 @@ public class WorldMeshesEditorWindow : EditorWindow
                 );
         }
 
+        // -------------------------------------------------
+        // TerrainAuthoringData
+        // -------------------------------------------------
+
+        if (terrainAuthoringData == null)
+        {
+            terrainAuthoringData =
+                AssetDatabase
+                    .LoadAssetAtPath<TerrainAuthoringData>(
+                        DefaultTerrainAuthoringDataPath
+                    );
+        }
+
+        // -------------------------------------------------
+        // Load temporary editor inputs
+        // -------------------------------------------------
+
         if (worldSettings != null)
         {
             LoadWorldSettingsIntoEditor();
+        }
+
+        if (terrainAuthoringData != null)
+        {
+            LoadTerrainAuthoringDataIntoEditor();
         }
     }
 
@@ -303,7 +351,7 @@ public class WorldMeshesEditorWindow : EditorWindow
         // Height generation
         // -------------------------------------------------
 
-        DrawHeightGenerationSettings();
+        DrawHeightAuthoringSettings();
 
         GUILayout.Space(10f);
 
@@ -850,6 +898,29 @@ public class WorldMeshesEditorWindow : EditorWindow
             );
         
 
+
+        Repaint();
+    }
+    
+    // =====================================================
+    // LOAD TERRAIN AUTHORING DATA INTO EDITOR
+    // =====================================================
+
+    private void LoadTerrainAuthoringDataIntoEditor()
+    {
+        if (terrainAuthoringData == null)
+        {
+            return;
+        }
+
+        inputHeightSourceMode =
+            terrainAuthoringData.sourceMode;
+
+        inputFlatHeight =
+            terrainAuthoringData.flatHeight;
+
+        inputImportedHeightmap =
+            terrainAuthoringData.importedHeightmap;
 
         Repaint();
     }
@@ -1402,15 +1473,13 @@ public class WorldMeshesEditorWindow : EditorWindow
         GUILayout.EndVertical();
     }
     
-    // =====================================================
-    // HEIGHT GENERATION SETTINGS
-    // =====================================================
 
-    // =====================================================
-// HEIGHT GENERATION SETTINGS
+
+// =====================================================
+// HEIGHT AUTHORING SETTINGS
 // =====================================================
 
-private void DrawHeightGenerationSettings()
+private void DrawHeightAuthoringSettings()
 {
     GUILayout.BeginVertical(
         EditorStyles.helpBox,
@@ -1418,19 +1487,19 @@ private void DrawHeightGenerationSettings()
     );
 
     GUILayout.Label(
-        "Height Generation",
+        "Height Authoring",
         EditorStyles.boldLabel
     );
 
-    // -------------------------------------------------
-    // No WorldSettings
-    // -------------------------------------------------
+    // =================================================
+    // WORLD SETTINGS
+    // =================================================
 
     if (worldSettings == null)
     {
         EditorGUILayout.HelpBox(
             "Assign or create WorldSettings before " +
-            "configuring terrain height generation.",
+            "configuring terrain height authoring.",
             MessageType.Warning
         );
 
@@ -1439,15 +1508,72 @@ private void DrawHeightGenerationSettings()
         return;
     }
 
-    // -------------------------------------------------
-    // Editable settings
-    // -------------------------------------------------
+    // =================================================
+    // AUTHORING DATA ASSET
+    // =================================================
+
+    EditorGUI.BeginChangeCheck();
+
+    TerrainAuthoringData selectedAuthoringData =
+        (TerrainAuthoringData)
+        EditorGUILayout.ObjectField(
+            "Authoring Data",
+            terrainAuthoringData,
+            typeof(TerrainAuthoringData),
+            false
+        );
+
+    if (EditorGUI.EndChangeCheck())
+    {
+        terrainAuthoringData =
+            selectedAuthoringData;
+
+        if (terrainAuthoringData != null)
+        {
+            LoadTerrainAuthoringDataIntoEditor();
+        }
+
+        Repaint();
+    }
+
+    if (terrainAuthoringData == null)
+    {
+        EditorGUILayout.HelpBox(
+            "No TerrainAuthoringData asset is assigned.",
+            MessageType.Warning
+        );
+
+        if (
+            GUILayout.Button(
+                "Create Terrain Authoring Data",
+                GUILayout.ExpandWidth(true)
+            )
+        )
+        {
+            CreateTerrainAuthoringDataAsset();
+        }
+
+        GUILayout.EndVertical();
+
+        return;
+    }
+
+    // =================================================
+    // HEIGHTFIELD LAYOUT
+    // =================================================
+
+    GUILayout.Space(8f);
+
+    GUILayout.Label(
+        "Heightfield Layout",
+        EditorStyles.boldLabel
+    );
 
     float oldLabelWidth =
         EditorGUIUtility.labelWidth;
 
     EditorGUIUtility.labelWidth =
-        140f;
+        150f;
 
     inputHeightTileChunkSpan =
         EditorGUILayout.IntField(
@@ -1455,108 +1581,395 @@ private void DrawHeightGenerationSettings()
             inputHeightTileChunkSpan
         );
 
-    inputHeightSeed =
-        EditorGUILayout.IntField(
-            "Seed",
-            inputHeightSeed
-        );
-
-    inputHeightNoiseScale =
-        EditorGUILayout.FloatField(
-            "Noise Scale",
-            inputHeightNoiseScale
-        );
-
-    inputHeightBaseHeight =
-        EditorGUILayout.FloatField(
-            "Base Height",
-            inputHeightBaseHeight
-        );
-
-    inputHeightAmplitude =
-        EditorGUILayout.FloatField(
-            "Height Amplitude",
-            inputHeightAmplitude
-        );
-
-    inputHeightOctaves =
-        EditorGUILayout.IntSlider(
-            "Octaves",
-            inputHeightOctaves,
-            1,
-            12
-        );
-
-    inputHeightPersistence =
-        EditorGUILayout.Slider(
-            "Persistence",
-            inputHeightPersistence,
-            0f,
-            1f
-        );
-
-    inputHeightLacunarity =
-        EditorGUILayout.FloatField(
-            "Lacunarity",
-            inputHeightLacunarity
-        );
-
-    EditorGUIUtility.labelWidth =
-        oldLabelWidth;
-
-    // -------------------------------------------------
-    // Clamp input
-    // -------------------------------------------------
-
     inputHeightTileChunkSpan =
         Mathf.Max(
             1,
             inputHeightTileChunkSpan
         );
 
-    inputHeightNoiseScale =
-        Mathf.Max(
-            0.0001f,
-            inputHeightNoiseScale
-        );
-
-    inputHeightAmplitude =
-        Mathf.Max(
-            0f,
-            inputHeightAmplitude
-        );
-
-    inputHeightOctaves =
-        Mathf.Clamp(
-            inputHeightOctaves,
-            1,
-            12
-        );
-
-    inputHeightPersistence =
-        Mathf.Clamp01(
-            inputHeightPersistence
-        );
-
-    inputHeightLacunarity =
-        Mathf.Max(
-            1f,
-            inputHeightLacunarity
-        );
-
-    // -------------------------------------------------
-    // Derived layout
-    // -------------------------------------------------
+    // =================================================
+    // HEIGHT SOURCE
+    // =================================================
 
     GUILayout.Space(8f);
 
     GUILayout.Label(
-        "Derived Heightmap Layout",
+        "Height Source",
+        EditorStyles.boldLabel
+    );
+
+    inputHeightSourceMode =
+        (TerrainHeightSourceMode)
+        EditorGUILayout.EnumPopup(
+            "Source",
+            inputHeightSourceMode
+        );
+
+    // =================================================
+    // SOURCE-SPECIFIC SETTINGS
+    // =================================================
+
+    switch (inputHeightSourceMode)
+    {
+        // =============================================
+        // FLAT
+        // =============================================
+
+        case TerrainHeightSourceMode.Flat:
+        {
+            GUILayout.Space(5f);
+
+            GUILayout.Label(
+                "Flat Settings",
+                EditorStyles.boldLabel
+            );
+
+            inputFlatHeight =
+                EditorGUILayout.FloatField(
+                    "Height",
+                    inputFlatHeight
+                );
+
+            EditorGUILayout.HelpBox(
+                "Initializes every authoring height sample " +
+                "to the specified world-space height.",
+                MessageType.Info
+            );
+
+            break;
+        }
+
+        // =============================================
+        // PROCEDURAL
+        // =============================================
+
+        case TerrainHeightSourceMode.Procedural:
+        {
+            GUILayout.Space(5f);
+
+            GUILayout.Label(
+                "Procedural Settings",
+                EditorStyles.boldLabel
+            );
+
+            inputHeightSeed =
+                EditorGUILayout.IntField(
+                    "Seed",
+                    inputHeightSeed
+                );
+
+            inputHeightNoiseScale =
+                EditorGUILayout.FloatField(
+                    "Noise Scale",
+                    inputHeightNoiseScale
+                );
+
+            inputHeightBaseHeight =
+                EditorGUILayout.FloatField(
+                    "Base Height",
+                    inputHeightBaseHeight
+                );
+
+            inputHeightAmplitude =
+                EditorGUILayout.FloatField(
+                    "Height Amplitude",
+                    inputHeightAmplitude
+                );
+
+            inputHeightOctaves =
+                EditorGUILayout.IntSlider(
+                    "Octaves",
+                    inputHeightOctaves,
+                    1,
+                    12
+                );
+
+            inputHeightPersistence =
+                EditorGUILayout.Slider(
+                    "Persistence",
+                    inputHeightPersistence,
+                    0f,
+                    1f
+                );
+
+            inputHeightLacunarity =
+                EditorGUILayout.FloatField(
+                    "Lacunarity",
+                    inputHeightLacunarity
+                );
+
+            inputHeightNoiseScale =
+                Mathf.Max(
+                    0.0001f,
+                    inputHeightNoiseScale
+                );
+
+            inputHeightAmplitude =
+                Mathf.Max(
+                    0f,
+                    inputHeightAmplitude
+                );
+
+            inputHeightOctaves =
+                Mathf.Clamp(
+                    inputHeightOctaves,
+                    1,
+                    12
+                );
+
+            inputHeightPersistence =
+                Mathf.Clamp01(
+                    inputHeightPersistence
+                );
+
+            inputHeightLacunarity =
+                Mathf.Max(
+                    1f,
+                    inputHeightLacunarity
+                );
+
+            EditorGUILayout.HelpBox(
+                "Procedural initialization uses the existing " +
+                "global-coordinate Perlin/fBM generator.",
+                MessageType.Info
+            );
+
+            break;
+        }
+
+        // =============================================
+        // IMPORTED
+        // =============================================
+
+        case TerrainHeightSourceMode.Imported:
+        {
+            GUILayout.Space(5f);
+
+            GUILayout.Label(
+                "Imported Settings",
+                EditorStyles.boldLabel
+            );
+
+            inputImportedHeightmap =
+                (Texture2D)
+                EditorGUILayout.ObjectField(
+                    "Heightmap",
+                    inputImportedHeightmap,
+                    typeof(Texture2D),
+                    false
+                );
+
+            EditorGUILayout.HelpBox(
+                "Imported heightfield initialization is not " +
+                "implemented yet. Selecting this mode will not " +
+                "modify the existing authoring heightfield.",
+                MessageType.Info
+            );
+
+            break;
+        }
+    }
+
+    EditorGUIUtility.labelWidth =
+        oldLabelWidth;
+
+    // =================================================
+    // DERIVED HEIGHTFIELD LAYOUT
+    // =================================================
+
+    DrawDerivedHeightfieldLayout();
+
+    // =================================================
+    // SAVE / RELOAD SETTINGS
+    // =================================================
+
+    GUILayout.Space(8f);
+
+    if (
+        GUILayout.Button(
+            "Update Height Authoring Settings",
+            GUILayout.ExpandWidth(true)
+        )
+    )
+    {
+        UpdateHeightAuthoringSettings();
+    }
+
+    if (
+        GUILayout.Button(
+            "Reload Height Authoring Settings",
+            GUILayout.ExpandWidth(true)
+        )
+    )
+    {
+        LoadWorldSettingsIntoEditor();
+        LoadTerrainAuthoringDataIntoEditor();
+    }
+
+    // =================================================
+    // INITIALIZATION
+    // =================================================
+
+    GUILayout.Space(10f);
+
+    GUILayout.Label(
+        "Authoring Heightfield",
+        EditorStyles.boldLabel
+    );
+
+    EditorGUILayout.LabelField(
+        "Authoring Revision",
+        terrainAuthoringData
+            .authoringRevision
+            .ToString()
+    );
+
+    EditorGUILayout.LabelField(
+        "Output Folder",
+        TerrainAuthoringHeightInitializer
+            .AuthoringHeightTileFolder
+    );
+
+    EditorGUILayout.HelpBox(
+        "Initializing the authoring heightfield replaces the " +
+        "current committed authoring height data.\n\n" +
+
+        "Flat and Procedural initialization are implemented. " +
+        "Imported initialization will be added later.",
+        MessageType.Warning
+    );
+
+    bool importedMode =
+        inputHeightSourceMode ==
+        TerrainHeightSourceMode.Imported;
+
+    EditorGUI.BeginDisabledGroup(
+        importedMode
+    );
+
+    if (
+        GUILayout.Button(
+            terrainAuthoringData.authoringRevision > 0
+                ? "Reinitialize Authoring Heightfield"
+                : "Initialize Authoring Heightfield",
+            GUILayout.ExpandWidth(true)
+        )
+    )
+    {
+        InitializeAuthoringHeightfield();
+    }
+
+    EditorGUI.EndDisabledGroup();
+
+    // =================================================
+    // CURRENT RUNTIME HEIGHTMAP PIPELINE
+    // =================================================
+
+    DrawCurrentRuntimeHeightmapPipeline();
+
+    GUILayout.EndVertical();
+}
+
+// =====================================================
+// CREATE TERRAIN AUTHORING DATA
+// =====================================================
+
+private void CreateTerrainAuthoringDataAsset()
+{
+    EnsureWorldSettingsFolderExists();
+
+    TerrainAuthoringData existingData =
+        AssetDatabase
+            .LoadAssetAtPath<TerrainAuthoringData>(
+                DefaultTerrainAuthoringDataPath
+            );
+
+    // -------------------------------------------------
+    // Load existing asset if one already exists
+    // -------------------------------------------------
+
+    if (existingData != null)
+    {
+        terrainAuthoringData =
+            existingData;
+
+        LoadTerrainAuthoringDataIntoEditor();
+
+        Selection.activeObject =
+            terrainAuthoringData;
+
+        Debug.Log(
+            "Loaded existing TerrainAuthoringData:\n" +
+            DefaultTerrainAuthoringDataPath
+        );
+
+        Repaint();
+
+        return;
+    }
+
+    // -------------------------------------------------
+    // Create new asset
+    // -------------------------------------------------
+
+    TerrainAuthoringData newData =
+        ScriptableObject
+            .CreateInstance<TerrainAuthoringData>();
+
+    newData.sourceMode =
+        inputHeightSourceMode;
+
+    newData.flatHeight =
+        inputFlatHeight;
+
+    newData.importedHeightmap =
+        inputImportedHeightmap;
+
+    // -------------------------------------------------
+    // Save asset
+    // -------------------------------------------------
+
+    AssetDatabase.CreateAsset(
+        newData,
+        DefaultTerrainAuthoringDataPath
+    );
+
+    AssetDatabase.SaveAssets();
+
+    terrainAuthoringData =
+        newData;
+
+    LoadTerrainAuthoringDataIntoEditor();
+
+    Selection.activeObject =
+        terrainAuthoringData;
+
+    Debug.Log(
+        "Created TerrainAuthoringData:\n" +
+        DefaultTerrainAuthoringDataPath
+    );
+
+    Repaint();
+}
+
+// =====================================================
+// DERIVED HEIGHTFIELD LAYOUT
+// =====================================================
+
+private void DrawDerivedHeightfieldLayout()
+{
+    GUILayout.Space(8f);
+
+    GUILayout.Label(
+        "Derived Heightfield Layout",
         EditorStyles.boldLabel
     );
 
     int tileChunkSpan =
-        inputHeightTileChunkSpan;
+        Mathf.Max(
+            1,
+            inputHeightTileChunkSpan
+        );
 
     float tileWorldSize =
         worldSettings.chunkSize *
@@ -1607,10 +2020,6 @@ private void DrawHeightGenerationSettings()
         totalHeightTiles.ToString("N0")
     );
 
-    // -------------------------------------------------
-    // Partial edge tiles
-    // -------------------------------------------------
-
     bool hasPartialEdgeTiles =
         worldSettings.gridWidth %
             tileChunkSpan != 0
@@ -1626,219 +2035,22 @@ private void DrawHeightGenerationSettings()
             "The world grid is not evenly divisible by " +
             "the Tile Chunk Span.\n\n" +
 
-            "The final heightmap tile along one or both " +
-            "axes will extend beyond the world grid. " +
-            "Unused samples will simply remain outside " +
-            "the playable world.",
+            "The final authoring height tile along one or " +
+            "both axes will extend beyond the playable world.",
             MessageType.Info
         );
     }
 
-    // -------------------------------------------------
-    // Explanation
-    // -------------------------------------------------
-
-    GUILayout.Space(8f);
+    GUILayout.Space(5f);
 
     EditorGUILayout.HelpBox(
-        "Each heightmap tile covers Tile Chunk Span x " +
-        "Tile Chunk Span terrain chunks.\n\n" +
+        "All height sources produce the same tiled RFloat " +
+        "authoring heightfield layout.\n\n" +
 
-        "Noise is generated using global world " +
-        "coordinates so neighboring heightmap tiles " +
-        "share exactly the same boundary samples.",
+        "Adjacent tiles share their boundary samples so the " +
+        "heightfield remains continuous across tile edges.",
         MessageType.Info
     );
-
-    // -------------------------------------------------
-    // Save settings
-    // -------------------------------------------------
-
-    GUILayout.Space(5f);
-
-    if (
-        GUILayout.Button(
-            "Update Height Settings",
-            GUILayout.ExpandWidth(true)
-        )
-    )
-    {
-        UpdateHeightSettings();
-    }
-
-    if (
-        GUILayout.Button(
-            "Reload Height Settings",
-            GUILayout.ExpandWidth(true)
-        )
-    )
-    {
-        LoadWorldSettingsIntoEditor();
-    }
-
-    // =====================================================
-    // GENERATION
-    // =====================================================
-
-    GUILayout.Space(10f);
-
-    EditorGUILayout.HelpBox(
-        "Heightmap generation uses the SAVED values " +
-        "in WorldSettings.\n\n" +
-
-        "Update the settings before generating if " +
-        "you have changed any values.",
-        MessageType.Warning
-    );
-
-    if (
-        GUILayout.Button(
-            "Generate / Regenerate Heightmaps",
-            GUILayout.ExpandWidth(true)
-        )
-    )
-    {
-        TerrainHeightmapGenerator
-            .GenerateHeightmaps(
-                worldSettings
-            );
-    }
-
-    // =====================================================
-    // VALIDATION
-    // =====================================================
-
-    GUILayout.Space(5f);
-
-    if (
-        GUILayout.Button(
-            "Validate Heightmap Tiles",
-            GUILayout.ExpandWidth(true)
-        )
-    )
-    {
-        TerrainHeightmapValidator
-            .ValidateHeightmaps(
-                worldSettings
-            );
-    }
-
-    // =====================================================
-    // RUNTIME STREAMING PREPARATION
-    // =====================================================
-
-    GUILayout.Space(10f);
-
-    GUILayout.Label(
-        "Runtime Streaming",
-        EditorStyles.boldLabel
-    );
-
-    TerrainGenerationStateUtility.GenerationStatus
-        heightmapStatus =
-            TerrainGenerationStateUtility
-                .GetHeightmapStatus(
-                    worldSettings
-                );
-
-    bool heightmapsCurrent =
-        heightmapStatus ==
-        TerrainGenerationStateUtility
-            .GenerationStatus.Current;
-
-    EditorGUILayout.LabelField(
-        "Heightmap State",
-        TerrainGenerationStateUtility
-            .GetStatusLabel(
-                heightmapStatus
-            )
-    );
-
-    GUILayout.Space(5f);
-
-    EditorGUILayout.HelpBox(
-        "Preparing the heightmap tiles for runtime registers " +
-        "the existing generated Texture2D assets with Unity " +
-        "Addressables.\n\n" +
-
-        "The heightmap data is not regenerated or modified. " +
-        "Each HeightTile_x_z asset is assigned a deterministic " +
-        "runtime address so individual tiles can later be " +
-        "loaded and released by the terrain streaming system.",
-        MessageType.Info
-    );
-
-    // -------------------------------------------------
-    // Invalid / outdated heightmaps
-    // -------------------------------------------------
-
-    if (!heightmapsCurrent)
-    {
-        GUILayout.Space(5f);
-
-        EditorGUILayout.HelpBox(
-            "The generated heightmaps are not current.\n\n" +
-
-            "Generate or regenerate the heightmaps before " +
-            "preparing them for runtime streaming.",
-            MessageType.Warning
-        );
-    }
-
-    // -------------------------------------------------
-    // Prepare Addressables
-    // -------------------------------------------------
-
-    EditorGUI.BeginDisabledGroup(
-        !heightmapsCurrent
-    );
-
-    if (
-        GUILayout.Button(
-            "Prepare Heightmap Tiles For Runtime",
-            GUILayout.ExpandWidth(true)
-        )
-    )
-    {
-        TerrainHeightmapAddressablesUtility
-            .PrepareHeightmapTilesForRuntime();
-    }
-
-    EditorGUI.EndDisabledGroup();
-
-    // -------------------------------------------------
-    // Addressable layout
-    // -------------------------------------------------
-
-    GUILayout.Space(5f);
-
-    EditorGUILayout.LabelField(
-        "Addressables Group",
-        TerrainHeightmapAddressablesUtility
-            .HeightmapAddressablesGroupName
-    );
-
-    EditorGUILayout.LabelField(
-        "Address Pattern",
-        TerrainHeightmapManifest
-            .HeightTileAddressPrefix
-        +
-        "_X_Z"
-    );
-
-    // =====================================================
-    // OUTPUT
-    // =====================================================
-
-    GUILayout.Space(10f);
-
-    EditorGUILayout.LabelField(
-        "Heightmap Output Folder",
-        TerrainHeightmapGenerator
-            .HeightmapTileFolder
-    );
-
-    GUILayout.EndVertical();
 }
     
     // =====================================================
@@ -1981,127 +2193,342 @@ private void DrawHeightGenerationSettings()
     }
 
     // =====================================================
-    // UPDATE HEIGHT GENERATION SETTINGS
-    // =====================================================
+// UPDATE HEIGHT AUTHORING SETTINGS
+// =====================================================
 
-    private void UpdateHeightSettings()
+private void UpdateHeightAuthoringSettings()
+{
+    if (
+        worldSettings == null
+        ||
+        terrainAuthoringData == null
+    )
     {
-        if (worldSettings == null)
+        return;
+    }
+
+    Undo.RecordObjects(
+        new Object[]
+        {
+            worldSettings,
+            terrainAuthoringData
+        },
+        "Update Height Authoring Settings"
+    );
+
+    // =================================================
+    // HEIGHTFIELD LAYOUT
+    // =================================================
+
+    worldSettings.heightTileChunkSpan =
+        Mathf.Max(
+            1,
+            inputHeightTileChunkSpan
+        );
+
+    // =================================================
+    // PROCEDURAL SETTINGS
+    // =================================================
+
+    /*
+     * Preserve these values even if the currently selected
+     * source is Flat or Imported.
+     *
+     * That way switching source modes does not lose the
+     * previously configured procedural settings.
+     */
+
+    worldSettings.heightSeed =
+        inputHeightSeed;
+
+    worldSettings.heightNoiseScale =
+        Mathf.Max(
+            0.0001f,
+            inputHeightNoiseScale
+        );
+
+    worldSettings.heightBaseHeight =
+        inputHeightBaseHeight;
+
+    worldSettings.heightAmplitude =
+        Mathf.Max(
+            0f,
+            inputHeightAmplitude
+        );
+
+    worldSettings.heightOctaves =
+        Mathf.Clamp(
+            inputHeightOctaves,
+            1,
+            12
+        );
+
+    worldSettings.heightPersistence =
+        Mathf.Clamp01(
+            inputHeightPersistence
+        );
+
+    worldSettings.heightLacunarity =
+        Mathf.Max(
+            1f,
+            inputHeightLacunarity
+        );
+
+    // =================================================
+    // AUTHORING SETTINGS
+    // =================================================
+
+    terrainAuthoringData.sourceMode =
+        inputHeightSourceMode;
+
+    terrainAuthoringData.flatHeight =
+        inputFlatHeight;
+
+    terrainAuthoringData.importedHeightmap =
+        inputImportedHeightmap;
+
+    // =================================================
+    // SAVE
+    // =================================================
+
+    EditorUtility.SetDirty(
+        worldSettings
+    );
+
+    EditorUtility.SetDirty(
+        terrainAuthoringData
+    );
+
+    AssetDatabase.SaveAssetIfDirty(
+        worldSettings
+    );
+
+    AssetDatabase.SaveAssetIfDirty(
+        terrainAuthoringData
+    );
+
+    Repaint();
+
+    Debug.Log(
+        "Height authoring settings updated.\n\n" +
+
+        $"Source Mode: " +
+        $"{terrainAuthoringData.sourceMode}\n" +
+
+        $"Tile Chunk Span: " +
+        $"{worldSettings.heightTileChunkSpan}\n" +
+
+        $"Tile World Size: " +
+        $"{worldSettings.HeightTileWorldSize}\n" +
+
+        $"Height Tile Grid: " +
+        $"{worldSettings.HeightTileGridWidth} x " +
+        $"{worldSettings.HeightTileGridHeight}\n" +
+
+        $"Samples Per Tile: " +
+        $"{worldSettings.HeightTileSamplesPerSide} x " +
+        $"{worldSettings.HeightTileSamplesPerSide}"
+    );
+}
+
+// =====================================================
+// INITIALIZE AUTHORING HEIGHTFIELD
+// =====================================================
+
+private void InitializeAuthoringHeightfield()
+{
+    if (
+        worldSettings == null
+        ||
+        terrainAuthoringData == null
+    )
+    {
+        return;
+    }
+
+    // -------------------------------------------------
+    // Imported placeholder
+    // -------------------------------------------------
+
+    if (
+        inputHeightSourceMode ==
+        TerrainHeightSourceMode.Imported
+    )
+    {
+        EditorUtility.DisplayDialog(
+            "Imported Heightfields",
+
+            "Imported terrain height initialization is " +
+            "not implemented yet.",
+
+            "OK"
+        );
+
+        return;
+    }
+
+    // -------------------------------------------------
+    // Confirm destructive reinitialization
+    // -------------------------------------------------
+
+    if (
+        terrainAuthoringData.authoringRevision > 0
+    )
+    {
+        bool confirmed =
+            EditorUtility.DisplayDialog(
+                "Reinitialize Authoring Heightfield",
+
+                "This will replace the current committed " +
+                "authoring heightfield.\n\n" +
+
+                "Existing baked authoring height data will " +
+                "be overwritten.\n\n" +
+
+                "Continue?",
+
+                "Reinitialize",
+                "Cancel"
+            );
+
+        if (!confirmed)
         {
             return;
         }
-
-        Undo.RecordObject(
-            worldSettings,
-            "Update Height Settings"
-        );
-
-        // -------------------------------------------------
-        // Store height settings
-        // -------------------------------------------------
-
-        worldSettings.heightTileChunkSpan =
-            Mathf.Max(
-                1,
-                inputHeightTileChunkSpan
-            );
-
-        worldSettings.heightSeed =
-            inputHeightSeed;
-
-        worldSettings.heightNoiseScale =
-            Mathf.Max(
-                0.0001f,
-                inputHeightNoiseScale
-            );
-
-        worldSettings.heightBaseHeight =
-            inputHeightBaseHeight;
-
-        worldSettings.heightAmplitude =
-            Mathf.Max(
-                0f,
-                inputHeightAmplitude
-            );
-
-        worldSettings.heightOctaves =
-            Mathf.Clamp(
-                inputHeightOctaves,
-                1,
-                12
-            );
-
-        worldSettings.heightPersistence =
-            Mathf.Clamp01(
-                inputHeightPersistence
-            );
-
-        worldSettings.heightLacunarity =
-            Mathf.Max(
-                1f,
-                inputHeightLacunarity
-            );
-
-        // -------------------------------------------------
-        // Save WorldSettings
-        // -------------------------------------------------
-
-        EditorUtility.SetDirty(
-            worldSettings
-        );
-
-        AssetDatabase.SaveAssetIfDirty(
-            worldSettings
-        );
-
-        Repaint();
-
-        // -------------------------------------------------
-        // Result
-        // -------------------------------------------------
-
-        Debug.Log(
-            "Height generation settings updated.\n\n" +
-
-            $"Tile Chunk Span: " +
-            $"{worldSettings.heightTileChunkSpan}\n" +
-
-            $"Tile World Size: " +
-            $"{worldSettings.HeightTileWorldSize}\n" +
-
-            $"Height Tile Grid: " +
-            $"{worldSettings.HeightTileGridWidth} x " +
-            $"{worldSettings.HeightTileGridHeight}\n" +
-
-            $"Samples Per Tile: " +
-            $"{worldSettings.HeightTileSamplesPerSide} x " +
-            $"{worldSettings.HeightTileSamplesPerSide}\n" +
-
-            $"Total Height Tiles: " +
-            $"{worldSettings.HeightTileCount}\n\n" +
-
-            $"Seed: " +
-            $"{worldSettings.heightSeed}\n" +
-
-            $"Noise Scale: " +
-            $"{worldSettings.heightNoiseScale}\n" +
-
-            $"Base Height: " +
-            $"{worldSettings.heightBaseHeight}\n" +
-
-            $"Height Amplitude: " +
-            $"{worldSettings.heightAmplitude}\n" +
-
-            $"Octaves: " +
-            $"{worldSettings.heightOctaves}\n" +
-
-            $"Persistence: " +
-            $"{worldSettings.heightPersistence}\n" +
-
-            $"Lacunarity: " +
-            $"{worldSettings.heightLacunarity}"
-        );
     }
+
+    // -------------------------------------------------
+    // Save staged settings first
+    // -------------------------------------------------
+
+    UpdateHeightAuthoringSettings();
+
+    // -------------------------------------------------
+    // Initialize
+    // -------------------------------------------------
+
+    TerrainAuthoringHeightInitializer
+        .InitializeHeightfield(
+            worldSettings,
+            terrainAuthoringData
+        );
+
+    Repaint();
+}
+
+// =====================================================
+// CURRENT RUNTIME HEIGHTMAP PIPELINE
+// =====================================================
+
+private void DrawCurrentRuntimeHeightmapPipeline()
+{
+    GUILayout.Space(15f);
+
+    GUILayout.Label(
+        "Runtime Heightmaps",
+        EditorStyles.boldLabel
+    );
+
+    EditorGUILayout.HelpBox(
+        "Temporary development pipeline:\n\n" +
+
+        "The authoring heightfield is not yet connected " +
+        "to runtime heightmap compilation.\n\n" +
+
+        "The existing runtime generator still creates " +
+        "procedural heightmaps directly from WorldSettings.",
+        MessageType.Warning
+    );
+
+    // =================================================
+    // GENERATION
+    // =================================================
+
+    GUILayout.Space(5f);
+
+    if (
+        GUILayout.Button(
+            "Generate Procedural Runtime Heightmaps",
+            GUILayout.ExpandWidth(true)
+        )
+    )
+    {
+        TerrainHeightmapGenerator
+            .GenerateHeightmaps(
+                worldSettings
+            );
+    }
+
+    // =================================================
+    // VALIDATION
+    // =================================================
+
+    GUILayout.Space(5f);
+
+    if (
+        GUILayout.Button(
+            "Validate Runtime Heightmap Tiles",
+            GUILayout.ExpandWidth(true)
+        )
+    )
+    {
+        TerrainHeightmapValidator
+            .ValidateHeightmaps(
+                worldSettings
+            );
+    }
+
+    // =================================================
+    // RUNTIME STREAMING
+    // =================================================
+
+    GUILayout.Space(10f);
+
+    TerrainGenerationStateUtility.GenerationStatus
+        heightmapStatus =
+            TerrainGenerationStateUtility
+                .GetHeightmapStatus(
+                    worldSettings
+                );
+
+    bool heightmapsCurrent =
+        heightmapStatus ==
+        TerrainGenerationStateUtility
+            .GenerationStatus.Current;
+
+    EditorGUILayout.LabelField(
+        "Heightmap State",
+        TerrainGenerationStateUtility
+            .GetStatusLabel(
+                heightmapStatus
+            )
+    );
+
+    EditorGUI.BeginDisabledGroup(
+        !heightmapsCurrent
+    );
+
+    if (
+        GUILayout.Button(
+            "Prepare Heightmap Tiles For Runtime",
+            GUILayout.ExpandWidth(true)
+        )
+    )
+    {
+        TerrainHeightmapAddressablesUtility
+            .PrepareHeightmapTilesForRuntime();
+    }
+
+    EditorGUI.EndDisabledGroup();
+
+    GUILayout.Space(5f);
+
+    EditorGUILayout.LabelField(
+        "Runtime Output Folder",
+        TerrainHeightmapGenerator
+            .HeightmapTileFolder
+    );
+}
     
     // =====================================================
 // CLIPMAP GENERATION SETTINGS
