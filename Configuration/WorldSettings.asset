@@ -15,7 +15,7 @@ MonoBehaviour:
   gridWidth: 48
   gridHeight: 48
   chunkSize: 128
-  lod0Resolution: 128
+  heightfieldResolutionPerChunk: 128
   heightTileChunkSpan: 2
   heightSeed: 54321
   heightNoiseScale: 400
@@ -26,7 +26,7 @@ MonoBehaviour:
   heightLacunarity: 2
   collisionResolution: 64
   clipmapCenterResolution: 128
-  clipmapLevelCount: 8
+  clipmapLevelCount: 6
   clipmapBaseSampleStep: 1
   lastGeneratedHeightSignature: 115b8e05cbc1157421be4491a855a83ae65d50a5a7cad6ccc8f5541329bcb2e5
   heightmapGenerationRevision: 8

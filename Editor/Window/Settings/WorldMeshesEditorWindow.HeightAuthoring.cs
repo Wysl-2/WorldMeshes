@@ -748,6 +748,9 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             terrainAuthoringData
         );
 
+        TerrainAuthoringPreviewService
+            .RequestRefresh();
+
         Repaint();
 
         Debug.Log(

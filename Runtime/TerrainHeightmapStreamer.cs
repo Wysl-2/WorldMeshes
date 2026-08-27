@@ -135,47 +135,8 @@ public class TerrainHeightmapStreamer :
     private bool cacheReady;
     
     // =====================================================
-// SHADER BINDING
-// =====================================================
-
-    private static readonly int HeightCachePropertyId =
-        Shader.PropertyToID(
-            "_HeightCache"
-        );
-
-    private static readonly int HeightCacheOriginTilePropertyId =
-        Shader.PropertyToID(
-            "_HeightCacheOriginTile"
-        );
-
-    private static readonly int HeightCacheSizePropertyId =
-        Shader.PropertyToID(
-            "_HeightCacheSize"
-        );
-
-    private static readonly int HeightTileSamplesPerSidePropertyId =
-        Shader.PropertyToID(
-            "_HeightTileSamplesPerSide"
-        );
-
-    private static readonly int HeightSampleSpacingPropertyId =
-        Shader.PropertyToID(
-            "_HeightSampleSpacing"
-        );
-
-    private static readonly int WorldSizeXZPropertyId =
-        Shader.PropertyToID(
-            "_WorldSizeXZ"
-        );
-
-    private static readonly int HeightCacheReadyPropertyId =
-        Shader.PropertyToID(
-            "_HeightCacheReady"
-        );
-
-    private MeshRenderer[] clipmapRenderers;
-
-    private MaterialPropertyBlock shaderPropertyBlock;
+    // SHADER BINDING STATE
+    // =====================================================
 
     private bool shaderCacheBound;
 
@@ -644,213 +605,87 @@ public class TerrainHeightmapStreamer :
     // FIND CLIPMAP RENDERERS
     // =====================================================
 
-    private void FindClipmapRenderers()
-    {
-        clipmapRenderers =
-            GetComponentsInChildren<MeshRenderer>(
-                true
-            );
 
-        if (shaderPropertyBlock == null)
-        {
-            shaderPropertyBlock =
-                new MaterialPropertyBlock();
-        }
-    }
     
     // =====================================================
     // IS CLIPMAP TERRAIN RENDERER
     // =====================================================
 
-    private bool IsClipmapTerrainRenderer(
-        MeshRenderer meshRenderer
-    )
-    {
-        if (
-            meshRenderer == null
-            ||
-            meshRenderer.sharedMaterial == null
-        )
-        {
-            return false;
-        }
 
-        Material material =
-            meshRenderer.sharedMaterial;
-
-        /*
-         * These properties identify a material using our
-         * clipmap displacement shader.
-         */
-
-        return
-            material.HasProperty(
-                HeightCachePropertyId
-            )
-            &&
-            material.HasProperty(
-                HeightCacheReadyPropertyId
-            );
-    }
     
     // =====================================================
 // BIND HEIGHT CACHE TO CLIPMAP RENDERERS
 // =====================================================
 
-private void BindHeightCacheToClipmapRenderers()
-{
-    if (
-        heightCache == null
-        ||
-        heightmapManifest == null
-    )
-    {
-        return;
-    }
-
-    FindClipmapRenderers();
-
-    Vector4 cacheOrigin =
-        new Vector4(
-            cacheOriginTile.x,
-            cacheOriginTile.y,
-            0f,
-            0f
-        );
-
-    Vector4 cacheSize =
-        new Vector4(
-            cacheWidth,
-            cacheHeight,
-            0f,
-            0f
-        );
-
-    Vector4 worldSize =
-        new Vector4(
-            heightmapManifest.WorldSizeX,
-            heightmapManifest.WorldSizeZ,
-            0f,
-            0f
-        );
-
-    int boundRendererCount =
-        0;
-
-    foreach (
-        MeshRenderer meshRenderer
-        in clipmapRenderers
-    )
+    private void BindHeightCacheToClipmapRenderers()
     {
         if (
-            !IsClipmapTerrainRenderer(
-                meshRenderer
-            )
+            heightCache == null
+            ||
+            heightmapManifest == null
         )
         {
-            continue;
+            return;
         }
 
-        /*
-         * Preserve any existing overrides that may already
-         * exist on this renderer.
-         */
+        bool success =
+            TerrainHeightCacheBindingUtility
+                .TryBind(
+                    transform,
+                    heightCache,
+                    cacheOriginTile,
+                    new Vector2Int(
+                        cacheWidth,
+                        cacheHeight
+                    ),
+                    heightmapManifest
+                        .heightTileSamplesPerSide,
+                    heightmapManifest
+                        .HeightSampleSpacing,
+                    heightmapManifest
+                        .WorldSizeXZ,
+                    out int boundRendererCount,
+                    out string errorMessage
+                );
 
-        meshRenderer.GetPropertyBlock(
-            shaderPropertyBlock
-        );
+        shaderCacheBound =
+            success;
 
-        shaderPropertyBlock.SetTexture(
-            HeightCachePropertyId,
-            heightCache
-        );
+        if (!success)
+        {
+            Debug.LogError(
+                "TerrainHeightmapStreamer could not bind the " +
+                "height cache to the clipmap.\n\n" +
+                errorMessage,
+                this
+            );
 
-        shaderPropertyBlock.SetVector(
-            HeightCacheOriginTilePropertyId,
-            cacheOrigin
-        );
+            return;
+        }
 
-        shaderPropertyBlock.SetVector(
-            HeightCacheSizePropertyId,
-            cacheSize
-        );
+        if (logCacheUpdates)
+        {
+            Debug.Log(
+                "Terrain height cache bound to clipmap shader.\n\n" +
 
-        shaderPropertyBlock.SetFloat(
-            HeightTileSamplesPerSidePropertyId,
-            heightmapManifest
-                .heightTileSamplesPerSide
-        );
+                $"Renderers: " +
+                $"{boundRendererCount}\n\n" +
 
-        shaderPropertyBlock.SetFloat(
-            HeightSampleSpacingPropertyId,
-            heightmapManifest
-                .HeightSampleSpacing
-        );
+                $"Cache Origin Tile: " +
+                $"({cacheOriginTile.x}, " +
+                $"{cacheOriginTile.y})\n" +
 
-        shaderPropertyBlock.SetVector(
-            WorldSizeXZPropertyId,
-            worldSize
-        );
+                $"Cache Tile Grid: " +
+                $"{cacheWidth} x " +
+                $"{cacheHeight}\n\n" +
 
-        /*
-         * Set this last conceptually:
-         *
-         * all metadata and the texture cache are now valid.
-         */
-
-        shaderPropertyBlock.SetFloat(
-            HeightCacheReadyPropertyId,
-            1f
-        );
-
-        meshRenderer.SetPropertyBlock(
-            shaderPropertyBlock
-        );
-
-        boundRendererCount++;
+                $"World Size: " +
+                $"{heightmapManifest.WorldSizeX} x " +
+                $"{heightmapManifest.WorldSizeZ}",
+                this
+            );
+        }
     }
-
-    shaderCacheBound =
-        boundRendererCount > 0;
-
-    if (!shaderCacheBound)
-    {
-        Debug.LogError(
-            "TerrainHeightmapStreamer could not bind the " +
-            "height cache to the clipmap.\n\n" +
-
-            "No child MeshRenderer was found using a " +
-            "material with the expected clipmap shader " +
-            "properties.",
-            this
-        );
-
-        return;
-    }
-
-    if (logCacheUpdates)
-    {
-        Debug.Log(
-            "Terrain height cache bound to clipmap shader.\n\n" +
-
-            $"Renderers: " +
-            $"{boundRendererCount}\n\n" +
-
-            $"Cache Origin Tile: " +
-            $"({cacheOriginTile.x}, " +
-            $"{cacheOriginTile.y})\n" +
-
-            $"Cache Tile Grid: " +
-            $"{cacheWidth} x " +
-            $"{cacheHeight}\n\n" +
-
-            $"World Size: " +
-            $"{heightmapManifest.WorldSizeX} x " +
-            $"{heightmapManifest.WorldSizeZ}",
-            this
-        );
-    }
-}
 
 
 
@@ -860,64 +695,15 @@ private void BindHeightCacheToClipmapRenderers()
 
     private void DisableHeightCacheOnClipmapRenderers()
     {
-        /*
-         * There is nothing to disable unless a cache has
-         * actually been bound to the clipmap shader.
-         */
-
         if (!shaderCacheBound)
         {
             return;
         }
 
-        FindClipmapRenderers();
-
-        foreach (
-            MeshRenderer meshRenderer
-            in clipmapRenderers
-        )
-        {
-            if (
-                !IsClipmapTerrainRenderer(
-                    meshRenderer
-                )
-            )
-            {
-                continue;
-            }
-
-            /*
-             * Preserve any other property overrides already
-             * present on this renderer.
-             */
-
-            meshRenderer.GetPropertyBlock(
-                shaderPropertyBlock
+        TerrainHeightCacheBindingUtility
+            .Disable(
+                transform
             );
-
-            /*
-             * Do not call SetTexture(..., null).
-             *
-             * MaterialPropertyBlock.SetTexture requires a valid
-             * Texture value.
-             *
-             * Setting _HeightCacheReady to 0 is sufficient to
-             * disable height sampling in ClipmapTerrain.shader.
-             *
-             * The existing texture property will be replaced
-             * with the new cache the next time
-             * BindHeightCacheToClipmapRenderers() runs.
-             */
-
-            shaderPropertyBlock.SetFloat(
-                HeightCacheReadyPropertyId,
-                0f
-            );
-
-            meshRenderer.SetPropertyBlock(
-                shaderPropertyBlock
-            );
-        }
 
         shaderCacheBound =
             false;

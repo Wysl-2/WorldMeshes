@@ -520,6 +520,9 @@ public partial class WorldMeshesEditorWindow :
             worldSettings
         );
 
+        TerrainAuthoringPreviewService
+            .RequestRefresh();
+
         Repaint();
 
         Debug.Log(

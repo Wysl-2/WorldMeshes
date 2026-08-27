@@ -535,6 +535,14 @@ public static class TerrainAuthoringHeightInitializer
 
         AssetDatabase.SaveAssets();
 
+        /*
+         * The committed authoring source has changed.
+         * Rebuild the transient edit-mode height cache directly
+         * from the new authoring tiles.
+         */
+        TerrainAuthoringPreviewService
+            .RequestRebuild();
+
         Selection.activeObject =
             authoringData;
 

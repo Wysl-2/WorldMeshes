@@ -70,12 +70,10 @@ public class TerrainClipmapBoundsController :
     // =====================================================
 
     /*
-     * Configures renderer bounds for the supplied world-space
-     * terrain displacement range.
+     * Stores the normal hierarchy/runtime terrain range.
      *
-     * Runtime hierarchy synchronization supplies compiled
-     * heightmap bounds. The edit-mode authoring preview can use
-     * the same API for its current composite height range.
+     * Editor preview systems can temporarily apply a different
+     * range without modifying these serialized values.
      */
     public bool Configure(
         float minimumHeight,
@@ -83,16 +81,10 @@ public class TerrainClipmapBoundsController :
     )
     {
         if (
-            !IsFinite(
-                minimumHeight
-            )
-            ||
-            !IsFinite(
+            !IsValidRange(
+                minimumHeight,
                 maximumHeight
             )
-            ||
-            maximumHeight <
-                minimumHeight
         )
         {
             Debug.LogError(
@@ -163,23 +155,18 @@ public class TerrainClipmapBoundsController :
     }
 
     // =====================================================
-    // APPLY BOUNDS
+    // APPLY CONFIGURED BOUNDS
     // =====================================================
 
     [ContextMenu("Apply Clipmap Bounds")]
     public void ApplyBounds()
     {
         if (
-            !IsFinite(
-                minimumTerrainHeight
+            !ApplyBoundsInternal(
+                minimumTerrainHeight,
+                maximumTerrainHeight,
+                out _
             )
-            ||
-            !IsFinite(
-                maximumTerrainHeight
-            )
-            ||
-            maximumTerrainHeight <
-                minimumTerrainHeight
         )
         {
             Debug.LogError(
@@ -187,11 +174,84 @@ public class TerrainClipmapBoundsController :
                 "The configured terrain height range is invalid.",
                 this
             );
+        }
+    }
 
+    // =====================================================
+    // APPLY TRANSIENT PREVIEW BOUNDS
+    // =====================================================
+
+    /*
+     * Applies a temporary world-space height range without
+     * changing the serialized hierarchy/runtime configuration.
+     *
+     * This is used by the edit-mode authoring preview and later
+     * by the live modifier compositor.
+     */
+    public bool ApplyBoundsForRange(
+        float minimumHeight,
+        float maximumHeight
+    )
+    {
+        if (
+            !ApplyBoundsInternal(
+                minimumHeight,
+                maximumHeight,
+                out _
+            )
+        )
+        {
+            Debug.LogError(
+                "Cannot apply transient clipmap displacement " +
+                "bounds.\n\n" +
+                "The supplied terrain height range is invalid.",
+                this
+            );
+
+            return false;
+        }
+
+        return true;
+    }
+
+    // =====================================================
+    // RESTORE CONFIGURED BOUNDS
+    // =====================================================
+
+    public bool RestoreConfiguredBounds()
+    {
+        return
+            ApplyBoundsInternal(
+                minimumTerrainHeight,
+                maximumTerrainHeight,
+                out _
+            );
+    }
+
+    // =====================================================
+    // APPLY INTERNAL
+    // =====================================================
+
+    private bool ApplyBoundsInternal(
+        float minimumHeight,
+        float maximumHeight,
+        out int rendererCount
+    )
+    {
+        rendererCount =
+            0;
+
+        if (
+            !IsValidRange(
+                minimumHeight,
+                maximumHeight
+            )
+        )
+        {
             boundsApplied =
                 false;
 
-            return;
+            return false;
         }
 
         MeshRenderer[] renderers =
@@ -199,11 +259,8 @@ public class TerrainClipmapBoundsController :
                 true
             );
 
-        int rendererCount =
-            0;
-
         float paddedMinimumHeight =
-            minimumTerrainHeight
+            minimumHeight
             -
             Mathf.Max(
                 0f,
@@ -211,7 +268,7 @@ public class TerrainClipmapBoundsController :
             );
 
         float paddedMaximumHeight =
-            maximumTerrainHeight
+            maximumHeight
             +
             Mathf.Max(
                 0f,
@@ -245,10 +302,10 @@ public class TerrainClipmapBoundsController :
                 meshFilter.sharedMesh.bounds;
 
             /*
-             * The clipmap shader writes an absolute world-space
-             * terrain Y. Convert the configured world-space range
-             * into this renderer's local coordinate space while
-             * preserving the generated X/Z mesh bounds.
+             * ClipmapTerrain.shader writes an absolute world-space
+             * terrain Y. Convert the supplied world-space range
+             * into the renderer's local coordinate space while
+             * preserving generated X/Z mesh bounds.
              */
             Vector3 minimumLocalPoint =
                 meshRenderer.transform
@@ -333,8 +390,8 @@ public class TerrainClipmapBoundsController :
                 "Clipmap displacement bounds applied.\n\n" +
                 $"Renderers: {rendererCount}\n\n" +
                 $"Terrain Height Range: " +
-                $"{minimumTerrainHeight:R} -> " +
-                $"{maximumTerrainHeight:R}\n" +
+                $"{minimumHeight:R} -> " +
+                $"{maximumHeight:R}\n" +
                 $"Vertical Padding: {verticalPadding:R}\n\n" +
                 $"Padded Height Range: " +
                 $"{paddedMinimumHeight:R} -> " +
@@ -342,6 +399,9 @@ public class TerrainClipmapBoundsController :
                 this
             );
         }
+
+        return
+            boundsApplied;
     }
 
     // =====================================================
@@ -370,6 +430,24 @@ public class TerrainClipmapBoundsController :
 
         boundsApplied =
             false;
+    }
+
+    private static bool IsValidRange(
+        float minimumHeight,
+        float maximumHeight
+    )
+    {
+        return
+            IsFinite(
+                minimumHeight
+            )
+            &&
+            IsFinite(
+                maximumHeight
+            )
+            &&
+            maximumHeight >=
+                minimumHeight;
     }
 
     private static bool IsFinite(

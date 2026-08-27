@@ -64,6 +64,13 @@ public static class TerrainWorldResetUtility
             return;
         }
 
+        /*
+         * The preview owns transient GPU resources and property
+         * block bindings on WorldRoot/Clipmap.
+         */
+        TerrainAuthoringPreviewService
+            .Shutdown();
+
         bool removedWorldRoot =
             RemoveWorldRoot();
 
@@ -80,6 +87,9 @@ public static class TerrainWorldResetUtility
 
         Selection.activeObject =
             worldSettings;
+
+        TerrainAuthoringPreviewService
+            .RequestRefresh();
 
         Debug.Log(
             "Generated world reset complete.\n\n" +

@@ -232,8 +232,8 @@ public static class TerrainWorldHierarchyGenerator
 
         /*
          * Before Play Mode movement begins, keep the generated
-         * clipmap centered over the complete world. The future
-         * edit-mode authoring preview can use this same hierarchy.
+         * clipmap centered over the complete world. The edit-mode
+         * authoring preview uses this same hierarchy.
          */
         hierarchyChanged |=
             SynchronizeTransform(
@@ -284,6 +284,13 @@ public static class TerrainWorldHierarchyGenerator
 
         Selection.activeGameObject =
             clipmapRoot.gameObject;
+
+        /*
+         * Mesh renderers may have been created, removed, or
+         * replaced during hierarchy synchronization.
+         */
+        TerrainAuthoringPreviewService
+            .RequestRebind();
 
         Debug.Log(
             "World hierarchy synchronization complete.\n\n" +
