@@ -1,5 +1,7 @@
 using UnityEngine;
 
+[ExecuteAlways]
+[DisallowMultipleComponent]
 public class TerrainClipmapBoundsController :
     MonoBehaviour
 {
@@ -15,14 +17,6 @@ public class TerrainClipmapBoundsController :
     [SerializeField]
     private float maximumTerrainHeight;
 
-    /*
-     * Small safety margin above and below the exact
-     * generated terrain range.
-     *
-     * This prevents tiny floating-point differences from
-     * putting displaced geometry exactly on the edge of
-     * the renderer bounds.
-     */
     [SerializeField]
     [Min(0f)]
     private float verticalPadding =
@@ -35,7 +29,7 @@ public class TerrainClipmapBoundsController :
         true;
 
     // =====================================================
-    // RUNTIME STATE
+    // STATE
     // =====================================================
 
     private bool boundsApplied;
@@ -48,7 +42,8 @@ public class TerrainClipmapBoundsController :
     {
         get
         {
-            return minimumTerrainHeight;
+            return
+                minimumTerrainHeight;
         }
     }
 
@@ -56,7 +51,8 @@ public class TerrainClipmapBoundsController :
     {
         get
         {
-            return maximumTerrainHeight;
+            return
+                maximumTerrainHeight;
         }
     }
 
@@ -64,27 +60,54 @@ public class TerrainClipmapBoundsController :
     {
         get
         {
-            return boundsApplied;
+            return
+                boundsApplied;
         }
     }
 
     // =====================================================
-    // EDITOR / HIERARCHY CONFIGURATION
+    // CONFIGURATION
     // =====================================================
 
     /*
-     * Called by TerrainWorldHierarchyGenerator.
+     * The controller no longer depends on CPU-deformed
+     * LOD0 preview meshes.
      *
-     * The Preview meshes contain the authoritative
-     * CPU-side terrain heights, so the hierarchy generator
-     * calculates their global minimum / maximum height and
-     * stores those values here.
+     * TerrainWorldHierarchyGenerator currently configures this
+     * from runtime heightmap-manifest metadata, falling back to
+     * committed authoring metadata when runtime output is not
+     * current.
+     *
+     * The future editor authoring preview can call this same
+     * method with the current composite preview range.
      */
     public bool Configure(
         float minimumHeight,
         float maximumHeight
     )
     {
+        if (
+            !IsFinite(
+                minimumHeight
+            )
+            ||
+            !IsFinite(
+                maximumHeight
+            )
+            ||
+            maximumHeight <
+                minimumHeight
+        )
+        {
+            Debug.LogError(
+                "Cannot configure clipmap displacement bounds.\n\n" +
+                "The supplied terrain height range is invalid.",
+                this
+            );
+
+            return false;
+        }
+
         bool changed =
             false;
 
@@ -116,34 +139,30 @@ public class TerrainClipmapBoundsController :
                 true;
         }
 
-        return changed;
+        if (
+            changed
+            &&
+            isActiveAndEnabled
+        )
+        {
+            ApplyBounds();
+        }
+
+        return
+            changed;
     }
 
     // =====================================================
-    // ENABLE
+    // ENABLE / DISABLE
     // =====================================================
 
     private void OnEnable()
     {
-        if (!Application.isPlaying)
-        {
-            return;
-        }
-
         ApplyBounds();
     }
 
-    // =====================================================
-    // DISABLE
-    // =====================================================
-
     private void OnDisable()
     {
-        if (!Application.isPlaying)
-        {
-            return;
-        }
-
         ResetBounds();
     }
 
@@ -155,15 +174,21 @@ public class TerrainClipmapBoundsController :
     public void ApplyBounds()
     {
         if (
+            !IsFinite(
+                minimumTerrainHeight
+            )
+            ||
+            !IsFinite(
+                maximumTerrainHeight
+            )
+            ||
             maximumTerrainHeight <
-            minimumTerrainHeight
+                minimumTerrainHeight
         )
         {
             Debug.LogError(
                 "Cannot apply clipmap displacement bounds.\n\n" +
-
-                "Maximum terrain height is below minimum " +
-                "terrain height.",
+                "The configured terrain height range is invalid.",
                 this
             );
 
@@ -220,31 +245,15 @@ public class TerrainClipmapBoundsController :
                 continue;
             }
 
-            /*
-             * Clipmap geometry does not move in X/Z inside
-             * the vertex shader.
-             *
-             * Therefore preserve the mesh's existing local
-             * X/Z bounds and expand only the Y range.
-             */
-
             Bounds meshBounds =
                 meshFilter.sharedMesh.bounds;
 
             /*
-             * The shader writes an absolute world-space Y:
-             *
-             *     positionWS.y = terrainHeight;
-             *
-             * Convert the generated world-space terrain
-             * height range back into this renderer's local
-             * coordinate system.
-             *
-             * This keeps the bounds correct even if the
-             * clipmap hierarchy later has a non-zero Y
-             * translation.
+             * The clipmap shader writes an absolute world-space
+             * terrain Y. Convert the configured world-space range
+             * into this renderer's local coordinate space while
+             * preserving the generated X/Z mesh bounds.
              */
-
             Vector3 minimumLocalPoint =
                 meshRenderer.transform
                     .InverseTransformPoint(
@@ -279,8 +288,7 @@ public class TerrainClipmapBoundsController :
 
             float localCenterY =
                 (
-                    minimumLocalY
-                    +
+                    minimumLocalY +
                     maximumLocalY
                 )
                 *
@@ -289,8 +297,7 @@ public class TerrainClipmapBoundsController :
             float localSizeY =
                 Mathf.Max(
                     0.001f,
-                    maximumLocalY
-                    -
+                    maximumLocalY -
                     minimumLocalY
                 );
 
@@ -322,21 +329,17 @@ public class TerrainClipmapBoundsController :
             boundsApplied
             &&
             logBoundsApplication
+            &&
+            Application.isPlaying
         )
         {
             Debug.Log(
                 "Clipmap displacement bounds applied.\n\n" +
-
-                $"Renderers: " +
-                $"{rendererCount}\n\n" +
-
+                $"Renderers: {rendererCount}\n\n" +
                 $"Terrain Height Range: " +
                 $"{minimumTerrainHeight:R} -> " +
                 $"{maximumTerrainHeight:R}\n" +
-
-                $"Vertical Padding: " +
-                $"{verticalPadding:R}\n\n" +
-
+                $"Vertical Padding: {verticalPadding:R}\n\n" +
                 $"Padded Height Range: " +
                 $"{paddedMinimumHeight:R} -> " +
                 $"{paddedMaximumHeight:R}",
@@ -346,7 +349,7 @@ public class TerrainClipmapBoundsController :
     }
 
     // =====================================================
-    // RESET BOUNDS
+    // RESET
     // =====================================================
 
     public void ResetBounds()
@@ -371,5 +374,19 @@ public class TerrainClipmapBoundsController :
 
         boundsApplied =
             false;
+    }
+
+    private static bool IsFinite(
+        float value
+    )
+    {
+        return
+            !float.IsNaN(
+                value
+            )
+            &&
+            !float.IsInfinity(
+                value
+            );
     }
 }

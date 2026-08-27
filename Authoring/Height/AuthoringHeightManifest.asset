@@ -12,10 +12,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e2c0ed086617c5641a244ea35e2b216a, type: 3}
   m_Name: AuthoringHeightManifest
   m_EditorClassIdentifier: Assembly-CSharp::TerrainAuthoringHeightManifest
-  manifestVersion: 1
+  manifestVersion: 2
   isComplete: 1
-  committedHeightRevision: 3
+  committedHeightRevision: 4
   committedContentHash: 80d3a0a84b4b59acea40a79b5cfc6e36bc0893d0d557105123befa2bf56609e5
+  minimumCommittedHeight: -52.38318
+  maximumCommittedHeight: 53.665577
   gridWidth: 48
   gridHeight: 48
   chunkSize: 128

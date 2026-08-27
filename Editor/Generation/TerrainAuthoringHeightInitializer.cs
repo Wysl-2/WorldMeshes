@@ -472,6 +472,8 @@ public static class TerrainAuthoringHeightInitializer
                 .TryCalculateCommittedHeightContentHash(
                     worldSettings,
                     out string committedContentHash,
+                    out float minimumCommittedHeight,
+                    out float maximumCommittedHeight,
                     out string contentHashError
                 )
         )
@@ -516,6 +518,8 @@ public static class TerrainAuthoringHeightInitializer
                     worldSettings,
                     authoringData,
                     committedContentHash,
+                    minimumCommittedHeight,
+                    maximumCommittedHeight,
                     out string finalizeError
                 )
         )
@@ -553,6 +557,9 @@ public static class TerrainAuthoringHeightInitializer
             $"{authoringData.authoringRevision}\n\n" +
             $"Authoring Content Hash:\n" +
             $"{committedContentHash}\n\n" +
+            $"Committed Height Range: " +
+            $"{minimumCommittedHeight:R} -> " +
+            $"{maximumCommittedHeight:R}\n\n" +
             $"Saved To:\n" +
             $"{AuthoringHeightTileFolder}"
         );

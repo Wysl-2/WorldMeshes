@@ -1,7 +1,8 @@
 using UnityEditor;
 using UnityEngine;
 
-public partial class WorldMeshesEditorWindow : EditorWindow
+public partial class WorldMeshesEditorWindow :
+    EditorWindow
 {
     // =====================================================
     // WORLD SETTINGS
@@ -17,20 +18,29 @@ public partial class WorldMeshesEditorWindow : EditorWindow
     private WorldSettings worldSettings;
 
     // =====================================================
-    // WORLD / CHUNK INPUTS
+    // WORLD / HEIGHTFIELD INPUTS
     // =====================================================
 
     [SerializeField]
-    private int inputGridWidth = 10;
+    private int inputGridWidth =
+        10;
 
     [SerializeField]
-    private int inputGridHeight = 10;
+    private int inputGridHeight =
+        10;
 
     [SerializeField]
-    private float inputChunkSize = 128f;
+    private float inputChunkSize =
+        128f;
 
+    /*
+     * Historical field name retained because WorldSettings
+     * still serializes lod0Resolution. In the UI this is now
+     * treated as heightfield resolution per chunk.
+     */
     [SerializeField]
-    private int inputLOD0Resolution = 128;
+    private int inputLOD0Resolution =
+        128;
 
     private void DrawWorldSettings()
     {
@@ -43,10 +53,6 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             "World Settings",
             EditorStyles.boldLabel
         );
-
-        // -------------------------------------------------
-        // WorldSettings asset
-        // -------------------------------------------------
 
         EditorGUI.BeginChangeCheck();
 
@@ -71,10 +77,6 @@ public partial class WorldMeshesEditorWindow : EditorWindow
 
             Repaint();
         }
-
-        // -------------------------------------------------
-        // No WorldSettings
-        // -------------------------------------------------
 
         if (worldSettings == null)
         {
@@ -101,15 +103,11 @@ public partial class WorldMeshesEditorWindow : EditorWindow
 
         GUILayout.Space(5f);
 
-        // -------------------------------------------------
-        // Editable settings
-        // -------------------------------------------------
-
         float oldLabelWidth =
             EditorGUIUtility.labelWidth;
 
         EditorGUIUtility.labelWidth =
-            120f;
+            185f;
 
         inputGridWidth =
             EditorGUILayout.IntField(
@@ -131,16 +129,12 @@ public partial class WorldMeshesEditorWindow : EditorWindow
 
         inputLOD0Resolution =
             EditorGUILayout.IntField(
-                "LOD0 Resolution",
+                "Heightfield Resolution / Chunk",
                 inputLOD0Resolution
             );
 
         EditorGUIUtility.labelWidth =
             oldLabelWidth;
-
-        // -------------------------------------------------
-        // Validate temporary input
-        // -------------------------------------------------
 
         inputGridWidth =
             Mathf.Max(
@@ -168,10 +162,6 @@ public partial class WorldMeshesEditorWindow : EditorWindow
 
         GUILayout.Space(5f);
 
-        // -------------------------------------------------
-        // Saved settings
-        // -------------------------------------------------
-
         EditorGUILayout.LabelField(
             "Saved Grid",
             $"{worldSettings.gridWidth} x " +
@@ -184,15 +174,37 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         );
 
         EditorGUILayout.LabelField(
-            "Saved LOD0 Resolution",
+            "Saved Heightfield Resolution",
             worldSettings.lod0Resolution.ToString()
+        );
+
+        EditorGUILayout.LabelField(
+            "Native Height Sample Spacing",
+            (
+                Mathf.Max(
+                    0.01f,
+                    worldSettings.chunkSize
+                )
+                /
+                Mathf.Max(
+                    1,
+                    worldSettings.lod0Resolution
+                )
+            ).ToString()
         );
 
         GUILayout.Space(5f);
 
-        // -------------------------------------------------
-        // Update / reload
-        // -------------------------------------------------
+        EditorGUILayout.HelpBox(
+            "The serialized WorldSettings field is still named " +
+            "'lod0Resolution' for compatibility with existing " +
+            "assets. It now represents native heightfield " +
+            "intervals per chunk; no LOD0 preview mesh is " +
+            "generated from it.",
+            MessageType.Info
+        );
+
+        GUILayout.Space(5f);
 
         if (
             GUILayout.Button(
@@ -214,24 +226,22 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             LoadWorldSettingsIntoEditor();
         }
 
-        // -------------------------------------------------
-        // Reset generated data
-        // -------------------------------------------------
+        // =================================================
+        // RESET GENERATED DATA
+        // =================================================
 
         GUILayout.Space(10f);
 
         EditorGUILayout.HelpBox(
-            "Reset Generated World deletes all generated " +
+            "Reset Generated World deletes derived runtime " +
             "terrain data:\n\n" +
-
-            "• LOD0 base mesh\n" +
-            "• All generated chunk mesh assets\n" +
-            "• All generated heightmap tiles\n" +
-            "• Heightmap generation manifest\n" +
+            "• Generated clipmap geometry\n" +
+            "• Runtime heightmap tiles + manifest\n" +
+            "• Collision meshes + runtime data\n" +
             "• WorldRoot scene hierarchy\n\n" +
-
-            "The WorldSettings asset and all current world, " +
-            "chunk, and height-generation settings are preserved.",
+            "Legacy Base/ and Chunks/ preview folders are also " +
+            "removed if they still exist.\n\n" +
+            "Authoring data and configuration are preserved.",
             MessageType.Warning
         );
 
@@ -251,14 +261,19 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         GUILayout.EndVertical();
     }
 
+    // =====================================================
+    // CREATE
+    // =====================================================
+
     private void CreateWorldSettingsAsset()
     {
         EnsureWorldSettingsFolderExists();
 
         WorldSettings existingSettings =
-            AssetDatabase.LoadAssetAtPath<WorldSettings>(
-                DefaultWorldSettingsPath
-            );
+            AssetDatabase
+                .LoadAssetAtPath<WorldSettings>(
+                    DefaultWorldSettingsPath
+                );
 
         if (existingSettings != null)
         {
@@ -280,10 +295,6 @@ public partial class WorldMeshesEditorWindow : EditorWindow
 
         WorldSettings newSettings =
             CreateInstance<WorldSettings>();
-
-        // -------------------------------------------------
-        // World / chunks
-        // -------------------------------------------------
 
         newSettings.gridWidth =
             Mathf.Max(
@@ -308,10 +319,6 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                 1,
                 inputLOD0Resolution
             );
-
-        // -------------------------------------------------
-        // Height generation
-        // -------------------------------------------------
 
         newSettings.heightTileChunkSpan =
             Mathf.Max(
@@ -355,10 +362,6 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                 inputHeightLacunarity
             );
 
-        // -------------------------------------------------
-        // Create asset
-        // -------------------------------------------------
-
         AssetDatabase.CreateAsset(
             newSettings,
             DefaultWorldSettingsPath
@@ -397,16 +400,16 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         }
     }
 
+    // =====================================================
+    // LOAD
+    // =====================================================
+
     private void LoadWorldSettingsIntoEditor()
     {
         if (worldSettings == null)
         {
             return;
         }
-
-        // -------------------------------------------------
-        // World / chunks
-        // -------------------------------------------------
 
         inputGridWidth =
             Mathf.Max(
@@ -432,19 +435,11 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                 worldSettings.lod0Resolution
             );
 
-        // -------------------------------------------------
-        // Collision generation
-        // -------------------------------------------------
-
         inputCollisionResolution =
             Mathf.Max(
                 1,
                 worldSettings.collisionResolution
             );
-
-        // -------------------------------------------------
-        // Height generation
-        // -------------------------------------------------
 
         inputHeightTileChunkSpan =
             Mathf.Max(
@@ -488,10 +483,12 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                 worldSettings.heightLacunarity
             );
 
-
-
         Repaint();
     }
+
+    // =====================================================
+    // UPDATE
+    // =====================================================
 
     private void UpdateWorldSettings()
     {
@@ -529,16 +526,6 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                 inputLOD0Resolution
             );
 
-        /*
-         * Do NOT change:
-         *
-         * lastSyncedChunkSize
-         * lastSyncedLOD0Resolution
-         *
-         * Those describe the currently generated chunk
-         * assets, not the requested world settings.
-         */
-
         EditorUtility.SetDirty(
             worldSettings
         );
@@ -556,7 +543,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             $"{worldSettings.gridHeight}\n" +
             $"Chunk Size: " +
             $"{worldSettings.chunkSize}\n" +
-            $"LOD0 Resolution: " +
+            $"Heightfield Resolution / Chunk: " +
             $"{worldSettings.lod0Resolution}"
         );
     }

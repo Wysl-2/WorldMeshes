@@ -28,9 +28,6 @@ public static class WorldMeshesPaths
     public const string Materials =
         Root + "/Materials";
 
-    public const string PreviewTerrainMaterialPath =
-        Materials + "/MAT_PreviewTerrain.mat";
-
     public const string ClipmapTerrainMaterialPath =
         Materials + "/MAT_ClipmapTerrain.mat";
 
@@ -74,12 +71,12 @@ public static class WorldMeshesPaths
     public const string GeneratedMeshes =
         Generated + "/Meshes";
 
-    public const string GeneratedBaseMeshes =
-        GeneratedMeshes + "/Base";
-
-    public const string GeneratedChunkMeshes =
-        GeneratedMeshes + "/Chunks";
-
+    /*
+     * Visual terrain is now represented exclusively by the
+     * generated clipmap geometry. The legacy Base/ and Chunks/
+     * visual-mesh folders are intentionally no longer part of
+     * the active pipeline.
+     */
     public const string GeneratedClipmapMeshes =
         GeneratedMeshes + "/Clipmap";
 
@@ -88,10 +85,6 @@ public static class WorldMeshesPaths
 
     public const string GeneratedCollisionBakeMarkers =
         GeneratedCollisionMeshes + "/BakeMarkers";
-
-    public const string BaseMeshAssetPath =
-        GeneratedBaseMeshes +
-        "/TerrainChunk_LOD0.asset";
 
     public const string CollisionManifestAssetPath =
         GeneratedCollisionMeshes +

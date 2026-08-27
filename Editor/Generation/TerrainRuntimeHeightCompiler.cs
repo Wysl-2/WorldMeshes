@@ -67,8 +67,7 @@ public static class TerrainRuntimeHeightCompiler
                 .TryValidateCommittedHeightfield(
                     worldSettings,
                     authoringData,
-                    out TerrainAuthoringHeightManifest
-                        authoringManifest,
+                    out _,
                     out string authoringContentHash,
                     out string authoringValidationError
                 )
@@ -194,6 +193,12 @@ public static class TerrainRuntimeHeightCompiler
         int failedCount =
             0;
 
+        float minimumCompiledHeight =
+            float.PositiveInfinity;
+
+        float maximumCompiledHeight =
+            float.NegativeInfinity;
+
         bool cancelled =
             false;
 
@@ -245,18 +250,35 @@ public static class TerrainRuntimeHeightCompiler
                         CompileOneTile(
                             tileX,
                             tileZ,
-                            samplesPerSide
+                            samplesPerSide,
+                            out float tileMinimumHeight,
+                            out float tileMaximumHeight
                         );
 
                     if (!success)
                     {
                         failedCount++;
                     }
-                    else if (existedBefore)
+                    else
+                    {
+                        minimumCompiledHeight =
+                            Mathf.Min(
+                                minimumCompiledHeight,
+                                tileMinimumHeight
+                            );
+
+                        maximumCompiledHeight =
+                            Mathf.Max(
+                                maximumCompiledHeight,
+                                tileMaximumHeight
+                            );
+                    }
+
+                    if (success && existedBefore)
                     {
                         updatedCount++;
                     }
-                    else
+                    else if (success)
                     {
                         createdCount++;
                     }
@@ -359,13 +381,44 @@ public static class TerrainRuntimeHeightCompiler
             return;
         }
 
+        if (
+            float.IsNaN(
+                minimumCompiledHeight
+            )
+            ||
+            float.IsInfinity(
+                minimumCompiledHeight
+            )
+            ||
+            float.IsNaN(
+                maximumCompiledHeight
+            )
+            ||
+            float.IsInfinity(
+                maximumCompiledHeight
+            )
+            ||
+            maximumCompiledHeight <
+                minimumCompiledHeight
+        )
+        {
+            Debug.LogError(
+                "Runtime heightmap compilation produced an invalid " +
+                "global height range.\n\n" +
+                "The runtime heightmap manifest remains incomplete."
+            );
+
+            return;
+        }
+
         UpdateRuntimeManifest(
             runtimeManifest,
             worldSettings,
             authoringData,
-            authoringManifest,
             authoringSignature,
-            authoringContentHash
+            authoringContentHash,
+            minimumCompiledHeight,
+            maximumCompiledHeight
         );
 
         runtimeManifest.isComplete =
@@ -409,6 +462,9 @@ public static class TerrainRuntimeHeightCompiler
             $"Updated: {updatedCount}\n" +
             $"Removed: {removedCount}\n" +
             $"Failed: {failedCount}\n\n" +
+            $"Compiled Height Range: " +
+            $"{minimumCompiledHeight:R} -> " +
+            $"{maximumCompiledHeight:R}\n\n" +
             $"Saved To:\n" +
             $"{TerrainRuntimeHeightAssetUtility.HeightmapTileFolder}"
         );
@@ -421,9 +477,17 @@ public static class TerrainRuntimeHeightCompiler
     private static bool CompileOneTile(
         int tileX,
         int tileZ,
-        int samplesPerSide
+        int samplesPerSide,
+        out float minimumHeight,
+        out float maximumHeight
     )
     {
+        minimumHeight =
+            float.PositiveInfinity;
+
+        maximumHeight =
+            float.NegativeInfinity;
+
         string sourcePath =
             TerrainAuthoringStateUtility
                 .GetAuthoringHeightTilePath(
@@ -470,12 +534,78 @@ public static class TerrainRuntimeHeightCompiler
             return false;
         }
 
-        return SaveOrUpdateRuntimeHeightTile(
-            tileX,
-            tileZ,
-            samplesPerSide,
-            sourceHeightData
-        );
+        for (
+            int index = 0;
+            index < sourceHeightData.Length;
+            index++
+        )
+        {
+            float height =
+                sourceHeightData[index];
+
+            if (
+                float.IsNaN(
+                    height
+                )
+                ||
+                float.IsInfinity(
+                    height
+                )
+            )
+            {
+                Debug.LogError(
+                    $"Authoring height tile ({tileX}, {tileZ}) " +
+                    "contains an invalid height sample during " +
+                    "runtime compilation."
+                );
+
+                return false;
+            }
+
+            minimumHeight =
+                Mathf.Min(
+                    minimumHeight,
+                    height
+                );
+
+            maximumHeight =
+                Mathf.Max(
+                    maximumHeight,
+                    height
+                );
+        }
+
+        if (
+            float.IsInfinity(
+                minimumHeight
+            )
+            ||
+            float.IsInfinity(
+                maximumHeight
+            )
+        )
+        {
+            Debug.LogError(
+                $"Authoring height tile ({tileX}, {tileZ}) " +
+                "contains no height samples."
+            );
+
+            return false;
+        }
+
+        /*
+         * Stage 1 currently copies committed authoring data
+         * directly. The future compositor will replace the
+         * sourceHeightData evaluation here; the outer compiler
+         * and height-range accumulation can remain unchanged.
+         */
+        return
+            SaveOrUpdateRuntimeHeightTile(
+                tileX,
+                tileZ,
+                samplesPerSide,
+                sourceHeightData
+            );
     }
 
     // =====================================================
@@ -640,9 +770,10 @@ public static class TerrainRuntimeHeightCompiler
         TerrainHeightmapManifest runtimeManifest,
         WorldSettings worldSettings,
         TerrainAuthoringData authoringData,
-        TerrainAuthoringHeightManifest authoringManifest,
         string authoringSignature,
-        string authoringContentHash
+        string authoringContentHash,
+        float minimumCompiledHeight,
+        float maximumCompiledHeight
     )
     {
         runtimeManifest.compilerVersion =
@@ -657,6 +788,12 @@ public static class TerrainRuntimeHeightCompiler
 
         runtimeManifest.sourceAuthoringContentHash =
             authoringContentHash;
+
+        runtimeManifest.minimumTerrainHeight =
+            minimumCompiledHeight;
+
+        runtimeManifest.maximumTerrainHeight =
+            maximumCompiledHeight;
 
         runtimeManifest.gridWidth =
             worldSettings.gridWidth;

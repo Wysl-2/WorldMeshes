@@ -1,7 +1,8 @@
 using UnityEditor;
 using UnityEngine;
 
-public partial class WorldMeshesEditorWindow : EditorWindow
+public partial class WorldMeshesEditorWindow :
+    EditorWindow
 {
     private void DrawGenerationStateSettings()
     {
@@ -28,28 +29,14 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             return;
         }
 
-        // -------------------------------------------------
-        // Current states
-        // -------------------------------------------------
-
-        TerrainGenerationStateUtility.GenerationStatus
-            chunkStatus =
-                TerrainGenerationStateUtility
-                    .GetChunkMeshStatus(
-                        worldSettings
-                    );
+        TerrainAuthoringHeightManifest authoringManifest =
+            TerrainAuthoringStateUtility
+                .LoadAuthoringHeightManifest();
 
         TerrainGenerationStateUtility.GenerationStatus
             heightmapStatus =
                 TerrainGenerationStateUtility
                     .GetHeightmapStatus(
-                        worldSettings
-                    );
-
-        TerrainGenerationStateUtility.GenerationStatus
-            applicationStatus =
-                TerrainGenerationStateUtility
-                    .GetHeightApplicationStatus(
                         worldSettings
                     );
 
@@ -60,41 +47,47 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                         worldSettings
                     );
 
-        // -------------------------------------------------
-        // Display
-        // -------------------------------------------------
+        // =================================================
+        // AUTHORING
+        // =================================================
+
+        string authoringState =
+            "Not Initialized";
+
+        if (authoringManifest != null)
+        {
+            if (!authoringManifest.isComplete)
+            {
+                authoringState =
+                    "Incomplete";
+            }
+            else if (
+                authoringManifest.manifestVersion !=
+                TerrainAuthoringHeightManifest
+                    .CurrentVersion
+            )
+            {
+                authoringState =
+                    "Out of Date";
+            }
+            else
+            {
+                authoringState =
+                    "Complete";
+            }
+        }
 
         EditorGUILayout.LabelField(
-            "Chunk Meshes",
-            TerrainGenerationStateUtility
-                .GetStatusLabel(
-                    chunkStatus
-                )
+            "Authoring Heightfield",
+            authoringState
         );
 
         EditorGUILayout.LabelField(
-            "Heightmaps",
+            "Runtime Heightmaps",
             TerrainGenerationStateUtility
                 .GetStatusLabel(
                     heightmapStatus
                 )
-        );
-
-        string applicationLabel =
-            applicationStatus ==
-                TerrainGenerationStateUtility
-                    .GenerationStatus.NotGenerated
-
-                ? "Not Applied"
-
-                : TerrainGenerationStateUtility
-                    .GetStatusLabel(
-                        applicationStatus
-                    );
-
-        EditorGUILayout.LabelField(
-            "Height Applied",
-            applicationLabel
         );
 
         EditorGUILayout.LabelField(
@@ -105,37 +98,34 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                 )
         );
 
-        // -------------------------------------------------
-        // Revision information
-        // -------------------------------------------------
+        // =================================================
+        // REVISIONS
+        // =================================================
 
         GUILayout.Space(5f);
 
         EditorGUILayout.LabelField(
-            "Chunk Revision",
-            worldSettings
-                .chunkMeshGenerationRevision
-                .ToString()
+            "Authoring Revision",
+            terrainAuthoringData != null
+                ? terrainAuthoringData
+                    .authoringRevision
+                    .ToString()
+                : "-"
         );
 
         EditorGUILayout.LabelField(
-            "Heightmap Revision",
+            "Committed Height Revision",
+            authoringManifest != null
+                ? authoringManifest
+                    .committedHeightRevision
+                    .ToString()
+                : "-"
+        );
+
+        EditorGUILayout.LabelField(
+            "Runtime Heightmap Revision",
             worldSettings
                 .heightmapGenerationRevision
-                .ToString()
-        );
-
-        EditorGUILayout.LabelField(
-            "Applied Chunk Revision",
-            worldSettings
-                .appliedChunkMeshGenerationRevision
-                .ToString()
-        );
-
-        EditorGUILayout.LabelField(
-            "Applied Height Revision",
-            worldSettings
-                .appliedHeightmapGenerationRevision
                 .ToString()
         );
 
@@ -153,37 +143,26 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                 .ToString()
         );
 
-        // -------------------------------------------------
-        // Explanation
-        // -------------------------------------------------
+        // =================================================
+        // WARNINGS
+        // =================================================
 
         GUILayout.Space(5f);
 
         if (
-            applicationStatus ==
-            TerrainGenerationStateUtility
-                .GenerationStatus.OutOfDate
+            authoringManifest == null
+            ||
+            !authoringManifest.isComplete
+            ||
+            authoringManifest.manifestVersion !=
+                TerrainAuthoringHeightManifest
+                    .CurrentVersion
         )
         {
             EditorGUILayout.HelpBox(
-                "The generated terrain meshes do not contain " +
-                "the current combination of chunk-mesh and " +
-                "heightmap revisions.\n\n" +
-
-                "Apply the current heightmaps to the chunk " +
-                "meshes again.",
-                MessageType.Warning
-            );
-        }
-        else if (
-            chunkStatus ==
-            TerrainGenerationStateUtility
-                .GenerationStatus.OutOfDate
-        )
-        {
-            EditorGUILayout.HelpBox(
-                "Chunk meshes are out of date with the " +
-                "current WorldSettings or LOD0 base mesh.",
+                "The committed authoring heightfield is not " +
+                "current. Reinitialize it before compiling " +
+                "runtime heightmaps.",
                 MessageType.Warning
             );
         }
@@ -194,28 +173,35 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         )
         {
             EditorGUILayout.HelpBox(
-                "Heightmaps are out of date with the current " +
-                "world or height-generation settings.",
+                "Runtime heightmaps are out of date with the " +
+                "current authored terrain or heightfield layout.",
                 MessageType.Warning
             );
         }
         else if (
-            chunkStatus ==
-                TerrainGenerationStateUtility
-                    .GenerationStatus.Current
-            &&
+            collisionStatus ==
+            TerrainGenerationStateUtility
+                .GenerationStatus.OutOfDate
+        )
+        {
+            EditorGUILayout.HelpBox(
+                "Collision meshes are out of date with the " +
+                "current runtime heightmaps or collision settings.",
+                MessageType.Warning
+            );
+        }
+        else if (
             heightmapStatus ==
                 TerrainGenerationStateUtility
                     .GenerationStatus.Current
             &&
-            applicationStatus ==
+            collisionStatus ==
                 TerrainGenerationStateUtility
                     .GenerationStatus.Current
         )
         {
             EditorGUILayout.HelpBox(
-                "The LOD0 terrain generation pipeline is " +
-                "current.",
+                "The generated runtime terrain data is current.",
                 MessageType.Info
             );
         }
@@ -223,12 +209,10 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         GUILayout.Space(5f);
 
         EditorGUILayout.HelpBox(
-            "Generation State tracks which successful " +
-            "generation revisions produced the current " +
-            "terrain.\n\n" +
-
-            "The validation tools remain responsible for " +
-            "checking the actual generated asset contents.",
+            "Visual terrain is no longer represented by " +
+            "generated LOD0 chunk meshes. The clipmap is the " +
+            "single visual terrain representation for runtime " +
+            "and the upcoming edit-mode authoring preview.",
             MessageType.Info
         );
 

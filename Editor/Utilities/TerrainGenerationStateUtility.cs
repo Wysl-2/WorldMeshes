@@ -7,27 +7,15 @@ using UnityEngine;
 public static class TerrainGenerationStateUtility
 {
     // =====================================================
-    // PATHS
-    // =====================================================
-
-    private const string BaseMeshPath =
-        WorldMeshesPaths.BaseMeshAssetPath;
-
-    private const string ChunkMeshFolder =
-        WorldMeshesPaths.GeneratedChunkMeshes;
-
-    // =====================================================
     // VERSIONS
     // =====================================================
 
-
     /*
-     * Increment whenever the authoring -> runtime height
-     * compilation algorithm changes in a way that requires
-     * existing runtime heightmaps to be recompiled.
+     * Incremented because the runtime manifest now records
+     * compiled height range metadata used by clipmap bounds.
      */
     public const int RuntimeHeightCompilerVersion =
-        2;
+        3;
 
     public const int CollisionGeneratorVersion =
         1;
@@ -44,163 +32,6 @@ public static class TerrainGenerationStateUtility
     }
 
     // =====================================================
-    // CHUNK MESH STATUS
-    // =====================================================
-
-    public static GenerationStatus GetChunkMeshStatus(
-        WorldSettings worldSettings
-    )
-    {
-        if (worldSettings == null)
-        {
-            return GenerationStatus.NotGenerated;
-        }
-
-        if (
-            worldSettings.chunkMeshGenerationRevision <= 0
-            ||
-            worldSettings.lastSyncedGridWidth < 1
-            ||
-            worldSettings.lastSyncedGridHeight < 1
-            ||
-            worldSettings.lastSyncedChunkSize <= 0f
-            ||
-            worldSettings.lastSyncedLOD0Resolution < 1
-            ||
-            string.IsNullOrEmpty(
-                worldSettings.lastSyncedBaseMeshHash
-            )
-        )
-        {
-            return GenerationStatus.NotGenerated;
-        }
-
-        if (
-            !AssetDatabase.IsValidFolder(
-                ChunkMeshFolder
-            )
-        )
-        {
-            return GenerationStatus.NotGenerated;
-        }
-
-        Mesh baseMesh =
-            AssetDatabase.LoadAssetAtPath<Mesh>(
-                BaseMeshPath
-            );
-
-        if (baseMesh == null)
-        {
-            return GenerationStatus.NotGenerated;
-        }
-
-        if (
-            worldSettings.lastSyncedGridWidth !=
-                Mathf.Max(1, worldSettings.gridWidth)
-            ||
-            worldSettings.lastSyncedGridHeight !=
-                Mathf.Max(1, worldSettings.gridHeight)
-            ||
-            !FloatMatches(
-                worldSettings.lastSyncedChunkSize,
-                Mathf.Max(0.01f, worldSettings.chunkSize)
-            )
-            ||
-            worldSettings.lastSyncedLOD0Resolution !=
-                Mathf.Max(1, worldSettings.lod0Resolution)
-        )
-        {
-            return GenerationStatus.OutOfDate;
-        }
-
-        string currentBaseHash =
-            GetCurrentBaseMeshHash();
-
-        if (
-            string.IsNullOrEmpty(currentBaseHash)
-            ||
-            currentBaseHash !=
-                worldSettings.lastSyncedBaseMeshHash
-        )
-        {
-            return GenerationStatus.OutOfDate;
-        }
-
-        return GenerationStatus.Current;
-    }
-
-    // =====================================================
-    // COLLISION MESH STATUS
-    // =====================================================
-
-    public static GenerationStatus GetCollisionMeshStatus(
-        WorldSettings worldSettings
-    )
-    {
-        if (worldSettings == null)
-        {
-            return GenerationStatus.NotGenerated;
-        }
-
-        if (
-            worldSettings.collisionMeshGenerationRevision <= 0
-            ||
-            string.IsNullOrEmpty(
-                worldSettings.lastGeneratedCollisionSignature
-            )
-            ||
-            worldSettings
-                .collisionSourceHeightmapGenerationRevision < 0
-        )
-        {
-            return GenerationStatus.NotGenerated;
-        }
-
-        if (
-            !AssetDatabase.IsValidFolder(
-                TerrainCollisionMeshGenerator
-                    .CollisionMeshFolder
-            )
-        )
-        {
-            return GenerationStatus.NotGenerated;
-        }
-
-        if (
-            GetHeightmapStatus(worldSettings) !=
-            GenerationStatus.Current
-        )
-        {
-            return GenerationStatus.OutOfDate;
-        }
-
-        if (
-            worldSettings
-                .collisionSourceHeightmapGenerationRevision
-            !=
-            worldSettings.heightmapGenerationRevision
-        )
-        {
-            return GenerationStatus.OutOfDate;
-        }
-
-        string currentSignature =
-            GetCurrentCollisionSettingsSignature(
-                worldSettings
-            );
-
-        if (
-            worldSettings.lastGeneratedCollisionSignature !=
-            currentSignature
-        )
-        {
-            return GenerationStatus.OutOfDate;
-        }
-
-        return GenerationStatus.Current;
-    }
-
-    // =====================================================
     // RUNTIME HEIGHTMAP STATUS
     // =====================================================
 
@@ -210,7 +41,8 @@ public static class TerrainGenerationStateUtility
     {
         if (worldSettings == null)
         {
-            return GenerationStatus.NotGenerated;
+            return
+                GenerationStatus.NotGenerated;
         }
 
         if (
@@ -221,7 +53,8 @@ public static class TerrainGenerationStateUtility
             )
         )
         {
-            return GenerationStatus.NotGenerated;
+            return
+                GenerationStatus.NotGenerated;
         }
 
         TerrainHeightmapManifest runtimeManifest =
@@ -233,7 +66,8 @@ public static class TerrainGenerationStateUtility
 
         if (runtimeManifest == null)
         {
-            return GenerationStatus.NotGenerated;
+            return
+                GenerationStatus.NotGenerated;
         }
 
         if (
@@ -241,9 +75,12 @@ public static class TerrainGenerationStateUtility
             ||
             runtimeManifest.compilerVersion !=
                 RuntimeHeightCompilerVersion
+            ||
+            !runtimeManifest.HasValidHeightRange
         )
         {
-            return GenerationStatus.OutOfDate;
+            return
+                GenerationStatus.OutOfDate;
         }
 
         TerrainAuthoringData authoringData =
@@ -259,7 +96,8 @@ public static class TerrainGenerationStateUtility
             authoringData.authoringRevision <= 0
         )
         {
-            return GenerationStatus.OutOfDate;
+            return
+                GenerationStatus.OutOfDate;
         }
 
         TerrainAuthoringHeightManifest authoringManifest =
@@ -276,6 +114,8 @@ public static class TerrainGenerationStateUtility
             ||
             authoringManifest.committedHeightRevision <= 0
             ||
+            !authoringManifest.HasValidCommittedHeightRange
+            ||
             !TerrainAuthoringStateUtility
                 .ManifestMatchesWorldSettings(
                     authoringManifest,
@@ -283,7 +123,8 @@ public static class TerrainGenerationStateUtility
                 )
         )
         {
-            return GenerationStatus.OutOfDate;
+            return
+                GenerationStatus.OutOfDate;
         }
 
         string currentAuthoringSignature =
@@ -299,7 +140,8 @@ public static class TerrainGenerationStateUtility
             )
         )
         {
-            return GenerationStatus.OutOfDate;
+            return
+                GenerationStatus.OutOfDate;
         }
 
         if (
@@ -316,125 +158,137 @@ public static class TerrainGenerationStateUtility
                 currentAuthoringSignature
         )
         {
-            return GenerationStatus.OutOfDate;
+            return
+                GenerationStatus.OutOfDate;
         }
 
-        return GenerationStatus.Current;
+        return
+            GenerationStatus.Current;
     }
 
     // =====================================================
-    // HEIGHT APPLICATION STATUS
+    // COLLISION MESH STATUS
     // =====================================================
 
-    public static GenerationStatus
-        GetHeightApplicationStatus(
-            WorldSettings worldSettings
-        )
-    {
-        if (worldSettings == null)
-        {
-            return GenerationStatus.NotGenerated;
-        }
-
-        if (
-            worldSettings
-                .appliedChunkMeshGenerationRevision < 0
-            ||
-            worldSettings
-                .appliedHeightmapGenerationRevision < 0
-        )
-        {
-            return GenerationStatus.NotGenerated;
-        }
-
-        if (
-            GetChunkMeshStatus(worldSettings) !=
-                GenerationStatus.Current
-            ||
-            GetHeightmapStatus(worldSettings) !=
-                GenerationStatus.Current
-        )
-        {
-            return GenerationStatus.OutOfDate;
-        }
-
-        if (
-            worldSettings
-                .appliedChunkMeshGenerationRevision
-            !=
-            worldSettings.chunkMeshGenerationRevision
-            ||
-            worldSettings
-                .appliedHeightmapGenerationRevision
-            !=
-            worldSettings.heightmapGenerationRevision
-        )
-        {
-            return GenerationStatus.OutOfDate;
-        }
-
-        return GenerationStatus.Current;
-    }
-
-    // =====================================================
-    // SUCCESSFUL CHUNK SYNCHRONIZATION
-    // =====================================================
-
-    public static void MarkChunkSyncSuccessful(
-        WorldSettings worldSettings,
-        string currentBaseMeshHash,
-        bool chunkAssetsChanged
+    public static GenerationStatus GetCollisionMeshStatus(
+        WorldSettings worldSettings
     )
     {
         if (worldSettings == null)
         {
+            return
+                GenerationStatus.NotGenerated;
+        }
+
+        if (
+            worldSettings.collisionMeshGenerationRevision <= 0
+            ||
+            string.IsNullOrEmpty(
+                worldSettings.lastGeneratedCollisionSignature
+            )
+            ||
+            worldSettings
+                .collisionSourceHeightmapGenerationRevision <
+                0
+        )
+        {
+            return
+                GenerationStatus.NotGenerated;
+        }
+
+        if (
+            !AssetDatabase.IsValidFolder(
+                TerrainCollisionMeshGenerator
+                    .CollisionMeshFolder
+            )
+        )
+        {
+            return
+                GenerationStatus.NotGenerated;
+        }
+
+        if (
+            GetHeightmapStatus(
+                worldSettings
+            )
+            !=
+            GenerationStatus.Current
+        )
+        {
+            return
+                GenerationStatus.OutOfDate;
+        }
+
+        if (
+            worldSettings
+                .collisionSourceHeightmapGenerationRevision
+            !=
+            worldSettings
+                .heightmapGenerationRevision
+        )
+        {
+            return
+                GenerationStatus.OutOfDate;
+        }
+
+        string currentSignature =
+            GetCurrentCollisionSettingsSignature(
+                worldSettings
+            );
+
+        if (
+            worldSettings
+                .lastGeneratedCollisionSignature
+            !=
+            currentSignature
+        )
+        {
+            return
+                GenerationStatus.OutOfDate;
+        }
+
+        return
+            GenerationStatus.Current;
+    }
+
+    // =====================================================
+    // SUCCESSFUL RUNTIME HEIGHTMAP COMPILATION
+    // =====================================================
+
+    public static void MarkHeightmapsCompiled(
+        WorldSettings worldSettings,
+        string authoringSignature
+    )
+    {
+        if (
+            worldSettings == null
+            ||
+            string.IsNullOrEmpty(
+                authoringSignature
+            )
+        )
+        {
             return;
         }
 
-        string previousStateSignature =
-            GetStoredChunkStateSignature(
-                worldSettings
-            );
-
-        worldSettings.lastSyncedGridWidth =
-            Mathf.Max(1, worldSettings.gridWidth);
-
-        worldSettings.lastSyncedGridHeight =
-            Mathf.Max(1, worldSettings.gridHeight);
-
-        worldSettings.lastSyncedChunkSize =
-            Mathf.Max(0.01f, worldSettings.chunkSize);
-
-        worldSettings.lastSyncedLOD0Resolution =
-            Mathf.Max(1, worldSettings.lod0Resolution);
-
-        worldSettings.lastSyncedBaseMeshHash =
-            currentBaseMeshHash;
-
-        string newStateSignature =
-            GetStoredChunkStateSignature(
-                worldSettings
-            );
-
-        bool generationConfigurationChanged =
-            previousStateSignature !=
-            newStateSignature;
+        worldSettings.lastGeneratedHeightSignature =
+            authoringSignature;
 
         if (
-            worldSettings.chunkMeshGenerationRevision <= 0
+            worldSettings.heightmapGenerationRevision <
+            0
         )
         {
-            worldSettings.chunkMeshGenerationRevision =
-                1;
+            worldSettings.heightmapGenerationRevision =
+                0;
         }
-        else if (
-            chunkAssetsChanged
-            ||
-            generationConfigurationChanged
-        )
-        {
-            worldSettings.chunkMeshGenerationRevision++;
-        }
+
+        /*
+         * Every successful complete runtime compilation gets
+         * a new revision. Collision state therefore becomes
+         * stale automatically.
+         */
+        worldSettings.heightmapGenerationRevision++;
 
         SaveWorldSettings(
             worldSettings
@@ -455,13 +309,17 @@ public static class TerrainGenerationStateUtility
         }
 
         if (
-            GetHeightmapStatus(worldSettings) !=
+            GetHeightmapStatus(
+                worldSettings
+            )
+            !=
             GenerationStatus.Current
         )
         {
             Debug.LogError(
                 "Cannot record collision mesh generation " +
-                "state because the heightmap state is not current."
+                "state because the runtime heightmap state " +
+                "is not current."
             );
 
             return false;
@@ -474,17 +332,20 @@ public static class TerrainGenerationStateUtility
 
         worldSettings
             .collisionSourceHeightmapGenerationRevision =
-                worldSettings.heightmapGenerationRevision;
+                worldSettings
+                    .heightmapGenerationRevision;
 
         if (
-            worldSettings.collisionMeshGenerationRevision < 0
+            worldSettings.collisionMeshGenerationRevision <
+            0
         )
         {
             worldSettings.collisionMeshGenerationRevision =
                 0;
         }
 
-        worldSettings.collisionMeshGenerationRevision++;
+        worldSettings
+            .collisionMeshGenerationRevision++;
 
         SaveWorldSettings(
             worldSettings
@@ -494,103 +355,7 @@ public static class TerrainGenerationStateUtility
     }
 
     // =====================================================
-    // SUCCESSFUL RUNTIME HEIGHTMAP COMPILATION
-    // =====================================================
-
-    public static void MarkHeightmapsCompiled(
-        WorldSettings worldSettings,
-        string authoringSignature
-    )
-    {
-        if (
-            worldSettings == null
-            ||
-            string.IsNullOrEmpty(authoringSignature)
-        )
-        {
-            return;
-        }
-
-        worldSettings.lastGeneratedHeightSignature =
-            authoringSignature;
-
-        if (
-            worldSettings.heightmapGenerationRevision < 0
-        )
-        {
-            worldSettings.heightmapGenerationRevision =
-                0;
-        }
-
-        /*
-         * Every successful complete runtime compilation gets
-         * a new revision. Existing collision/application state
-         * will therefore become stale automatically.
-         */
-        worldSettings.heightmapGenerationRevision++;
-
-        SaveWorldSettings(
-            worldSettings
-        );
-    }
-
-
-    // =====================================================
-    // SUCCESSFUL HEIGHT APPLICATION
-    // =====================================================
-
-    public static bool MarkHeightApplicationSuccessful(
-        WorldSettings worldSettings
-    )
-    {
-        if (worldSettings == null)
-        {
-            return false;
-        }
-
-        if (
-            GetChunkMeshStatus(worldSettings) !=
-            GenerationStatus.Current
-        )
-        {
-            Debug.LogError(
-                "Cannot record height application state.\n\n" +
-                "Chunk mesh generation state is not current."
-            );
-
-            return false;
-        }
-
-        if (
-            GetHeightmapStatus(worldSettings) !=
-            GenerationStatus.Current
-        )
-        {
-            Debug.LogError(
-                "Cannot record height application state.\n\n" +
-                "Heightmap generation state is not current."
-            );
-
-            return false;
-        }
-
-        worldSettings
-            .appliedChunkMeshGenerationRevision =
-                worldSettings.chunkMeshGenerationRevision;
-
-        worldSettings
-            .appliedHeightmapGenerationRevision =
-                worldSettings.heightmapGenerationRevision;
-
-        SaveWorldSettings(
-            worldSettings
-        );
-
-        return true;
-    }
-
-    // =====================================================
-    // RESET
+    // RESET GENERATED STATE
     // =====================================================
 
     public static void ResetGeneratedState(
@@ -602,26 +367,25 @@ public static class TerrainGenerationStateUtility
             return;
         }
 
-        worldSettings.lastSyncedGridWidth = -1;
-        worldSettings.lastSyncedGridHeight = -1;
-        worldSettings.lastSyncedChunkSize = -1f;
-        worldSettings.lastSyncedLOD0Resolution = -1;
-        worldSettings.lastSyncedBaseMeshHash = "";
-        worldSettings.chunkMeshGenerationRevision = 0;
+        worldSettings.lastGeneratedHeightSignature =
+            "";
 
-        worldSettings.lastGeneratedCollisionSignature = "";
-        worldSettings.collisionMeshGenerationRevision = 0;
-        worldSettings
-            .collisionSourceHeightmapGenerationRevision = -1;
+        worldSettings.heightmapGenerationRevision =
+            0;
 
-        worldSettings.lastGeneratedHeightSignature = "";
-        worldSettings.heightmapGenerationRevision = 0;
+        worldSettings.lastGeneratedCollisionSignature =
+            "";
+
+        worldSettings.collisionMeshGenerationRevision =
+            0;
 
         worldSettings
-            .appliedChunkMeshGenerationRevision = -1;
+            .collisionSourceHeightmapGenerationRevision =
+                -1;
 
-        worldSettings
-            .appliedHeightmapGenerationRevision = -1;
+        SaveWorldSettings(
+            worldSettings
+        );
     }
 
     // =====================================================
@@ -644,80 +408,63 @@ public static class TerrainGenerationStateUtility
             "TerrainCollisionGenerator"
         );
 
-        AppendValue(builder, CollisionGeneratorVersion);
-        AppendValue(builder, Mathf.Max(1, worldSettings.gridWidth));
-        AppendValue(builder, Mathf.Max(1, worldSettings.gridHeight));
-        AppendValue(builder, Mathf.Max(0.01f, worldSettings.chunkSize));
-        AppendValue(builder, Mathf.Max(1, worldSettings.lod0Resolution));
-        AppendValue(builder, Mathf.Max(1, worldSettings.heightTileChunkSpan));
-        AppendValue(builder, Mathf.Max(1, worldSettings.collisionResolution));
-
-        return ComputeSHA256(
-            builder.ToString()
+        AppendValue(
+            builder,
+            CollisionGeneratorVersion
         );
-    }
 
+        AppendValue(
+            builder,
+            Mathf.Max(
+                1,
+                worldSettings.gridWidth
+            )
+        );
 
+        AppendValue(
+            builder,
+            Mathf.Max(
+                1,
+                worldSettings.gridHeight
+            )
+        );
 
-    // =====================================================
-    // CURRENT BASE MESH HASH
-    // =====================================================
+        AppendValue(
+            builder,
+            Mathf.Max(
+                0.01f,
+                worldSettings.chunkSize
+            )
+        );
 
-    public static string GetCurrentBaseMeshHash()
-    {
-        Object baseAsset =
-            AssetDatabase.LoadMainAssetAtPath(
-                BaseMeshPath
-            );
+        AppendValue(
+            builder,
+            Mathf.Max(
+                1,
+                worldSettings.lod0Resolution
+            )
+        );
 
-        if (baseAsset == null)
-        {
-            return "";
-        }
+        AppendValue(
+            builder,
+            Mathf.Max(
+                1,
+                worldSettings.heightTileChunkSpan
+            )
+        );
+
+        AppendValue(
+            builder,
+            Mathf.Max(
+                1,
+                worldSettings.collisionResolution
+            )
+        );
 
         return
-            AssetDatabase
-                .GetAssetDependencyHash(
-                    BaseMeshPath
-                )
-                .ToString();
-    }
-
-    // =====================================================
-    // STORED CHUNK STATE SIGNATURE
-    // =====================================================
-
-    private static string GetStoredChunkStateSignature(
-        WorldSettings worldSettings
-    )
-    {
-        if (worldSettings == null)
-        {
-            return "";
-        }
-
-        StringBuilder builder =
-            new StringBuilder();
-
-        builder.Append(
-            "TerrainChunkMeshes"
-        );
-
-        AppendValue(builder, worldSettings.lastSyncedGridWidth);
-        AppendValue(builder, worldSettings.lastSyncedGridHeight);
-        AppendValue(builder, worldSettings.lastSyncedChunkSize);
-        AppendValue(builder, worldSettings.lastSyncedLOD0Resolution);
-
-        builder.Append('|');
-
-        builder.Append(
-            worldSettings.lastSyncedBaseMeshHash ??
-            ""
-        );
-
-        return ComputeSHA256(
-            builder.ToString()
-        );
+            ComputeSHA256(
+                builder.ToString()
+            );
     }
 
     // =====================================================
@@ -793,17 +540,8 @@ public static class TerrainGenerationStateUtility
             );
         }
 
-        return result.ToString();
-    }
-
-    private static bool FloatMatches(
-        float a,
-        float b
-    )
-    {
         return
-            Mathf.Abs(a - b) <=
-            0.0001f;
+            result.ToString();
     }
 
     private static void SaveWorldSettings(
@@ -830,13 +568,16 @@ public static class TerrainGenerationStateUtility
         switch (status)
         {
             case GenerationStatus.Current:
-                return "Current";
+                return
+                    "Current";
 
             case GenerationStatus.OutOfDate:
-                return "Out of Date";
+                return
+                    "Out of Date";
 
             default:
-                return "Not Generated";
+                return
+                    "Not Generated";
         }
     }
 }

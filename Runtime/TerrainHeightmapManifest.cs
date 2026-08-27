@@ -17,7 +17,6 @@ public class TerrainHeightmapManifest :
     public bool isComplete =
         false;
 
-
     /*
      * Version of the authoring -> runtime compilation logic.
      */
@@ -34,13 +33,26 @@ public class TerrainHeightmapManifest :
     public string sourceAuthoringSignature =
         "";
 
-    /*
-     * Hash of the committed source tile assets used by the
-     * successful compilation. This is primarily diagnostic
-     * and provides a precise record of compiled source data.
-     */
     public string sourceAuthoringContentHash =
         "";
+
+    // =====================================================
+    // COMPILED HEIGHT RANGE
+    // =====================================================
+
+    /*
+     * Exact finite sample range written to the compiled
+     * runtime heightmap tiles.
+     *
+     * TerrainWorldHierarchyGenerator uses this to configure
+     * clipmap displacement bounds without requiring any
+     * CPU-deformed visual chunk meshes.
+     */
+    public float minimumTerrainHeight =
+        0f;
+
+    public float maximumTerrainHeight =
+        0f;
 
     // =====================================================
     // WORLD
@@ -51,11 +63,15 @@ public class TerrainHeightmapManifest :
     public int gridHeight;
 
     // =====================================================
-    // MESH LAYOUT
+    // HEIGHTFIELD LAYOUT
     // =====================================================
 
     public float chunkSize;
 
+    /*
+     * Historical serialized name retained for compatibility.
+     * This value describes heightfield intervals per chunk.
+     */
     public int lod0Resolution;
 
     // =====================================================
@@ -182,6 +198,34 @@ public class TerrainHeightmapManifest :
                     1,
                     lod0Resolution
                 );
+        }
+    }
+
+    public bool HasValidHeightRange
+    {
+        get
+        {
+            return
+                isComplete
+                &&
+                !float.IsNaN(
+                    minimumTerrainHeight
+                )
+                &&
+                !float.IsInfinity(
+                    minimumTerrainHeight
+                )
+                &&
+                !float.IsNaN(
+                    maximumTerrainHeight
+                )
+                &&
+                !float.IsInfinity(
+                    maximumTerrainHeight
+                )
+                &&
+                maximumTerrainHeight >=
+                    minimumTerrainHeight;
         }
     }
 

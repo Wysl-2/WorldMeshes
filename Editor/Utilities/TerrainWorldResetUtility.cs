@@ -9,17 +9,26 @@ public static class TerrainWorldResetUtility
     // GENERATED ASSET PATHS
     // =====================================================
 
-    private const string BaseMeshPath =
-        WorldMeshesPaths.BaseMeshAssetPath;
-
-    private const string ChunkMeshFolder =
-        WorldMeshesPaths.GeneratedChunkMeshes;
-
     private const string HeightmapRootFolder =
         WorldMeshesPaths.GeneratedHeightmaps;
 
+    private const string ClipmapMeshFolder =
+        WorldMeshesPaths.GeneratedClipmapMeshes;
+
     private const string CollisionMeshFolder =
         WorldMeshesPaths.GeneratedCollisionMeshes;
+
+    /*
+     * Legacy paths retained only so Reset Generated World can
+     * clean projects created by the removed LOD0 preview system.
+     */
+    private const string LegacyBaseMeshFolder =
+        WorldMeshesPaths.GeneratedMeshes +
+        "/Base";
+
+    private const string LegacyChunkMeshFolder =
+        WorldMeshesPaths.GeneratedMeshes +
+        "/Chunks";
 
     // =====================================================
     // RESET GENERATED WORLD
@@ -29,10 +38,6 @@ public static class TerrainWorldResetUtility
         WorldSettings worldSettings
     )
     {
-        // -------------------------------------------------
-        // Validate
-        // -------------------------------------------------
-
         if (worldSettings == null)
         {
             Debug.LogError(
@@ -44,7 +49,8 @@ public static class TerrainWorldResetUtility
         }
 
         if (
-            EditorApplication.isPlayingOrWillChangePlaymode
+            EditorApplication
+                .isPlayingOrWillChangePlaymode
         )
         {
             Debug.LogError(
@@ -55,30 +61,24 @@ public static class TerrainWorldResetUtility
             return;
         }
 
-        // -------------------------------------------------
-        // Confirmation
-        // -------------------------------------------------
-
         bool confirmed =
             EditorUtility.DisplayDialog(
                 "Reset Generated World",
 
-                "This will permanently delete all currently " +
-                "generated terrain data:\n\n" +
+                "This will permanently delete derived runtime " +
+                "terrain data:\n\n" +
 
-                "• LOD0 base mesh\n" +
-                "• All generated chunk mesh assets\n" +
-                "• All generated heightmap tiles\n" +
-                "• Heightmap generation manifest\n" +
-                "• The WorldRoot scene hierarchy\n" +
-                "• Stored generation synchronization state\n\n" +
+                "• Generated clipmap mesh assets\n" +
+                "• Generated runtime heightmap tiles + manifest\n" +
+                "• Generated collision meshes + runtime data\n" +
+                "• The generated WorldRoot scene hierarchy\n" +
+                "• Stored runtime generation state\n\n" +
 
-                "The WorldSettings asset and all current " +
-                "world, chunk, and height-generation settings " +
-                "will be preserved.\n\n" +
+                "Legacy Base/ and Chunks/ preview-mesh folders " +
+                "will also be removed if they still exist.\n\n" +
 
-                "This operation cannot automatically restore " +
-                "deleted generated assets.",
+                "Authoring/, Configuration/, Materials/, and " +
+                "Shaders/ are preserved.",
 
                 "Reset Generated World",
                 "Cancel"
@@ -89,47 +89,45 @@ public static class TerrainWorldResetUtility
             return;
         }
 
-        // -------------------------------------------------
-        // Statistics
-        // -------------------------------------------------
-
         bool removedWorldRoot =
-            false;
-
-        bool removedBaseMesh =
-            false;
-
-        bool removedChunkMeshes =
             false;
 
         bool removedHeightmaps =
             false;
-        
+
+        bool removedClipmapMeshes =
+            false;
+
         bool removedCollisionMeshes =
             false;
 
-        // =====================================================
-        // REMOVE GENERATED SCENE HIERARCHY
-        // =====================================================
+        bool removedLegacyBaseMeshes =
+            false;
+
+        bool removedLegacyChunkMeshes =
+            false;
+
+        // =================================================
+        // SCENE HIERARCHY
+        // =================================================
 
         Scene scene =
             SceneManager.GetActiveScene();
 
         if (
-            scene.IsValid() &&
+            scene.IsValid()
+            &&
             scene.isLoaded
         )
         {
-            GameObject[] rootObjects =
-                scene.GetRootGameObjects();
-
             foreach (
                 GameObject rootObject
-                in rootObjects
+                in scene.GetRootGameObjects()
             )
             {
                 if (
-                    rootObject == null ||
+                    rootObject == null
+                    ||
                     rootObject.name !=
                         TerrainWorldHierarchyGenerator
                             .WorldRootName
@@ -154,53 +152,9 @@ public static class TerrainWorldResetUtility
             }
         }
 
-        // =====================================================
-        // DELETE GENERATED CHUNK MESHES
-        // =====================================================
-
-        /*
-         * Delete the entire generated chunk mesh folder.
-         *
-         * This removes both flat and height-deformed
-         * generated chunk mesh assets.
-         *
-         * Deleting the whole folder also guarantees that
-         * stale, malformed, duplicated, or incorrectly
-         * named generated chunk assets cannot survive
-         * the reset.
-         */
-
-        if (
-            AssetDatabase.IsValidFolder(
-                ChunkMeshFolder
-            )
-        )
-        {
-            removedChunkMeshes =
-                AssetDatabase.DeleteAsset(
-                    ChunkMeshFolder
-                );
-        }
-
-        // =====================================================
-        // DELETE GENERATED HEIGHTMAP DATA
-        // =====================================================
-
-        /*
-         * Delete the entire generated heightmap folder.
-         *
-         * This removes:
-         *
-         * HeightmapManifest.asset
-         *
-         * and
-         *
-         * Tiles/
-         *     HeightTile_x_z.asset
-         *
-         * The height-generation PARAMETERS stored in
-         * WorldSettings are preserved.
-         */
+        // =================================================
+        // GENERATED RUNTIME HEIGHTMAPS
+        // =================================================
 
         if (
             AssetDatabase.IsValidFolder(
@@ -213,72 +167,75 @@ public static class TerrainWorldResetUtility
                     HeightmapRootFolder
                 );
         }
-        
-        // =====================================================
-        // DELETE GENERATED COLLISION MESHES
-        // =====================================================
 
-                if (
-                    AssetDatabase.IsValidFolder(
-                        CollisionMeshFolder
-                    )
-                )
-                {
-                    removedCollisionMeshes =
-                        AssetDatabase.DeleteAsset(
-                            CollisionMeshFolder
-                        );
-                }
+        // =================================================
+        // GENERATED CLIPMAP GEOMETRY
+        // =================================================
 
-        // =====================================================
-        // DELETE LOD0 BASE MESH
-        // =====================================================
-
-        Object baseMeshAsset =
-            AssetDatabase.LoadMainAssetAtPath(
-                BaseMeshPath
-            );
-
-        if (baseMeshAsset != null)
+        if (
+            AssetDatabase.IsValidFolder(
+                ClipmapMeshFolder
+            )
+        )
         {
-            removedBaseMesh =
+            removedClipmapMeshes =
                 AssetDatabase.DeleteAsset(
-                    BaseMeshPath
+                    ClipmapMeshFolder
                 );
         }
 
-        // =====================================================
-        // RESET GENERATED STATE
-        // =====================================================
+        // =================================================
+        // GENERATED COLLISION DATA
+        // =================================================
 
-        /*
-         * Preserve all authoring settings:
-         *
-         * worldSettings.gridWidth
-         * worldSettings.gridHeight
-         * worldSettings.chunkSize
-         * worldSettings.lod0Resolution
-         *
-         * worldSettings.heightTileChunkSpan
-         * worldSettings.heightSeed
-         * worldSettings.heightNoiseScale
-         * worldSettings.heightBaseHeight
-         * worldSettings.heightAmplitude
-         * worldSettings.heightOctaves
-         * worldSettings.heightPersistence
-         * worldSettings.heightLacunarity
-         *
-         * Reset only the state describing generated assets.
-         */
+        if (
+            AssetDatabase.IsValidFolder(
+                CollisionMeshFolder
+            )
+        )
+        {
+            removedCollisionMeshes =
+                AssetDatabase.DeleteAsset(
+                    CollisionMeshFolder
+                );
+        }
+
+        // =================================================
+        // LEGACY PREVIEW DATA
+        // =================================================
+
+        if (
+            AssetDatabase.IsValidFolder(
+                LegacyBaseMeshFolder
+            )
+        )
+        {
+            removedLegacyBaseMeshes =
+                AssetDatabase.DeleteAsset(
+                    LegacyBaseMeshFolder
+                );
+        }
+
+        if (
+            AssetDatabase.IsValidFolder(
+                LegacyChunkMeshFolder
+            )
+        )
+        {
+            removedLegacyChunkMeshes =
+                AssetDatabase.DeleteAsset(
+                    LegacyChunkMeshFolder
+                );
+        }
+
+        // =================================================
+        // STATE
+        // =================================================
 
         TerrainGenerationStateUtility
             .ResetGeneratedState(
                 worldSettings
             );
-
-        // =====================================================
-        // SAVE
-        // =====================================================
 
         EditorUtility.SetDirty(
             worldSettings
@@ -289,79 +246,26 @@ public static class TerrainWorldResetUtility
         );
 
         AssetDatabase.SaveAssets();
-
         AssetDatabase.Refresh();
-
-        // =====================================================
-        // SELECTION
-        // =====================================================
 
         Selection.activeObject =
             worldSettings;
 
-        // =====================================================
-        // COMPLETE
-        // =====================================================
-
         Debug.Log(
             "Generated world reset complete.\n\n" +
-
-            "Removed Generated Data:\n" +
-
-            $"WorldRoot: " +
-            $"{removedWorldRoot}\n" +
-
-            $"LOD0 Base Mesh: " +
-            $"{removedBaseMesh}\n" +
-
-            $"Chunk Mesh Folder: " +
-            $"{removedChunkMeshes}\n" +
-
-            $"Heightmap Folder: " +
-            $"{removedHeightmaps}\n\n" +
-            
-            $"Collision Mesh Folder: " +
-            $"{removedCollisionMeshes}\n" +
-
-            "Preserved World Settings:\n" +
-
-            $"Grid: " +
-            $"{worldSettings.gridWidth} x " +
-            $"{worldSettings.gridHeight}\n" +
-
-            $"Chunk Size: " +
-            $"{worldSettings.chunkSize}\n" +
-
-            $"LOD0 Resolution: " +
-            $"{worldSettings.lod0Resolution}\n\n" +
-
-            "Preserved Height Settings:\n" +
-
-            $"Tile Chunk Span: " +
-            $"{worldSettings.heightTileChunkSpan}\n" +
-
-            $"Seed: " +
-            $"{worldSettings.heightSeed}\n" +
-
-            $"Noise Scale: " +
-            $"{worldSettings.heightNoiseScale}\n" +
-
-            $"Base Height: " +
-            $"{worldSettings.heightBaseHeight}\n" +
-
-            $"Height Amplitude: " +
-            $"{worldSettings.heightAmplitude}\n" +
-
-            $"Octaves: " +
-            $"{worldSettings.heightOctaves}\n" +
-
-            $"Persistence: " +
-            $"{worldSettings.heightPersistence}\n" +
-
-            $"Lacunarity: " +
-            $"{worldSettings.heightLacunarity}\n\n" +
-
-            "Generated synchronization state has been reset."
+            "Removed Derived Data:\n" +
+            $"WorldRoot: {removedWorldRoot}\n" +
+            $"Runtime Heightmaps: {removedHeightmaps}\n" +
+            $"Clipmap Meshes: {removedClipmapMeshes}\n" +
+            $"Collision Data: {removedCollisionMeshes}\n\n" +
+            "Legacy Preview Cleanup:\n" +
+            $"Base Mesh Folder: {removedLegacyBaseMeshes}\n" +
+            $"Chunk Mesh Folder: {removedLegacyChunkMeshes}\n\n" +
+            "Preserved:\n" +
+            "Authoring/\n" +
+            "Configuration/\n" +
+            "Materials/\n" +
+            "Shaders/"
         );
     }
 }

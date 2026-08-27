@@ -182,6 +182,12 @@ public static class TerrainHeightmapValidator
         int invalidHeightSampleCount =
             0;
 
+        float minimumHeight =
+            float.PositiveInfinity;
+
+        float maximumHeight =
+            float.NegativeInfinity;
+
         // =================================================
         // LOAD + VALIDATE EVERY RUNTIME TILE
         // =================================================
@@ -329,7 +335,21 @@ public static class TerrainHeightmapValidator
 
                         containsInvalidHeight =
                             true;
+
+                        continue;
                     }
+
+                    minimumHeight =
+                        Mathf.Min(
+                            minimumHeight,
+                            height
+                        );
+
+                    maximumHeight =
+                        Mathf.Max(
+                            maximumHeight,
+                            height
+                        );
                 }
 
                 if (containsInvalidHeight)
@@ -368,6 +388,47 @@ public static class TerrainHeightmapValidator
                 $"Invalid Tiles: {invalidTileCount}\n" +
                 $"Invalid Height Samples: " +
                 $"{invalidHeightSampleCount:N0}"
+            );
+
+            return false;
+        }
+
+        if (
+            !manifest.HasValidHeightRange
+            ||
+            float.IsInfinity(
+                minimumHeight
+            )
+            ||
+            float.IsInfinity(
+                maximumHeight
+            )
+            ||
+            Mathf.Abs(
+                manifest.minimumTerrainHeight -
+                minimumHeight
+            )
+            >
+            SettingsFloatTolerance
+            ||
+            Mathf.Abs(
+                manifest.maximumTerrainHeight -
+                maximumHeight
+            )
+            >
+            SettingsFloatTolerance
+        )
+        {
+            Debug.LogError(
+                "Runtime heightmap validation failed.\n\n" +
+                "The height range stored in the runtime manifest " +
+                "does not match the compiled tile data.\n\n" +
+                $"Manifest Range: " +
+                $"{manifest.minimumTerrainHeight:R} -> " +
+                $"{manifest.maximumTerrainHeight:R}\n" +
+                $"Actual Range: " +
+                $"{minimumHeight:R} -> " +
+                $"{maximumHeight:R}"
             );
 
             return false;
@@ -557,7 +618,9 @@ public static class TerrainHeightmapValidator
             $"Authoring Revision: " +
             $"{authoringData.authoringRevision}\n" +
             $"Authoring Content Hash: " +
-            $"{authoringManifest.committedContentHash}\n\n" +
+            $"{authoringManifest.committedContentHash}\n" +
+            $"Runtime Height Range: " +
+            $"{minimumHeight:R} -> {maximumHeight:R}\n\n" +
             $"Boundary Pairs: {boundaryPairCount}\n" +
             $"Edge Samples Compared: " +
             $"{edgeSampleComparisonCount:N0}\n" +

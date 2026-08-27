@@ -1,7 +1,8 @@
 using UnityEditor;
 using UnityEngine;
 
-public partial class WorldMeshesEditorWindow : EditorWindow
+public partial class WorldMeshesEditorWindow :
+    EditorWindow
 {
     private void DrawWorldHierarchySettings()
     {
@@ -27,10 +28,6 @@ public partial class WorldMeshesEditorWindow : EditorWindow
 
             return;
         }
-
-        int totalChunks =
-            worldSettings.gridWidth *
-            worldSettings.gridHeight;
 
         int clipmapLevelCount =
             Mathf.Clamp(
@@ -62,17 +59,12 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         );
 
         EditorGUILayout.LabelField(
-            "Preview Chunks",
-            totalChunks.ToString("N0")
+            "Visual Terrain",
+            "Clipmap"
         );
 
         EditorGUILayout.LabelField(
-            "Collision Mesh Assets",
-            totalChunks.ToString("N0")
-        );
-
-        EditorGUILayout.LabelField(
-            "Collision Scene Chunks",
+            "Persistent Preview Chunks",
             "0"
         );
 
@@ -89,22 +81,21 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         GUILayout.Space(8f);
 
         EditorGUILayout.HelpBox(
-            "Synchronizes three terrain representations beneath " +
-            "WorldRoot:\n\n" +
-
-            "Preview\n" +
-            "Generated LOD0 terrain chunks used for editor preview " +
-            "and future terrain editing.\n\n" +
-
-            "Collision\n" +
-            "A TerrainCollisionStreamer on the Collision root loads " +
-            "generated collision Mesh assets through Addressables. " +
-            "No per-chunk collision GameObjects are created by the " +
-            "hierarchy generator.\n\n" +
+            "WorldRoot now contains two terrain systems:\n\n" +
 
             "Clipmap\n" +
-            "The center, LOD rings, and transition stitch meshes " +
-            "used by the runtime terrain renderer.",
+            "The single visual terrain representation. It is " +
+            "used by the runtime renderer and will also be used " +
+            "by the edit-mode terrain authoring preview.\n\n" +
+
+            "Collision\n" +
+            "A TerrainCollisionStreamer and fixed collider pool " +
+            "load generated collision meshes at runtime.\n\n" +
+
+            "The old WorldRoot/Preview branch and generated LOD0 " +
+            "chunk renderers are obsolete. Sync World Hierarchy " +
+            "automatically removes an existing legacy Preview " +
+            "branch from the active scene.",
             MessageType.Info
         );
 

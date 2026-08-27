@@ -888,6 +888,21 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             authoringHeightfieldState =
                 "Incomplete";
         }
+        else if (
+            authoringManifest.manifestVersion !=
+            TerrainAuthoringHeightManifest.CurrentVersion
+        )
+        {
+            authoringHeightfieldState =
+                "Out of Date";
+        }
+        else if (
+            !authoringManifest.HasValidCommittedHeightRange
+        )
+        {
+            authoringHeightfieldState =
+                "Invalid Height Range";
+        }
         else
         {
             authoringHeightfieldState =
@@ -915,6 +930,19 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                 : "-"
         );
 
+        if (
+            authoringManifest != null
+            &&
+            authoringManifest.HasValidCommittedHeightRange
+        )
+        {
+            EditorGUILayout.LabelField(
+                "Committed Height Range",
+                $"{authoringManifest.minimumCommittedHeight:R} -> " +
+                $"{authoringManifest.maximumCommittedHeight:R}"
+            );
+        }
+
         EditorGUILayout.LabelField(
             "Authoring Source Folder",
             WorldMeshesPaths.AuthoringHeightTiles
@@ -933,7 +961,12 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             &&
             authoringManifest != null
             &&
-            authoringManifest.isComplete;
+            authoringManifest.isComplete
+            &&
+            authoringManifest.manifestVersion ==
+                TerrainAuthoringHeightManifest.CurrentVersion
+            &&
+            authoringManifest.HasValidCommittedHeightRange;
 
         if (!authoringReady)
         {

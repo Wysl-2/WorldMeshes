@@ -89,6 +89,12 @@ public static class TerrainAuthoringStateUtility
         manifest.committedContentHash =
             "";
 
+        manifest.minimumCommittedHeight =
+            0f;
+
+        manifest.maximumCommittedHeight =
+            0f;
+
         if (worldSettings != null)
         {
             CopyLayoutToManifest(
@@ -111,6 +117,8 @@ public static class TerrainAuthoringStateUtility
         WorldSettings worldSettings,
         TerrainAuthoringData authoringData,
         string committedContentHash,
+        float minimumCommittedHeight,
+        float maximumCommittedHeight,
         out string errorMessage
     )
     {
@@ -153,6 +161,25 @@ public static class TerrainAuthoringStateUtility
             return false;
         }
 
+        if (
+            !IsFinite(
+                minimumCommittedHeight
+            )
+            ||
+            !IsFinite(
+                maximumCommittedHeight
+            )
+            ||
+            maximumCommittedHeight <
+                minimumCommittedHeight
+        )
+        {
+            errorMessage =
+                "Committed authoring height range is invalid.";
+
+            return false;
+        }
+
         manifest.manifestVersion =
             TerrainAuthoringHeightManifest
                 .CurrentVersion;
@@ -174,6 +201,12 @@ public static class TerrainAuthoringStateUtility
 
         manifest.committedContentHash =
             committedContentHash;
+
+        manifest.minimumCommittedHeight =
+            minimumCommittedHeight;
+
+        manifest.maximumCommittedHeight =
+            maximumCommittedHeight;
 
         manifest.isComplete =
             true;
@@ -385,7 +418,7 @@ public static class TerrainAuthoringStateUtility
             errorMessage =
                 "The authoring heightfield manifest does not exist.\n\n" +
                 "Reinitialize the authoring heightfield once to " +
-                "create the new manifest.";
+                "create the current manifest.";
 
             return false;
         }
@@ -395,8 +428,6 @@ public static class TerrainAuthoringStateUtility
             errorMessage =
                 "The committed authoring heightfield is marked " +
                 "incomplete.\n\n" +
-                "This normally means initialization or a future " +
-                "bake operation was cancelled or failed.\n\n" +
                 "Reinitialize the authoring heightfield before compiling.";
 
             return false;
@@ -433,8 +464,8 @@ public static class TerrainAuthoringStateUtility
         )
         {
             errorMessage =
-                "The committed authoring heightfield does not have " +
-                "a valid committed revision.";
+                "The committed authoring heightfield does not " +
+                "have a valid committed revision.";
 
             return false;
         }
@@ -459,6 +490,8 @@ public static class TerrainAuthoringStateUtility
             !TryCalculateCommittedHeightContentHash(
                 worldSettings,
                 out currentContentHash,
+                out float currentMinimumHeight,
+                out float currentMaximumHeight,
                 out errorMessage
             )
         )
@@ -474,10 +507,36 @@ public static class TerrainAuthoringStateUtility
             errorMessage =
                 "The committed authoring tile assets have changed " +
                 "without the authoring manifest being updated.\n\n" +
-                "This prevents the compiler from treating an unknown " +
-                "or partially modified tile set as valid.\n\n" +
                 $"Manifest Hash:\n{manifest.committedContentHash}\n\n" +
                 $"Current Hash:\n{currentContentHash}";
+
+            return false;
+        }
+
+        if (
+            !manifest.HasValidCommittedHeightRange
+            ||
+            !FloatMatches(
+                manifest.minimumCommittedHeight,
+                currentMinimumHeight
+            )
+            ||
+            !FloatMatches(
+                manifest.maximumCommittedHeight,
+                currentMaximumHeight
+            )
+        )
+        {
+            errorMessage =
+                "The committed authoring height range metadata does " +
+                "not match the physical authoring tiles.\n\n" +
+                $"Manifest Range: " +
+                $"{manifest.minimumCommittedHeight:R} -> " +
+                $"{manifest.maximumCommittedHeight:R}\n" +
+                $"Current Range: " +
+                $"{currentMinimumHeight:R} -> " +
+                $"{currentMaximumHeight:R}\n\n" +
+                "Reinitialize the authoring heightfield.";
 
             return false;
         }
@@ -497,11 +556,19 @@ public static class TerrainAuthoringStateUtility
     public static bool TryCalculateCommittedHeightContentHash(
         WorldSettings worldSettings,
         out string contentHash,
+        out float minimumHeight,
+        out float maximumHeight,
         out string errorMessage
     )
     {
         contentHash =
             "";
+
+        minimumHeight =
+            float.PositiveInfinity;
+
+        maximumHeight =
+            float.NegativeInfinity;
 
         errorMessage =
             "";
@@ -561,6 +628,9 @@ public static class TerrainAuthoringStateUtility
             builder,
             samplesPerSide
         );
+
+        long totalSamples =
+            0L;
 
         for (
             int tileZ = 0;
@@ -673,11 +743,7 @@ public static class TerrainAuthoringStateUtility
                     float height =
                         heightData[index];
 
-                    if (
-                        float.IsNaN(height)
-                        ||
-                        float.IsInfinity(height)
-                    )
+                    if (!IsFinite(height))
                     {
                         errorMessage =
                             $"Authoring height tile ({tileX}, {tileZ}) " +
@@ -688,6 +754,20 @@ public static class TerrainAuthoringStateUtility
 
                         return false;
                     }
+
+                    minimumHeight =
+                        Mathf.Min(
+                            minimumHeight,
+                            height
+                        );
+
+                    maximumHeight =
+                        Mathf.Max(
+                            maximumHeight,
+                            height
+                        );
+
+                    totalSamples++;
                 }
 
                 Hash128 dependencyHash =
@@ -712,6 +792,28 @@ public static class TerrainAuthoringStateUtility
                     dependencyHash.ToString()
                 );
             }
+        }
+
+        if (
+            totalSamples <= 0
+            ||
+            !IsFinite(
+                minimumHeight
+            )
+            ||
+            !IsFinite(
+                maximumHeight
+            )
+            ||
+            maximumHeight <
+                minimumHeight
+        )
+        {
+            errorMessage =
+                "No valid committed authoring height samples " +
+                "were found.";
+
+            return false;
         }
 
         contentHash =
@@ -932,6 +1034,20 @@ public static class TerrainAuthoringStateUtility
         }
 
         return result.ToString();
+    }
+
+    private static bool IsFinite(
+        float value
+    )
+    {
+        return
+            !float.IsNaN(
+                value
+            )
+            &&
+            !float.IsInfinity(
+                value
+            );
     }
 
     private static bool FloatMatches(

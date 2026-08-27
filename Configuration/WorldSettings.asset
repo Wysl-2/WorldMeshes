@@ -28,16 +28,8 @@ MonoBehaviour:
   clipmapCenterResolution: 128
   clipmapLevelCount: 8
   clipmapBaseSampleStep: 1
-  lastSyncedGridWidth: 48
-  lastSyncedGridHeight: 48
-  lastSyncedChunkSize: 128
-  lastSyncedLOD0Resolution: 128
-  lastSyncedBaseMeshHash: b0b87379942a69937a5b5be3a79926c3
-  chunkMeshGenerationRevision: 1
-  lastGeneratedHeightSignature: fd88954e4dcc05726fddd78ff84b6d17bbbf4eddeb984020bd158cb0ceb4c304
-  heightmapGenerationRevision: 7
-  appliedChunkMeshGenerationRevision: 1
-  appliedHeightmapGenerationRevision: 1
+  lastGeneratedHeightSignature: 115b8e05cbc1157421be4491a855a83ae65d50a5a7cad6ccc8f5541329bcb2e5
+  heightmapGenerationRevision: 8
   lastGeneratedCollisionSignature: 5507cbe9a8b0b0c7ac52b57c6d5f7235228bf8525e67580e77c344e3dfef8dd9
-  collisionMeshGenerationRevision: 3
-  collisionSourceHeightmapGenerationRevision: 1
+  collisionMeshGenerationRevision: 4
+  collisionSourceHeightmapGenerationRevision: 8

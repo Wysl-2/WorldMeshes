@@ -1,12 +1,9 @@
 using UnityEditor;
 using UnityEngine;
 
-public partial class WorldMeshesEditorWindow : EditorWindow
+public partial class WorldMeshesEditorWindow :
+    EditorWindow
 {
-    // =====================================================
-    // SETTINGS PANEL
-    // =====================================================
-
     [SerializeField]
     private Vector2 settingsScrollPosition =
         Vector2.zero;
@@ -40,19 +37,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
 
         GUILayout.Space(10f);
 
-        DrawBaseMeshSettings();
-
-        GUILayout.Space(10f);
-
-        DrawChunkMeshSettings();
-
-        GUILayout.Space(10f);
-
         DrawHeightAuthoringSettings();
-
-        GUILayout.Space(10f);
-
-        DrawHeightApplicationSettings();
 
         GUILayout.Space(10f);
 
