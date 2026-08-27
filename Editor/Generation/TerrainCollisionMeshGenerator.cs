@@ -70,10 +70,10 @@ public static class TerrainCollisionMeshGenerator
                 worldSettings.chunkSize
             );
 
-        int lod0Resolution =
+        int heightfieldResolutionPerChunk =
             Mathf.Max(
                 1,
-                worldSettings.lod0Resolution
+                worldSettings.heightfieldResolutionPerChunk
             );
 
         int collisionResolution =
@@ -103,43 +103,43 @@ public static class TerrainCollisionMeshGenerator
 
         if (
             collisionResolution >
-            lod0Resolution
+            heightfieldResolutionPerChunk
         )
         {
             Debug.LogError(
                 "Cannot generate collision meshes.\n\n" +
 
-                $"LOD0 Resolution: " +
-                $"{lod0Resolution}\n" +
+                $"Heightfield Resolution / Chunk: " +
+                $"{heightfieldResolutionPerChunk}\n" +
 
                 $"Collision Resolution: " +
                 $"{collisionResolution}\n\n" +
 
                 "Collision Resolution cannot be greater " +
-                "than LOD0 Resolution."
+                "than Heightfield Resolution / Chunk."
             );
 
             return;
         }
 
         if (
-            lod0Resolution %
+            heightfieldResolutionPerChunk %
             collisionResolution != 0
         )
         {
             Debug.LogError(
                 "Cannot generate collision meshes.\n\n" +
 
-                $"LOD0 Resolution: " +
-                $"{lod0Resolution}\n" +
+                $"Heightfield Resolution / Chunk: " +
+                $"{heightfieldResolutionPerChunk}\n" +
 
                 $"Collision Resolution: " +
                 $"{collisionResolution}\n\n" +
 
-                "LOD0 Resolution must be evenly divisible " +
+                "Heightfield Resolution / Chunk must be evenly divisible " +
                 "by Collision Resolution.\n\n" +
 
-                "For LOD0 Resolution 128, examples include " +
+                "For Heightfield Resolution / Chunk 128, examples include " +
                 "128, 64, 32, 16, 8, 4, 2, or 1."
             );
 
@@ -147,7 +147,7 @@ public static class TerrainCollisionMeshGenerator
         }
 
         int heightSampleStep =
-            lod0Resolution /
+            heightfieldResolutionPerChunk /
             collisionResolution;
 
         float collisionVertexSpacing =
@@ -494,7 +494,7 @@ public static class TerrainCollisionMeshGenerator
 
                                         chunkSize,
 
-                                        lod0Resolution,
+                                        heightfieldResolutionPerChunk,
                                         collisionResolution,
 
                                         heightSampleStep,
@@ -637,8 +637,8 @@ public static class TerrainCollisionMeshGenerator
             $"Chunk Size: " +
             $"{chunkSize}\n\n" +
 
-            $"LOD0 Resolution: " +
-            $"{lod0Resolution}\n" +
+            $"Heightfield Resolution / Chunk: " +
+            $"{heightfieldResolutionPerChunk}\n" +
 
             $"Collision Resolution: " +
             $"{collisionResolution}\n" +
@@ -675,7 +675,7 @@ public static class TerrainCollisionMeshGenerator
 
     float chunkSize,
 
-    int lod0Resolution,
+    int heightfieldResolutionPerChunk,
     int collisionResolution,
 
     int heightSampleStep,
@@ -713,11 +713,11 @@ public static class TerrainCollisionMeshGenerator
 
     int sourceStartX =
         localChunkX *
-        lod0Resolution;
+        heightfieldResolutionPerChunk;
 
     int sourceStartZ =
         localChunkZ *
-        lod0Resolution;
+        heightfieldResolutionPerChunk;
 
     // -------------------------------------------------
     // Vertices

@@ -339,7 +339,7 @@ public static class TerrainAuthoringStateUtility
 
         AppendValue(
             builder,
-            worldSettings.lod0Resolution
+            worldSettings.heightfieldResolutionPerChunk
         );
 
         AppendValue(
@@ -854,8 +854,8 @@ public static class TerrainAuthoringStateUtility
                 worldSettings.chunkSize
             )
             &&
-            manifest.lod0Resolution ==
-                worldSettings.lod0Resolution
+            manifest.heightfieldResolutionPerChunk ==
+                worldSettings.heightfieldResolutionPerChunk
             &&
             manifest.heightTileChunkSpan ==
                 worldSettings.heightTileChunkSpan
@@ -898,8 +898,8 @@ public static class TerrainAuthoringStateUtility
         manifest.chunkSize =
             worldSettings.chunkSize;
 
-        manifest.lod0Resolution =
-            worldSettings.lod0Resolution;
+        manifest.heightfieldResolutionPerChunk =
+            worldSettings.heightfieldResolutionPerChunk;
 
         manifest.heightTileChunkSpan =
             worldSettings.heightTileChunkSpan;

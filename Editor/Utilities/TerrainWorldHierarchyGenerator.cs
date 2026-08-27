@@ -19,12 +19,6 @@ public static class TerrainWorldHierarchyGenerator
     public const string ClipmapRootName =
         "Clipmap";
 
-    /*
-     * Legacy name retained only so Sync World Hierarchy can
-     * remove scenes created by the previous preview system.
-     */
-    private const string LegacyPreviewRootName =
-        "Preview";
 
     // =====================================================
     // GENERATED CHILD NAMES
@@ -202,31 +196,6 @@ public static class TerrainWorldHierarchyGenerator
             );
 
         // =================================================
-        // LEGACY PREVIEW CLEANUP
-        // =================================================
-
-        int removedLegacyPreviewRoots =
-            RemoveDirectChildrenNamed(
-                worldRoot.transform,
-                LegacyPreviewRootName
-            );
-
-        int removedLegacyDirectChunks =
-            RemoveLegacyDirectChunkObjects(
-                worldRoot.transform
-            );
-
-        if (
-            removedLegacyPreviewRoots > 0
-            ||
-            removedLegacyDirectChunks > 0
-        )
-        {
-            hierarchyChanged =
-                true;
-        }
-
-        // =================================================
         // COLLISION ROOT
         // =================================================
 
@@ -329,10 +298,6 @@ public static class TerrainWorldHierarchyGenerator
             $"{minimumTerrainHeight:R} -> " +
             $"{maximumTerrainHeight:R}\n" +
             $"Height Range Source: {heightRangeSource}\n\n" +
-            $"Legacy Preview Roots Removed: " +
-            $"{removedLegacyPreviewRoots}\n" +
-            $"Legacy Direct Chunks Removed: " +
-            $"{removedLegacyDirectChunks}\n\n" +
             $"Clipmap Levels: " +
             $"{worldSettings.clipmapLevelCount}\n\n" +
             "Hierarchy:\n" +
@@ -380,14 +345,6 @@ public static class TerrainWorldHierarchyGenerator
                 ==
                 TerrainGenerationStateUtility
                     .GenerationStatus.Current
-            &&
-            runtimeManifest.isComplete
-            &&
-            runtimeManifest.compilerVersion ==
-                TerrainGenerationStateUtility
-                    .RuntimeHeightCompilerVersion
-            &&
-            runtimeManifest.HasValidHeightRange
         )
         {
             minimumHeight =
@@ -402,6 +359,13 @@ public static class TerrainWorldHierarchyGenerator
             return;
         }
 
+        TerrainAuthoringData authoringData =
+            AssetDatabase
+                .LoadAssetAtPath<TerrainAuthoringData>(
+                    WorldMeshesPaths
+                        .TerrainAuthoringDataAssetPath
+                );
+
         TerrainAuthoringHeightManifest authoringManifest =
             TerrainAuthoringStateUtility
                 .LoadAuthoringHeightManifest();
@@ -409,14 +373,14 @@ public static class TerrainWorldHierarchyGenerator
         if (
             authoringManifest != null
             &&
-            authoringManifest.isComplete
-            &&
-            authoringManifest.manifestVersion ==
-                TerrainAuthoringHeightManifest
-                    .CurrentVersion
-            &&
-            authoringManifest
-                .HasValidCommittedHeightRange
+            TerrainGenerationStateUtility
+                .GetAuthoringHeightfieldStatus(
+                    worldSettings,
+                    authoringData
+                )
+                ==
+                TerrainGenerationStateUtility
+                    .GenerationStatus.Current
         )
         {
             minimumHeight =
@@ -435,8 +399,9 @@ public static class TerrainWorldHierarchyGenerator
             "No current terrain height-range metadata is " +
             "available for clipmap bounds.\n\n" +
             "The hierarchy will use a temporary 0 -> 0 range.\n\n" +
-            "Reinitialize the authoring heightfield and compile " +
-            "runtime heightmaps to restore authoritative bounds."
+            "Initialize the authoring heightfield or compile " +
+            "current runtime heightmaps to restore authoritative " +
+            "bounds."
         );
     }
 
@@ -1926,126 +1891,6 @@ public static class TerrainWorldHierarchyGenerator
 
         return
             changed;
-    }
-
-    // =====================================================
-    // LEGACY PREVIEW CLEANUP
-    // =====================================================
-
-    private static int RemoveDirectChildrenNamed(
-        Transform parent,
-        string childName
-    )
-    {
-        List<GameObject> matches =
-            new List<GameObject>();
-
-        foreach (
-            Transform child
-            in parent
-        )
-        {
-            if (
-                child.name ==
-                childName
-            )
-            {
-                matches.Add(
-                    child.gameObject
-                );
-            }
-        }
-
-        foreach (
-            GameObject match
-            in matches
-        )
-        {
-            Object.DestroyImmediate(
-                match
-            );
-        }
-
-        return
-            matches.Count;
-    }
-
-    private static int RemoveLegacyDirectChunkObjects(
-        Transform worldRoot
-    )
-    {
-        List<GameObject> legacyChunks =
-            new List<GameObject>();
-
-        foreach (
-            Transform child
-            in worldRoot
-        )
-        {
-            if (
-                IsLegacyChunkObjectName(
-                    child.name
-                )
-            )
-            {
-                legacyChunks.Add(
-                    child.gameObject
-                );
-            }
-        }
-
-        foreach (
-            GameObject legacyChunk
-            in legacyChunks
-        )
-        {
-            Object.DestroyImmediate(
-                legacyChunk
-            );
-        }
-
-        return
-            legacyChunks.Count;
-    }
-
-    private static bool IsLegacyChunkObjectName(
-        string objectName
-    )
-    {
-        if (
-            string.IsNullOrEmpty(
-                objectName
-            )
-        )
-        {
-            return false;
-        }
-
-        string[] parts =
-            objectName.Split(
-                '_'
-            );
-
-        if (
-            parts.Length != 3
-            ||
-            parts[0] !=
-                "Chunk"
-        )
-        {
-            return false;
-        }
-
-        return
-            int.TryParse(
-                parts[1],
-                out _
-            )
-            &&
-            int.TryParse(
-                parts[2],
-                out _
-            );
     }
 
     // =====================================================

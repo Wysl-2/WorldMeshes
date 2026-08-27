@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Serialization;
 
 public class TerrainHeightmapManifest :
     ScriptableObject
@@ -43,10 +44,6 @@ public class TerrainHeightmapManifest :
     /*
      * Exact finite sample range written to the compiled
      * runtime heightmap tiles.
-     *
-     * TerrainWorldHierarchyGenerator uses this to configure
-     * clipmap displacement bounds without requiring any
-     * CPU-deformed visual chunk meshes.
      */
     public float minimumTerrainHeight =
         0f;
@@ -69,10 +66,10 @@ public class TerrainHeightmapManifest :
     public float chunkSize;
 
     /*
-     * Historical serialized name retained for compatibility.
-     * This value describes heightfield intervals per chunk.
+     * Native heightfield intervals per terrain chunk.
      */
-    public int lod0Resolution;
+    [FormerlySerializedAs("lod0Resolution")]
+    public int heightfieldResolutionPerChunk;
 
     // =====================================================
     // HEIGHT TILE LAYOUT
@@ -116,7 +113,7 @@ public class TerrainHeightmapManifest :
                 /
                 Mathf.Max(
                     1,
-                    lod0Resolution
+                    heightfieldResolutionPerChunk
                 );
         }
     }
@@ -179,7 +176,7 @@ public class TerrainHeightmapManifest :
                 *
                 Mathf.Max(
                     1,
-                    lod0Resolution
+                    heightfieldResolutionPerChunk
                 );
         }
     }
@@ -196,7 +193,7 @@ public class TerrainHeightmapManifest :
                 *
                 Mathf.Max(
                     1,
-                    lod0Resolution
+                    heightfieldResolutionPerChunk
                 );
         }
     }

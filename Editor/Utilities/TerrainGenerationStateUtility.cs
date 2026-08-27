@@ -32,6 +32,79 @@ public static class TerrainGenerationStateUtility
     }
 
     // =====================================================
+    // AUTHORING HEIGHTFIELD STATUS
+    // =====================================================
+
+    public static GenerationStatus GetAuthoringHeightfieldStatus(
+        WorldSettings worldSettings,
+        TerrainAuthoringData authoringData
+    )
+    {
+        if (
+            worldSettings == null
+            ||
+            authoringData == null
+            ||
+            authoringData.authoringRevision <= 0
+        )
+        {
+            return
+                GenerationStatus.NotGenerated;
+        }
+
+        TerrainAuthoringHeightManifest manifest =
+            TerrainAuthoringStateUtility
+                .LoadAuthoringHeightManifest();
+
+        if (manifest == null)
+        {
+            return
+                GenerationStatus.NotGenerated;
+        }
+
+        if (
+            !manifest.isComplete
+            ||
+            manifest.manifestVersion !=
+                TerrainAuthoringHeightManifest.CurrentVersion
+            ||
+            manifest.committedHeightRevision <= 0
+            ||
+            !manifest.HasValidCommittedHeightRange
+            ||
+            !TerrainAuthoringStateUtility
+                .ManifestMatchesWorldSettings(
+                    manifest,
+                    worldSettings
+                )
+        )
+        {
+            return
+                GenerationStatus.OutOfDate;
+        }
+
+        string signature =
+            TerrainAuthoringStateUtility
+                .GetCurrentAuthoringSignature(
+                    worldSettings,
+                    authoringData
+                );
+
+        if (
+            string.IsNullOrEmpty(
+                signature
+            )
+        )
+        {
+            return
+                GenerationStatus.OutOfDate;
+        }
+
+        return
+            GenerationStatus.Current;
+    }
+
+    // =====================================================
     // RUNTIME HEIGHTMAP STATUS
     // =====================================================
 
@@ -91,9 +164,12 @@ public static class TerrainGenerationStateUtility
                 );
 
         if (
-            authoringData == null
-            ||
-            authoringData.authoringRevision <= 0
+            GetAuthoringHeightfieldStatus(
+                worldSettings,
+                authoringData
+            )
+            !=
+            GenerationStatus.Current
         )
         {
             return
@@ -104,45 +180,12 @@ public static class TerrainGenerationStateUtility
             TerrainAuthoringStateUtility
                 .LoadAuthoringHeightManifest();
 
-        if (
-            authoringManifest == null
-            ||
-            !authoringManifest.isComplete
-            ||
-            authoringManifest.manifestVersion !=
-                TerrainAuthoringHeightManifest.CurrentVersion
-            ||
-            authoringManifest.committedHeightRevision <= 0
-            ||
-            !authoringManifest.HasValidCommittedHeightRange
-            ||
-            !TerrainAuthoringStateUtility
-                .ManifestMatchesWorldSettings(
-                    authoringManifest,
-                    worldSettings
-                )
-        )
-        {
-            return
-                GenerationStatus.OutOfDate;
-        }
-
         string currentAuthoringSignature =
             TerrainAuthoringStateUtility
                 .GetCurrentAuthoringSignature(
                     worldSettings,
                     authoringData
                 );
-
-        if (
-            string.IsNullOrEmpty(
-                currentAuthoringSignature
-            )
-        )
-        {
-            return
-                GenerationStatus.OutOfDate;
-        }
 
         if (
             runtimeManifest.sourceAuthoringRevision !=
@@ -441,7 +484,7 @@ public static class TerrainGenerationStateUtility
             builder,
             Mathf.Max(
                 1,
-                worldSettings.lod0Resolution
+                worldSettings.heightfieldResolutionPerChunk
             )
         );
 

@@ -804,8 +804,8 @@ public static class TerrainRuntimeHeightCompiler
         runtimeManifest.chunkSize =
             worldSettings.chunkSize;
 
-        runtimeManifest.lod0Resolution =
-            worldSettings.lod0Resolution;
+        runtimeManifest.heightfieldResolutionPerChunk =
+            worldSettings.heightfieldResolutionPerChunk;
 
         runtimeManifest.heightTileChunkSpan =
             worldSettings.heightTileChunkSpan;

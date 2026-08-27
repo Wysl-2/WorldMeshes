@@ -108,10 +108,10 @@ public static class TerrainAuthoringHeightInitializer
         int intervalsPerSide =
             samplesPerSide - 1;
 
-        int lod0Resolution =
+        int heightfieldResolutionPerChunk =
             Mathf.Max(
                 1,
-                worldSettings.lod0Resolution
+                worldSettings.heightfieldResolutionPerChunk
             );
 
         float chunkSize =
@@ -122,7 +122,7 @@ public static class TerrainAuthoringHeightInitializer
 
         float sampleSpacing =
             chunkSize /
-            lod0Resolution;
+            heightfieldResolutionPerChunk;
 
         int totalTiles =
             tileGridWidth *
@@ -139,7 +139,7 @@ public static class TerrainAuthoringHeightInitializer
                 $"{samplesPerSide} x {samplesPerSide} samples.\n\n" +
                 $"Maximum supported texture size: " +
                 $"{SystemInfo.maxTextureSize}\n\n" +
-                "Reduce Tile Chunk Span or LOD0 Resolution."
+                "Reduce Tile Chunk Span or Heightfield Resolution / Chunk."
             );
 
             return;

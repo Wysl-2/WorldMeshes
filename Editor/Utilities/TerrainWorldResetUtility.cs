@@ -6,31 +6,6 @@ using UnityEngine.SceneManagement;
 public static class TerrainWorldResetUtility
 {
     // =====================================================
-    // GENERATED ASSET PATHS
-    // =====================================================
-
-    private const string HeightmapRootFolder =
-        WorldMeshesPaths.GeneratedHeightmaps;
-
-    private const string ClipmapMeshFolder =
-        WorldMeshesPaths.GeneratedClipmapMeshes;
-
-    private const string CollisionMeshFolder =
-        WorldMeshesPaths.GeneratedCollisionMeshes;
-
-    /*
-     * Legacy paths retained only so Reset Generated World can
-     * clean projects created by the removed LOD0 preview system.
-     */
-    private const string LegacyBaseMeshFolder =
-        WorldMeshesPaths.GeneratedMeshes +
-        "/Base";
-
-    private const string LegacyChunkMeshFolder =
-        WorldMeshesPaths.GeneratedMeshes +
-        "/Chunks";
-
-    // =====================================================
     // RESET GENERATED WORLD
     // =====================================================
 
@@ -65,20 +40,20 @@ public static class TerrainWorldResetUtility
             EditorUtility.DisplayDialog(
                 "Reset Generated World",
 
-                "This will permanently delete derived runtime " +
-                "terrain data:\n\n" +
+                "This will permanently delete all derived terrain " +
+                "data under:\n\n" +
 
-                "• Generated clipmap mesh assets\n" +
-                "• Generated runtime heightmap tiles + manifest\n" +
-                "• Generated collision meshes + runtime data\n" +
-                "• The generated WorldRoot scene hierarchy\n" +
-                "• Stored runtime generation state\n\n" +
+                $"{WorldMeshesPaths.Generated}\n\n" +
 
-                "Legacy Base/ and Chunks/ preview-mesh folders " +
-                "will also be removed if they still exist.\n\n" +
+                "This includes generated clipmap geometry, runtime " +
+                "heightmaps, collision meshes, manifests, bake " +
+                "markers, and other generated terrain data.\n\n" +
 
-                "Authoring/, Configuration/, Materials/, and " +
-                "Shaders/ are preserved.",
+                "The generated WorldRoot scene hierarchy and stored " +
+                "runtime generation state will also be removed.\n\n" +
+
+                "Authoring data, configuration, materials, and " +
+                "shaders are preserved.",
 
                 "Reset Generated World",
                 "Cancel"
@@ -90,160 +65,15 @@ public static class TerrainWorldResetUtility
         }
 
         bool removedWorldRoot =
-            false;
+            RemoveWorldRoot();
 
-        bool removedHeightmaps =
-            false;
-
-        bool removedClipmapMeshes =
-            false;
-
-        bool removedCollisionMeshes =
-            false;
-
-        bool removedLegacyBaseMeshes =
-            false;
-
-        bool removedLegacyChunkMeshes =
-            false;
-
-        // =================================================
-        // SCENE HIERARCHY
-        // =================================================
-
-        Scene scene =
-            SceneManager.GetActiveScene();
-
-        if (
-            scene.IsValid()
-            &&
-            scene.isLoaded
-        )
-        {
-            foreach (
-                GameObject rootObject
-                in scene.GetRootGameObjects()
-            )
-            {
-                if (
-                    rootObject == null
-                    ||
-                    rootObject.name !=
-                        TerrainWorldHierarchyGenerator
-                            .WorldRootName
-                )
-                {
-                    continue;
-                }
-
-                Object.DestroyImmediate(
-                    rootObject
-                );
-
-                removedWorldRoot =
-                    true;
-            }
-
-            if (removedWorldRoot)
-            {
-                EditorSceneManager.MarkSceneDirty(
-                    scene
-                );
-            }
-        }
-
-        // =================================================
-        // GENERATED RUNTIME HEIGHTMAPS
-        // =================================================
-
-        if (
-            AssetDatabase.IsValidFolder(
-                HeightmapRootFolder
-            )
-        )
-        {
-            removedHeightmaps =
-                AssetDatabase.DeleteAsset(
-                    HeightmapRootFolder
-                );
-        }
-
-        // =================================================
-        // GENERATED CLIPMAP GEOMETRY
-        // =================================================
-
-        if (
-            AssetDatabase.IsValidFolder(
-                ClipmapMeshFolder
-            )
-        )
-        {
-            removedClipmapMeshes =
-                AssetDatabase.DeleteAsset(
-                    ClipmapMeshFolder
-                );
-        }
-
-        // =================================================
-        // GENERATED COLLISION DATA
-        // =================================================
-
-        if (
-            AssetDatabase.IsValidFolder(
-                CollisionMeshFolder
-            )
-        )
-        {
-            removedCollisionMeshes =
-                AssetDatabase.DeleteAsset(
-                    CollisionMeshFolder
-                );
-        }
-
-        // =================================================
-        // LEGACY PREVIEW DATA
-        // =================================================
-
-        if (
-            AssetDatabase.IsValidFolder(
-                LegacyBaseMeshFolder
-            )
-        )
-        {
-            removedLegacyBaseMeshes =
-                AssetDatabase.DeleteAsset(
-                    LegacyBaseMeshFolder
-                );
-        }
-
-        if (
-            AssetDatabase.IsValidFolder(
-                LegacyChunkMeshFolder
-            )
-        )
-        {
-            removedLegacyChunkMeshes =
-                AssetDatabase.DeleteAsset(
-                    LegacyChunkMeshFolder
-                );
-        }
-
-        // =================================================
-        // STATE
-        // =================================================
+        bool removedGeneratedData =
+            RemoveGeneratedData();
 
         TerrainGenerationStateUtility
             .ResetGeneratedState(
                 worldSettings
             );
-
-        EditorUtility.SetDirty(
-            worldSettings
-        );
-
-        AssetDatabase.SaveAssetIfDirty(
-            worldSettings
-        );
 
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
@@ -253,19 +83,89 @@ public static class TerrainWorldResetUtility
 
         Debug.Log(
             "Generated world reset complete.\n\n" +
-            "Removed Derived Data:\n" +
-            $"WorldRoot: {removedWorldRoot}\n" +
-            $"Runtime Heightmaps: {removedHeightmaps}\n" +
-            $"Clipmap Meshes: {removedClipmapMeshes}\n" +
-            $"Collision Data: {removedCollisionMeshes}\n\n" +
-            "Legacy Preview Cleanup:\n" +
-            $"Base Mesh Folder: {removedLegacyBaseMeshes}\n" +
-            $"Chunk Mesh Folder: {removedLegacyChunkMeshes}\n\n" +
+            $"WorldRoot Removed: {removedWorldRoot}\n" +
+            $"Generated Data Removed: {removedGeneratedData}\n\n" +
             "Preserved:\n" +
             "Authoring/\n" +
             "Configuration/\n" +
             "Materials/\n" +
             "Shaders/"
         );
+    }
+
+    // =====================================================
+    // REMOVE WORLD ROOT
+    // =====================================================
+
+    private static bool RemoveWorldRoot()
+    {
+        Scene scene =
+            SceneManager.GetActiveScene();
+
+        if (
+            !scene.IsValid()
+            ||
+            !scene.isLoaded
+        )
+        {
+            return false;
+        }
+
+        bool removed =
+            false;
+
+        foreach (
+            GameObject rootObject
+            in scene.GetRootGameObjects()
+        )
+        {
+            if (
+                rootObject == null
+                ||
+                rootObject.name !=
+                    TerrainWorldHierarchyGenerator
+                        .WorldRootName
+            )
+            {
+                continue;
+            }
+
+            Object.DestroyImmediate(
+                rootObject
+            );
+
+            removed =
+                true;
+        }
+
+        if (removed)
+        {
+            EditorSceneManager.MarkSceneDirty(
+                scene
+            );
+        }
+
+        return removed;
+    }
+
+    // =====================================================
+    // REMOVE GENERATED DATA
+    // =====================================================
+
+    private static bool RemoveGeneratedData()
+    {
+        if (
+            !AssetDatabase.IsValidFolder(
+                WorldMeshesPaths.Generated
+            )
+        )
+        {
+            return false;
+        }
+
+        return
+            AssetDatabase.DeleteAsset(
+                WorldMeshesPaths.Generated
+            );
     }
 }

@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Serialization;
 
 public class TerrainCollisionManifest :
     ScriptableObject
@@ -40,7 +41,8 @@ public class TerrainCollisionManifest :
 
     public float chunkSize;
 
-    public int lod0Resolution;
+    [FormerlySerializedAs("lod0Resolution")]
+    public int heightfieldResolutionPerChunk;
 
     public int collisionResolution;
 

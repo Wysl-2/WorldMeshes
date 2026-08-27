@@ -77,23 +77,23 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         // Derived values
         // -------------------------------------------------
 
-        int lod0Resolution =
+        int heightfieldResolutionPerChunk =
             Mathf.Max(
                 1,
-                worldSettings.lod0Resolution
+                worldSettings.heightfieldResolutionPerChunk
             );
 
         bool resolutionValid =
             inputCollisionResolution <=
-                lod0Resolution
+                heightfieldResolutionPerChunk
             &&
-            lod0Resolution %
+            heightfieldResolutionPerChunk %
                 inputCollisionResolution == 0;
 
         if (resolutionValid)
         {
             int heightSampleStep =
-                lod0Resolution /
+                heightfieldResolutionPerChunk /
                 inputCollisionResolution;
 
             int verticesPerSide =
@@ -136,11 +136,11 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             GUILayout.Space(5f);
 
             EditorGUILayout.HelpBox(
-                "LOD0 Resolution must be evenly divisible " +
+                "Heightfield Resolution / Chunk must be evenly divisible " +
                 "by Collision Resolution.\n\n" +
 
-                $"Current LOD0 Resolution: " +
-                $"{lod0Resolution}",
+                $"Current Heightfield Resolution / Chunk: " +
+                $"{heightfieldResolutionPerChunk}",
 
                 MessageType.Warning
             );
@@ -523,22 +523,22 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                 inputCollisionResolution
             );
 
-        int lod0Resolution =
+        int heightfieldResolutionPerChunk =
             Mathf.Max(
                 1,
-                worldSettings.lod0Resolution
+                worldSettings.heightfieldResolutionPerChunk
             );
 
         if (
             collisionResolution >
-            lod0Resolution
+            heightfieldResolutionPerChunk
         )
         {
             EditorUtility.DisplayDialog(
                 "Invalid Collision Resolution",
 
                 "Collision Resolution cannot be greater " +
-                "than LOD0 Resolution.",
+                "than Heightfield Resolution / Chunk.",
 
                 "OK"
             );
@@ -547,18 +547,18 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         }
 
         if (
-            lod0Resolution %
+            heightfieldResolutionPerChunk %
             collisionResolution != 0
         )
         {
             EditorUtility.DisplayDialog(
                 "Invalid Collision Resolution",
 
-                "LOD0 Resolution must be evenly divisible " +
+                "Heightfield Resolution / Chunk must be evenly divisible " +
                 "by Collision Resolution.\n\n" +
 
-                $"LOD0 Resolution: " +
-                $"{lod0Resolution}\n" +
+                $"Heightfield Resolution / Chunk: " +
+                $"{heightfieldResolutionPerChunk}\n" +
 
                 $"Collision Resolution: " +
                 $"{collisionResolution}",
@@ -594,7 +594,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             $"{worldSettings.collisionResolution}\n" +
 
             $"Height Sample Step: " +
-            $"{worldSettings.lod0Resolution / worldSettings.collisionResolution}"
+            $"{worldSettings.heightfieldResolutionPerChunk / worldSettings.collisionResolution}"
         );
     }
 }

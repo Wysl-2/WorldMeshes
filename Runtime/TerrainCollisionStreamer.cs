@@ -607,10 +607,10 @@ public class TerrainCollisionStreamer :
                 worldSettings.chunkSize
             );
 
-        int expectedLOD0Resolution =
+        int expectedHeightfieldResolutionPerChunk =
             Mathf.Max(
                 1,
-                worldSettings.lod0Resolution
+                worldSettings.heightfieldResolutionPerChunk
             );
 
         int expectedCollisionResolution =
@@ -686,8 +686,8 @@ public class TerrainCollisionStreamer :
         }
 
         if (
-            collisionManifest.lod0Resolution !=
-                expectedLOD0Resolution
+            collisionManifest.heightfieldResolutionPerChunk !=
+                expectedHeightfieldResolutionPerChunk
             ||
             collisionManifest.collisionResolution !=
                 expectedCollisionResolution
@@ -697,11 +697,11 @@ public class TerrainCollisionStreamer :
                 "The collision manifest resolution does not " +
                 "match WorldSettings.\n\n" +
 
-                $"Manifest LOD0: " +
-                $"{collisionManifest.lod0Resolution}\n" +
+                $"Manifest Heightfield Resolution / Chunk: " +
+                $"{collisionManifest.heightfieldResolutionPerChunk}\n" +
 
-                $"WorldSettings LOD0: " +
-                $"{expectedLOD0Resolution}\n\n" +
+                $"WorldSettings Heightfield Resolution / Chunk: " +
+                $"{expectedHeightfieldResolutionPerChunk}\n\n" +
 
                 $"Manifest Collision: " +
                 $"{collisionManifest.collisionResolution}\n" +

@@ -70,16 +70,12 @@ public class TerrainClipmapBoundsController :
     // =====================================================
 
     /*
-     * The controller no longer depends on CPU-deformed
-     * LOD0 preview meshes.
+     * Configures renderer bounds for the supplied world-space
+     * terrain displacement range.
      *
-     * TerrainWorldHierarchyGenerator currently configures this
-     * from runtime heightmap-manifest metadata, falling back to
-     * committed authoring metadata when runtime output is not
-     * current.
-     *
-     * The future editor authoring preview can call this same
-     * method with the current composite preview range.
+     * Runtime hierarchy synchronization supplies compiled
+     * heightmap bounds. The edit-mode authoring preview can use
+     * the same API for its current composite height range.
      */
     public bool Configure(
         float minimumHeight,

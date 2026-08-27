@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Serialization;
 
 [CreateAssetMenu(
     fileName = "WorldSettings",
@@ -31,19 +32,15 @@ public class WorldSettings : ScriptableObject
         128f;
 
     /*
-     * Historical serialized name retained so existing
-     * WorldSettings assets migrate without data loss.
-     *
-     * This no longer describes the resolution of a generated
-     * LOD0 preview mesh. It describes the number of native
-     * heightfield intervals per terrain chunk.
+     * Number of native heightfield intervals per terrain chunk.
      *
      * Native height sample spacing:
      *
-     *     chunkSize / lod0Resolution
+     *     chunkSize / heightfieldResolutionPerChunk
      */
+    [FormerlySerializedAs("lod0Resolution")]
     [Min(1)]
-    public int lod0Resolution =
+    public int heightfieldResolutionPerChunk =
         128;
 
     // =====================================================
@@ -123,7 +120,7 @@ public class WorldSettings : ScriptableObject
             int resolution =
                 Mathf.Max(
                     1,
-                    lod0Resolution
+                    heightfieldResolutionPerChunk
                 );
 
             return
@@ -228,7 +225,7 @@ public class WorldSettings : ScriptableObject
             int safeHeightfieldResolution =
                 Mathf.Max(
                     1,
-                    lod0Resolution
+                    heightfieldResolutionPerChunk
                 );
 
             int safeSampleStep =

@@ -984,10 +984,10 @@ public static class TerrainCollisionAddressablesUtility
                 worldSettings.chunkSize
             );
 
-        manifest.lod0Resolution =
+        manifest.heightfieldResolutionPerChunk =
             Mathf.Max(
                 1,
-                worldSettings.lod0Resolution
+                worldSettings.heightfieldResolutionPerChunk
             );
 
         manifest.collisionResolution =

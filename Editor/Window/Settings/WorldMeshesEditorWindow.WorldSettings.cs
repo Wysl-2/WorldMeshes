@@ -34,12 +34,10 @@ public partial class WorldMeshesEditorWindow :
         128f;
 
     /*
-     * Historical field name retained because WorldSettings
-     * still serializes lod0Resolution. In the UI this is now
-     * treated as heightfield resolution per chunk.
+     * Native heightfield intervals per terrain chunk.
      */
     [SerializeField]
-    private int inputLOD0Resolution =
+    private int inputHeightfieldResolutionPerChunk =
         128;
 
     private void DrawWorldSettings()
@@ -127,10 +125,10 @@ public partial class WorldMeshesEditorWindow :
                 inputChunkSize
             );
 
-        inputLOD0Resolution =
+        inputHeightfieldResolutionPerChunk =
             EditorGUILayout.IntField(
                 "Heightfield Resolution / Chunk",
-                inputLOD0Resolution
+                inputHeightfieldResolutionPerChunk
             );
 
         EditorGUIUtility.labelWidth =
@@ -154,10 +152,10 @@ public partial class WorldMeshesEditorWindow :
                 inputChunkSize
             );
 
-        inputLOD0Resolution =
+        inputHeightfieldResolutionPerChunk =
             Mathf.Max(
                 1,
-                inputLOD0Resolution
+                inputHeightfieldResolutionPerChunk
             );
 
         GUILayout.Space(5f);
@@ -174,8 +172,8 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.LabelField(
-            "Saved Heightfield Resolution",
-            worldSettings.lod0Resolution.ToString()
+            "Saved Heightfield Resolution / Chunk",
+            worldSettings.heightfieldResolutionPerChunk.ToString()
         );
 
         EditorGUILayout.LabelField(
@@ -188,21 +186,11 @@ public partial class WorldMeshesEditorWindow :
                 /
                 Mathf.Max(
                     1,
-                    worldSettings.lod0Resolution
+                    worldSettings.heightfieldResolutionPerChunk
                 )
             ).ToString()
         );
 
-        GUILayout.Space(5f);
-
-        EditorGUILayout.HelpBox(
-            "The serialized WorldSettings field is still named " +
-            "'lod0Resolution' for compatibility with existing " +
-            "assets. It now represents native heightfield " +
-            "intervals per chunk; no LOD0 preview mesh is " +
-            "generated from it.",
-            MessageType.Info
-        );
 
         GUILayout.Space(5f);
 
@@ -239,8 +227,6 @@ public partial class WorldMeshesEditorWindow :
             "• Runtime heightmap tiles + manifest\n" +
             "• Collision meshes + runtime data\n" +
             "• WorldRoot scene hierarchy\n\n" +
-            "Legacy Base/ and Chunks/ preview folders are also " +
-            "removed if they still exist.\n\n" +
             "Authoring data and configuration are preserved.",
             MessageType.Warning
         );
@@ -314,10 +300,10 @@ public partial class WorldMeshesEditorWindow :
                 inputChunkSize
             );
 
-        newSettings.lod0Resolution =
+        newSettings.heightfieldResolutionPerChunk =
             Mathf.Max(
                 1,
-                inputLOD0Resolution
+                inputHeightfieldResolutionPerChunk
             );
 
         newSettings.heightTileChunkSpan =
@@ -429,10 +415,10 @@ public partial class WorldMeshesEditorWindow :
                 worldSettings.chunkSize
             );
 
-        inputLOD0Resolution =
+        inputHeightfieldResolutionPerChunk =
             Mathf.Max(
                 1,
-                worldSettings.lod0Resolution
+                worldSettings.heightfieldResolutionPerChunk
             );
 
         inputCollisionResolution =
@@ -520,10 +506,10 @@ public partial class WorldMeshesEditorWindow :
                 inputChunkSize
             );
 
-        worldSettings.lod0Resolution =
+        worldSettings.heightfieldResolutionPerChunk =
             Mathf.Max(
                 1,
-                inputLOD0Resolution
+                inputHeightfieldResolutionPerChunk
             );
 
         EditorUtility.SetDirty(
@@ -544,7 +530,7 @@ public partial class WorldMeshesEditorWindow :
             $"Chunk Size: " +
             $"{worldSettings.chunkSize}\n" +
             $"Heightfield Resolution / Chunk: " +
-            $"{worldSettings.lod0Resolution}"
+            $"{worldSettings.heightfieldResolutionPerChunk}"
         );
     }
 }

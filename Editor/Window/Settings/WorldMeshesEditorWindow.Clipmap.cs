@@ -320,7 +320,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             /
             Mathf.Max(
                 1,
-                worldSettings.lod0Resolution
+                worldSettings.heightfieldResolutionPerChunk
             );
 
         float stagedBaseSpacing =

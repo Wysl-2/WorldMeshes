@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Serialization;
 
 public class TerrainAuthoringHeightManifest :
     ScriptableObject
@@ -38,10 +39,6 @@ public class TerrainAuthoringHeightManifest :
     /*
      * Exact finite sample range of the committed authoring
      * height tiles.
-     *
-     * This metadata replaces the old dependency on deformed
-     * LOD0 preview meshes for determining clipmap displacement
-     * bounds.
      */
     public float minimumCommittedHeight =
         0f;
@@ -60,11 +57,10 @@ public class TerrainAuthoringHeightManifest :
     public float chunkSize;
 
     /*
-     * Historical serialized name retained for compatibility.
-     * This value now means heightfield intervals per terrain
-     * chunk, not a generated LOD0 preview-mesh asset.
+     * Native heightfield intervals per terrain chunk.
      */
-    public int lod0Resolution;
+    [FormerlySerializedAs("lod0Resolution")]
+    public int heightfieldResolutionPerChunk;
 
     // =====================================================
     // HEIGHT TILE LAYOUT

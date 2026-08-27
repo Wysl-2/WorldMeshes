@@ -34,6 +34,14 @@ public partial class WorldMeshesEditorWindow :
                 .LoadAuthoringHeightManifest();
 
         TerrainGenerationStateUtility.GenerationStatus
+            authoringStatus =
+                TerrainGenerationStateUtility
+                    .GetAuthoringHeightfieldStatus(
+                        worldSettings,
+                        terrainAuthoringData
+                    );
+
+        TerrainGenerationStateUtility.GenerationStatus
             heightmapStatus =
                 TerrainGenerationStateUtility
                     .GetHeightmapStatus(
@@ -47,39 +55,12 @@ public partial class WorldMeshesEditorWindow :
                         worldSettings
                     );
 
-        // =================================================
-        // AUTHORING
-        // =================================================
-
-        string authoringState =
-            "Not Initialized";
-
-        if (authoringManifest != null)
-        {
-            if (!authoringManifest.isComplete)
-            {
-                authoringState =
-                    "Incomplete";
-            }
-            else if (
-                authoringManifest.manifestVersion !=
-                TerrainAuthoringHeightManifest
-                    .CurrentVersion
-            )
-            {
-                authoringState =
-                    "Out of Date";
-            }
-            else
-            {
-                authoringState =
-                    "Complete";
-            }
-        }
-
         EditorGUILayout.LabelField(
             "Authoring Heightfield",
-            authoringState
+            TerrainGenerationStateUtility
+                .GetStatusLabel(
+                    authoringStatus
+                )
         );
 
         EditorGUILayout.LabelField(
@@ -150,13 +131,9 @@ public partial class WorldMeshesEditorWindow :
         GUILayout.Space(5f);
 
         if (
-            authoringManifest == null
-            ||
-            !authoringManifest.isComplete
-            ||
-            authoringManifest.manifestVersion !=
-                TerrainAuthoringHeightManifest
-                    .CurrentVersion
+            authoringStatus !=
+            TerrainGenerationStateUtility
+                .GenerationStatus.Current
         )
         {
             EditorGUILayout.HelpBox(
@@ -206,15 +183,6 @@ public partial class WorldMeshesEditorWindow :
             );
         }
 
-        GUILayout.Space(5f);
-
-        EditorGUILayout.HelpBox(
-            "Visual terrain is no longer represented by " +
-            "generated LOD0 chunk meshes. The clipmap is the " +
-            "single visual terrain representation for runtime " +
-            "and the upcoming edit-mode authoring preview.",
-            MessageType.Info
-        );
 
         GUILayout.EndVertical();
     }

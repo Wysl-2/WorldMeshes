@@ -573,7 +573,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
 
         int samplesPerSide =
             tileChunkSpan *
-            worldSettings.lod0Resolution
+            worldSettings.heightfieldResolutionPerChunk
             +
             1;
 
@@ -876,38 +876,19 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             TerrainAuthoringStateUtility
                 .LoadAuthoringHeightManifest();
 
-        string authoringHeightfieldState;
+        TerrainGenerationStateUtility.GenerationStatus
+            authoringStatus =
+                TerrainGenerationStateUtility
+                    .GetAuthoringHeightfieldStatus(
+                        worldSettings,
+                        terrainAuthoringData
+                    );
 
-        if (authoringManifest == null)
-        {
-            authoringHeightfieldState =
-                "Manifest Missing";
-        }
-        else if (!authoringManifest.isComplete)
-        {
-            authoringHeightfieldState =
-                "Incomplete";
-        }
-        else if (
-            authoringManifest.manifestVersion !=
-            TerrainAuthoringHeightManifest.CurrentVersion
-        )
-        {
-            authoringHeightfieldState =
-                "Out of Date";
-        }
-        else if (
-            !authoringManifest.HasValidCommittedHeightRange
-        )
-        {
-            authoringHeightfieldState =
-                "Invalid Height Range";
-        }
-        else
-        {
-            authoringHeightfieldState =
-                "Complete";
-        }
+        string authoringHeightfieldState =
+            TerrainGenerationStateUtility
+                .GetStatusLabel(
+                    authoringStatus
+                );
 
         EditorGUILayout.LabelField(
             "Authoring Revision",
@@ -957,16 +938,9 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         GUILayout.Space(8f);
 
         bool authoringReady =
-            terrainAuthoringData.authoringRevision > 0
-            &&
-            authoringManifest != null
-            &&
-            authoringManifest.isComplete
-            &&
-            authoringManifest.manifestVersion ==
-                TerrainAuthoringHeightManifest.CurrentVersion
-            &&
-            authoringManifest.HasValidCommittedHeightRange;
+            authoringStatus ==
+            TerrainGenerationStateUtility
+                .GenerationStatus.Current;
 
         if (!authoringReady)
         {

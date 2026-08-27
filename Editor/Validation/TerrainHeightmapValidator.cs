@@ -693,8 +693,8 @@ public static class TerrainHeightmapValidator
                 worldSettings.chunkSize
             )
             ||
-            manifest.lod0Resolution !=
-                worldSettings.lod0Resolution
+            manifest.heightfieldResolutionPerChunk !=
+                worldSettings.heightfieldResolutionPerChunk
             ||
             manifest.heightTileChunkSpan !=
                 worldSettings.heightTileChunkSpan
