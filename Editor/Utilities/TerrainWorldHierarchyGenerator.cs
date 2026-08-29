@@ -306,6 +306,17 @@ public static class TerrainWorldHierarchyGenerator
         TerrainAuthoringPreviewService
             .RequestRebind();
 
+        /*
+         * Sync restores the generated clipmap to canonical
+         * world-centered transforms. If transient Scene View
+         * following is enabled, request a delayed reapplication
+         * after all generated hierarchy changes are complete.
+         *
+         * This does not rebuild or reload the editor height cache.
+         */
+        TerrainAuthoringSceneViewController
+            .RequestReapply();
+
         Debug.Log(
             "World hierarchy synchronization complete.\n\n" +
             $"World Grid: {gridWidth} x {gridHeight}\n" +
