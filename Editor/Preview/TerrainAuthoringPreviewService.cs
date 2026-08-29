@@ -1,6 +1,5 @@
 using UnityEditor;
 using UnityEngine;
-using UnityEngine.SceneManagement;
 
 public enum TerrainAuthoringPreviewStatus
 {
@@ -308,8 +307,8 @@ public static class TerrainAuthoringPreviewService
     }
 
     /*
-     * Releases transient editor preview resources without
-     * changing the user's Enabled preference.
+     * Releases transient editor preview resources without changing
+     * the user's Enabled preference.
      *
      * The service can be used again later in the same editor
      * session by RequestRebuild() / RequestRebind().
@@ -459,8 +458,30 @@ public static class TerrainAuthoringPreviewService
             return;
         }
 
-        Transform clipmapRoot =
-            FindActiveSceneClipmapRoot();
+        /*
+         * Scene hierarchy discovery is shared with upcoming editor
+         * terrain-navigation systems. Do not duplicate WorldRoot /
+         * Clipmap traversal inside individual editor services.
+         */
+        if (
+            !TerrainWorldSceneUtility
+                .TryFindActiveClipmapRoot(
+                    out Transform clipmapRoot,
+                    out string sceneLookupError
+                )
+        )
+        {
+            ReleaseBinding();
+
+            SetStatus(
+                TerrainAuthoringPreviewStatus.Error,
+                sceneLookupError
+            );
+
+            RepaintEditorViews();
+
+            return;
+        }
 
         if (clipmapRoot == null)
         {
@@ -743,63 +764,6 @@ public static class TerrainAuthoringPreviewService
 
         previewCache =
             null;
-    }
-
-    // =====================================================
-    // FIND ACTIVE CLIPMAP
-    // =====================================================
-
-    private static Transform FindActiveSceneClipmapRoot()
-    {
-        Scene scene =
-            SceneManager.GetActiveScene();
-
-        if (
-            !scene.IsValid()
-            ||
-            !scene.isLoaded
-        )
-        {
-            return null;
-        }
-
-        foreach (
-            GameObject rootObject
-            in scene.GetRootGameObjects()
-        )
-        {
-            if (
-                rootObject == null
-                ||
-                rootObject.name !=
-                    TerrainWorldHierarchyGenerator
-                        .WorldRootName
-            )
-            {
-                continue;
-            }
-
-            foreach (
-                Transform child
-                in rootObject.transform
-            )
-            {
-                if (
-                    child != null
-                    &&
-                    child.name ==
-                        TerrainWorldHierarchyGenerator
-                            .ClipmapRootName
-                )
-                {
-                    return child;
-                }
-            }
-
-            return null;
-        }
-
-        return null;
     }
 
     // =====================================================

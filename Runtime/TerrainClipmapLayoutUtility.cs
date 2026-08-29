@@ -555,6 +555,11 @@ public static class TerrainClipmapLayoutUtility
     // WORLD SIZE
     // =====================================================
 
+    /*
+     * Single authoritative conversion from WorldSettings layout
+     * values to the logical world size used by clipmap rendering
+     * and editor authoring systems.
+     */
     public static Vector2 CalculateWorldSizeXZ(
         WorldSettings worldSettings
     )
@@ -588,15 +593,50 @@ public static class TerrainClipmapLayoutUtility
     }
 
     // =====================================================
+    // WORLD CENTER
+    // =====================================================
+
+    /*
+     * Canonical generated clipmap position.
+     *
+     * TerrainWorldHierarchyGenerator uses this now. The upcoming
+     * edit-mode Scene View controller can use the same helper when
+     * centering the preview or restoring transient editor placement
+     * before scene save / Play Mode.
+     */
+    public static Vector3 CalculateWorldCenterPosition(
+        WorldSettings worldSettings,
+        float y = 0f
+    )
+    {
+        Vector2 worldSizeXZ =
+            CalculateWorldSizeXZ(
+                worldSettings
+            );
+
+        return
+            new Vector3(
+                worldSizeXZ.x *
+                    0.5f,
+
+                y,
+
+                worldSizeXZ.y *
+                    0.5f
+            );
+    }
+
+    // =====================================================
     // CLAMP TARGET TO WORLD
     // =====================================================
 
     /*
-     * Not used by the runtime Player controller yet.
+     * Shared spatial helper for systems that intentionally keep a
+     * clipmap follow target inside the logical terrain rectangle.
      *
-     * This is provided now so the upcoming Scene View controller
-     * can use the same shared spatial utility without introducing
-     * editor-only clipmap math.
+     * The runtime Player controller does not currently clamp its
+     * movement here. The upcoming Scene View authoring controller
+     * will use this helper for editor-camera / pivot follow targets.
      */
     public static Vector3 ClampTargetXZToWorld(
         WorldSettings worldSettings,

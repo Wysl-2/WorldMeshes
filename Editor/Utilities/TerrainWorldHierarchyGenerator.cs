@@ -11,13 +11,13 @@ public static class TerrainWorldHierarchyGenerator
     // =====================================================
 
     public const string WorldRootName =
-        "WorldRoot";
+        TerrainWorldSceneUtility.WorldRootName;
 
     public const string CollisionRootName =
         "Collision";
 
     public const string ClipmapRootName =
-        "Clipmap";
+        TerrainWorldSceneUtility.ClipmapRootName;
 
 
     // =====================================================
@@ -111,17 +111,16 @@ public static class TerrainWorldHierarchyGenerator
         // SCENE
         // =================================================
 
-        Scene scene =
-            SceneManager.GetActiveScene();
-
         if (
-            !scene.IsValid()
-            ||
-            !scene.isLoaded
+            !TerrainWorldSceneUtility
+                .TryGetActiveScene(
+                    out Scene scene,
+                    out string sceneError
+                )
         )
         {
             Debug.LogError(
-                "No valid active scene is available."
+                sceneError
             );
 
             return;
@@ -145,34 +144,49 @@ public static class TerrainWorldHierarchyGenerator
                 worldSettings.chunkSize
             );
 
+        Vector2 worldSizeXZ =
+            TerrainClipmapLayoutUtility
+                .CalculateWorldSizeXZ(
+                    worldSettings
+                );
+
         float worldSizeX =
-            gridWidth *
-            chunkSize;
+            worldSizeXZ.x;
 
         float worldSizeZ =
-            gridHeight *
-            chunkSize;
+            worldSizeXZ.y;
 
         Vector3 clipmapCenterPosition =
-            new Vector3(
-                worldSizeX * 0.5f,
-                0f,
-                worldSizeZ * 0.5f
-            );
+            TerrainClipmapLayoutUtility
+                .CalculateWorldCenterPosition(
+                    worldSettings,
+                    0f
+                );
 
         // =================================================
         // WORLD ROOT
         // =================================================
 
         if (
-            !TryGetWorldRoot(
-                scene,
-                out GameObject worldRoot
-            )
+            !TerrainWorldSceneUtility
+                .TryFindWorldRoot(
+                    scene,
+                    out Transform worldRootTransform,
+                    out string worldRootError
+                )
         )
         {
+            Debug.LogError(
+                worldRootError
+            );
+
             return;
         }
+
+        GameObject worldRoot =
+            worldRootTransform != null
+                ? worldRootTransform.gameObject
+                : null;
 
         bool hierarchyChanged =
             false;
@@ -429,11 +443,10 @@ public static class TerrainWorldHierarchyGenerator
             false;
 
         int levelCount =
-            Mathf.Clamp(
-                worldSettings.clipmapLevelCount,
-                1,
-                10
-            );
+            TerrainClipmapLayoutUtility
+                .GetLevelCount(
+                    worldSettings
+                );
 
         changed |=
             SynchronizeClipmapController(
@@ -1656,11 +1669,10 @@ public static class TerrainWorldHierarchyGenerator
             new ClipmapMeshSet();
 
         int levelCount =
-            Mathf.Clamp(
-                worldSettings.clipmapLevelCount,
-                1,
-                10
-            );
+            TerrainClipmapLayoutUtility
+                .GetLevelCount(
+                    worldSettings
+                );
 
         string centerPath =
             TerrainClipmapMeshGenerator
@@ -1798,57 +1810,6 @@ public static class TerrainWorldHierarchyGenerator
     // =====================================================
     // WORLD ROOT / CHILD HELPERS
     // =====================================================
-
-    private static bool TryGetWorldRoot(
-        Scene scene,
-        out GameObject worldRoot
-    )
-    {
-        worldRoot =
-            null;
-
-        int matchingRoots =
-            0;
-
-        foreach (
-            GameObject rootObject
-            in scene.GetRootGameObjects()
-        )
-        {
-            if (
-                rootObject.name !=
-                WorldRootName
-            )
-            {
-                continue;
-            }
-
-            matchingRoots++;
-
-            if (worldRoot == null)
-            {
-                worldRoot =
-                    rootObject;
-            }
-        }
-
-        if (matchingRoots > 1)
-        {
-            Debug.LogError(
-                $"Multiple '{WorldRootName}' objects exist " +
-                "in the active scene.\n\n" +
-                "Remove or rename duplicate WorldRoot objects " +
-                "before synchronizing."
-            );
-
-            worldRoot =
-                null;
-
-            return false;
-        }
-
-        return true;
-    }
 
     private static Transform GetOrCreateUniqueDirectChild(
         Transform parent,

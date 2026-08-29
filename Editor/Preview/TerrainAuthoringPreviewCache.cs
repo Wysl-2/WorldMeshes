@@ -516,28 +516,15 @@ public sealed class TerrainAuthoringPreviewCache :
                 )
             );
 
+        /*
+         * Keep world extent definition centralized with the
+         * clipmap/runtime world-bounds systems.
+         */
         worldSizeXZ =
-            new Vector2(
-                Mathf.Max(
-                    1,
-                    worldSettings.gridWidth
-                )
-                *
-                Mathf.Max(
-                    0.01f,
-                    worldSettings.chunkSize
-                ),
-
-                Mathf.Max(
-                    1,
-                    worldSettings.gridHeight
-                )
-                *
-                Mathf.Max(
-                    0.01f,
-                    worldSettings.chunkSize
-                )
-            );
+            TerrainClipmapLayoutUtility
+                .CalculateWorldSizeXZ(
+                    worldSettings
+                );
 
         minimumHeight =
             manifest.minimumCommittedHeight;
