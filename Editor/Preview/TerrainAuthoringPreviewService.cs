@@ -15,6 +15,19 @@ public enum TerrainAuthoringPreviewStatus
 public static class TerrainAuthoringPreviewService
 {
     // =====================================================
+    // STATE CHANGE EVENT
+    // =====================================================
+
+    /*
+     * Raised when the transient preview cache becomes available,
+     * is rebuilt, or is released.
+     *
+     * Editor visualization systems can refresh shader metadata
+     * without polling and without requesting a height-cache rebuild.
+     */
+    public static event System.Action PreviewStateChanged;
+
+    // =====================================================
     // EDITOR PREFERENCE
     // =====================================================
 
@@ -571,6 +584,8 @@ public static class TerrainAuthoringPreviewService
             previewCache =
                 newCache;
 
+            NotifyPreviewStateChanged();
+
             rebuildRequested =
                 false;
 
@@ -764,6 +779,8 @@ public static class TerrainAuthoringPreviewService
 
         previewCache =
             null;
+
+        NotifyPreviewStateChanged();
     }
 
     // =====================================================
@@ -827,6 +844,15 @@ public static class TerrainAuthoringPreviewService
     {
         ReleaseBinding();
         ReleaseCache();
+    }
+
+    // =====================================================
+    // PREVIEW STATE NOTIFICATION
+    // =====================================================
+
+    private static void NotifyPreviewStateChanged()
+    {
+        PreviewStateChanged?.Invoke();
     }
 
     // =====================================================

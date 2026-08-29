@@ -115,12 +115,6 @@ Shader "Custom/ClipmapTerrain"
         // WORLD BOUNDS
         // =================================================
 
-        /*
-         * Logical terrain rectangle.
-         *
-         * This is independent of height-cache readiness so the
-         * clipmap can never define world extent accidentally.
-         */
         [HideInInspector]
         _WorldSizeXZ(
             "World Size XZ",
@@ -137,18 +131,93 @@ Shader "Custom/ClipmapTerrain"
         // CLIPMAP TRANSITION
         // =================================================
 
-        /*
-         * World-space offset applied only to stitch vertices
-         * whose generated transition weight is 1.
-         *
-         * x = world X offset
-         * z = world Z offset
-         */
         [HideInInspector]
         _ClipmapTransitionOffset(
             "Clipmap Transition Offset",
             Vector
         ) = (0, 0, 0, 0)
+
+        // =================================================
+        // AUTHORING VISUALIZATION
+        // =================================================
+
+        [HideInInspector]
+        _AuthoringVisualizationEnabled(
+            "Authoring Visualization Enabled",
+            Float
+        ) = 0
+
+        [HideInInspector]
+        _AuthoringVisualizationMode(
+            "Authoring Visualization Mode",
+            Float
+        ) = 0
+
+        [HideInInspector]
+        _AuthoringHeightRange(
+            "Authoring Height Range",
+            Vector
+        ) = (0, 1, 0, 0)
+
+        [HideInInspector]
+        _AuthoringContoursEnabled(
+            "Authoring Contours Enabled",
+            Float
+        ) = 0
+
+        [HideInInspector]
+        _AuthoringContourInterval(
+            "Authoring Contour Interval",
+            Float
+        ) = 10
+
+        [HideInInspector]
+        _AuthoringChunkGridEnabled(
+            "Authoring Chunk Grid Enabled",
+            Float
+        ) = 0
+
+        [HideInInspector]
+        _AuthoringChunkSize(
+            "Authoring Chunk Size",
+            Float
+        ) = 128
+
+        [HideInInspector]
+        _AuthoringHeightTileGridEnabled(
+            "Authoring Height Tile Grid Enabled",
+            Float
+        ) = 0
+
+        [HideInInspector]
+        _AuthoringHeightTileWorldSize(
+            "Authoring Height Tile World Size",
+            Float
+        ) = 256
+
+        [HideInInspector]
+        _AuthoringWorldBoundaryEnabled(
+            "Authoring World Boundary Enabled",
+            Float
+        ) = 0
+
+        [HideInInspector]
+        _AuthoringLODRegionsEnabled(
+            "Authoring LOD Regions Enabled",
+            Float
+        ) = 0
+
+        [HideInInspector]
+        _AuthoringLODLevel(
+            "Authoring LOD Level",
+            Float
+        ) = 0
+
+        [HideInInspector]
+        _AuthoringLODCount(
+            "Authoring LOD Count",
+            Float
+        ) = 1
     }
 
     SubShader
@@ -263,7 +332,7 @@ Shader "Custom/ClipmapTerrain"
             );
 
             // =================================================
-            // PER-MATERIAL DATA
+            // PER-MATERIAL / MPB DATA
             // =================================================
 
             CBUFFER_START(
@@ -273,103 +342,67 @@ Shader "Custom/ClipmapTerrain"
                 half4 _BaseColor;
 
                 float4 _BaseMap_ST;
-
-                /*
-                 * World-space XZ size covered by one complete
-                 * repetition of the ground texture.
-                 */
                 float _BaseMapWorldSize;
 
                 half4 _SlopeColor;
 
                 float4 _SlopeMap_ST;
-
-                /*
-                 * World-space size covered by one complete
-                 * repetition of the rock texture.
-                 */
                 float _SlopeMapWorldSize;
 
-                /*
-                 * Slope amount is derived as:
-                 *
-                 *     1 - normalWS.y
-                 *
-                 * 0 = flat/upward-facing
-                 * 1 = vertical
-                 */
                 float _SlopeBlendStart;
                 float _SlopeBlendEnd;
-
-                /*
-                 * Controls how strongly the triplanar sampler
-                 * favors the projection facing the surface.
-                 */
                 float _SlopeTriplanarSharpness;
 
-                /*
-                 * Standard metallic-workflow surface properties
-                 * used by URP's PBR lighting.
-                 */
                 half _Metallic;
                 half _Smoothness;
 
-                /*
-                 * xy =
-                 * absolute tile coordinate represented by
-                 * cache-local tile (0, 0).
-                 */
                 float4 _HeightCacheOriginTile;
-
-                /*
-                 * x = cache width in tiles
-                 * y = cache height in tiles
-                 */
                 float4 _HeightCacheSize;
-
-                /*
-                 * Number of samples along one side of
-                 * each height tile.
-                 */
                 float _HeightTileSamplesPerSide;
-
-                /*
-                 * World-space distance between adjacent
-                 * authoritative height samples.
-                 */
                 float _HeightSampleSpacing;
 
-                /*
-                 * x = logical world size X
-                 * y = logical world size Z
-                 */
                 float4 _WorldSizeXZ;
-
-                /*
-                 * 0 = logical world boundary unavailable
-                 * 1 = logical world boundary ready
-                 */
                 float _WorldBoundsReady;
 
-                /*
-                 * 0 = height cache unavailable
-                 * 1 = height cache ready
-                 */
                 float _HeightCacheReady;
 
-                /*
-                 * x/z = world-space horizontal offset applied
-                 * according to clipmapData.x.
-                 */
                 float4 _ClipmapTransitionOffset;
+
+                /*
+                 * Editor authoring visualization state.
+                 *
+                 * These values are written transiently through
+                 * MaterialPropertyBlock. They are hidden from the
+                 * terrain material inspector and remain disabled at
+                 * runtime.
+                 */
+                float _AuthoringVisualizationEnabled;
+                float _AuthoringVisualizationMode;
+                float4 _AuthoringHeightRange;
+
+                float _AuthoringContoursEnabled;
+                float _AuthoringContourInterval;
+
+                float _AuthoringChunkGridEnabled;
+                float _AuthoringChunkSize;
+
+                float _AuthoringHeightTileGridEnabled;
+                float _AuthoringHeightTileWorldSize;
+
+                float _AuthoringWorldBoundaryEnabled;
+
+                float _AuthoringLODRegionsEnabled;
+                float _AuthoringLODLevel;
+                float _AuthoringLODCount;
 
             CBUFFER_END
 
-            /*
-             * Shared by this lit shader and future displaced
-             * authoring/debug shaders such as the custom wireframe.
-             */
+            // =================================================
+            // SHARED TERRAIN / VISUALIZATION CODE
+            // =================================================
+
             #include "Assets/WorldMeshes/Shaders/Terrain/ClipmapTerrainHeight.hlsl"
+            #include "Assets/WorldMeshes/Shaders/Terrain/ClipmapTerrainVisualization.hlsl"
 
             // =================================================
             // SAMPLE ROCK TEXTURE - TRIPLANAR
@@ -386,14 +419,6 @@ Shader "Custom/ClipmapTerrain"
                         0.0001
                     );
 
-                /*
-                 * Weight each projection by the absolute
-                 * world-space surface normal.
-                 *
-                 * X-facing surfaces use the YZ projection.
-                 * Y-facing surfaces use the XZ projection.
-                 * Z-facing surfaces use the XY projection.
-                 */
                 float3 weights =
                     pow(
                         abs(
@@ -430,10 +455,6 @@ Shader "Custom/ClipmapTerrain"
                     /
                     worldSize;
 
-                /*
-                 * Preserve the rock texture's normal Material
-                 * Tiling and Offset controls on all projections.
-                 */
                 uvX =
                     uvX
                     *
@@ -501,18 +522,10 @@ Shader "Custom/ClipmapTerrain"
             {
                 Varyings OUT;
 
-                // ---------------------------------------------
-                // Object -> world
-                // ---------------------------------------------
-
                 float3 positionWS =
                     TransformObjectToWorld(
                         IN.positionOS.xyz
                     );
-
-                // ---------------------------------------------
-                // Adaptive stitch horizontal offset
-                // ---------------------------------------------
 
                 positionWS =
                     ApplyClipmapTransitionOffset(
@@ -520,20 +533,12 @@ Shader "Custom/ClipmapTerrain"
                         IN.clipmapData.x
                     );
 
-                // ---------------------------------------------
-                // Height displacement / normal
-                // ---------------------------------------------
-
                 float3 normalWS;
 
                 ApplyTerrainHeightDisplacement(
                     positionWS,
                     normalWS
                 );
-
-                // ---------------------------------------------
-                // Output
-                // ---------------------------------------------
 
                 OUT.positionWS =
                     positionWS;
@@ -546,10 +551,6 @@ Shader "Custom/ClipmapTerrain"
                         positionWS
                     );
 
-                /*
-                 * Support URP's optional per-vertex additional
-                 * light mode and standard fog.
-                 */
                 OUT.vertexLighting =
                     VertexLighting(
                         positionWS,
@@ -577,22 +578,57 @@ Shader "Custom/ClipmapTerrain"
                 // Authoritative logical world boundary
                 // ---------------------------------------------
 
-                /*
-                 * This is intentionally independent of
-                 * _HeightCacheReady.
-                 */
                 ClipTerrainFragmentToWorld(
                     IN.positionWS.xz
                 );
-
-                // ---------------------------------------------
-                // Terrain normal
-                // ---------------------------------------------
 
                 half3 normalWS =
                     normalize(
                         IN.normalWS
                     );
+
+                // ---------------------------------------------
+                // Unlit authoring base modes
+                // ---------------------------------------------
+
+                /*
+                 * Height and Slope modes intentionally bypass PBR
+                 * lighting and fog so the diagnostic color has a
+                 * stable meaning everywhere in the Scene View.
+                 *
+                 * The editor controller falls back to Lit if a
+                 * height-dependent mode is selected while no valid
+                 * authoring height preview is available.
+                 */
+                if (
+                    AuthoringVisualizationIsEnabled() >
+                        0.5
+                    &&
+                    AuthoringVisualizationModeIs(
+                        WORLDMESHES_AUTHORING_MODE_LIT
+                    )
+                    <
+                    0.5
+                )
+                {
+                    float3 diagnosticColor =
+                        GetAuthoringDiagnosticBaseColor(
+                            IN.positionWS,
+                            normalWS
+                        );
+
+                    diagnosticColor =
+                        ApplyAuthoringVisualizationOverlays(
+                            diagnosticColor,
+                            IN.positionWS
+                        );
+
+                    return
+                        half4(
+                            diagnosticColor,
+                            1.0
+                        );
+                }
 
                 // ---------------------------------------------
                 // Ground texture - world-space XZ
@@ -604,11 +640,6 @@ Shader "Custom/ClipmapTerrain"
                         0.0001
                     );
 
-                /*
-                 * The ground texture uses world-space XZ
-                 * projection so it remains seamless across all
-                 * clipmap center/ring/stitch meshes.
-                 */
                 float2 baseMapUV =
                     IN.positionWS.xz
                     /
@@ -640,16 +671,6 @@ Shader "Custom/ClipmapTerrain"
                         normalWS
                     );
 
-                // ---------------------------------------------
-                // Slope blend
-                // ---------------------------------------------
-
-                /*
-                 * For a heightfield:
-                 *
-                 * normalWS.y ~= 1 on flat ground
-                 * normalWS.y ~= 0 on a vertical slope
-                 */
                 float slopeAmount =
                     1.0
                     -
@@ -657,11 +678,6 @@ Shader "Custom/ClipmapTerrain"
                         normalWS.y
                     );
 
-                /*
-                 * Permit the two material values to be entered
-                 * in either order without creating an invalid
-                 * smoothstep range.
-                 */
                 float blendStart =
                     min(
                         _SlopeBlendStart,
@@ -686,10 +702,6 @@ Shader "Custom/ClipmapTerrain"
                         slopeAmount
                     );
 
-                // ---------------------------------------------
-                // Final surface colour
-                // ---------------------------------------------
-
                 half4 surfaceColor =
                     lerp(
                         groundColor,
@@ -707,11 +719,6 @@ Shader "Custom/ClipmapTerrain"
                 surfaceData.albedo =
                     surfaceColor.rgb;
 
-                /*
-                 * WorldMeshes currently uses the metallic
-                 * workflow. Natural terrain should normally keep
-                 * Metallic at 0.
-                 */
                 surfaceData.metallic =
                     saturate(
                         _Metallic
@@ -729,12 +736,6 @@ Shader "Custom/ClipmapTerrain"
                         _Smoothness
                     );
 
-                /*
-                 * No tangent-space normal map is used yet.
-                 *
-                 * The actual world-space terrain normal is supplied
-                 * through InputData.normalWS below.
-                 */
                 surfaceData.normalTS =
                     half3(
                         0.0,
@@ -782,11 +783,6 @@ Shader "Custom/ClipmapTerrain"
                         IN.positionWS
                     );
 
-                /*
-                 * Allows the terrain to receive main-light
-                 * realtime shadows when the corresponding URP
-                 * shadow variant is active.
-                 */
                 inputData.shadowCoord =
                     TransformWorldToShadowCoord(
                         IN.positionWS
@@ -798,12 +794,6 @@ Shader "Custom/ClipmapTerrain"
                 inputData.vertexLighting =
                     IN.vertexLighting;
 
-                /*
-                 * Environment / probe lighting.
-                 *
-                 * This replaces the previous hand-written ambient
-                 * term and feeds URP's normal GI/PBR path.
-                 */
                 inputData.bakedGI =
                     max(
                         SampleSH(
@@ -821,11 +811,6 @@ Shader "Custom/ClipmapTerrain"
                         IN.positionHCS
                     );
 
-                /*
-                 * There is currently no baked shadow-mask texture
-                 * on the clipmap geometry, so use the fully-visible
-                 * default.
-                 */
                 inputData.shadowMask =
                     half4(
                         1.0,
@@ -849,6 +834,23 @@ Shader "Custom/ClipmapTerrain"
                         color.rgb,
                         inputData.fogCoord
                     );
+
+                /*
+                 * Lit remains the normal PBR terrain path.
+                 * Diagnostic overlays are composed after fog so
+                 * authoring lines remain legible at long distance.
+                 */
+                if (
+                    AuthoringVisualizationIsEnabled() >
+                    0.5
+                )
+                {
+                    color.rgb =
+                        ApplyAuthoringVisualizationOverlays(
+                            color.rgb,
+                            IN.positionWS
+                        );
+                }
 
                 return
                     color;

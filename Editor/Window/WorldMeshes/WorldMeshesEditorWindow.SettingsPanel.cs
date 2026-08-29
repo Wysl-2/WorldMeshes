@@ -49,6 +49,10 @@ public partial class WorldMeshesEditorWindow :
 
         GUILayout.Space(10f);
 
+        DrawAuthoringVisualizationSettings();
+
+        GUILayout.Space(10f);
+
         DrawCollisionGenerationSettings();
 
         GUILayout.Space(10f);

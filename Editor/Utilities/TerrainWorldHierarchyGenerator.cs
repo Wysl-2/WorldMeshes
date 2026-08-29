@@ -317,6 +317,14 @@ public static class TerrainWorldHierarchyGenerator
         TerrainAuthoringSceneViewController
             .RequestReapply();
 
+        /*
+         * Generated terrain renderers may have been created or
+         * replaced during synchronization. Rebind transient
+         * authoring visualization metadata afterward.
+         */
+        TerrainAuthoringVisualizationController
+            .RequestReapply();
+
         Debug.Log(
             "World hierarchy synchronization complete.\n\n" +
             $"World Grid: {gridWidth} x {gridHeight}\n" +
