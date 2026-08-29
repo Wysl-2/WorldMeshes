@@ -31,11 +31,6 @@ public static class TerrainHeightCacheBindingUtility
             "_HeightSampleSpacing"
         );
 
-    private static readonly int WorldSizeXZPropertyId =
-        Shader.PropertyToID(
-            "_WorldSizeXZ"
-        );
-
     private static readonly int HeightCacheReadyPropertyId =
         Shader.PropertyToID(
             "_HeightCacheReady"
@@ -133,6 +128,32 @@ public static class TerrainHeightCacheBindingUtility
             return false;
         }
 
+        /*
+         * World bounds are logically independent from the height
+         * cache, but cache binding still refreshes them as a
+         * defensive guarantee for old scenes or initialization
+         * order differences.
+         *
+         * TerrainHeightCacheBindingUtility.Disable(...) does NOT
+         * disable world bounds.
+         */
+        if (
+            !TerrainClipmapWorldBoundsBindingUtility
+                .TryBind(
+                    clipmapRoot,
+                    worldSizeXZ,
+                    out _,
+                    out string worldBoundsError
+                )
+        )
+        {
+            errorMessage =
+                "The clipmap world bounds could not be bound.\n\n" +
+                worldBoundsError;
+
+            return false;
+        }
+
         MeshRenderer[] renderers =
             clipmapRoot
                 .GetComponentsInChildren<MeshRenderer>(
@@ -171,14 +192,6 @@ public static class TerrainHeightCacheBindingUtility
                 0f
             );
 
-        Vector4 worldSize =
-            new Vector4(
-                worldSizeXZ.x,
-                worldSizeXZ.y,
-                0f,
-                0f
-            );
-
         foreach (
             MeshRenderer meshRenderer
             in renderers
@@ -196,9 +209,10 @@ public static class TerrainHeightCacheBindingUtility
             /*
              * Preserve unrelated renderer overrides.
              *
-             * TerrainClipmapController uses the same
+             * TerrainClipmapLayoutApplier uses the same
              * MaterialPropertyBlock mechanism for
-             * _ClipmapTransitionOffset.
+             * _ClipmapTransitionOffset, and the world-bounds
+             * controller owns _WorldSizeXZ/_WorldBoundsReady.
              */
             meshRenderer.GetPropertyBlock(
                 propertyBlock
@@ -229,14 +243,9 @@ public static class TerrainHeightCacheBindingUtility
                 heightSampleSpacing
             );
 
-            propertyBlock.SetVector(
-                WorldSizeXZPropertyId,
-                worldSize
-            );
-
             /*
              * Set readiness last. At this point the texture and
-             * all cache-layout metadata are valid.
+             * all height-cache layout metadata are valid.
              */
             propertyBlock.SetFloat(
                 HeightCacheReadyPropertyId,
@@ -316,6 +325,8 @@ public static class TerrainHeightCacheBindingUtility
              * Setting readiness to zero prevents the shader from
              * sampling the cache, while preserving every unrelated
              * property-block override.
+             *
+             * Critically, logical world bounds remain enabled.
              */
             propertyBlock.SetFloat(
                 HeightCacheReadyPropertyId,
@@ -371,10 +382,6 @@ public static class TerrainHeightCacheBindingUtility
             &&
             material.HasProperty(
                 HeightSampleSpacingPropertyId
-            )
-            &&
-            material.HasProperty(
-                WorldSizeXZPropertyId
             )
             &&
             material.HasProperty(

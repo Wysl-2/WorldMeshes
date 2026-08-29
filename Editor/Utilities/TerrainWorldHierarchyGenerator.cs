@@ -448,6 +448,12 @@ public static class TerrainWorldHierarchyGenerator
             );
 
         changed |=
+            SynchronizeClipmapWorldBoundsController(
+                clipmapRoot.gameObject,
+                worldSettings
+            );
+
+        changed |=
             SynchronizeHeightmapCacheValidator(
                 clipmapRoot.gameObject
             );
@@ -672,6 +678,24 @@ public static class TerrainWorldHierarchyGenerator
                 );
         }
 
+        TerrainClipmapWorldBoundsController
+            worldBoundsController =
+                clipmapRoot
+                    .GetComponent<TerrainClipmapWorldBoundsController>();
+
+        if (worldBoundsController != null)
+        {
+            /*
+             * Generated renderers may have been created/replaced
+             * after the component itself was configured.
+             */
+            worldBoundsController
+                .InvalidateBinding();
+
+            worldBoundsController
+                .ApplyWorldBounds();
+        }
+
         TerrainClipmapBoundsController boundsController =
             clipmapRoot
                 .GetComponent<TerrainClipmapBoundsController>();
@@ -708,6 +732,71 @@ public static class TerrainWorldHierarchyGenerator
             controller =
                 clipmapObject
                     .AddComponent<TerrainClipmapController>();
+
+            changed =
+                true;
+        }
+        else
+        {
+            controller =
+                controllers[0];
+
+            for (
+                int index = 1;
+                index < controllers.Length;
+                index++
+            )
+            {
+                Object.DestroyImmediate(
+                    controllers[index]
+                );
+
+                changed =
+                    true;
+            }
+        }
+
+        if (!controller.enabled)
+        {
+            controller.enabled =
+                true;
+
+            changed =
+                true;
+        }
+
+        changed |=
+            controller.Configure(
+                worldSettings
+            );
+
+        return
+            changed;
+    }
+
+    // =====================================================
+    // CLIPMAP WORLD BOUNDS CONTROLLER
+    // =====================================================
+
+    private static bool SynchronizeClipmapWorldBoundsController(
+        GameObject clipmapObject,
+        WorldSettings worldSettings
+    )
+    {
+        bool changed =
+            false;
+
+        TerrainClipmapWorldBoundsController[] controllers =
+            clipmapObject
+                .GetComponents<TerrainClipmapWorldBoundsController>();
+
+        TerrainClipmapWorldBoundsController controller;
+
+        if (controllers.Length == 0)
+        {
+            controller =
+                clipmapObject
+                    .AddComponent<TerrainClipmapWorldBoundsController>();
 
             changed =
                 true;
