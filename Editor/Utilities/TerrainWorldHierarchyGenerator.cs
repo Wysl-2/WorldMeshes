@@ -325,6 +325,14 @@ public static class TerrainWorldHierarchyGenerator
         TerrainAuthoringVisualizationController
             .RequestReapply();
 
+        /*
+         * Generated clipmap renderers or mesh references may have
+         * changed. Re-discover transient true-wireframe sources after
+         * hierarchy synchronization completes.
+         */
+        TerrainAuthoringWireframeRenderer
+            .RequestReapply();
+
         Debug.Log(
             "World hierarchy synchronization complete.\n\n" +
             $"World Grid: {gridWidth} x {gridHeight}\n" +

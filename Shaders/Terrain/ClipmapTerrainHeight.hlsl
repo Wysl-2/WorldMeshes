@@ -521,18 +521,10 @@ float3 CalculateTerrainNormal(
  * up normal and the input Y remains unchanged. World-boundary
  * clipping remains active independently.
  */
-float ApplyTerrainHeightDisplacement(
-    inout float3 positionWS,
-    out float3 normalWS
+float ApplyTerrainHeightDisplacementPositionOnly(
+    inout float3 positionWS
 )
 {
-    normalWS =
-        float3(
-            0.0,
-            1.0,
-            0.0
-        );
-
     float heightValid;
 
     float terrainHeight =
@@ -549,10 +541,35 @@ float ApplyTerrainHeightDisplacement(
     positionWS.y =
         terrainHeight;
 
+    return 1.0;
+}
+
+float ApplyTerrainHeightDisplacement(
+    inout float3 positionWS,
+    out float3 normalWS
+)
+{
+    normalWS =
+        float3(
+            0.0,
+            1.0,
+            0.0
+        );
+
+    float heightValid =
+        ApplyTerrainHeightDisplacementPositionOnly(
+            positionWS
+        );
+
+    if (heightValid < 0.5)
+    {
+        return 0.0;
+    }
+
     normalWS =
         CalculateTerrainNormal(
             positionWS.xz,
-            terrainHeight
+            positionWS.y
         );
 
     return 1.0;

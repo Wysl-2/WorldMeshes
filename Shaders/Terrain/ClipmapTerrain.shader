@@ -218,6 +218,16 @@ Shader "Custom/ClipmapTerrain"
             "Authoring LOD Count",
             Float
         ) = 1
+
+        // =================================================
+        // TRUE DISPLACED WIREFRAME
+        // =================================================
+
+        [HideInInspector]
+        _AuthoringWireframeOnly(
+            "Authoring Wireframe Only",
+            Float
+        ) = 0
     }
 
     SubShader
@@ -394,6 +404,15 @@ Shader "Custom/ClipmapTerrain"
                 float _AuthoringLODRegionsEnabled;
                 float _AuthoringLODLevel;
                 float _AuthoringLODCount;
+
+                /*
+                 * Stage 6 editor-only fill suppression.
+                 *
+                 * The transient displaced wireframe renderer sets this
+                 * through MaterialPropertyBlock only while Wireframe Only
+                 * mode is active.
+                 */
+                float _AuthoringWireframeOnly;
 
             CBUFFER_END
 
@@ -581,6 +600,25 @@ Shader "Custom/ClipmapTerrain"
                 ClipTerrainFragmentToWorld(
                     IN.positionWS.xz
                 );
+
+                /*
+                 * Wireframe Only keeps the source terrain renderers,
+                 * transforms, height-cache bindings, and MPB ownership
+                 * intact while suppressing only filled color/depth output.
+                 *
+                 * TerrainAuthoringWireframeRenderer draws a separate
+                 * displaced depth proxy before its line overlay so hidden
+                 * terrain edges remain depth-occluded.
+                 */
+                if (
+                    _AuthoringWireframeOnly >
+                    0.5
+                )
+                {
+                    clip(
+                        -1.0
+                    );
+                }
 
                 half3 normalWS =
                     normalize(

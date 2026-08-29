@@ -53,6 +53,10 @@ public partial class WorldMeshesEditorWindow :
 
         GUILayout.Space(10f);
 
+        DrawAuthoringWireframeSettings();
+
+        GUILayout.Space(10f);
+
         DrawCollisionGenerationSettings();
 
         GUILayout.Space(10f);
