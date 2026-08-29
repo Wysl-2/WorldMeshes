@@ -1042,45 +1042,15 @@ public class TerrainHeightmapStreamer :
 
     private float CalculateClipmapDiameter()
     {
-        int centerResolution =
-            Mathf.Max(
-                1,
-                worldSettings.clipmapCenterResolution
-            );
-
-        int levelCount =
-            Mathf.Max(
-                1,
-                worldSettings.clipmapLevelCount
-            );
-
-        float baseSpacing =
-            Mathf.Max(
-                0.0001f,
-                worldSettings.ClipmapBaseSpacing
-            );
-
         /*
-         * Example:
-         *
-         * resolution = 128
-         * base spacing = 1
-         * levels = 4
-         *
-         * diameter =
-         * 128 * 1 * 2^3
-         * =
-         * 1024 metres
+         * Shared with TerrainClipmapController and future
+         * edit-mode clipmap placement.
          */
         return
-            centerResolution
-            *
-            baseSpacing
-            *
-            Mathf.Pow(
-                2f,
-                levelCount - 1
-            );
+            TerrainClipmapLayoutUtility
+                .CalculateClipmapDiameter(
+                    worldSettings
+                );
     }
 
     // =====================================================

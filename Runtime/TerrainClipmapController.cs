@@ -21,7 +21,7 @@ public class TerrainClipmapController :
     [Header("Target")]
 
     /*
-     * Transform that the clipmap follows horizontally.
+     * Transform that the runtime clipmap follows horizontally.
      *
      * Target Y is intentionally ignored.
      */
@@ -37,16 +37,6 @@ public class TerrainClipmapController :
     [SerializeField]
     private bool logCoverageStalls =
         true;
-
-    // =====================================================
-    // SHADER PROPERTY IDS
-    // =====================================================
-
-    private static readonly int
-        ClipmapTransitionOffsetPropertyId =
-            Shader.PropertyToID(
-                "_ClipmapTransitionOffset"
-            );
 
     // =====================================================
     // RUNTIME STATE
@@ -71,61 +61,24 @@ public class TerrainClipmapController :
     private bool hasWarnedMissingLODHierarchy;
 
     // =====================================================
-    // LOD ANCHOR STATE
+    // SHARED LAYOUT STATE
     // =====================================================
 
     /*
-     * Desired absolute world-space center for every LOD.
-     *
-     * Stage 3C now applies these anchors to the generated
-     * LOD hierarchy after height-cache safety is satisfied.
+     * Reused result object populated by the shared pure layout
+     * utility. No per-frame layout array allocations are needed.
      */
-    private Vector3[] desiredLODAnchors;
+    private readonly TerrainClipmapLayout desiredLayout =
+        new TerrainClipmapLayout();
 
     /*
-     * World-space vertex spacing for every LOD.
-     */
-    private float[] lodSpacings;
-
-    private bool desiredLODAnchorsValid;
-
-    /*
-     * Actual world-space XZ bounds of the desired geometry.
+     * Shared hierarchy/stitch mutator.
      *
-     * These are useful for validation/debugging. Height-cache
-     * coverage itself can continue using the existing streamer
-     * center API because the outermost ring has the same fixed
-     * diameter used by TerrainHeightmapStreamer.
+     * Runtime and the upcoming editor Scene View controller can
+     * both use TerrainClipmapLayoutApplier so transform placement
+     * and stitch offsets cannot drift into separate implementations.
      */
-    private Vector2 desiredClipmapMinimumXZ;
-
-    private Vector2 desiredClipmapMaximumXZ;
-
-    // =====================================================
-    // GENERATED HIERARCHY REFERENCES
-    // =====================================================
-
-    /*
-     * Index 0 is unused because LOD0 is represented by this
-     * controller's root transform.
-     *
-     * Index N references the generated direct child "LODN".
-     */
-    private Transform[] lodLevelTransforms;
-
-    /*
-     * Index N references:
-     *
-     * Stitch_LOD(N-1)_LODN
-     *
-     * under generated child LODN.
-     */
-    private MeshRenderer[] stitchRenderers;
-
-    private MaterialPropertyBlock
-        transitionPropertyBlock;
-
-    private bool lodHierarchyReferencesValid;
+    private TerrainClipmapLayoutApplier layoutApplier;
 
     // =====================================================
     // PUBLIC STATE
@@ -167,7 +120,8 @@ public class TerrainClipmapController :
     {
         get
         {
-            return desiredLODAnchorsValid;
+            return
+                desiredLayout.IsValid;
         }
     }
 
@@ -175,17 +129,13 @@ public class TerrainClipmapController :
     {
         get
         {
-            if (
-                !desiredLODAnchorsValid
-                ||
-                desiredLODAnchors == null
-            )
+            if (!desiredLayout.IsValid)
             {
                 return 0;
             }
 
             return
-                desiredLODAnchors.Length;
+                desiredLayout.LevelCount;
         }
     }
 
@@ -199,40 +149,12 @@ public class TerrainClipmapController :
         out float spacing
     )
     {
-        anchor =
-            Vector3.zero;
-
-        spacing =
-            0f;
-
-        if (
-            !desiredLODAnchorsValid
-            ||
-            desiredLODAnchors == null
-            ||
-            lodSpacings == null
-            ||
-            level < 0
-            ||
-            level >= desiredLODAnchors.Length
-            ||
-            level >= lodSpacings.Length
-        )
-        {
-            return false;
-        }
-
-        anchor =
-            desiredLODAnchors[
-                level
-            ];
-
-        spacing =
-            lodSpacings[
-                level
-            ];
-
-        return true;
+        return
+            desiredLayout.TryGetLOD(
+                level,
+                out anchor,
+                out spacing
+            );
     }
 
     // =====================================================
@@ -250,16 +172,16 @@ public class TerrainClipmapController :
         maximumXZ =
             Vector2.zero;
 
-        if (!desiredLODAnchorsValid)
+        if (!desiredLayout.IsValid)
         {
             return false;
         }
 
         minimumXZ =
-            desiredClipmapMinimumXZ;
+            desiredLayout.MinimumXZ;
 
         maximumXZ =
-            desiredClipmapMaximumXZ;
+            desiredLayout.MaximumXZ;
 
         return true;
     }
@@ -283,6 +205,8 @@ public class TerrainClipmapController :
             settings
         )
         {
+            EnsureLayoutApplier();
+
             return false;
         }
 
@@ -290,6 +214,8 @@ public class TerrainClipmapController :
             settings;
 
         InvalidateLODState();
+
+        EnsureLayoutApplier();
 
         return true;
     }
@@ -324,6 +250,7 @@ public class TerrainClipmapController :
         InvalidateLODState();
 
         EnsureStreamerReference();
+        EnsureLayoutApplier();
 
         if (!Application.isPlaying)
         {
@@ -348,9 +275,20 @@ public class TerrainClipmapController :
             streamer.ClearCoverageRequest();
         }
 
-        if (Application.isPlaying)
+        if (
+            Application.isPlaying
+            &&
+            layoutApplier != null
+        )
         {
-            ResetLODGeometry();
+            /*
+             * Preserve the old runtime shutdown semantics:
+             * reset coarse child offsets and stitch transition
+             * offsets while leaving the current root position.
+             */
+            layoutApplier.TryReset(
+                out _
+            );
         }
 
         waitingForHeightData =
@@ -389,11 +327,6 @@ public class TerrainClipmapController :
      *
      * Height-cache safety is evaluated around the OUTERMOST LOD
      * anchor rather than the LOD0/root anchor.
-     *
-     * The outermost ring has exactly the nominal clipmap diameter
-     * already used by TerrainHeightmapStreamer, so this describes
-     * the real Stage 3C outer footprint without changing the
-     * streamer's cache architecture.
      */
     public bool CanTargetMoveTo(
         Vector3 targetWorldPosition
@@ -522,18 +455,7 @@ public class TerrainClipmapController :
 
         if (target == null)
         {
-            if (!hasWarnedMissingTarget)
-            {
-                Debug.LogWarning(
-                    "TerrainClipmapController has no target.\n\n" +
-                    "Assign the Player Transform to the Target " +
-                    "field on the Clipmap GameObject.",
-                    this
-                );
-
-                hasWarnedMissingTarget =
-                    true;
-            }
+            WarnMissingTarget();
 
             return;
         }
@@ -618,7 +540,7 @@ public class TerrainClipmapController :
                     true;
             }
 
-            InvalidateLODAnchorsOnly();
+            desiredLayout.Invalidate();
 
             return false;
         }
@@ -626,22 +548,17 @@ public class TerrainClipmapController :
         hasWarnedMissingSettings =
             false;
 
+        /*
+         * Preserve the runtime controller's previous contract:
+         * even CanTargetMoveTo(...) requires a configured target,
+         * because the controller itself represents a Player-follow
+         * system.
+         */
         if (target == null)
         {
-            if (!hasWarnedMissingTarget)
-            {
-                Debug.LogWarning(
-                    "TerrainClipmapController has no target.\n\n" +
-                    "Assign the Player Transform to the Target " +
-                    "field on the Clipmap GameObject.",
-                    this
-                );
+            WarnMissingTarget();
 
-                hasWarnedMissingTarget =
-                    true;
-            }
-
-            InvalidateLODAnchorsOnly();
+            desiredLayout.Invalidate();
 
             return false;
         }
@@ -649,127 +566,36 @@ public class TerrainClipmapController :
         hasWarnedMissingTarget =
             false;
 
-        int levelCount =
-            Mathf.Clamp(
-                worldSettings.clipmapLevelCount,
-                1,
-                10
-            );
+        bool success =
+            TerrainClipmapLayoutUtility
+                .TryCalculateLayout(
+                    worldSettings,
+                    targetWorldPosition,
+                    fixedY,
+                    desiredLayout,
+                    out string errorMessage
+                );
 
-        EnsureLODAnchorStorage(
-            levelCount
-        );
-
-        float minimumX =
-            float.PositiveInfinity;
-
-        float minimumZ =
-            float.PositiveInfinity;
-
-        float maximumX =
-            float.NegativeInfinity;
-
-        float maximumZ =
-            float.NegativeInfinity;
-
-        int centerResolution =
-            Mathf.Max(
-                1,
-                worldSettings.clipmapCenterResolution
-            );
-
-        for (
-            int level = 0;
-            level < levelCount;
-            level++
+        if (
+            !success
+            &&
+            !string.IsNullOrEmpty(
+                errorMessage
+            )
+            &&
+            !hasWarnedMissingSettings
         )
         {
-            float spacing =
-                GetLODSpacing(
-                    level
-                );
-
-            lodSpacings[
-                level
-            ] =
-                spacing;
-
-            Vector3 anchor =
-                new Vector3(
-                    SnapCoordinate(
-                        targetWorldPosition.x,
-                        spacing
-                    ),
-
-                    fixedY,
-
-                    SnapCoordinate(
-                        targetWorldPosition.z,
-                        spacing
-                    )
-                );
-
-            desiredLODAnchors[
-                level
-            ] =
-                anchor;
-
-            /*
-             * Every LOD uses centerResolution cells across its
-             * outer square. LOD0 is the center square and outer
-             * levels are rings with the same outer diameter for
-             * their own spacing.
-             */
-            float halfExtent =
-                centerResolution *
-                spacing *
-                0.5f;
-
-            minimumX =
-                Mathf.Min(
-                    minimumX,
-                    anchor.x -
-                    halfExtent
-                );
-
-            maximumX =
-                Mathf.Max(
-                    maximumX,
-                    anchor.x +
-                    halfExtent
-                );
-
-            minimumZ =
-                Mathf.Min(
-                    minimumZ,
-                    anchor.z -
-                    halfExtent
-                );
-
-            maximumZ =
-                Mathf.Max(
-                    maximumZ,
-                    anchor.z +
-                    halfExtent
-                );
+            Debug.LogWarning(
+                "TerrainClipmapController could not calculate " +
+                "the desired clipmap layout.\n\n" +
+                errorMessage,
+                this
+            );
         }
 
-        desiredClipmapMinimumXZ =
-            new Vector2(
-                minimumX,
-                minimumZ
-            );
-
-        desiredClipmapMaximumXZ =
-            new Vector2(
-                maximumX,
-                maximumZ
-            );
-
-        desiredLODAnchorsValid =
-            true;
-
-        return true;
+        return
+            success;
     }
 
     // =====================================================
@@ -778,34 +604,14 @@ public class TerrainClipmapController :
 
     private Vector3 GetDesiredCoverageCenter()
     {
-        if (
-            !desiredLODAnchorsValid
-            ||
-            desiredLODAnchors == null
-            ||
-            desiredLODAnchors.Length == 0
-        )
+        if (!desiredLayout.IsValid)
         {
-            return transform.position;
+            return
+                transform.position;
         }
 
-        /*
-         * The outermost LOD ring defines the outside boundary
-         * of the complete clipmap.
-         *
-         * Its diameter is exactly:
-         *
-         * centerResolution *
-         * ClipmapBaseSpacing *
-         * 2^(levelCount - 1)
-         *
-         * which is the diameter TerrainHeightmapStreamer already
-         * uses for coverage checks.
-         */
         return
-            desiredLODAnchors[
-                desiredLODAnchors.Length - 1
-            ];
+            desiredLayout.CoverageCenter;
     }
 
     // =====================================================
@@ -814,304 +620,61 @@ public class TerrainClipmapController :
 
     private void ApplyDesiredLODGeometry()
     {
-        if (
-            !desiredLODAnchorsValid
-            ||
-            desiredLODAnchors == null
-            ||
-            desiredLODAnchors.Length == 0
-        )
+        if (!desiredLayout.IsValid)
         {
             return;
         }
 
-        if (!EnsureLODHierarchyReferences())
+        EnsureLayoutApplier();
+
+        if (layoutApplier == null)
         {
+            WarnMissingLODHierarchy(
+                "The shared TerrainClipmapLayoutApplier " +
+                "could not be created."
+            );
+
             return;
         }
 
-        Vector3 lod0Anchor =
-            desiredLODAnchors[0];
-
-        // -------------------------------------------------
-        // LOD0 / clipmap root
-        // -------------------------------------------------
-
         if (
-            transform.position !=
-            lod0Anchor
+            !layoutApplier.TryApply(
+                desiredLayout,
+                out string errorMessage
+            )
         )
         {
-            transform.position =
-                lod0Anchor;
-        }
-
-        // -------------------------------------------------
-        // Coarse LOD groups
-        // -------------------------------------------------
-
-        for (
-            int level = 1;
-            level < desiredLODAnchors.Length;
-            level++
-        )
-        {
-            Transform levelTransform =
-                lodLevelTransforms[
-                    level
-                ];
-
-            Vector3 localOffset =
-                desiredLODAnchors[
-                    level
-                ]
-                -
-                lod0Anchor;
-
-            /*
-             * All generated clipmap groups remain at the root Y.
-             */
-            localOffset.y =
-                0f;
-
-            if (
-                levelTransform.localPosition !=
-                localOffset
-            )
-            {
-                levelTransform.localPosition =
-                    localOffset;
-            }
-
-            if (
-                levelTransform.localRotation !=
-                Quaternion.identity
-            )
-            {
-                levelTransform.localRotation =
-                    Quaternion.identity;
-            }
-
-            if (
-                levelTransform.localScale !=
-                Vector3.one
-            )
-            {
-                levelTransform.localScale =
-                    Vector3.one;
-            }
-        }
-
-        // -------------------------------------------------
-        // Adaptive stitch shader offsets
-        // -------------------------------------------------
-
-        if (transitionPropertyBlock == null)
-        {
-            transitionPropertyBlock =
-                new MaterialPropertyBlock();
-        }
-
-        for (
-            int coarseLevel = 1;
-            coarseLevel <
-                desiredLODAnchors.Length;
-            coarseLevel++
-        )
-        {
-            MeshRenderer stitchRenderer =
-                stitchRenderers[
-                    coarseLevel
-                ];
-
-            Vector3 fineMinusCoarse =
-                desiredLODAnchors[
-                    coarseLevel - 1
-                ]
-                -
-                desiredLODAnchors[
-                    coarseLevel
-                ];
-
-            stitchRenderer.GetPropertyBlock(
-                transitionPropertyBlock
+            WarnMissingLODHierarchy(
+                errorMessage
             );
 
-            transitionPropertyBlock.SetVector(
-                ClipmapTransitionOffsetPropertyId,
-                new Vector4(
-                    fineMinusCoarse.x,
-                    0f,
-                    fineMinusCoarse.z,
-                    0f
-                )
-            );
-
-            stitchRenderer.SetPropertyBlock(
-                transitionPropertyBlock
-            );
+            return;
         }
-    }
-
-    // =====================================================
-    // ENSURE LOD HIERARCHY REFERENCES
-    // =====================================================
-
-    private bool EnsureLODHierarchyReferences()
-    {
-        if (worldSettings == null)
-        {
-            return false;
-        }
-
-        int levelCount =
-            Mathf.Clamp(
-                worldSettings.clipmapLevelCount,
-                1,
-                10
-            );
-
-        bool storageMatches =
-            lodLevelTransforms != null
-            &&
-            stitchRenderers != null
-            &&
-            lodLevelTransforms.Length ==
-                levelCount
-            &&
-            stitchRenderers.Length ==
-                levelCount;
-
-        if (
-            lodHierarchyReferencesValid
-            &&
-            storageMatches
-        )
-        {
-            bool referencesStillValid =
-                true;
-
-            for (
-                int level = 1;
-                level < levelCount;
-                level++
-            )
-            {
-                if (
-                    lodLevelTransforms[
-                        level
-                    ] == null
-                    ||
-                    stitchRenderers[
-                        level
-                    ] == null
-                )
-                {
-                    referencesStillValid =
-                        false;
-
-                    break;
-                }
-            }
-
-            if (referencesStillValid)
-            {
-                return true;
-            }
-        }
-
-        lodLevelTransforms =
-            new Transform[
-                levelCount
-            ];
-
-        stitchRenderers =
-            new MeshRenderer[
-                levelCount
-            ];
-
-        for (
-            int level = 1;
-            level < levelCount;
-            level++
-        )
-        {
-            string levelName =
-                $"LOD{level}";
-
-            Transform levelTransform =
-                transform.Find(
-                    levelName
-                );
-
-            if (levelTransform == null)
-            {
-                WarnMissingLODHierarchy(
-                    $"Missing generated clipmap group '{levelName}'."
-                );
-
-                lodHierarchyReferencesValid =
-                    false;
-
-                return false;
-            }
-
-            string stitchName =
-                $"Stitch_LOD{level - 1}_LOD{level}";
-
-            Transform stitchTransform =
-                levelTransform.Find(
-                    stitchName
-                );
-
-            if (stitchTransform == null)
-            {
-                WarnMissingLODHierarchy(
-                    $"Missing generated stitch '{stitchName}' " +
-                    $"under '{levelName}'."
-                );
-
-                lodHierarchyReferencesValid =
-                    false;
-
-                return false;
-            }
-
-            MeshRenderer stitchRenderer =
-                stitchTransform
-                    .GetComponent<MeshRenderer>();
-
-            if (stitchRenderer == null)
-            {
-                WarnMissingLODHierarchy(
-                    $"Generated stitch '{stitchName}' has no " +
-                    "MeshRenderer."
-                );
-
-                lodHierarchyReferencesValid =
-                    false;
-
-                return false;
-            }
-
-            lodLevelTransforms[
-                level
-            ] =
-                levelTransform;
-
-            stitchRenderers[
-                level
-            ] =
-                stitchRenderer;
-        }
-
-        lodHierarchyReferencesValid =
-            true;
 
         hasWarnedMissingLODHierarchy =
             false;
+    }
 
-        return true;
+    // =====================================================
+    // WARN MISSING TARGET
+    // =====================================================
+
+    private void WarnMissingTarget()
+    {
+        if (hasWarnedMissingTarget)
+        {
+            return;
+        }
+
+        Debug.LogWarning(
+            "TerrainClipmapController has no target.\n\n" +
+            "Assign the Player Transform to the Target " +
+            "field on the Clipmap GameObject.",
+            this
+        );
+
+        hasWarnedMissingTarget =
+            true;
     }
 
     // =====================================================
@@ -1138,66 +701,6 @@ public class TerrainClipmapController :
 
         hasWarnedMissingLODHierarchy =
             true;
-    }
-
-    // =====================================================
-    // RESET LOD GEOMETRY
-    // =====================================================
-
-    private void ResetLODGeometry()
-    {
-        if (!EnsureLODHierarchyReferences())
-        {
-            return;
-        }
-
-        if (transitionPropertyBlock == null)
-        {
-            transitionPropertyBlock =
-                new MaterialPropertyBlock();
-        }
-
-        for (
-            int level = 1;
-            level < lodLevelTransforms.Length;
-            level++
-        )
-        {
-            if (
-                lodLevelTransforms[
-                    level
-                ] != null
-            )
-            {
-                lodLevelTransforms[
-                    level
-                ].localPosition =
-                    Vector3.zero;
-            }
-
-            MeshRenderer stitchRenderer =
-                stitchRenderers[
-                    level
-                ];
-
-            if (stitchRenderer == null)
-            {
-                continue;
-            }
-
-            stitchRenderer.GetPropertyBlock(
-                transitionPropertyBlock
-            );
-
-            transitionPropertyBlock.SetVector(
-                ClipmapTransitionOffsetPropertyId,
-                Vector4.zero
-            );
-
-            stitchRenderer.SetPropertyBlock(
-                transitionPropertyBlock
-            );
-        }
     }
 
     // =====================================================
@@ -1248,126 +751,18 @@ public class TerrainClipmapController :
     }
 
     // =====================================================
-    // ENSURE LOD ANCHOR STORAGE
-    // =====================================================
-
-    private void EnsureLODAnchorStorage(
-        int levelCount
-    )
-    {
-        int safeLevelCount =
-            Mathf.Max(
-                1,
-                levelCount
-            );
-
-        if (
-            desiredLODAnchors == null
-            ||
-            desiredLODAnchors.Length !=
-                safeLevelCount
-        )
-        {
-            desiredLODAnchors =
-                new Vector3[
-                    safeLevelCount
-                ];
-        }
-
-        if (
-            lodSpacings == null
-            ||
-            lodSpacings.Length !=
-                safeLevelCount
-        )
-        {
-            lodSpacings =
-                new float[
-                    safeLevelCount
-                ];
-        }
-    }
-
-    // =====================================================
     // INVALIDATE LOD STATE
     // =====================================================
 
     private void InvalidateLODState()
     {
-        InvalidateLODAnchorsOnly();
+        desiredLayout.Invalidate();
 
-        lodHierarchyReferencesValid =
-            false;
-
-        lodLevelTransforms =
-            null;
-
-        stitchRenderers =
-            null;
-    }
-
-    private void InvalidateLODAnchorsOnly()
-    {
-        desiredLODAnchorsValid =
-            false;
-    }
-
-    // =====================================================
-    // GET LOD SPACING
-    // =====================================================
-
-    private float GetLODSpacing(
-        int level
-    )
-    {
-        if (worldSettings == null)
+        if (layoutApplier != null)
         {
-            return 1f;
+            layoutApplier
+                .InvalidateHierarchyReferences();
         }
-
-        float baseSpacing =
-            Mathf.Max(
-                0.0001f,
-                worldSettings.ClipmapBaseSpacing
-            );
-
-        int safeLevel =
-            Mathf.Max(
-                0,
-                level
-            );
-
-        return
-            baseSpacing
-            *
-            Mathf.Pow(
-                2f,
-                safeLevel
-            );
-    }
-
-    // =====================================================
-    // SNAP COORDINATE
-    // =====================================================
-
-    private static float SnapCoordinate(
-        float coordinate,
-        float spacing
-    )
-    {
-        float safeSpacing =
-            Mathf.Max(
-                0.0001f,
-                spacing
-            );
-
-        return
-            Mathf.Round(
-                coordinate /
-                safeSpacing
-            )
-            *
-            safeSpacing;
     }
 
     // =====================================================
@@ -1424,9 +819,48 @@ public class TerrainClipmapController :
             return;
         }
 
-        if (!EnsureLODHierarchyReferences())
+        EnsureLayoutApplier();
+
+        if (
+            layoutApplier == null
+        )
         {
+            Debug.LogError(
+                "Cannot validate clipmap LOD anchors because " +
+                "TerrainClipmapLayoutApplier is unavailable.",
+                this
+            );
+
             return;
+        }
+
+        /*
+         * Resolve references up front through the public diagnostic
+         * access path. This keeps hierarchy knowledge inside the
+         * applier rather than leaking it back into this controller.
+         */
+        for (
+            int level = 1;
+            level < desiredLayout.LevelCount;
+            level++
+        )
+        {
+            if (
+                !layoutApplier.TryGetLODTransform(
+                    level,
+                    out _,
+                    out string hierarchyError
+                )
+            )
+            {
+                Debug.LogError(
+                    "Cannot validate clipmap LOD anchors.\n\n" +
+                    hierarchyError,
+                    this
+                );
+
+                return;
+            }
         }
 
         float baseSpacing =
@@ -1483,7 +917,7 @@ public class TerrainClipmapController :
             $"{transform.position.z:R})\n\n" +
 
             $"LOD Levels: " +
-            $"{desiredLODAnchors.Length}\n" +
+            $"{desiredLayout.LevelCount}\n" +
 
             $"Base Spacing: " +
             $"{baseSpacing:R}\n\n" +
@@ -1496,31 +930,33 @@ public class TerrainClipmapController :
 
         for (
             int level = 0;
-            level < desiredLODAnchors.Length;
+            level < desiredLayout.LevelCount;
             level++
         )
         {
             Vector3 anchor =
-                desiredLODAnchors[
+                desiredLayout.GetAnchor(
                     level
-                ];
+                );
 
             float spacing =
-                lodSpacings[
+                desiredLayout.GetSpacing(
                     level
-                ];
+                );
 
             float expectedX =
-                SnapCoordinate(
-                    anchor.x,
-                    spacing
-                );
+                TerrainClipmapLayoutUtility
+                    .SnapCoordinate(
+                        anchor.x,
+                        spacing
+                    );
 
             float expectedZ =
-                SnapCoordinate(
-                    anchor.z,
-                    spacing
-                );
+                TerrainClipmapLayoutUtility
+                    .SnapCoordinate(
+                        anchor.z,
+                        spacing
+                    );
 
             float levelDifference =
                 Mathf.Max(
@@ -1575,7 +1011,7 @@ public class TerrainClipmapController :
         for (
             int coarseLevel = 1;
             coarseLevel <
-                desiredLODAnchors.Length;
+                desiredLayout.LevelCount;
             coarseLevel++
         )
         {
@@ -1583,19 +1019,19 @@ public class TerrainClipmapController :
                 coarseLevel - 1;
 
             Vector3 fineAnchor =
-                desiredLODAnchors[
+                desiredLayout.GetAnchor(
                     fineLevel
-                ];
+                );
 
             Vector3 coarseAnchor =
-                desiredLODAnchors[
+                desiredLayout.GetAnchor(
                     coarseLevel
-                ];
+                );
 
             float fineSpacing =
-                lodSpacings[
+                desiredLayout.GetSpacing(
                     fineLevel
-                ];
+                );
 
             Vector3 offset =
                 fineAnchor -
@@ -1603,14 +1039,17 @@ public class TerrainClipmapController :
 
             float offsetDifference =
                 Mathf.Max(
-                    DistanceFromValidAdjacentOffset(
-                        offset.x,
-                        fineSpacing
-                    ),
-                    DistanceFromValidAdjacentOffset(
-                        offset.z,
-                        fineSpacing
-                    )
+                    TerrainClipmapLayoutUtility
+                        .DistanceFromValidAdjacentOffset(
+                            offset.x,
+                            fineSpacing
+                        ),
+
+                    TerrainClipmapLayoutUtility
+                        .DistanceFromValidAdjacentOffset(
+                            offset.z,
+                            fineSpacing
+                        )
                 );
 
             maximumAdjacentOffsetDifference =
@@ -1652,7 +1091,9 @@ public class TerrainClipmapController :
         float rootDifference =
             Vector3.Distance(
                 transform.position,
-                desiredLODAnchors[0]
+                desiredLayout.GetAnchor(
+                    0
+                )
             );
 
         maximumAppliedTransformDifference =
@@ -1681,21 +1122,38 @@ public class TerrainClipmapController :
 
         for (
             int level = 1;
-            level < desiredLODAnchors.Length;
+            level < desiredLayout.LevelCount;
             level++
         )
         {
+            if (
+                !layoutApplier.TryGetLODTransform(
+                    level,
+                    out Transform levelTransform,
+                    out string transformError
+                )
+            )
+            {
+                appliedTransformMismatchCount++;
+
+                if (firstProblem == null)
+                {
+                    firstProblem =
+                        transformError;
+                }
+
+                continue;
+            }
+
             Vector3 actualPosition =
-                lodLevelTransforms[
-                    level
-                ].position;
+                levelTransform.position;
 
             float difference =
                 Vector3.Distance(
                     actualPosition,
-                    desiredLODAnchors[
+                    desiredLayout.GetAnchor(
                         level
-                    ]
+                    )
                 );
 
             maximumAppliedTransformDifference =
@@ -1727,41 +1185,44 @@ public class TerrainClipmapController :
         // STITCH PROPERTY BLOCK OFFSETS
         // =================================================
 
-        if (transitionPropertyBlock == null)
-        {
-            transitionPropertyBlock =
-                new MaterialPropertyBlock();
-        }
-
         report +=
             "\nApplied Stitch Transition Offsets:\n";
 
         for (
             int coarseLevel = 1;
             coarseLevel <
-                desiredLODAnchors.Length;
+                desiredLayout.LevelCount;
             coarseLevel++
         )
         {
             Vector3 expected =
-                desiredLODAnchors[
+                desiredLayout.GetAnchor(
                     coarseLevel - 1
-                ]
+                )
                 -
-                desiredLODAnchors[
+                desiredLayout.GetAnchor(
                     coarseLevel
-                ];
-
-            stitchRenderers[
-                coarseLevel
-            ].GetPropertyBlock(
-                transitionPropertyBlock
-            );
-
-            Vector4 actual =
-                transitionPropertyBlock.GetVector(
-                    ClipmapTransitionOffsetPropertyId
                 );
+
+            if (
+                !layoutApplier
+                    .TryGetStitchTransitionOffset(
+                        coarseLevel,
+                        out Vector4 actual,
+                        out string stitchError
+                    )
+            )
+            {
+                stitchOffsetMismatchCount++;
+
+                if (firstProblem == null)
+                {
+                    firstProblem =
+                        stitchError;
+                }
+
+                continue;
+            }
 
             float difference =
                 Mathf.Max(
@@ -1841,10 +1302,10 @@ public class TerrainClipmapController :
             $"{maximumStitchOffsetDifference:R}\n\n" +
 
             $"Desired Geometry Bounds XZ: " +
-            $"({desiredClipmapMinimumXZ.x:R}, " +
-            $"{desiredClipmapMinimumXZ.y:R}) -> " +
-            $"({desiredClipmapMaximumXZ.x:R}, " +
-            $"{desiredClipmapMaximumXZ.y:R})";
+            $"({desiredLayout.MinimumXZ.x:R}, " +
+            $"{desiredLayout.MinimumXZ.y:R}) -> " +
+            $"({desiredLayout.MaximumXZ.x:R}, " +
+            $"{desiredLayout.MaximumXZ.y:R})";
 
         if (passed)
         {
@@ -1872,42 +1333,6 @@ public class TerrainClipmapController :
     }
 
     // =====================================================
-    // DISTANCE FROM VALID ADJACENT OFFSET
-    // =====================================================
-
-    private static float DistanceFromValidAdjacentOffset(
-        float offset,
-        float fineSpacing
-    )
-    {
-        float negativeDifference =
-            Mathf.Abs(
-                offset +
-                fineSpacing
-            );
-
-        float zeroDifference =
-            Mathf.Abs(
-                offset
-            );
-
-        float positiveDifference =
-            Mathf.Abs(
-                offset -
-                fineSpacing
-            );
-
-        return
-            Mathf.Min(
-                negativeDifference,
-                Mathf.Min(
-                    zeroDifference,
-                    positiveDifference
-                )
-            );
-    }
-
-    // =====================================================
     // STREAMER REFERENCE
     // =====================================================
 
@@ -1920,5 +1345,23 @@ public class TerrainClipmapController :
 
         streamer =
             GetComponent<TerrainHeightmapStreamer>();
+    }
+
+    // =====================================================
+    // LAYOUT APPLIER
+    // =====================================================
+
+    private void EnsureLayoutApplier()
+    {
+        if (layoutApplier == null)
+        {
+            layoutApplier =
+                new TerrainClipmapLayoutApplier();
+        }
+
+        layoutApplier.Configure(
+            transform,
+            worldSettings
+        );
     }
 }
