@@ -53,6 +53,10 @@ public partial class WorldMeshesEditorWindow :
 
         GUILayout.Space(10f);
 
+        DrawAuthoringChangePipelineSettings();
+
+        GUILayout.Space(10f);
+
         DrawSceneViewFollowingSettings();
 
         GUILayout.Space(10f);

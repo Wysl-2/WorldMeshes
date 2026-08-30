@@ -1121,6 +1121,60 @@ public static class TerrainAuthoringStateUtility
     }
 
 
+
+    /*
+     * Stage 12 per-modifier snapshot signature.
+     */
+    internal static string GetModifierContentSignature(
+        TerrainHeightModifier modifier
+    )
+    {
+        if (modifier == null)
+        {
+            return "";
+        }
+
+        StringBuilder builder =
+            new StringBuilder();
+
+        builder.Append(
+            "TerrainHeightModifierContentV1"
+        );
+
+        modifier.AppendDeterministicSignatureData(
+            builder
+        );
+
+        List<UnityEngine.Object> dependencies =
+            new List<UnityEngine.Object>();
+
+        modifier.CollectSignatureDependencies(
+            dependencies
+        );
+
+        AppendValue(
+            builder,
+            dependencies.Count
+        );
+
+        for (
+            int index = 0;
+            index < dependencies.Count;
+            index++
+        )
+        {
+            AppendModifierDependencySignature(
+                builder,
+                dependencies[index]
+            );
+        }
+
+        return
+            ComputeSHA256(
+                builder.ToString()
+            );
+    }
+
     // =====================================================
     // MODIFIER SIGNATURE HELPERS
     // =====================================================

@@ -72,6 +72,8 @@ public static class TerrainAuthoringPreviewService
         dirtyCompositeTiles =
             new HashSet<Vector2Int>();
 
+    private static bool overallSignatureAcknowledgementRequested;
+
     private static long fullCommittedBuildCount;
 
     /*
@@ -523,6 +525,9 @@ public static class TerrainAuthoringPreviewService
          */
         dirtyCompositeTiles.Clear();
 
+        overallSignatureAcknowledgementRequested =
+            false;
+
         ScheduleRefresh();
     }
 
@@ -591,6 +596,35 @@ public static class TerrainAuthoringPreviewService
         {
             ScheduleRefresh();
         }
+    }
+
+
+    /*
+     * Stage 12 modifier-authoring notification.
+     *
+     * This also handles valid changes with zero in-world dirty tiles.
+     */
+    public static void NotifyCompositeAuthoringStateChanged(
+        IEnumerable<Vector2Int> tileCoordinates
+    )
+    {
+        if (tileCoordinates != null)
+        {
+            foreach (
+                Vector2Int coordinate
+                in tileCoordinates
+            )
+            {
+                dirtyCompositeTiles.Add(
+                    coordinate
+                );
+            }
+        }
+
+        overallSignatureAcknowledgementRequested =
+            true;
+
+        ScheduleRefresh();
     }
 
     /*
@@ -702,6 +736,9 @@ public static class TerrainAuthoringPreviewService
             true;
 
         dirtyCompositeTiles.Clear();
+
+        overallSignatureAcknowledgementRequested =
+            false;
 
         ReleaseBinding();
         ReleaseCache();
@@ -1067,11 +1104,45 @@ public static class TerrainAuthoringPreviewService
                     currentOverallSignature
                 );
 
+            overallSignatureAcknowledgementRequested =
+                false;
+
             /*
              * The same RenderTexture object remains bound. Notify
              * consumers so Height-mode range metadata can refresh,
              * but do not rebind/rebuild the terrain cache.
              */
+            NotifyPreviewStateChanged();
+        }
+
+
+        // =================================================
+        // OVERALL AUTHORING SIGNATURE ACKNOWLEDGEMENT
+        // =================================================
+
+        if (
+            overallSignatureAcknowledgementRequested
+            &&
+            previewCache != null
+            &&
+            previewCache.IsReady
+            &&
+            dirtyCompositeTiles.Count == 0
+            &&
+            previewCache
+                .SourceCommittedHeightfieldSignature
+            ==
+            currentCommittedSignature
+        )
+        {
+            previewCache
+                .MarkOverallAuthoringSignature(
+                    currentOverallSignature
+                );
+
+            overallSignatureAcknowledgementRequested =
+                false;
+
             NotifyPreviewStateChanged();
         }
 
