@@ -72,11 +72,13 @@ public partial class WorldMeshesEditorWindow :
             TerrainAuthoringPreviewService.CacheReady
         )
         {
-            GUILayout.Space(5f);
+            GUILayout.Space(
+                5f
+            );
 
             EditorGUILayout.LabelField(
-                "Source",
-                "Committed Authoring Heightfield"
+                "Cache Model",
+                "Committed Base + Incremental Composite"
             );
 
             EditorGUILayout.LabelField(
@@ -114,15 +116,69 @@ public partial class WorldMeshesEditorWindow :
             );
 
             EditorGUILayout.LabelField(
+                "Cache Texture ID",
+                TerrainAuthoringPreviewService
+                    .CacheTextureInstanceId
+                    .ToString()
+            );
+
+            EditorGUILayout.LabelField(
+                "Full Cache Builds",
+                TerrainAuthoringPreviewService
+                    .FullCommittedBuildCount
+                    .ToString("N0")
+            );
+
+            EditorGUILayout.LabelField(
+                "Pending Dirty Tiles",
+                TerrainAuthoringPreviewService
+                    .PendingDirtyTileCount
+                    .ToString("N0")
+            );
+
+            EditorGUILayout.LabelField(
+                "Last Incremental Update",
+                TerrainAuthoringPreviewService
+                    .LastIncrementalSliceCount
+                    .ToString("N0") +
+                " slice(s)"
+            );
+
+            EditorGUILayout.LabelField(
+                "Total Incremental Slices",
+                TerrainAuthoringPreviewService
+                    .TotalIncrementalSliceUpdates
+                    .ToString("N0")
+            );
+
+            EditorGUILayout.LabelField(
                 "Approx. GPU Memory",
                 FormatPreviewMemory(
                     TerrainAuthoringPreviewService
                         .ApproximateGpuMemoryBytes
                 )
             );
+
+            GUILayout.Space(
+                5f
+            );
+
+            DrawShortSignature(
+                "Committed Signature",
+                TerrainAuthoringPreviewService
+                    .SourceCommittedHeightfieldSignature
+            );
+
+            DrawShortSignature(
+                "Overall Signature",
+                TerrainAuthoringPreviewService
+                    .SourceOverallAuthoringSignature
+            );
         }
 
-        GUILayout.Space(5f);
+        GUILayout.Space(
+            5f
+        );
 
         EditorGUI.BeginDisabledGroup(
             !previewEnabled
@@ -133,31 +189,65 @@ public partial class WorldMeshesEditorWindow :
 
         if (
             GUILayout.Button(
-                "Refresh Preview",
+                "Rebuild Committed Preview",
                 GUILayout.ExpandWidth(true)
             )
         )
         {
             TerrainAuthoringPreviewService
-                .RefreshNow();
+                .ForceCommittedRebuildNow();
         }
 
         EditorGUI.EndDisabledGroup();
 
-        GUILayout.Space(5f);
+        GUILayout.Space(
+            5f
+        );
 
         EditorGUILayout.HelpBox(
-            "The edit-mode preview reads committed authoring " +
-            "height tiles directly and binds them to the same " +
-            "clipmap height-cache shader interface used at " +
-            "runtime.\n\n" +
+            "The edit-mode preview now keeps committed base " +
+            "heightfield identity separate from overall authoring " +
+            "state.\n\n" +
 
-            "Compiling runtime heightmaps or rebuilding " +
-            "Addressables is not required to refresh this preview.",
+            "Committed base/layout changes rebuild the full GPU " +
+            "cache. Future modifier edits can instead notify only " +
+            "their affected height tiles so those existing texture-" +
+            "array slices are recomposited in place without replacing " +
+            "or rebinding the full cache.\n\n" +
+
+            "The Rebuild Committed Preview button performs the " +
+            "expensive validation/full rebuild explicitly.",
             MessageType.Info
         );
 
         GUILayout.EndVertical();
+    }
+
+    private static void DrawShortSignature(
+        string label,
+        string signature
+    )
+    {
+        string value =
+            string.IsNullOrEmpty(
+                signature
+            )
+                ? "(none)"
+                :
+                signature.Length <=
+                    16
+                    ? signature
+                    :
+                    signature.Substring(
+                        0,
+                        16
+                    ) +
+                    "...";
+
+        EditorGUILayout.LabelField(
+            label,
+            value
+        );
     }
 
     private static string FormatPreviewMemory(

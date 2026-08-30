@@ -85,7 +85,7 @@ public static class TerrainGenerationStateUtility
 
         string signature =
             TerrainAuthoringStateUtility
-                .GetCurrentAuthoringSignature(
+                .GetOverallAuthoringSignature(
                     worldSettings,
                     authoringData
                 );
@@ -182,7 +182,7 @@ public static class TerrainGenerationStateUtility
 
         string currentAuthoringSignature =
             TerrainAuthoringStateUtility
-                .GetCurrentAuthoringSignature(
+                .GetOverallAuthoringSignature(
                     worldSettings,
                     authoringData
                 );

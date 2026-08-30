@@ -304,7 +304,7 @@ public static class TerrainWorldHierarchyGenerator
          * replaced during hierarchy synchronization.
          */
         TerrainAuthoringPreviewService
-            .RequestRebind();
+            .NotifyClipmapHierarchyChanged();
 
         /*
          * Sync restores the generated clipmap to canonical

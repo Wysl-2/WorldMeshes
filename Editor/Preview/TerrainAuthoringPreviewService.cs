@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
@@ -11,20 +12,31 @@ public enum TerrainAuthoringPreviewStatus
     Error
 }
 
+/*
+ * Edit-mode authoring height preview lifecycle.
+ *
+ * Stage 7 separates three invalidation classes:
+ *
+ * 1. Committed base heightfield changed
+ *      -> full cache validation/rebuild
+ *
+ * 2. Composite authoring tiles changed
+ *      -> update only dirty slices in the existing cache
+ *
+ * 3. Clipmap hierarchy changed
+ *      -> rebind the existing cache, do not rebuild it
+ *
+ * The existing PreviewStateChanged event is retained for Stage 5
+ * visualization consumers. It is an outbound "preview metadata changed"
+ * notification and does not request a cache rebuild.
+ */
 [InitializeOnLoad]
 public static class TerrainAuthoringPreviewService
 {
     // =====================================================
-    // STATE CHANGE EVENT
+    // OUTBOUND STATE EVENT
     // =====================================================
 
-    /*
-     * Raised when the transient preview cache becomes available,
-     * is rebuilt, or is released.
-     *
-     * Editor visualization systems can refresh shader metadata
-     * without polling and without requesting a height-cache rebuild.
-     */
     public static event System.Action PreviewStateChanged;
 
     // =====================================================
@@ -50,11 +62,17 @@ public static class TerrainAuthoringPreviewService
 
     private static bool refreshScheduled;
 
-    private static bool rebuildRequested =
+    private static bool committedRebuildRequested =
         true;
 
-    private static bool rebindRequested =
+    private static bool clipmapRebindRequested =
         true;
+
+    private static readonly HashSet<Vector2Int>
+        dirtyCompositeTiles =
+            new HashSet<Vector2Int>();
+
+    private static long fullCommittedBuildCount;
 
     // =====================================================
     // INITIALIZATION
@@ -80,7 +98,7 @@ public static class TerrainAuthoringPreviewService
         EditorApplication.quitting +=
             OnEditorQuitting;
 
-        RequestRebuild();
+        NotifyCommittedHeightfieldChanged();
     }
 
     // =====================================================
@@ -118,6 +136,8 @@ public static class TerrainAuthoringPreviewService
                 ReleaseBinding();
                 ReleaseCache();
 
+                dirtyCompositeTiles.Clear();
+
                 SetStatus(
                     TerrainAuthoringPreviewStatus.Disabled,
                     "Terrain authoring preview is disabled."
@@ -128,7 +148,7 @@ public static class TerrainAuthoringPreviewService
                 return;
             }
 
-            RequestRebuild();
+            NotifyCommittedHeightfieldChanged();
         }
     }
 
@@ -280,10 +300,255 @@ public static class TerrainAuthoringPreviewService
         }
     }
 
+    public static string SourceCommittedHeightfieldSignature
+    {
+        get
+        {
+            return
+                previewCache != null
+                    ? previewCache
+                        .SourceCommittedHeightfieldSignature
+                    : "";
+        }
+    }
+
+    public static string SourceOverallAuthoringSignature
+    {
+        get
+        {
+            return
+                previewCache != null
+                    ? previewCache
+                        .SourceOverallAuthoringSignature
+                    : "";
+        }
+    }
+
+    public static int PendingDirtyTileCount
+    {
+        get
+        {
+            return
+                dirtyCompositeTiles.Count;
+        }
+    }
+
+    public static int LastIncrementalSliceCount
+    {
+        get
+        {
+            return
+                previewCache != null
+                    ? previewCache
+                        .LastIncrementalSliceCount
+                    : 0;
+        }
+    }
+
+    public static long TotalIncrementalSliceUpdates
+    {
+        get
+        {
+            return
+                previewCache != null
+                    ? previewCache
+                        .TotalIncrementalSliceUpdates
+                    : 0L;
+        }
+    }
+
+    public static long FullCommittedBuildCount
+    {
+        get
+        {
+            return
+                fullCommittedBuildCount;
+        }
+    }
+
+    public static int CacheTextureInstanceId
+    {
+        get
+        {
+            return
+                previewCache != null
+                &&
+                previewCache.HeightCache != null
+                    ? previewCache
+                        .HeightCache
+                        .GetInstanceID()
+                    : 0;
+        }
+    }
+
     // =====================================================
-    // PUBLIC REFRESH API
+    // CLEAR INVALIDATION API
     // =====================================================
 
+    /*
+     * Use when the physical committed base heightfield or its layout
+     * changed.
+     *
+     * This is the normal full-cache rebuild boundary.
+     */
+    public static void NotifyCommittedHeightfieldChanged()
+    {
+        committedRebuildRequested =
+            true;
+
+        clipmapRebindRequested =
+            true;
+
+        /*
+         * Dirty composite coordinates belong to the old committed
+         * base transaction. A future modifier system should submit
+         * new dirty regions after the new base is committed.
+         */
+        dirtyCompositeTiles.Clear();
+
+        ScheduleRefresh();
+    }
+
+    /*
+     * Use when non-destructive authoring/modifier output changed but
+     * the committed base heightfield did not.
+     *
+     * Multiple notifications before the scheduled refresh coalesce
+     * into one unique dirty-tile set.
+     */
+    public static void NotifyCompositeTileChanged(
+        int tileX,
+        int tileZ
+    )
+    {
+        dirtyCompositeTiles.Add(
+            new Vector2Int(
+                tileX,
+                tileZ
+            )
+        );
+
+        ScheduleRefresh();
+    }
+
+    public static void NotifyCompositeTileChanged(
+        Vector2Int tileCoordinate
+    )
+    {
+        dirtyCompositeTiles.Add(
+            tileCoordinate
+        );
+
+        ScheduleRefresh();
+    }
+
+    public static void NotifyCompositeTilesChanged(
+        IEnumerable<Vector2Int> tileCoordinates
+    )
+    {
+        if (tileCoordinates == null)
+        {
+            return;
+        }
+
+        bool anyAdded =
+            false;
+
+        foreach (
+            Vector2Int coordinate
+            in tileCoordinates
+        )
+        {
+            if (
+                dirtyCompositeTiles.Add(
+                    coordinate
+                )
+            )
+            {
+                anyAdded =
+                    true;
+            }
+        }
+
+        if (anyAdded)
+        {
+            ScheduleRefresh();
+        }
+    }
+
+    /*
+     * Convenience API for future modifier tools.
+     *
+     * The dirty region is expanded by one native height sample by
+     * default, which is useful for boundary-adjacent normal sampling.
+     */
+    public static void NotifyCompositeWorldBoundsChanged(
+        Bounds worldBounds,
+        int samplePadding = 1
+    )
+    {
+        WorldSettings worldSettings =
+            LoadWorldSettings();
+
+        if (worldSettings == null)
+        {
+            return;
+        }
+
+        HashSet<Vector2Int> affectedTiles =
+            new HashSet<Vector2Int>();
+
+        TerrainAuthoringPreviewDirtyRegionUtility
+            .CollectTilesOverlappingBounds(
+                worldSettings,
+                worldBounds,
+                affectedTiles,
+                samplePadding
+            );
+
+        NotifyCompositeTilesChanged(
+            affectedTiles
+        );
+    }
+
+    /*
+     * Use when WorldRoot/Clipmap renderers were created/replaced or
+     * the active generated hierarchy changed.
+     *
+     * Cache contents remain valid.
+     */
+    public static void NotifyClipmapHierarchyChanged()
+    {
+        clipmapRebindRequested =
+            true;
+
+        ScheduleRefresh();
+    }
+
+    /*
+     * Explicit user command: validate/rebuild the committed cache now.
+     */
+    public static void ForceCommittedRebuildNow()
+    {
+        committedRebuildRequested =
+            true;
+
+        clipmapRebindRequested =
+            true;
+
+        dirtyCompositeTiles.Clear();
+
+        ExecuteRefresh();
+    }
+
+    // =====================================================
+    // COMPATIBILITY API
+    // =====================================================
+
+    /*
+     * Existing callers remain source-compatible while Stage 7
+     * migrates call sites to the clearer invalidation methods above.
+     */
     public static void RequestRefresh()
     {
         ScheduleRefresh();
@@ -291,51 +556,35 @@ public static class TerrainAuthoringPreviewService
 
     public static void RequestRebuild()
     {
-        rebuildRequested =
-            true;
-
-        rebindRequested =
-            true;
-
-        ScheduleRefresh();
+        NotifyCommittedHeightfieldChanged();
     }
 
     public static void RequestRebind()
     {
-        rebindRequested =
-            true;
-
-        ScheduleRefresh();
+        NotifyClipmapHierarchyChanged();
     }
 
     public static void RefreshNow()
     {
-        rebuildRequested =
-            true;
-
-        rebindRequested =
-            true;
-
-        ExecuteRefresh();
+        ForceCommittedRebuildNow();
     }
 
-    /*
-     * Releases transient editor preview resources without changing
-     * the user's Enabled preference.
-     *
-     * The service can be used again later in the same editor
-     * session by RequestRebuild() / RequestRebind().
-     */
+    // =====================================================
+    // RESOURCE SHUTDOWN
+    // =====================================================
+
     public static void Shutdown()
     {
         refreshScheduled =
             false;
 
-        rebuildRequested =
+        committedRebuildRequested =
             true;
 
-        rebindRequested =
+        clipmapRebindRequested =
             true;
+
+        dirtyCompositeTiles.Clear();
 
         ReleaseBinding();
         ReleaseCache();
@@ -396,6 +645,8 @@ public static class TerrainAuthoringPreviewService
             ReleaseBinding();
             ReleaseCache();
 
+            dirtyCompositeTiles.Clear();
+
             SetStatus(
                 TerrainAuthoringPreviewStatus.Disabled,
                 "Terrain authoring preview is disabled."
@@ -415,6 +666,8 @@ public static class TerrainAuthoringPreviewService
             ReleaseBinding();
             ReleaseCache();
 
+            dirtyCompositeTiles.Clear();
+
             SetStatus(
                 TerrainAuthoringPreviewStatus.PlayMode,
                 "The editor preview is inactive in Play Mode. " +
@@ -428,18 +681,10 @@ public static class TerrainAuthoringPreviewService
         }
 
         WorldSettings worldSettings =
-            AssetDatabase
-                .LoadAssetAtPath<WorldSettings>(
-                    WorldMeshesPaths
-                        .WorldSettingsAssetPath
-                );
+            LoadWorldSettings();
 
         TerrainAuthoringData authoringData =
-            AssetDatabase
-                .LoadAssetAtPath<TerrainAuthoringData>(
-                    WorldMeshesPaths
-                        .TerrainAuthoringDataAssetPath
-                );
+            LoadAuthoringData();
 
         TerrainGenerationStateUtility.GenerationStatus
             authoringStatus =
@@ -458,6 +703,8 @@ public static class TerrainAuthoringPreviewService
             ReleaseBinding();
             ReleaseCache();
 
+            dirtyCompositeTiles.Clear();
+
             SetStatus(
                 TerrainAuthoringPreviewStatus.AuthoringUnavailable,
                 "The committed authoring heightfield is not " +
@@ -471,11 +718,10 @@ public static class TerrainAuthoringPreviewService
             return;
         }
 
-        /*
-         * Scene hierarchy discovery is shared with upcoming editor
-         * terrain-navigation systems. Do not duplicate WorldRoot /
-         * Clipmap traversal inside individual editor services.
-         */
+        // =================================================
+        // SCENE HIERARCHY
+        // =================================================
+
         if (
             !TerrainWorldSceneUtility
                 .TryFindActiveClipmapRoot(
@@ -512,34 +758,72 @@ public static class TerrainAuthoringPreviewService
             return;
         }
 
-        string currentAuthoringSignature =
+        // =================================================
+        // SIGNATURES
+        // =================================================
+
+        string currentCommittedSignature =
             TerrainAuthoringStateUtility
-                .GetCurrentAuthoringSignature(
+                .GetCommittedHeightfieldSignature(
+                    worldSettings
+                );
+
+        string currentOverallSignature =
+            TerrainAuthoringStateUtility
+                .GetOverallAuthoringSignature(
                     worldSettings,
                     authoringData
                 );
+
+        if (
+            string.IsNullOrEmpty(
+                currentCommittedSignature
+            )
+            ||
+            string.IsNullOrEmpty(
+                currentOverallSignature
+            )
+        )
+        {
+            ReleaseBinding();
+            ReleaseCache();
+
+            SetStatus(
+                TerrainAuthoringPreviewStatus.AuthoringUnavailable,
+                "The authoring signatures could not be calculated."
+            );
+
+            RepaintEditorViews();
+
+            return;
+        }
+
+        // =================================================
+        // FULL COMMITTED BUILD DECISION
+        // =================================================
 
         bool cacheNeedsBuild =
             previewCache == null
             ||
             !previewCache.IsReady
             ||
-            rebuildRequested
+            committedRebuildRequested
             ||
-            previewCache.SourceAuthoringSignature !=
-                currentAuthoringSignature;
+            previewCache
+                .SourceCommittedHeightfieldSignature
+            !=
+            currentCommittedSignature;
 
         if (cacheNeedsBuild)
         {
             /*
-             * Stop sampling the previous editor cache before the
-             * cache object replaces/destroys its old GPU texture.
-             * Rebinding occurs immediately after a successful
-             * synchronous rebuild.
+             * Full committed rebuilds replace the RenderTexture
+             * object, so stop the clipmap sampling the previous cache
+             * before the atomic cache transaction.
              */
             ReleaseBinding();
 
-            rebindRequested =
+            clipmapRebindRequested =
                 true;
 
             TerrainAuthoringPreviewCache newCache =
@@ -557,11 +841,6 @@ public static class TerrainAuthoringPreviewService
             {
                 ReleaseBinding();
 
-                /*
-                 * If this was a new cache object and its build
-                 * failed, release any transient resources it may
-                 * have created.
-                 */
                 if (previewCache == null)
                 {
                     newCache.Dispose();
@@ -584,14 +863,104 @@ public static class TerrainAuthoringPreviewService
             previewCache =
                 newCache;
 
-            NotifyPreviewStateChanged();
+            fullCommittedBuildCount++;
 
-            rebuildRequested =
+            committedRebuildRequested =
                 false;
 
-            rebindRequested =
+            clipmapRebindRequested =
                 true;
+
+            NotifyPreviewStateChanged();
         }
+
+        // =================================================
+        // DIRTY COMPOSITE SLICE UPDATE
+        // =================================================
+
+        bool compositeRangeChanged =
+            false;
+
+        int updatedCompositeSliceCount =
+            0;
+
+        if (
+            previewCache != null
+            &&
+            previewCache.IsReady
+            &&
+            dirtyCompositeTiles.Count > 0
+        )
+        {
+            /*
+             * Do not update slices on top of a stale committed base.
+             * A committed signature mismatch should already have
+             * triggered the full-build path above.
+             */
+            if (
+                previewCache
+                    .SourceCommittedHeightfieldSignature
+                !=
+                currentCommittedSignature
+            )
+            {
+                committedRebuildRequested =
+                    true;
+
+                ScheduleRefresh();
+
+                return;
+            }
+
+            List<Vector2Int> dirtySnapshot =
+                new List<Vector2Int>(
+                    dirtyCompositeTiles
+                );
+
+            if (
+                !previewCache
+                    .UpdateCompositeTiles(
+                        dirtySnapshot,
+                        out updatedCompositeSliceCount,
+                        out compositeRangeChanged,
+                        out string compositeError
+                    )
+            )
+            {
+                /*
+                 * Keep the dirty set so a future retry does not lose
+                 * the requested update.
+                 */
+                SetStatus(
+                    TerrainAuthoringPreviewStatus.Error,
+                    "The preview cache could not update its dirty " +
+                    "composite slices.\n\n" +
+                    compositeError
+                );
+
+                RepaintEditorViews();
+
+                return;
+            }
+
+            dirtyCompositeTiles.Clear();
+
+            previewCache
+                .MarkOverallAuthoringSignature(
+                    currentOverallSignature
+                );
+
+            /*
+             * The same RenderTexture object remains bound. Notify
+             * consumers so Height-mode range metadata can refresh,
+             * but do not rebind/rebuild the terrain cache.
+             */
+            NotifyPreviewStateChanged();
+        }
+
+        // =================================================
+        // CLIPMAP BINDING
+        // =================================================
 
         bool rootChanged =
             boundClipmapRoot !=
@@ -600,13 +969,14 @@ public static class TerrainAuthoringPreviewService
         if (
             rootChanged
             ||
-            rebindRequested
+            clipmapRebindRequested
         )
         {
             if (
                 boundClipmapRoot != null
                 &&
-                boundClipmapRoot != clipmapRoot
+                boundClipmapRoot !=
+                    clipmapRoot
             )
             {
                 ReleaseBinding();
@@ -629,14 +999,69 @@ public static class TerrainAuthoringPreviewService
                 return;
             }
 
-            rebindRequested =
+            clipmapRebindRequested =
                 false;
+        }
+        else if (
+            compositeRangeChanged
+            &&
+            !ApplyCurrentPreviewBounds(
+                clipmapRoot,
+                out string boundsError
+            )
+        )
+        {
+            SetStatus(
+                TerrainAuthoringPreviewStatus.Error,
+                boundsError
+            );
+
+            RepaintEditorViews();
+
+            return;
+        }
+
+        // =================================================
+        // STATUS
+        // =================================================
+
+        bool overallSignatureMatches =
+            previewCache != null
+            &&
+            previewCache
+                .SourceOverallAuthoringSignature
+            ==
+            currentOverallSignature;
+
+        string readyMessage;
+
+        if (!overallSignatureMatches)
+        {
+            readyMessage =
+                "The committed preview cache is current, but the " +
+                "overall authoring signature differs from the last " +
+                "composited state. Future modifier tools must call " +
+                "NotifyCompositeTilesChanged(...) for their affected " +
+                "tiles.";
+        }
+        else if (updatedCompositeSliceCount > 0)
+        {
+            readyMessage =
+                $"Updated {updatedCompositeSliceCount:N0} dirty " +
+                "preview slice(s) in place. The existing GPU cache " +
+                "remained bound to the clipmap.";
+        }
+        else
+        {
+            readyMessage =
+                "The committed base heightfield is cached once and " +
+                "the preview is ready for incremental composite " +
+                "slice updates.";
         }
 
         SetStatus(
             TerrainAuthoringPreviewStatus.Ready,
-            "Committed authoring height data is bound directly " +
-            "to the edit-mode clipmap."
+            readyMessage
         );
 
         RepaintEditorViews();
@@ -731,8 +1156,62 @@ public static class TerrainAuthoringPreviewService
         return true;
     }
 
+    private static bool ApplyCurrentPreviewBounds(
+        Transform clipmapRoot,
+        out string errorMessage
+    )
+    {
+        errorMessage =
+            "";
+
+        if (
+            clipmapRoot == null
+            ||
+            previewCache == null
+            ||
+            !previewCache.IsReady
+        )
+        {
+            errorMessage =
+                "The preview bounds cannot be updated because the " +
+                "clipmap or preview cache is unavailable.";
+
+            return false;
+        }
+
+        TerrainClipmapBoundsController boundsController =
+            clipmapRoot
+                .GetComponent<TerrainClipmapBoundsController>();
+
+        if (boundsController == null)
+        {
+            errorMessage =
+                "TerrainClipmapBoundsController is missing from " +
+                "WorldRoot/Clipmap.";
+
+            return false;
+        }
+
+        if (
+            !boundsController
+                .ApplyBoundsForRange(
+                    previewCache.MinimumHeight,
+                    previewCache.MaximumHeight
+                )
+        )
+        {
+            errorMessage =
+                "The incremental preview update succeeded, but the " +
+                "clipmap displacement bounds could not be refreshed.";
+
+            return false;
+        }
+
+        return true;
+    }
+
     // =====================================================
-    // RELEASE BINDING
+    // RELEASE BINDING / CACHE
     // =====================================================
 
     private static void ReleaseBinding()
@@ -764,10 +1243,6 @@ public static class TerrainAuthoringPreviewService
             null;
     }
 
-    // =====================================================
-    // RELEASE CACHE
-    // =====================================================
-
     private static void ReleaseCache()
     {
         if (previewCache == null)
@@ -789,17 +1264,31 @@ public static class TerrainAuthoringPreviewService
 
     private static void OnHierarchyChanged()
     {
-        RequestRebind();
+        /*
+         * Hierarchy changes never imply committed height data changed.
+         */
+        NotifyClipmapHierarchyChanged();
     }
 
     private static void OnProjectChanged()
     {
-        RequestRefresh();
+        /*
+         * Do not blindly rebuild the world cache.
+         *
+         * The next refresh compares the cheap committed-heightfield
+         * signature. Authorized committed-base transactions use
+         * the explicit committed-heightfield invalidation API.
+         */
+        ScheduleRefresh();
     }
 
     private static void OnUndoRedo()
     {
-        RequestRefresh();
+        /*
+         * Future modifier editors should notify precise dirty tiles
+         * as part of their own Undo/Redo integration.
+         */
+        ScheduleRefresh();
     }
 
     private static void OnPlayModeStateChanged(
@@ -814,6 +1303,8 @@ public static class TerrainAuthoringPreviewService
                 ReleaseBinding();
                 ReleaseCache();
 
+                dirtyCompositeTiles.Clear();
+
                 SetStatus(
                     TerrainAuthoringPreviewStatus.PlayMode,
                     "The editor preview released its height " +
@@ -827,7 +1318,7 @@ public static class TerrainAuthoringPreviewService
 
             case PlayModeStateChange.EnteredEditMode:
             {
-                RequestRebuild();
+                NotifyCommittedHeightfieldChanged();
 
                 break;
             }
@@ -838,16 +1329,44 @@ public static class TerrainAuthoringPreviewService
     {
         ReleaseBinding();
         ReleaseCache();
+
+        dirtyCompositeTiles.Clear();
     }
 
     private static void OnEditorQuitting()
     {
         ReleaseBinding();
         ReleaseCache();
+
+        dirtyCompositeTiles.Clear();
     }
 
     // =====================================================
-    // PREVIEW STATE NOTIFICATION
+    // ASSET LOAD
+    // =====================================================
+
+    private static WorldSettings LoadWorldSettings()
+    {
+        return
+            AssetDatabase
+                .LoadAssetAtPath<WorldSettings>(
+                    WorldMeshesPaths
+                        .WorldSettingsAssetPath
+                );
+    }
+
+    private static TerrainAuthoringData LoadAuthoringData()
+    {
+        return
+            AssetDatabase
+                .LoadAssetAtPath<TerrainAuthoringData>(
+                    WorldMeshesPaths
+                        .TerrainAuthoringDataAssetPath
+                );
+    }
+
+    // =====================================================
+    // OUTBOUND PREVIEW STATE NOTIFICATION
     // =====================================================
 
     private static void NotifyPreviewStateChanged()

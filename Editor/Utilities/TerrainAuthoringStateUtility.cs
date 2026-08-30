@@ -247,6 +247,125 @@ public static class TerrainAuthoringStateUtility
     }
 
     // =====================================================
+    // COMMITTED HEIGHTFIELD SIGNATURE
+    // =====================================================
+
+    /*
+     * Identity of the physical committed base heightfield only.
+     *
+     * This intentionally excludes TerrainAuthoringData.authoringRevision
+     * and future modifier state. Non-destructive authoring edits can
+     * therefore change the overall authoring signature without forcing
+     * the committed GPU preview cache to be rebuilt.
+     */
+    public static string GetCommittedHeightfieldSignature(
+        WorldSettings worldSettings
+    )
+    {
+        if (worldSettings == null)
+        {
+            return "";
+        }
+
+        TerrainAuthoringHeightManifest manifest =
+            LoadAuthoringHeightManifest();
+
+        if (
+            manifest == null
+            ||
+            !manifest.isComplete
+            ||
+            manifest.manifestVersion !=
+                TerrainAuthoringHeightManifest.CurrentVersion
+            ||
+            manifest.committedHeightRevision <= 0
+            ||
+            !ManifestMatchesWorldSettings(
+                manifest,
+                worldSettings
+            )
+            ||
+            string.IsNullOrEmpty(
+                manifest.committedContentHash
+            )
+        )
+        {
+            return "";
+        }
+
+        StringBuilder builder =
+            new StringBuilder();
+
+        builder.Append(
+            "WorldMeshesCommittedHeightfieldStateV1"
+        );
+
+        AppendValue(
+            builder,
+            manifest.manifestVersion
+        );
+
+        AppendValue(
+            builder,
+            manifest.committedHeightRevision
+        );
+
+        /*
+         * Heightfield layout is part of committed cache identity.
+         * These values are also validated against the manifest above.
+         */
+        AppendValue(
+            builder,
+            worldSettings.gridWidth
+        );
+
+        AppendValue(
+            builder,
+            worldSettings.gridHeight
+        );
+
+        AppendValue(
+            builder,
+            worldSettings.chunkSize
+        );
+
+        AppendValue(
+            builder,
+            worldSettings.heightfieldResolutionPerChunk
+        );
+
+        AppendValue(
+            builder,
+            worldSettings.heightTileChunkSpan
+        );
+
+        AppendValue(
+            builder,
+            worldSettings.HeightTileGridWidth
+        );
+
+        AppendValue(
+            builder,
+            worldSettings.HeightTileGridHeight
+        );
+
+        AppendValue(
+            builder,
+            worldSettings.HeightTileSamplesPerSide
+        );
+
+        builder.Append('|');
+
+        builder.Append(
+            manifest.committedContentHash
+        );
+
+        return ComputeSHA256(
+            builder.ToString()
+        );
+    }
+
+    // =====================================================
     // LIGHTWEIGHT AUTHORING SIGNATURE
     // =====================================================
 
@@ -255,7 +374,7 @@ public static class TerrainAuthoringStateUtility
      * checks. The expensive physical tile-content verification
      * is performed during explicit validation/compilation.
      */
-    public static string GetCurrentAuthoringSignature(
+    public static string GetOverallAuthoringSignature(
         WorldSettings worldSettings,
         TerrainAuthoringData authoringData
     )
@@ -371,6 +490,25 @@ public static class TerrainAuthoringStateUtility
         return ComputeSHA256(
             builder.ToString()
         );
+    }
+
+    /*
+     * Compatibility alias retained for existing integrations.
+     *
+     * New code should explicitly request the overall authoring
+     * signature or the committed-heightfield signature depending on
+     * which dependency it actually tracks.
+     */
+    public static string GetCurrentAuthoringSignature(
+        WorldSettings worldSettings,
+        TerrainAuthoringData authoringData
+    )
+    {
+        return
+            GetOverallAuthoringSignature(
+                worldSettings,
+                authoringData
+            );
     }
 
     // =====================================================

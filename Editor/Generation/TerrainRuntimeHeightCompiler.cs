@@ -84,7 +84,7 @@ public static class TerrainRuntimeHeightCompiler
 
         string authoringSignature =
             TerrainAuthoringStateUtility
-                .GetCurrentAuthoringSignature(
+                .GetOverallAuthoringSignature(
                     worldSettings,
                     authoringData
                 );

@@ -541,7 +541,7 @@ public static class TerrainAuthoringHeightInitializer
          * from the new authoring tiles.
          */
         TerrainAuthoringPreviewService
-            .RequestRebuild();
+            .NotifyCommittedHeightfieldChanged();
 
         Selection.activeObject =
             authoringData;
