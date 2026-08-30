@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -486,6 +487,27 @@ public static class TerrainAuthoringStateUtility
         builder.Append(
             manifest.committedContentHash
         );
+
+
+        /*
+         * Preserve the pre-Stage-11 overall signature exactly while
+         * the modifier stack is empty. This avoids marking existing
+         * generated runtime data stale merely because the modifier
+         * data model was installed.
+         *
+         * Once modifiers exist, their ordered output-relevant state is
+         * appended to the overall authoring signature.
+         */
+        if (
+            authoringData.HeightModifierCount >
+            0
+        )
+        {
+            AppendModifierStackSignatureData(
+                builder,
+                authoringData
+            );
+        }
 
         return ComputeSHA256(
             builder.ToString()
@@ -1096,6 +1118,172 @@ public static class TerrainAuthoringStateUtility
                 "Tiles"
             );
         }
+    }
+
+
+    // =====================================================
+    // MODIFIER SIGNATURE HELPERS
+    // =====================================================
+
+    private static void AppendModifierStackSignatureData(
+        StringBuilder builder,
+        TerrainAuthoringData authoringData
+    )
+    {
+        if (
+            builder == null
+            ||
+            authoringData == null
+        )
+        {
+            return;
+        }
+
+        IReadOnlyList<TerrainHeightModifier> modifiers =
+            authoringData.HeightModifiers;
+
+        builder.Append(
+            "|TerrainHeightModifiersV1"
+        );
+
+        AppendValue(
+            builder,
+            modifiers.Count
+        );
+
+        List<UnityEngine.Object> dependencies =
+            new List<UnityEngine.Object>();
+
+        for (
+            int index = 0;
+            index < modifiers.Count;
+            index++
+        )
+        {
+            AppendValue(
+                builder,
+                index
+            );
+
+            TerrainHeightModifier modifier =
+                modifiers[
+                    index
+                ];
+
+            if (modifier == null)
+            {
+                builder.Append(
+                    "|NullModifier"
+                );
+
+                continue;
+            }
+
+            modifier.AppendDeterministicSignatureData(
+                builder
+            );
+
+            dependencies.Clear();
+
+            modifier.CollectSignatureDependencies(
+                dependencies
+            );
+
+            AppendValue(
+                builder,
+                dependencies.Count
+            );
+
+            for (
+                int dependencyIndex = 0;
+                dependencyIndex < dependencies.Count;
+                dependencyIndex++
+            )
+            {
+                AppendModifierDependencySignature(
+                    builder,
+                    dependencies[
+                        dependencyIndex
+                    ]
+                );
+            }
+        }
+    }
+
+    private static void AppendModifierDependencySignature(
+        StringBuilder builder,
+        UnityEngine.Object dependency
+    )
+    {
+        if (builder == null)
+        {
+            return;
+        }
+
+        if (dependency == null)
+        {
+            builder.Append(
+                "|NullDependency"
+            );
+
+            return;
+        }
+
+        string path =
+            AssetDatabase.GetAssetPath(
+                dependency
+            );
+
+        if (
+            string.IsNullOrEmpty(
+                path
+            )
+        )
+        {
+            /*
+             * Unsaved transient references are not valid persistent
+             * authoring dependencies. Keep the signature deterministic
+             * without using runtime instance IDs.
+             */
+            builder.Append(
+                "|UnsavedDependency"
+            );
+
+            builder.Append('|');
+
+            builder.Append(
+                dependency.GetType()
+                    .FullName
+            );
+
+            return;
+        }
+
+        string guid =
+            AssetDatabase.AssetPathToGUID(
+                path
+            );
+
+        Hash128 dependencyHash =
+            AssetDatabase.GetAssetDependencyHash(
+                path
+            );
+
+        builder.Append(
+            "|Dependency"
+        );
+
+        builder.Append('|');
+
+        builder.Append(
+            guid
+        );
+
+        builder.Append('|');
+
+        builder.Append(
+            dependencyHash.ToString()
+        );
     }
 
     // =====================================================
