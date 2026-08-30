@@ -74,6 +74,14 @@ public static class TerrainAuthoringPreviewService
 
     private static long fullCommittedBuildCount;
 
+    /*
+     * Stage 10 validation-only monotonic binding diagnostic.
+     *
+     * This is not preview lifecycle state and does not influence any
+     * cache/binding decision.
+     */
+    private static long diagnosticBindingApplyCount;
+
     // =====================================================
     // INITIALIZATION
     // =====================================================
@@ -378,6 +386,115 @@ public static class TerrainAuthoringPreviewService
                         .HeightCache
                         .GetInstanceID()
                     : 0;
+        }
+    }
+
+
+    // =====================================================
+    // STAGE 10 VALIDATION DIAGNOSTICS
+    // =====================================================
+
+    /*
+     * Narrow editor-assembly diagnostics for Stage 10 validation.
+     *
+     * The preview cache itself remains private. Validation and future
+     * internal diagnostics can inspect addressing/range metadata
+     * without gaining access to cache allocation, GPU resources, or
+     * renderer binding ownership.
+     */
+    internal static bool TryGetSliceIndex(
+        int tileX,
+        int tileZ,
+        out int sliceIndex
+    )
+    {
+        sliceIndex =
+            -1;
+
+        if (
+            previewCache == null
+            ||
+            !previewCache.IsReady
+        )
+        {
+            return false;
+        }
+
+        sliceIndex =
+            previewCache.GetSliceIndex(
+                tileX,
+                tileZ
+            );
+
+        return
+            sliceIndex >= 0;
+    }
+
+    internal static bool TryGetTileCoordinate(
+        int sliceIndex,
+        out Vector2Int tileCoordinate
+    )
+    {
+        tileCoordinate =
+            Vector2Int.zero;
+
+        if (
+            previewCache == null
+            ||
+            !previewCache.IsReady
+        )
+        {
+            return false;
+        }
+
+        return
+            previewCache.TryGetTileCoordinate(
+                sliceIndex,
+                out tileCoordinate
+            );
+    }
+
+    internal static bool TryGetCompositeSliceRange(
+        int tileX,
+        int tileZ,
+        out float minimumHeight,
+        out float maximumHeight
+    )
+    {
+        minimumHeight =
+            0f;
+
+        maximumHeight =
+            0f;
+
+        if (
+            previewCache == null
+            ||
+            !previewCache.IsReady
+        )
+        {
+            return false;
+        }
+
+        return
+            previewCache.TryGetCompositeSliceRange(
+                tileX,
+                tileZ,
+                out minimumHeight,
+                out maximumHeight
+            );
+    }
+
+    /*
+     * Monotonic editor-session count used only to prove that
+     * NotifyClipmapHierarchyChanged() caused a real binding pass.
+     */
+    internal static long DiagnosticBindingApplyCount
+    {
+        get
+        {
+            return
+                diagnosticBindingApplyCount;
         }
     }
 
@@ -1152,6 +1269,8 @@ public static class TerrainAuthoringPreviewService
 
         boundClipmapRoot =
             clipmapRoot;
+
+        diagnosticBindingApplyCount++;
 
         return true;
     }
