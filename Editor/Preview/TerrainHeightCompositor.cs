@@ -67,6 +67,26 @@ public sealed class TerrainHeightCompositor
     private int lastDispatchTileCount;
     private long totalDispatchTileCount;
 
+    /*
+     * Live integration diagnostics.
+     *
+     * "Considered" counts modifier-list entries visited by tile
+     * transactions. "Modifier dispatch" counts supported modifier
+     * operations that reached a GPU dispatch. "Compute dispatch" counts
+     * the corresponding additive-stamp compute dispatches.
+     */
+    private int currentTransactionModifierConsideredCount;
+    private int lastModifierConsideredCount;
+    private long totalModifierConsideredCount;
+
+    private int currentTransactionModifierDispatchCount;
+    private int lastModifierDispatchCount;
+    private long totalModifierDispatchCount;
+
+    private int currentTransactionComputeDispatchCount;
+    private int lastComputeDispatchCount;
+    private long totalComputeDispatchCount;
+
     public bool IsPrepared
     {
         get
@@ -90,6 +110,24 @@ public sealed class TerrainHeightCompositor
 
     public long TotalDispatchTileCount =>
         totalDispatchTileCount;
+
+    public int LastModifierConsideredCount =>
+        lastModifierConsideredCount;
+
+    public long TotalModifierConsideredCount =>
+        totalModifierConsideredCount;
+
+    public int LastModifierDispatchCount =>
+        lastModifierDispatchCount;
+
+    public long TotalModifierDispatchCount =>
+        totalModifierDispatchCount;
+
+    public int LastComputeDispatchCount =>
+        lastComputeDispatchCount;
+
+    public long TotalComputeDispatchCount =>
+        totalComputeDispatchCount;
 
     public uint IdentityThreadGroupSizeX =>
         identityThreadGroupSizeX;
@@ -213,6 +251,15 @@ public sealed class TerrainHeightCompositor
     {
         currentTransactionDispatchTileCount = 0;
         lastDispatchTileCount = 0;
+
+        currentTransactionModifierConsideredCount = 0;
+        lastModifierConsideredCount = 0;
+
+        currentTransactionModifierDispatchCount = 0;
+        lastModifierDispatchCount = 0;
+
+        currentTransactionComputeDispatchCount = 0;
+        lastComputeDispatchCount = 0;
     }
 
     /*
@@ -451,6 +498,8 @@ public sealed class TerrainHeightCompositor
             TerrainHeightModifier modifier =
                 modifiers[modifierIndex];
 
+            MarkModifierConsidered();
+
             if (modifier == null)
             {
                 errorMessage =
@@ -559,6 +608,8 @@ public sealed class TerrainHeightCompositor
             {
                 return false;
             }
+
+            MarkModifierDispatchSucceeded();
 
             if (heightDelta > 0f)
             {
@@ -730,6 +781,8 @@ public sealed class TerrainHeightCompositor
                 groupsY,
                 1
             );
+
+            MarkComputeDispatchSucceeded();
         }
         catch (Exception exception)
         {
@@ -922,6 +975,36 @@ public sealed class TerrainHeightCompositor
             && modifierMin.x <= tileMaxXZ.x
             && modifierMax.z >= tileMinXZ.y
             && modifierMin.z <= tileMaxXZ.y;
+    }
+
+    private void MarkModifierConsidered()
+    {
+        currentTransactionModifierConsideredCount++;
+
+        lastModifierConsideredCount =
+            currentTransactionModifierConsideredCount;
+
+        totalModifierConsideredCount++;
+    }
+
+    private void MarkModifierDispatchSucceeded()
+    {
+        currentTransactionModifierDispatchCount++;
+
+        lastModifierDispatchCount =
+            currentTransactionModifierDispatchCount;
+
+        totalModifierDispatchCount++;
+    }
+
+    private void MarkComputeDispatchSucceeded()
+    {
+        currentTransactionComputeDispatchCount++;
+
+        lastComputeDispatchCount =
+            currentTransactionComputeDispatchCount;
+
+        totalComputeDispatchCount++;
     }
 
     private void MarkTileCompositionSucceeded()

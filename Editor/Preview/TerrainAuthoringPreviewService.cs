@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 public enum TerrainAuthoringPreviewStatus
 {
@@ -445,6 +446,30 @@ public static class TerrainAuthoringPreviewService
         }
     }
 
+    public static int LastCompositeModifierConsideredCount =>
+        heightCompositor
+            .LastModifierConsideredCount;
+
+    public static long TotalCompositeModifierConsideredCount =>
+        heightCompositor
+            .TotalModifierConsideredCount;
+
+    public static int LastCompositeModifierDispatchCount =>
+        heightCompositor
+            .LastModifierDispatchCount;
+
+    public static long TotalCompositeModifierDispatchCount =>
+        heightCompositor
+            .TotalModifierDispatchCount;
+
+    public static int LastCompositeComputeDispatchCount =>
+        heightCompositor
+            .LastComputeDispatchCount;
+
+    public static long TotalCompositeComputeDispatchCount =>
+        heightCompositor
+            .TotalComputeDispatchCount;
+
 
     // =====================================================
     // STAGE 10 VALIDATION DIAGNOSTICS
@@ -567,6 +592,148 @@ public static class TerrainAuthoringPreviewService
                 .TryPrepare(
                     out errorMessage
                 );
+    }
+
+    /*
+     * Copies the current pending dirty set without exposing ownership of
+     * the internal HashSet.
+     */
+    internal static void CopyPendingDirtyTiles(
+        ICollection<Vector2Int> output
+    )
+    {
+        if (output == null)
+        {
+            return;
+        }
+
+        foreach (
+            Vector2Int tile
+            in dirtyCompositeTiles
+        )
+        {
+            output.Add(
+                tile
+            );
+        }
+    }
+
+    /*
+     * Validation-only synchronous readback of one existing composite
+     * cache slice. The cache and RenderTexture remain private.
+     */
+    internal static bool TryReadCompositeSlice(
+        int tileX,
+        int tileZ,
+        out float[] values,
+        out string errorMessage
+    )
+    {
+        values =
+            null;
+
+        errorMessage =
+            "";
+
+        if (
+            previewCache == null
+            ||
+            !previewCache.IsReady
+            ||
+            previewCache.HeightCache == null
+            ||
+            !previewCache.HeightCache.IsCreated()
+        )
+        {
+            errorMessage =
+                "The preview cache is not ready.";
+
+            return false;
+        }
+
+        if (!SystemInfo.supportsAsyncGPUReadback)
+        {
+            errorMessage =
+                "The current graphics device does not support AsyncGPUReadback.";
+
+            return false;
+        }
+
+        int sliceIndex =
+            previewCache.GetSliceIndex(
+                tileX,
+                tileZ
+            );
+
+        if (sliceIndex < 0)
+        {
+            errorMessage =
+                $"Tile ({tileX}, {tileZ}) is outside the preview cache.";
+
+            return false;
+        }
+
+        int samples =
+            previewCache.SamplesPerSide;
+
+        AsyncGPUReadbackRequest request =
+            AsyncGPUReadback.Request(
+                previewCache.HeightCache,
+                0,
+                0,
+                samples,
+                0,
+                samples,
+                sliceIndex,
+                1,
+                TextureFormat.RFloat,
+                null
+            );
+
+        request.WaitForCompletion();
+
+        if (request.hasError)
+        {
+            errorMessage =
+                $"GPU readback failed for tile ({tileX}, {tileZ}).";
+
+            return false;
+        }
+
+        var data =
+            request.GetData<float>();
+
+        int expectedLength =
+            samples
+            *
+            samples;
+
+        if (data.Length != expectedLength)
+        {
+            errorMessage =
+                "GPU readback returned an unexpected sample count. "
+                +
+                $"Expected {expectedLength}, received {data.Length}.";
+
+            return false;
+        }
+
+        values =
+            new float[
+                data.Length
+            ];
+
+        for (
+            int index = 0;
+            index < data.Length;
+            index++
+        )
+        {
+            values[index] =
+                data[index];
+        }
+
+        return true;
     }
 
     internal static bool DiagnosticCacheRandomWriteEnabled

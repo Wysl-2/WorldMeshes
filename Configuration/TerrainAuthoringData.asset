@@ -15,4 +15,20 @@ MonoBehaviour:
   sourceMode: 1
   flatHeight: 0
   importedHeightmap: {fileID: 0}
-  authoringRevision: 8
+  heightModifiers:
+  - rid: 8462234730159144961
+  authoringRevision: 42
+  references:
+    version: 2
+    RefIds:
+    - rid: 8462234730159144961
+      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
+      data:
+        stableId: 51b25df0e833483b9ea92062426f11d4
+        enabled: 1
+        blendMode: 0
+        stampAsset: {fileID: 11400000, guid: 6a689e9b9ac1ae45497970ca4bb9c9da, type: 2}
+        positionXZ: {x: 2900, y: 3072}
+        sizeXZ: {x: 512, y: 512}
+        heightDelta: 100
+        falloff: 0.109

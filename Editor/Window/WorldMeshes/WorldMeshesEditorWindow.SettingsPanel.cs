@@ -61,6 +61,10 @@ public partial class WorldMeshesEditorWindow :
 
         GUILayout.Space(10f);
 
+        DrawLiveStampValidationSettings();
+
+        GUILayout.Space(10f);
+
         DrawSceneViewFollowingSettings();
 
         GUILayout.Space(10f);
