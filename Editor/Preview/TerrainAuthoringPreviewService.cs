@@ -1217,6 +1217,7 @@ public static class TerrainAuthoringPreviewService
                             previewCache.SampleSpacing,
                             worldSettings.HeightTileWorldSize,
                             previewCache.WorldSizeXZ,
+                            authoringData,
                             out string compositorError
                         )
                 )

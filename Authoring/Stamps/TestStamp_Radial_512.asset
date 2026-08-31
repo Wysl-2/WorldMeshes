@@ -12,4 +12,4 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 8dbd995a6f4e5e83a8296c00a6a2f0d2, type: 3}
   m_Name: TestStamp_Radial_512
   m_EditorClassIdentifier: Assembly-CSharp::TerrainHeightStampAsset
-  heightTexture: {fileID: 0}
+  heightTexture: {fileID: 2800000, guid: 78cc2819b766468a6b3e9d9829a4ad24, type: 3}

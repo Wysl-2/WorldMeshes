@@ -1,7 +1,11 @@
 #pragma kernel IdentityComposite
+#pragma kernel ApplyAdditiveStamp
 #pragma kernel ValidationAddConstant
 
 RWTexture2DArray<float> _HeightCache;
+
+Texture2D<float4> _StampTexture;
+SamplerState sampler_StampTexture;
 
 int _TargetSlice;
 int _SamplesPerSide;
@@ -13,14 +17,36 @@ int2 _TileCoordinate;
 float2 _TileWorldOriginXZ;
 float2 _WorldSizeXZ;
 
+float2 _StampMinXZ;
+float2 _StampSizeXZ;
+float _StampHeightDelta;
+
 float _ValidationHeightDelta;
 
-[numthreads(8, 8, 1)]
-void IdentityComposite(
-    uint3 dispatchThreadId :
-        SV_DispatchThreadID
+
+// =====================================================
+// COMMON ADDRESSING
+// =====================================================
+
+bool TryGetAuthoringSample(
+    uint3 dispatchThreadId,
+    out uint3 cacheAddress,
+    out float2 sampleWorldXZ
 )
 {
+    cacheAddress =
+        uint3(
+            0,
+            0,
+            0
+        );
+
+    sampleWorldXZ =
+        float2(
+            0.0,
+            0.0
+        );
+
     if (
         dispatchThreadId.x >=
             (uint)_SamplesPerSide
@@ -29,7 +55,7 @@ void IdentityComposite(
             (uint)_SamplesPerSide
     )
     {
-        return;
+        return false;
     }
 
     float2 expectedTileOriginXZ =
@@ -54,10 +80,10 @@ void IdentityComposite(
         )
     )
     {
-        return;
+        return false;
     }
 
-    float2 sampleWorldXZ =
+    sampleWorldXZ =
         _TileWorldOriginXZ
         +
         float2(
@@ -90,15 +116,43 @@ void IdentityComposite(
             worldTolerance
     )
     {
-        return;
+        return false;
     }
 
-    uint3 cacheAddress =
+    cacheAddress =
         uint3(
             dispatchThreadId.x,
             dispatchThreadId.y,
             (uint)_TargetSlice
         );
+
+    return true;
+}
+
+
+// =====================================================
+// STAGE 13A IDENTITY COMPOSITION
+// =====================================================
+
+[numthreads(8, 8, 1)]
+void IdentityComposite(
+    uint3 dispatchThreadId :
+        SV_DispatchThreadID
+)
+{
+    uint3 cacheAddress;
+    float2 sampleWorldXZ;
+
+    if (
+        !TryGetAuthoringSample(
+            dispatchThreadId,
+            cacheAddress,
+            sampleWorldXZ
+        )
+    )
+    {
+        return;
+    }
 
     float height =
         _HeightCache[
@@ -110,6 +164,94 @@ void IdentityComposite(
     ] =
         height;
 }
+
+
+// =====================================================
+// STAGE 13B ADDITIVE HEIGHT STAMP
+// =====================================================
+
+[numthreads(8, 8, 1)]
+void ApplyAdditiveStamp(
+    uint3 dispatchThreadId :
+        SV_DispatchThreadID
+)
+{
+    uint3 cacheAddress;
+    float2 sampleWorldXZ;
+
+    if (
+        !TryGetAuthoringSample(
+            dispatchThreadId,
+            cacheAddress,
+            sampleWorldXZ
+        )
+    )
+    {
+        return;
+    }
+
+    if (
+        _StampSizeXZ.x <= 0.0
+        ||
+        _StampSizeXZ.y <= 0.0
+    )
+    {
+        return;
+    }
+
+    float2 stampUV =
+        (
+            sampleWorldXZ -
+            _StampMinXZ
+        )
+        /
+        _StampSizeXZ;
+
+    /*
+     * Do not clamp outside samples to the texture border.
+     * Outside the mathematical stamp rectangle, contribution is zero.
+     */
+    if (
+        stampUV.x < 0.0
+        ||
+        stampUV.x > 1.0
+        ||
+        stampUV.y < 0.0
+        ||
+        stampUV.y > 1.0
+    )
+    {
+        return;
+    }
+
+    /*
+     * Stage 13B texture semantics:
+     * 0 = no contribution
+     * 1 = complete HeightDelta contribution
+     *
+     * Explicit mip 0 avoids mip-dependent authoring results.
+     */
+    float stampWeight =
+        _StampTexture.SampleLevel(
+            sampler_StampTexture,
+            stampUV,
+            0.0
+        ).r;
+
+    float contribution =
+        stampWeight *
+        _StampHeightDelta;
+
+    _HeightCache[
+        cacheAddress
+    ] +=
+        contribution;
+}
+
+
+// =====================================================
+// STAGE 13A VALIDATION
+// =====================================================
 
 [numthreads(8, 8, 1)]
 void ValidationAddConstant(
