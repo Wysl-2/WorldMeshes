@@ -5,7 +5,7 @@ using UnityEngine;
 using UnityEngine.Rendering;
 
 /*
- * Stage 13B GPU composition executor.
+ * GPU executor for edit-mode terrain-height composition.
  *
  * Responsibilities:
  * - load/cache the authoring composition compute shader
@@ -13,6 +13,7 @@ using UnityEngine.Rendering;
  * - calculate authoritative absolute authoring-space addressing
  * - evaluate the CURRENT ordered height-modifier stack for one tile
  * - dispatch supported additive TerrainStampModifier operations
+ * - calculate a conservative contribution interval for the completed tile
  * - expose narrow tile-composition diagnostics
  *
  * Non-responsibilities:
@@ -23,9 +24,8 @@ using UnityEngine.Rendering;
  * - renderer binding
  * - authoringRevision/signature mutation
  *
- * IMPORTANT:
- * TerrainAuthoringPreviewService resets every dirty slice from the
- * committed base BEFORE calling this compositor. This class therefore
+ * The caller must reset a dirty slice from committed base data before
+ * calling the production composition overload. Composition therefore
  * never accumulates edits from a previous composite result.
  */
 public sealed class TerrainHeightCompositor
@@ -45,38 +45,26 @@ public sealed class TerrainHeightCompositor
 
     private ComputeShader computeShader;
 
-    private int identityKernel =
-        -1;
-
-    private int additiveStampKernel =
-        -1;
-
-    private int validationKernel =
-        -1;
+    private int identityKernel = -1;
+    private int additiveStampKernel = -1;
+    private int validationKernel = -1;
 
     private uint identityThreadGroupSizeX;
-
     private uint identityThreadGroupSizeY;
-
     private uint additiveStampThreadGroupSizeX;
-
     private uint additiveStampThreadGroupSizeY;
-
     private uint validationThreadGroupSizeX;
-
     private uint validationThreadGroupSizeY;
 
     /*
-     * Backward-compatible Stage 13A diagnostic naming.
+     * Backward-compatible diagnostic naming.
      *
-     * These count successfully reconstructed/composited TILES, not
-     * individual modifier compute dispatches. One dirty tile can now
-     * execute zero, one, or many additive stamp dispatches.
+     * These values count successfully reconstructed/composited TILES,
+     * not individual modifier GPU dispatches. One tile can execute zero,
+     * one, or many additive stamp dispatches.
      */
     private int currentTransactionDispatchTileCount;
-
     private int lastDispatchTileCount;
-
     private long totalDispatchTileCount;
 
     public bool IsPrepared
@@ -85,69 +73,35 @@ public sealed class TerrainHeightCompositor
         {
             return
                 computeShader != null
-                &&
-                identityKernel >= 0
-                &&
-                additiveStampKernel >= 0
-                &&
-                validationKernel >= 0
-                &&
-                identityThreadGroupSizeX > 0
-                &&
-                identityThreadGroupSizeY > 0
-                &&
-                additiveStampThreadGroupSizeX > 0
-                &&
-                additiveStampThreadGroupSizeY > 0
-                &&
-                validationThreadGroupSizeX > 0
-                &&
-                validationThreadGroupSizeY > 0;
+                && identityKernel >= 0
+                && additiveStampKernel >= 0
+                && validationKernel >= 0
+                && identityThreadGroupSizeX > 0
+                && identityThreadGroupSizeY > 0
+                && additiveStampThreadGroupSizeX > 0
+                && additiveStampThreadGroupSizeY > 0
+                && validationThreadGroupSizeX > 0
+                && validationThreadGroupSizeY > 0;
         }
     }
 
-    public int LastDispatchTileCount
-    {
-        get
-        {
-            return
-                lastDispatchTileCount;
-        }
-    }
+    public int LastDispatchTileCount =>
+        lastDispatchTileCount;
 
-    public long TotalDispatchTileCount
-    {
-        get
-        {
-            return
-                totalDispatchTileCount;
-        }
-    }
+    public long TotalDispatchTileCount =>
+        totalDispatchTileCount;
 
-    public uint IdentityThreadGroupSizeX
-    {
-        get
-        {
-            return
-                identityThreadGroupSizeX;
-        }
-    }
+    public uint IdentityThreadGroupSizeX =>
+        identityThreadGroupSizeX;
 
-    public uint IdentityThreadGroupSizeY
-    {
-        get
-        {
-            return
-                identityThreadGroupSizeY;
-        }
-    }
+    public uint IdentityThreadGroupSizeY =>
+        identityThreadGroupSizeY;
 
     public bool TryPrepare(
         out string errorMessage
     )
     {
-        errorMessage =
-            "";
+        errorMessage = "";
 
         if (IsPrepared)
         {
@@ -164,17 +118,16 @@ public sealed class TerrainHeightCompositor
         }
 
         computeShader =
-            AssetDatabase
-                .LoadAssetAtPath<ComputeShader>(
-                    ComputeShaderAssetPath
-                );
+            AssetDatabase.LoadAssetAtPath<ComputeShader>(
+                ComputeShaderAssetPath
+            );
 
         if (computeShader == null)
         {
             ResetShaderState();
 
             errorMessage =
-                "The Stage 13B terrain composition compute shader " +
+                "The terrain height composition compute shader " +
                 "could not be loaded:\n\n" +
                 ComputeShaderAssetPath;
 
@@ -203,8 +156,8 @@ public sealed class TerrainHeightCompositor
             ResetShaderState();
 
             errorMessage =
-                "One or more required Stage 13B compute kernels " +
-                "could not be found.\n\n" +
+                "One or more required terrain height composition " +
+                "kernels could not be found.\n\n" +
                 "Required:\n" +
                 "- " + IdentityKernelName + "\n" +
                 "- " + AdditiveStampKernelName + "\n" +
@@ -214,49 +167,41 @@ public sealed class TerrainHeightCompositor
             return false;
         }
 
-        computeShader
-            .GetKernelThreadGroupSizes(
-                identityKernel,
-                out identityThreadGroupSizeX,
-                out identityThreadGroupSizeY,
-                out _
-            );
+        computeShader.GetKernelThreadGroupSizes(
+            identityKernel,
+            out identityThreadGroupSizeX,
+            out identityThreadGroupSizeY,
+            out _
+        );
 
-        computeShader
-            .GetKernelThreadGroupSizes(
-                additiveStampKernel,
-                out additiveStampThreadGroupSizeX,
-                out additiveStampThreadGroupSizeY,
-                out _
-            );
+        computeShader.GetKernelThreadGroupSizes(
+            additiveStampKernel,
+            out additiveStampThreadGroupSizeX,
+            out additiveStampThreadGroupSizeY,
+            out _
+        );
 
-        computeShader
-            .GetKernelThreadGroupSizes(
-                validationKernel,
-                out validationThreadGroupSizeX,
-                out validationThreadGroupSizeY,
-                out _
-            );
+        computeShader.GetKernelThreadGroupSizes(
+            validationKernel,
+            out validationThreadGroupSizeX,
+            out validationThreadGroupSizeY,
+            out _
+        );
 
         if (
             identityThreadGroupSizeX == 0
-            ||
-            identityThreadGroupSizeY == 0
-            ||
-            additiveStampThreadGroupSizeX == 0
-            ||
-            additiveStampThreadGroupSizeY == 0
-            ||
-            validationThreadGroupSizeX == 0
-            ||
-            validationThreadGroupSizeY == 0
+            || identityThreadGroupSizeY == 0
+            || additiveStampThreadGroupSizeX == 0
+            || additiveStampThreadGroupSizeY == 0
+            || validationThreadGroupSizeX == 0
+            || validationThreadGroupSizeY == 0
         )
         {
             ResetShaderState();
 
             errorMessage =
-                "The Stage 13B compute shader reported an invalid " +
-                "thread-group size.";
+                "The terrain height composition compute shader " +
+                "reported an invalid thread-group size.";
 
             return false;
         }
@@ -266,19 +211,13 @@ public sealed class TerrainHeightCompositor
 
     public void BeginTransactionDiagnostics()
     {
-        currentTransactionDispatchTileCount =
-            0;
-
-        lastDispatchTileCount =
-            0;
+        currentTransactionDispatchTileCount = 0;
+        lastDispatchTileCount = 0;
     }
 
     /*
-     * Backward-compatible Stage 13A identity overload.
-     *
-     * TerrainHeightCompositorValidationUtility uses this directly.
-     * The real Stage 13B preview path should use the overload that also
-     * receives TerrainAuthoringData.
+     * Backward-compatible identity overload used by the existing GPU
+     * compositor validation utility.
      */
     public bool TryComposeTile(
         RenderTexture heightCache,
@@ -291,14 +230,9 @@ public sealed class TerrainHeightCompositor
         out string errorMessage
     )
     {
-        errorMessage =
-            "";
+        errorMessage = "";
 
-        if (
-            !TryPrepare(
-                out errorMessage
-            )
-        )
+        if (!TryPrepare(out errorMessage))
         {
             return false;
         }
@@ -342,15 +276,11 @@ public sealed class TerrainHeightCompositor
                 identityThreadGroupSizeY
             );
 
-        if (
-            groupsX <= 0
-            ||
-            groupsY <= 0
-        )
+        if (groupsX <= 0 || groupsY <= 0)
         {
             errorMessage =
-                "The Stage 13A identity compositor calculated an " +
-                "invalid compute dispatch size.";
+                "The identity compositor calculated an invalid " +
+                "compute dispatch size.";
 
             return false;
         }
@@ -379,10 +309,9 @@ public sealed class TerrainHeightCompositor
         catch (Exception exception)
         {
             errorMessage =
-                "The Stage 13A identity GPU compositor could not " +
-                $"dispatch tile ({tileCoordinate.x}, " +
-                $"{tileCoordinate.y}) to cache slice " +
-                $"{sliceIndex}.\n\n" +
+                "The identity GPU compositor could not dispatch tile " +
+                $"({tileCoordinate.x}, {tileCoordinate.y}) to cache " +
+                $"slice {sliceIndex}.\n\n" +
                 exception.Message;
 
             return false;
@@ -394,11 +323,8 @@ public sealed class TerrainHeightCompositor
     }
 
     /*
-     * Stage 13B production composition entry point.
-     *
-     * The caller must have already restored this slice from committed
-     * base data. The complete CURRENT modifier stack is then evaluated
-     * in serialized list order.
+     * Compatibility overload for callers that do not require the
+     * conservative contribution interval.
      */
     public bool TryComposeTile(
         RenderTexture heightCache,
@@ -412,14 +338,58 @@ public sealed class TerrainHeightCompositor
         out string errorMessage
     )
     {
-        errorMessage =
-            "";
-
-        if (
-            !TryPrepare(
+        return
+            TryComposeTile(
+                heightCache,
+                tileCoordinate,
+                sliceIndex,
+                samplesPerSide,
+                sampleSpacing,
+                tileWorldSize,
+                worldSizeXZ,
+                authoringData,
+                out _,
+                out _,
                 out errorMessage
-            )
-        )
+            );
+    }
+
+    /*
+     * Production composition entry point.
+     *
+     * The caller must have already restored this slice from committed
+     * base data. The complete CURRENT modifier stack is evaluated in
+     * serialized list order.
+     *
+     * minimumContribution / maximumContribution describe a conservative
+     * additive interval for every modifier actually participating in
+     * this tile's completed composition:
+     *
+     *     positive HeightDelta -> [0, HeightDelta]
+     *     negative HeightDelta -> [HeightDelta, 0]
+     *
+     * This interval is deliberately conservative. It does not inspect
+     * texture pixels or attempt to claim a tighter bound.
+     */
+    public bool TryComposeTile(
+        RenderTexture heightCache,
+        Vector2Int tileCoordinate,
+        int sliceIndex,
+        int samplesPerSide,
+        float sampleSpacing,
+        float tileWorldSize,
+        Vector2 worldSizeXZ,
+        TerrainAuthoringData authoringData,
+        out float minimumContribution,
+        out float maximumContribution,
+        out string errorMessage
+    )
+    {
+        minimumContribution = 0f;
+        maximumContribution = 0f;
+        errorMessage = "";
+
+        if (!TryPrepare(out errorMessage))
         {
             return false;
         }
@@ -464,15 +434,13 @@ public sealed class TerrainHeightCompositor
 
         Vector2 tileMaxXZ =
             tileWorldOriginXZ
-            +
-            new Vector2(
+            + new Vector2(
                 tileWorldSize,
                 tileWorldSize
             );
 
-        IReadOnlyList<TerrainHeightModifier>
-            modifiers =
-                authoringData.HeightModifiers;
+        IReadOnlyList<TerrainHeightModifier> modifiers =
+            authoringData.HeightModifiers;
 
         for (
             int modifierIndex = 0;
@@ -481,9 +449,7 @@ public sealed class TerrainHeightCompositor
         )
         {
             TerrainHeightModifier modifier =
-                modifiers[
-                    modifierIndex
-                ];
+                modifiers[modifierIndex];
 
             if (modifier == null)
             {
@@ -499,8 +465,7 @@ public sealed class TerrainHeightCompositor
             }
 
             Bounds modifierBounds =
-                modifier
-                    .GetAffectedWorldBounds();
+                modifier.GetAffectedWorldBounds();
 
             if (
                 !OverlapsTileXZ(
@@ -514,11 +479,10 @@ public sealed class TerrainHeightCompositor
             }
 
             /*
-             * Stage 13B supports only TerrainStampModifier.
-             *
-             * An unsupported enabled modifier that overlaps this tile
-             * is a transaction failure. Silently skipping it would let
-             * PreviewService falsely acknowledge OverallAuthoringSignature.
+             * The current compositor supports only TerrainStampModifier.
+             * An unsupported enabled modifier that overlaps this tile is
+             * a transaction failure. Silently skipping it would allow
+             * PreviewService to falsely acknowledge the overall state.
              */
             if (
                 !(modifier is TerrainStampModifier stampModifier)
@@ -549,24 +513,20 @@ public sealed class TerrainHeightCompositor
                 stampModifier.StampAsset;
 
             /*
-             * Stage 13B null/unconfigured stamp policy:
-             * the modifier safely contributes nothing.
+             * Null/unconfigured stamps safely contribute nothing.
              */
             if (
                 stampAsset == null
-                ||
-                stampAsset.HeightTexture == null
+                || stampAsset.HeightTexture == null
             )
             {
                 continue;
             }
 
-            if (
-                Mathf.Approximately(
-                    stampModifier.HeightDelta,
-                    0f
-                )
-            )
+            float heightDelta =
+                stampModifier.HeightDelta;
+
+            if (Mathf.Approximately(heightDelta, 0f))
             {
                 continue;
             }
@@ -599,13 +559,35 @@ public sealed class TerrainHeightCompositor
             {
                 return false;
             }
+
+            if (heightDelta > 0f)
+            {
+                maximumContribution += heightDelta;
+            }
+            else
+            {
+                minimumContribution += heightDelta;
+            }
+
+            if (
+                !IsFinite(minimumContribution)
+                || !IsFinite(maximumContribution)
+                || maximumContribution < minimumContribution
+            )
+            {
+                errorMessage =
+                    "The conservative modifier contribution range " +
+                    "overflowed or became invalid while composing " +
+                    $"tile ({tileCoordinate.x}, {tileCoordinate.y}).";
+
+                return false;
+            }
         }
 
         /*
          * Count a tile as successfully reconstructed even if no stamp
          * dispatch was required. Resetting it to committed base may be
-         * the correct final result after moving/removing/disabling a
-         * modifier.
+         * the correct result after move/remove/disable operations.
          */
         MarkTileCompositionSucceeded();
 
@@ -625,16 +607,14 @@ public sealed class TerrainHeightCompositor
         out string errorMessage
     )
     {
-        errorMessage =
-            "";
+        errorMessage = "";
 
         TerrainHeightStampAsset stampAsset =
             stampModifier.StampAsset;
 
         if (
             stampAsset == null
-            ||
-            stampAsset.HeightTexture == null
+            || stampAsset.HeightTexture == null
         )
         {
             return true;
@@ -648,9 +628,7 @@ public sealed class TerrainHeightCompositor
 
         Vector2 stampMinXZ =
             stampPosition
-            -
-            stampSize *
-            0.5f;
+            - stampSize * 0.5f;
 
         int groupsX =
             DivideRoundUp(
@@ -664,15 +642,11 @@ public sealed class TerrainHeightCompositor
                 additiveStampThreadGroupSizeY
             );
 
-        if (
-            groupsX <= 0
-            ||
-            groupsY <= 0
-        )
+        if (groupsX <= 0 || groupsY <= 0)
         {
             errorMessage =
-                "The Stage 13B compositor calculated an invalid " +
-                "additive-stamp dispatch size.";
+                "The additive stamp compositor calculated an invalid " +
+                "compute dispatch size.";
 
             return false;
         }
@@ -722,6 +696,34 @@ public sealed class TerrainHeightCompositor
                 stampModifier.HeightDelta
             );
 
+            /*
+             * Exact footprint-falloff contract:
+             *
+             * nearestEdge =
+             *     min(uv.x, 1-uv.x, uv.y, 1-uv.y)
+             *
+             * edgeDistance01 =
+             *     saturate(nearestEdge * 2)
+             *
+             * Falloff == 0:
+             *     footprintFalloff = 1
+             *
+             * Falloff > 0:
+             *     footprintFalloff =
+             *         smoothstep(0, Falloff, edgeDistance01)
+             *
+             * finalWeight =
+             *     textureWeight * footprintFalloff
+             *
+             * The compute shader contains the authoritative GPU
+             * implementation; this comment documents the same contract
+             * for the later runtime compositor.
+             */
+            computeShader.SetFloat(
+                "_StampFalloff",
+                stampModifier.Falloff
+            );
+
             computeShader.Dispatch(
                 additiveStampKernel,
                 groupsX,
@@ -732,7 +734,7 @@ public sealed class TerrainHeightCompositor
         catch (Exception exception)
         {
             errorMessage =
-                "The Stage 13B additive stamp could not be dispatched " +
+                "The additive height stamp could not be dispatched " +
                 $"for tile ({tileCoordinate.x}, {tileCoordinate.y}) " +
                 $"and cache slice {sliceIndex}.\n\n" +
                 exception.Message;
@@ -809,13 +811,16 @@ public sealed class TerrainHeightCompositor
     }
 
     /*
-     * Linear numeric stamp data is required because the red channel is
-     * interpreted directly as a 0..1 height weight.
+     * Height stamps are numeric data:
      *
-     * Bilinear + Clamp are enforced here so the GPU sampling contract
-     * is deterministic for Stage 13B. Mipmaps are not required because
-     * the compute shader explicitly samples mip 0, though the README
-     * still recommends disabling them.
+     *     red 0 = no contribution
+     *     red 1 = full HeightDelta contribution
+     *
+     * The shader clamps the sampled red channel to 0..1 so the
+     * conservative range contract remains guaranteed.
+     *
+     * Bilinear + Clamp are enforced here. Explicit mip 0 is used by
+     * the compute shader, so mipmaps are not relied upon.
      */
     private static bool ValidateStampTexture(
         Texture2D stampTexture,
@@ -823,8 +828,7 @@ public sealed class TerrainHeightCompositor
         out string errorMessage
     )
     {
-        errorMessage =
-            "";
+        errorMessage = "";
 
         if (stampTexture == null)
         {
@@ -836,16 +840,12 @@ public sealed class TerrainHeightCompositor
                 stampTexture
             );
 
-        if (
-            string.IsNullOrEmpty(
-                assetPath
-            )
-        )
+        if (string.IsNullOrEmpty(assetPath))
         {
             /*
-             * Transient/non-asset textures have no importer settings
-             * to inspect. They are allowed here; production stamp
-             * authoring normally uses persistent imported assets.
+             * Transient/non-asset textures have no importer settings to
+             * inspect. Persistent production stamps normally use imported
+             * assets and therefore take the validation path below.
              */
             return true;
         }
@@ -853,8 +853,7 @@ public sealed class TerrainHeightCompositor
         TextureImporter importer =
             AssetImporter.GetAtPath(
                 assetPath
-            )
-            as TextureImporter;
+            ) as TextureImporter;
 
         if (importer == null)
         {
@@ -877,28 +876,20 @@ public sealed class TerrainHeightCompositor
             return false;
         }
 
-        if (
-            importer.filterMode !=
-            FilterMode.Bilinear
-        )
+        if (importer.filterMode != FilterMode.Bilinear)
         {
             errorMessage =
-                "Height-stamp textures must use Bilinear filtering " +
-                "for Stage 13B.\n\n" +
+                "Height-stamp textures must use Bilinear filtering.\n\n" +
                 $"Modifier index: {modifierIndex}\n" +
                 $"Texture: {assetPath}";
 
             return false;
         }
 
-        if (
-            importer.wrapMode !=
-            TextureWrapMode.Clamp
-        )
+        if (importer.wrapMode != TextureWrapMode.Clamp)
         {
             errorMessage =
-                "Height-stamp textures must use Clamp wrapping for " +
-                "Stage 13B.\n\n" +
+                "Height-stamp textures must use Clamp wrapping.\n\n" +
                 $"Modifier index: {modifierIndex}\n" +
                 $"Texture: {assetPath}";
 
@@ -924,21 +915,13 @@ public sealed class TerrainHeightCompositor
          * Inclusive comparisons are intentional.
          *
          * If a stamp edge lies exactly on a tile edge, both duplicated
-         * border samples are allowed to evaluate the same absolute
-         * world coordinate.
+         * border samples evaluate the same absolute world coordinate.
          */
         return
-            modifierMax.x >=
-                tileMinXZ.x
-            &&
-            modifierMin.x <=
-                tileMaxXZ.x
-            &&
-            modifierMax.z >=
-                tileMinXZ.y
-            &&
-            modifierMin.z <=
-                tileMaxXZ.y;
+            modifierMax.x >= tileMinXZ.x
+            && modifierMin.x <= tileMaxXZ.x
+            && modifierMax.z >= tileMinXZ.y
+            && modifierMin.z <= tileMaxXZ.y;
     }
 
     private void MarkTileCompositionSucceeded()
@@ -959,14 +942,9 @@ public sealed class TerrainHeightCompositor
         out string errorMessage
     )
     {
-        errorMessage =
-            "";
+        errorMessage = "";
 
-        if (
-            !TryPrepare(
-                out errorMessage
-            )
-        )
+        if (!TryPrepare(out errorMessage))
         {
             return false;
         }
@@ -1003,6 +981,15 @@ public sealed class TerrainHeightCompositor
                 validationThreadGroupSizeY
             );
 
+        if (groupsX <= 0 || groupsY <= 0)
+        {
+            errorMessage =
+                "The validation GPU write calculated an invalid " +
+                "compute dispatch size.";
+
+            return false;
+        }
+
         try
         {
             computeShader.SetTexture(
@@ -1036,8 +1023,7 @@ public sealed class TerrainHeightCompositor
         catch (Exception exception)
         {
             errorMessage =
-                "The Stage 13A validation GPU write could not be " +
-                "dispatched.\n\n" +
+                "The validation GPU write could not be dispatched.\n\n" +
                 exception.Message;
 
             return false;
@@ -1057,22 +1043,15 @@ public sealed class TerrainHeightCompositor
         out string errorMessage
     )
     {
-        worldXZ =
-            Vector2.zero;
-
-        errorMessage =
-            "";
+        worldXZ = Vector2.zero;
+        errorMessage = "";
 
         if (
             samplesPerSide <= 1
-            ||
-            sampleX < 0
-            ||
-            sampleZ < 0
-            ||
-            sampleX >= samplesPerSide
-            ||
-            sampleZ >= samplesPerSide
+            || sampleX < 0
+            || sampleZ < 0
+            || sampleX >= samplesPerSide
+            || sampleZ >= samplesPerSide
         )
         {
             errorMessage =
@@ -1084,12 +1063,9 @@ public sealed class TerrainHeightCompositor
 
         if (
             !IsFinite(sampleSpacing)
-            ||
-            sampleSpacing <= 0f
-            ||
-            !IsFinite(tileWorldSize)
-            ||
-            tileWorldSize <= 0f
+            || sampleSpacing <= 0f
+            || !IsFinite(tileWorldSize)
+            || tileWorldSize <= 0f
         )
         {
             errorMessage =
@@ -1105,9 +1081,7 @@ public sealed class TerrainHeightCompositor
         float tolerance =
             Mathf.Max(
                 0.00001f,
-                Mathf.Abs(
-                    tileWorldSize
-                ) *
+                Mathf.Abs(tileWorldSize) *
                 0.000001f
             );
 
@@ -1115,9 +1089,7 @@ public sealed class TerrainHeightCompositor
             Mathf.Abs(
                 expectedTileWorldSize -
                 tileWorldSize
-            )
-            >
-            tolerance
+            ) > tolerance
         )
         {
             errorMessage =
@@ -1138,22 +1110,14 @@ public sealed class TerrainHeightCompositor
 
         worldXZ =
             tileWorldOrigin
-            +
-            new Vector2(
-                sampleX *
-                    sampleSpacing,
-                sampleZ *
-                    sampleSpacing
+            + new Vector2(
+                sampleX * sampleSpacing,
+                sampleZ * sampleSpacing
             );
 
         return
-            IsFinite(
-                worldXZ.x
-            )
-            &&
-            IsFinite(
-                worldXZ.y
-            );
+            IsFinite(worldXZ.x)
+            && IsFinite(worldXZ.y);
     }
 
     private static bool ValidateWorldAddressingContract(
@@ -1166,34 +1130,23 @@ public sealed class TerrainHeightCompositor
         out string errorMessage
     )
     {
-        tileWorldOriginXZ =
-            Vector2.zero;
-
-        errorMessage =
-            "";
+        tileWorldOriginXZ = Vector2.zero;
+        errorMessage = "";
 
         if (
             samplesPerSide <= 1
-            ||
-            !IsFinite(sampleSpacing)
-            ||
-            sampleSpacing <= 0f
-            ||
-            !IsFinite(tileWorldSize)
-            ||
-            tileWorldSize <= 0f
-            ||
-            !IsFinite(worldSizeXZ.x)
-            ||
-            !IsFinite(worldSizeXZ.y)
-            ||
-            worldSizeXZ.x <= 0f
-            ||
-            worldSizeXZ.y <= 0f
+            || !IsFinite(sampleSpacing)
+            || sampleSpacing <= 0f
+            || !IsFinite(tileWorldSize)
+            || tileWorldSize <= 0f
+            || !IsFinite(worldSizeXZ.x)
+            || !IsFinite(worldSizeXZ.y)
+            || worldSizeXZ.x <= 0f
+            || worldSizeXZ.y <= 0f
         )
         {
             errorMessage =
-                "The Stage 13B world-addressing parameters are invalid.";
+                "The compositor world-addressing parameters are invalid.";
 
             return false;
         }
@@ -1213,9 +1166,7 @@ public sealed class TerrainHeightCompositor
             Mathf.Abs(
                 expectedTileWorldSize -
                 tileWorldSize
-            )
-            >
-            tolerance
+            ) > tolerance
         )
         {
             errorMessage =
@@ -1244,8 +1195,7 @@ public sealed class TerrainHeightCompositor
         out string errorMessage
     )
     {
-        errorMessage =
-            "";
+        errorMessage = "";
 
         if (heightCache == null)
         {
@@ -1263,10 +1213,7 @@ public sealed class TerrainHeightCompositor
             return false;
         }
 
-        if (
-            heightCache.dimension !=
-            TextureDimension.Tex2DArray
-        )
+        if (heightCache.dimension != TextureDimension.Tex2DArray)
         {
             errorMessage =
                 "The compositor requires a 2D texture-array " +
@@ -1284,10 +1231,7 @@ public sealed class TerrainHeightCompositor
             return false;
         }
 
-        if (
-            heightCache.format !=
-            RenderTextureFormat.RFloat
-        )
+        if (heightCache.format != RenderTextureFormat.RFloat)
         {
             errorMessage =
                 "The compositor requires an RFloat height cache.";
@@ -1297,12 +1241,8 @@ public sealed class TerrainHeightCompositor
 
         if (
             samplesPerSide <= 1
-            ||
-            heightCache.width !=
-                samplesPerSide
-            ||
-            heightCache.height !=
-                samplesPerSide
+            || heightCache.width != samplesPerSide
+            || heightCache.height != samplesPerSide
         )
         {
             errorMessage =
@@ -1314,9 +1254,7 @@ public sealed class TerrainHeightCompositor
 
         if (
             sliceIndex < 0
-            ||
-            sliceIndex >=
-                heightCache.volumeDepth
+            || sliceIndex >= heightCache.volumeDepth
         )
         {
             errorMessage =
@@ -1336,10 +1274,8 @@ public sealed class TerrainHeightCompositor
     {
         return
             new Vector2(
-                tileCoordinate.x *
-                    tileWorldSize,
-                tileCoordinate.y *
-                    tileWorldSize
+                tileCoordinate.x * tileWorldSize,
+                tileCoordinate.y * tileWorldSize
             );
     }
 
@@ -1348,11 +1284,7 @@ public sealed class TerrainHeightCompositor
         uint divisor
     )
     {
-        if (
-            value <= 0
-            ||
-            divisor == 0
-        )
+        if (value <= 0 || divisor == 0)
         {
             return 0;
         }
@@ -1366,35 +1298,18 @@ public sealed class TerrainHeightCompositor
 
     private void ResetShaderState()
     {
-        computeShader =
-            null;
+        computeShader = null;
 
-        identityKernel =
-            -1;
+        identityKernel = -1;
+        additiveStampKernel = -1;
+        validationKernel = -1;
 
-        additiveStampKernel =
-            -1;
-
-        validationKernel =
-            -1;
-
-        identityThreadGroupSizeX =
-            0;
-
-        identityThreadGroupSizeY =
-            0;
-
-        additiveStampThreadGroupSizeX =
-            0;
-
-        additiveStampThreadGroupSizeY =
-            0;
-
-        validationThreadGroupSizeX =
-            0;
-
-        validationThreadGroupSizeY =
-            0;
+        identityThreadGroupSizeX = 0;
+        identityThreadGroupSizeY = 0;
+        additiveStampThreadGroupSizeX = 0;
+        additiveStampThreadGroupSizeY = 0;
+        validationThreadGroupSizeX = 0;
+        validationThreadGroupSizeY = 0;
     }
 
     private static bool IsFinite(
@@ -1402,12 +1317,7 @@ public sealed class TerrainHeightCompositor
     )
     {
         return
-            !float.IsNaN(
-                value
-            )
-            &&
-            !float.IsInfinity(
-                value
-            );
+            !float.IsNaN(value)
+            && !float.IsInfinity(value);
     }
 }

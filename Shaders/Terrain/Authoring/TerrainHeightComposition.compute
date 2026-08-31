@@ -20,6 +20,7 @@ float2 _WorldSizeXZ;
 float2 _StampMinXZ;
 float2 _StampSizeXZ;
 float _StampHeightDelta;
+float _StampFalloff;
 
 float _ValidationHeightDelta;
 
@@ -48,11 +49,8 @@ bool TryGetAuthoringSample(
         );
 
     if (
-        dispatchThreadId.x >=
-            (uint)_SamplesPerSide
-        ||
-        dispatchThreadId.y >=
-            (uint)_SamplesPerSide
+        dispatchThreadId.x >= (uint)_SamplesPerSide
+        || dispatchThreadId.y >= (uint)_SamplesPerSide
     )
     {
         return false;
@@ -64,8 +62,7 @@ bool TryGetAuthoringSample(
 
     float originTolerance =
         max(
-            abs(_SampleSpacing) *
-                0.001,
+            abs(_SampleSpacing) * 0.001,
             0.00001
         );
 
@@ -74,9 +71,7 @@ bool TryGetAuthoringSample(
             abs(
                 expectedTileOriginXZ -
                 _TileWorldOriginXZ
-            )
-            >
-            originTolerance
+            ) > originTolerance
         )
     )
     {
@@ -85,35 +80,22 @@ bool TryGetAuthoringSample(
 
     sampleWorldXZ =
         _TileWorldOriginXZ
-        +
-        float2(
+        + float2(
             dispatchThreadId.x,
             dispatchThreadId.y
-        )
-        *
-        _SampleSpacing;
+        ) * _SampleSpacing;
 
     float worldTolerance =
         max(
-            abs(_SampleSpacing) *
-                0.001,
+            abs(_SampleSpacing) * 0.001,
             0.00001
         );
 
     if (
-        sampleWorldXZ.x <
-            -worldTolerance
-        ||
-        sampleWorldXZ.y <
-            -worldTolerance
-        ||
-        sampleWorldXZ.x >
-            _WorldSizeXZ.x +
-            worldTolerance
-        ||
-        sampleWorldXZ.y >
-            _WorldSizeXZ.y +
-            worldTolerance
+        sampleWorldXZ.x < -worldTolerance
+        || sampleWorldXZ.y < -worldTolerance
+        || sampleWorldXZ.x > _WorldSizeXZ.x + worldTolerance
+        || sampleWorldXZ.y > _WorldSizeXZ.y + worldTolerance
     )
     {
         return false;
@@ -131,13 +113,12 @@ bool TryGetAuthoringSample(
 
 
 // =====================================================
-// STAGE 13A IDENTITY COMPOSITION
+// IDENTITY COMPOSITION
 // =====================================================
 
 [numthreads(8, 8, 1)]
 void IdentityComposite(
-    uint3 dispatchThreadId :
-        SV_DispatchThreadID
+    uint3 dispatchThreadId : SV_DispatchThreadID
 )
 {
     uint3 cacheAddress;
@@ -161,19 +142,74 @@ void IdentityComposite(
 
     _HeightCache[
         cacheAddress
-    ] =
-        height;
+    ] = height;
 }
 
 
 // =====================================================
-// STAGE 13B ADDITIVE HEIGHT STAMP
+// ADDITIVE HEIGHT STAMP
 // =====================================================
+
+float CalculateFootprintFalloff(
+    float2 stampUV
+)
+{
+    /*
+     * Exact deterministic falloff contract:
+     *
+     * nearestEdge:
+     *     0 at any rectangle edge
+     *     0.5 at the rectangle center
+     *
+     * edgeDistance01:
+     *     nearestEdge * 2
+     *     therefore 0 at edge, 1 at center
+     *
+     * Falloff == 0:
+     *     no additional footprint attenuation
+     *
+     * Falloff > 0:
+     *     smooth fade from the rectangle edge until
+     *     edgeDistance01 reaches Falloff
+     *
+     * Examples:
+     *     Falloff 0.25 -> fade over outer 12.5% per side
+     *     Falloff 0.50 -> fade over outer 25% per side
+     *     Falloff 1.00 -> fade extends edge-to-center
+     */
+    if (_StampFalloff <= 0.0)
+    {
+        return 1.0;
+    }
+
+    float nearestEdge =
+        min(
+            min(
+                stampUV.x,
+                1.0 - stampUV.x
+            ),
+            min(
+                stampUV.y,
+                1.0 - stampUV.y
+            )
+        );
+
+    float edgeDistance01 =
+        saturate(
+            nearestEdge * 2.0
+        );
+
+    return
+        smoothstep(
+            0.0,
+            saturate(_StampFalloff),
+            edgeDistance01
+        );
+}
 
 [numthreads(8, 8, 1)]
 void ApplyAdditiveStamp(
-    uint3 dispatchThreadId :
-        SV_DispatchThreadID
+    uint3 dispatchThreadId : SV_DispatchThreadID
 )
 {
     uint3 cacheAddress;
@@ -192,8 +228,7 @@ void ApplyAdditiveStamp(
 
     if (
         _StampSizeXZ.x <= 0.0
-        ||
-        _StampSizeXZ.y <= 0.0
+        || _StampSizeXZ.y <= 0.0
     )
     {
         return;
@@ -203,68 +238,70 @@ void ApplyAdditiveStamp(
         (
             sampleWorldXZ -
             _StampMinXZ
-        )
-        /
+        ) /
         _StampSizeXZ;
 
     /*
-     * Do not clamp outside samples to the texture border.
-     * Outside the mathematical stamp rectangle, contribution is zero.
+     * Outside the mathematical rectangle there is no contribution.
+     * Do not clamp outside samples into the border texel.
      */
     if (
         stampUV.x < 0.0
-        ||
-        stampUV.x > 1.0
-        ||
-        stampUV.y < 0.0
-        ||
-        stampUV.y > 1.0
+        || stampUV.x > 1.0
+        || stampUV.y < 0.0
+        || stampUV.y > 1.0
     )
     {
         return;
     }
 
     /*
-     * Stage 13B texture semantics:
-     * 0 = no contribution
-     * 1 = complete HeightDelta contribution
+     * Height-texture semantics are explicitly 0..1. Saturating the
+     * sample guarantees the conservative CPU contribution interval:
      *
-     * Explicit mip 0 avoids mip-dependent authoring results.
+     *     positive HeightDelta -> [0, HeightDelta]
+     *     negative HeightDelta -> [HeightDelta, 0]
      */
-    float stampWeight =
-        _StampTexture.SampleLevel(
-            sampler_StampTexture,
-            stampUV,
-            0.0
-        ).r;
+    float textureWeight =
+        saturate(
+            _StampTexture.SampleLevel(
+                sampler_StampTexture,
+                stampUV,
+                0.0
+            ).r
+        );
+
+    float footprintFalloff =
+        CalculateFootprintFalloff(
+            stampUV
+        );
+
+    float finalWeight =
+        textureWeight *
+        footprintFalloff;
 
     float contribution =
-        stampWeight *
+        finalWeight *
         _StampHeightDelta;
 
     _HeightCache[
         cacheAddress
-    ] +=
-        contribution;
+    ] += contribution;
 }
 
 
 // =====================================================
-// STAGE 13A VALIDATION
+// VALIDATION WRITE
 // =====================================================
 
 [numthreads(8, 8, 1)]
 void ValidationAddConstant(
-    uint3 dispatchThreadId :
-        SV_DispatchThreadID
+    uint3 dispatchThreadId : SV_DispatchThreadID
 )
 {
     if (
-        dispatchThreadId.x >=
-            (uint)_SamplesPerSide
-        ||
-        dispatchThreadId.y >=
-            (uint)_SamplesPerSide
+        dispatchThreadId.x >= (uint)_SamplesPerSide
+        || dispatchThreadId.y >= (uint)_SamplesPerSide
     )
     {
         return;
@@ -279,6 +316,5 @@ void ValidationAddConstant(
 
     _HeightCache[
         cacheAddress
-    ] +=
-        _ValidationHeightDelta;
+    ] += _ValidationHeightDelta;
 }

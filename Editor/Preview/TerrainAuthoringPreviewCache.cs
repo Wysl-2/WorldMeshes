@@ -739,8 +739,16 @@ public sealed class TerrainAuthoringPreviewCache :
         sourceCommittedHeightfieldSignature =
             committedSignature;
 
+        /*
+         * A full cache build establishes committed/base cache state only.
+         *
+         * TerrainAuthoringPreviewService acknowledges the overall
+         * authoring signature only after every enabled modifier-affected
+         * slice has been successfully recomposed and its range metadata
+         * updated.
+         */
         sourceOverallAuthoringSignature =
-            overallSignature;
+            "";
 
         sourceContentHash =
             currentContentHash;

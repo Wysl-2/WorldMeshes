@@ -1056,9 +1056,9 @@ public static class TerrainAuthoringPreviewService
         if (cacheNeedsBuild)
         {
             /*
-             * Full committed rebuilds replace the RenderTexture
-             * object, so stop the clipmap sampling the previous cache
-             * before the atomic cache transaction.
+             * Full committed rebuilds replace the RenderTexture object,
+             * so stop the clipmap sampling the previous cache before the
+             * atomic committed-base transaction.
              */
             ReleaseBinding();
 
@@ -1110,7 +1110,93 @@ public static class TerrainAuthoringPreviewService
             clipmapRebindRequested =
                 true;
 
-            NotifyPreviewStateChanged();
+            /*
+             * A full build has created committed/base cache contents only.
+             *
+             * Rebuild the current complete modifier state through the
+             * SAME dirty-slice transaction used by ordinary edits.
+             * This prevents full preview rebuilds from silently erasing
+             * enabled modifiers while claiming the overall signature is
+             * current.
+             */
+            HashSet<Vector2Int> fullRebuildModifierTiles =
+                new HashSet<Vector2Int>();
+
+            IReadOnlyList<TerrainHeightModifier>
+                currentModifiers =
+                    authoringData.HeightModifiers;
+
+            for (
+                int modifierIndex = 0;
+                modifierIndex < currentModifiers.Count;
+                modifierIndex++
+            )
+            {
+                TerrainHeightModifier modifier =
+                    currentModifiers[
+                        modifierIndex
+                    ];
+
+                if (modifier == null)
+                {
+                    /*
+                     * Keep the preview stale and force the full build
+                     * boundary to retry after the malformed authoring
+                     * state is corrected.
+                     */
+                    committedRebuildRequested =
+                        true;
+
+                    overallSignatureAcknowledgementRequested =
+                        false;
+
+                    SetStatus(
+                        TerrainAuthoringPreviewStatus.Error,
+                        $"Height modifier index {modifierIndex} is null. " +
+                        "The committed preview cache was rebuilt, but " +
+                        "the complete modifier state could not be " +
+                        "reconstructed."
+                    );
+
+                    RepaintEditorViews();
+
+                    return;
+                }
+
+                if (!modifier.Enabled)
+                {
+                    continue;
+                }
+
+                TerrainAuthoringPreviewDirtyRegionUtility
+                    .CollectTilesOverlappingBounds(
+                        worldSettings,
+                        modifier.GetAffectedWorldBounds(),
+                        fullRebuildModifierTiles,
+                        1
+                    );
+            }
+
+            /*
+             * Dirty requests that belonged to the previous committed
+             * cache are obsolete. The complete enabled modifier footprint
+             * becomes the authoritative post-build recomposition set.
+             */
+            dirtyCompositeTiles.Clear();
+
+            dirtyCompositeTiles.UnionWith(
+                fullRebuildModifierTiles
+            );
+
+            /*
+             * When no enabled modifier touches the logical world, the
+             * committed base already represents the complete output.
+             * The normal zero-dirty acknowledgement path below handles
+             * that case. Otherwise acknowledgement occurs only after the
+             * dirty composition transaction succeeds.
+             */
+            overallSignatureAcknowledgementRequested =
+                true;
         }
 
         // =================================================
@@ -1157,14 +1243,29 @@ public static class TerrainAuthoringPreviewService
                 );
 
             /*
-             * Stage 13A recomposition transaction:
+             * Compare the final transaction range against the range that
+             * was authoritative before any dirty slice was reset.
+             *
+             * UpdateCompositeTiles temporarily restores committed ranges;
+             * those intermediate values must not decide whether clipmap
+             * bounds need to expand or shrink.
+             */
+            float globalMinimumBefore =
+                previewCache.MinimumHeight;
+
+            float globalMaximumBefore =
+                previewCache.MaximumHeight;
+
+            /*
+             * Recomposition transaction:
              *
              * 1. reset every valid dirty slice from committed base
-             * 2. dispatch GPU composition into those same slices
-             * 3. only after every step succeeds may the service clear
-             *    dirty state and acknowledge the overall signature
-             *
-             * The compositor never owns the dirty set or signatures.
+             * 2. obtain that committed/base slice range
+             * 3. compose the CURRENT complete modifier stack
+             * 4. calculate one conservative final range for the tile
+             * 5. store that range once for the completed tile
+             * 6. only after every tile succeeds clear dirty state and
+             *    acknowledge the overall signature
              */
             heightCompositor
                 .BeginTransactionDiagnostics();
@@ -1174,7 +1275,7 @@ public static class TerrainAuthoringPreviewService
                     .UpdateCompositeTiles(
                         dirtySnapshot,
                         out updatedCompositeSliceCount,
-                        out compositeRangeChanged,
+                        out _,
                         out string compositeError
                     )
             )
@@ -1207,6 +1308,34 @@ public static class TerrainAuthoringPreviewService
                     continue;
                 }
 
+                /*
+                 * UpdateCompositeTiles has just restored the slice from
+                 * committed data, so its current range is the base range
+                 * to which conservative modifier contributions are added.
+                 */
+                if (
+                    !previewCache
+                        .TryGetCompositeSliceRange(
+                            dirtyTile.x,
+                            dirtyTile.y,
+                            out float baseMinimumHeight,
+                            out float baseMaximumHeight
+                        )
+                )
+                {
+                    SetStatus(
+                        TerrainAuthoringPreviewStatus.Error,
+                        "The preview cache could not provide the " +
+                        $"committed/base range for dirty tile " +
+                        $"({dirtyTile.x}, {dirtyTile.y}). The dirty " +
+                        "set has been retained for retry."
+                    );
+
+                    RepaintEditorViews();
+
+                    return;
+                }
+
                 if (
                     !heightCompositor
                         .TryComposeTile(
@@ -1218,6 +1347,8 @@ public static class TerrainAuthoringPreviewService
                             worldSettings.HeightTileWorldSize,
                             previewCache.WorldSizeXZ,
                             authoringData,
+                            out float minimumContribution,
+                            out float maximumContribution,
                             out string compositorError
                         )
                 )
@@ -1228,6 +1359,40 @@ public static class TerrainAuthoringPreviewService
                         "all dirty slices. The dirty set has been " +
                         "retained for retry.\n\n" +
                         compositorError
+                    );
+
+                    RepaintEditorViews();
+
+                    return;
+                }
+
+                float compositeMinimumHeight =
+                    baseMinimumHeight
+                    + minimumContribution;
+
+                float compositeMaximumHeight =
+                    baseMaximumHeight
+                    + maximumContribution;
+
+                if (
+                    !previewCache
+                        .SetCompositeSliceRange(
+                            dirtyTile.x,
+                            dirtyTile.y,
+                            compositeMinimumHeight,
+                            compositeMaximumHeight,
+                            out _,
+                            out string rangeError
+                        )
+                )
+                {
+                    SetStatus(
+                        TerrainAuthoringPreviewStatus.Error,
+                        "The preview GPU composition succeeded, but " +
+                        "safe range metadata could not be stored for " +
+                        $"tile ({dirtyTile.x}, {dirtyTile.y}). The " +
+                        "dirty set has been retained for retry.\n\n" +
+                        rangeError
                     );
 
                     RepaintEditorViews();
@@ -1245,11 +1410,11 @@ public static class TerrainAuthoringPreviewService
             {
                 SetStatus(
                     TerrainAuthoringPreviewStatus.Error,
-                    "The Stage 13A reset/dispatch transaction produced " +
+                    "The reset/composition transaction produced " +
                     "different valid-slice counts. Dirty state has " +
                     "been retained.\n\n" +
                     $"Committed resets: {updatedCompositeSliceCount}\n" +
-                    $"GPU dispatches: " +
+                    $"Composited tiles: " +
                     $"{heightCompositor.LastDispatchTileCount}"
                 );
 
@@ -1257,6 +1422,27 @@ public static class TerrainAuthoringPreviewService
 
                 return;
             }
+
+            /*
+             * This comparison observes the FINAL composite range after
+             * every dirty tile has been fully recomposed. It therefore
+             * detects expansion and shrinkage in both directions:
+             *
+             * - maximum increased
+             * - maximum decreased
+             * - minimum decreased
+             * - minimum increased
+             */
+            compositeRangeChanged =
+                !Mathf.Approximately(
+                    globalMinimumBefore,
+                    previewCache.MinimumHeight
+                )
+                ||
+                !Mathf.Approximately(
+                    globalMaximumBefore,
+                    previewCache.MaximumHeight
+                );
 
             dirtyCompositeTiles.Clear();
 
