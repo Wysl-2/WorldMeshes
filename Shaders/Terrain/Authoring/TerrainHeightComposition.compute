@@ -1,0 +1,142 @@
+#pragma kernel IdentityComposite
+#pragma kernel ValidationAddConstant
+
+RWTexture2DArray<float> _HeightCache;
+
+int _TargetSlice;
+int _SamplesPerSide;
+
+float _SampleSpacing;
+float _TileWorldSize;
+
+int2 _TileCoordinate;
+float2 _TileWorldOriginXZ;
+float2 _WorldSizeXZ;
+
+float _ValidationHeightDelta;
+
+[numthreads(8, 8, 1)]
+void IdentityComposite(
+    uint3 dispatchThreadId :
+        SV_DispatchThreadID
+)
+{
+    if (
+        dispatchThreadId.x >=
+            (uint)_SamplesPerSide
+        ||
+        dispatchThreadId.y >=
+            (uint)_SamplesPerSide
+    )
+    {
+        return;
+    }
+
+    float2 expectedTileOriginXZ =
+        (float2)_TileCoordinate *
+        _TileWorldSize;
+
+    float originTolerance =
+        max(
+            abs(_SampleSpacing) *
+                0.001,
+            0.00001
+        );
+
+    if (
+        any(
+            abs(
+                expectedTileOriginXZ -
+                _TileWorldOriginXZ
+            )
+            >
+            originTolerance
+        )
+    )
+    {
+        return;
+    }
+
+    float2 sampleWorldXZ =
+        _TileWorldOriginXZ
+        +
+        float2(
+            dispatchThreadId.x,
+            dispatchThreadId.y
+        )
+        *
+        _SampleSpacing;
+
+    float worldTolerance =
+        max(
+            abs(_SampleSpacing) *
+                0.001,
+            0.00001
+        );
+
+    if (
+        sampleWorldXZ.x <
+            -worldTolerance
+        ||
+        sampleWorldXZ.y <
+            -worldTolerance
+        ||
+        sampleWorldXZ.x >
+            _WorldSizeXZ.x +
+            worldTolerance
+        ||
+        sampleWorldXZ.y >
+            _WorldSizeXZ.y +
+            worldTolerance
+    )
+    {
+        return;
+    }
+
+    uint3 cacheAddress =
+        uint3(
+            dispatchThreadId.x,
+            dispatchThreadId.y,
+            (uint)_TargetSlice
+        );
+
+    float height =
+        _HeightCache[
+            cacheAddress
+        ];
+
+    _HeightCache[
+        cacheAddress
+    ] =
+        height;
+}
+
+[numthreads(8, 8, 1)]
+void ValidationAddConstant(
+    uint3 dispatchThreadId :
+        SV_DispatchThreadID
+)
+{
+    if (
+        dispatchThreadId.x >=
+            (uint)_SamplesPerSide
+        ||
+        dispatchThreadId.y >=
+            (uint)_SamplesPerSide
+    )
+    {
+        return;
+    }
+
+    uint3 cacheAddress =
+        uint3(
+            dispatchThreadId.x,
+            dispatchThreadId.y,
+            (uint)_TargetSlice
+        );
+
+    _HeightCache[
+        cacheAddress
+    ] +=
+        _ValidationHeightDelta;
+}

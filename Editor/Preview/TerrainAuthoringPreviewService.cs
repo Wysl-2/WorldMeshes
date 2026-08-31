@@ -52,6 +52,16 @@ public static class TerrainAuthoringPreviewService
 
     private static TerrainAuthoringPreviewCache previewCache;
 
+    /*
+     * Stage 13A composition executor.
+     *
+     * PreviewService owns when/which tiles are recomposed. The
+     * compositor owns only GPU dispatch into the existing cache.
+     */
+    private static readonly TerrainHeightCompositor
+        heightCompositor =
+            new TerrainHeightCompositor();
+
     private static Transform boundClipmapRoot;
 
     private static TerrainAuthoringPreviewStatus status =
@@ -393,6 +403,50 @@ public static class TerrainAuthoringPreviewService
 
 
     // =====================================================
+    // STAGE 13A GPU COMPOSITOR DIAGNOSTICS
+    // =====================================================
+
+    public static bool HeightCompositorPrepared
+    {
+        get
+        {
+            return
+                heightCompositor.IsPrepared;
+        }
+    }
+
+    public static string HeightCompositorComputeShaderPath
+    {
+        get
+        {
+            return
+                TerrainHeightCompositor
+                    .ComputeShaderAssetPath;
+        }
+    }
+
+    public static int LastCompositeDispatchTileCount
+    {
+        get
+        {
+            return
+                heightCompositor
+                    .LastDispatchTileCount;
+        }
+    }
+
+    public static long TotalCompositeDispatchTileCount
+    {
+        get
+        {
+            return
+                heightCompositor
+                    .TotalDispatchTileCount;
+        }
+    }
+
+
+    // =====================================================
     // STAGE 10 VALIDATION DIAGNOSTICS
     // =====================================================
 
@@ -499,6 +553,37 @@ public static class TerrainAuthoringPreviewService
                 diagnosticBindingApplyCount;
         }
     }
+
+    // =====================================================
+    // STAGE 13A INTERNAL VALIDATION ACCESS
+    // =====================================================
+
+    internal static bool TryPrepareHeightCompositor(
+        out string errorMessage
+    )
+    {
+        return
+            heightCompositor
+                .TryPrepare(
+                    out errorMessage
+                );
+    }
+
+    internal static bool DiagnosticCacheRandomWriteEnabled
+    {
+        get
+        {
+            return
+                previewCache != null
+                &&
+                previewCache.HeightCache != null
+                &&
+                previewCache.HeightCache.IsCreated()
+                &&
+                previewCache.HeightCache.enableRandomWrite;
+        }
+    }
+
 
     // =====================================================
     // CLEAR INVALIDATION API
@@ -1071,6 +1156,19 @@ public static class TerrainAuthoringPreviewService
                     dirtyCompositeTiles
                 );
 
+            /*
+             * Stage 13A recomposition transaction:
+             *
+             * 1. reset every valid dirty slice from committed base
+             * 2. dispatch GPU composition into those same slices
+             * 3. only after every step succeeds may the service clear
+             *    dirty state and acknowledge the overall signature
+             *
+             * The compositor never owns the dirty set or signatures.
+             */
+            heightCompositor
+                .BeginTransactionDiagnostics();
+
             if (
                 !previewCache
                     .UpdateCompositeTiles(
@@ -1081,15 +1179,77 @@ public static class TerrainAuthoringPreviewService
                     )
             )
             {
-                /*
-                 * Keep the dirty set so a future retry does not lose
-                 * the requested update.
-                 */
                 SetStatus(
                     TerrainAuthoringPreviewStatus.Error,
-                    "The preview cache could not update its dirty " +
-                    "composite slices.\n\n" +
+                    "The preview cache could not reset its dirty " +
+                    "composite slices from committed base data.\n\n" +
                     compositeError
+                );
+
+                RepaintEditorViews();
+
+                return;
+            }
+
+            foreach (
+                Vector2Int dirtyTile
+                in dirtySnapshot
+            )
+            {
+                int sliceIndex =
+                    previewCache.GetSliceIndex(
+                        dirtyTile.x,
+                        dirtyTile.y
+                    );
+
+                if (sliceIndex < 0)
+                {
+                    continue;
+                }
+
+                if (
+                    !heightCompositor
+                        .TryComposeTile(
+                            previewCache.HeightCache,
+                            dirtyTile,
+                            sliceIndex,
+                            previewCache.SamplesPerSide,
+                            previewCache.SampleSpacing,
+                            worldSettings.HeightTileWorldSize,
+                            previewCache.WorldSizeXZ,
+                            out string compositorError
+                        )
+                )
+                {
+                    SetStatus(
+                        TerrainAuthoringPreviewStatus.Error,
+                        "The preview GPU compositor could not process " +
+                        "all dirty slices. The dirty set has been " +
+                        "retained for retry.\n\n" +
+                        compositorError
+                    );
+
+                    RepaintEditorViews();
+
+                    return;
+                }
+            }
+
+            if (
+                heightCompositor
+                    .LastDispatchTileCount
+                !=
+                updatedCompositeSliceCount
+            )
+            {
+                SetStatus(
+                    TerrainAuthoringPreviewStatus.Error,
+                    "The Stage 13A reset/dispatch transaction produced " +
+                    "different valid-slice counts. Dirty state has " +
+                    "been retained.\n\n" +
+                    $"Committed resets: {updatedCompositeSliceCount}\n" +
+                    $"GPU dispatches: " +
+                    $"{heightCompositor.LastDispatchTileCount}"
                 );
 
                 RepaintEditorViews();
