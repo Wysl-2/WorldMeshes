@@ -453,12 +453,6 @@ public partial class WorldMeshesEditorWindow : EditorWindow
 
         EditorGUI.EndDisabledGroup();
 
-        // =================================================
-        // CURRENT RUNTIME HEIGHTMAP PIPELINE
-        // =================================================
-
-        DrawCurrentRuntimeHeightmapPipeline();
-
         GUILayout.EndVertical();
     }
 
