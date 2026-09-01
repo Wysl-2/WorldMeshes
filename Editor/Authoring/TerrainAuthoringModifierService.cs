@@ -47,7 +47,7 @@ public sealed class TerrainAuthoringModifierMutationDiagnostics
  * through this service instead of calling TerrainAuthoringData or
  * TerrainHeightModifier internal setters directly.
  */
-public static class TerrainAuthoringModifierService
+public static partial class TerrainAuthoringModifierService
 {
     public static TerrainAuthoringModifierMutationDiagnostics
         LastMutationDiagnostics
@@ -619,6 +619,15 @@ public static class TerrainAuthoringModifierService
     )
     {
         errorMessage = "";
+
+
+        if (HasActiveInteractiveEdit)
+        {
+            errorMessage =
+                "A terrain modifier interactive edit is currently active.";
+
+            return false;
+        }
 
         if (
             authoringData == null

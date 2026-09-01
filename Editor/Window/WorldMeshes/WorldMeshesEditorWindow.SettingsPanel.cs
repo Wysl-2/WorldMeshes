@@ -222,6 +222,10 @@ public partial class WorldMeshesEditorWindow :
 
         DrawWorkspaceSectionGap();
 
+        DrawTerrainStampSceneToolSettings();
+
+        DrawWorkspaceSectionGap();
+
         DrawHeightPreviewSettings();
 
         DrawWorkspaceSectionGap();
