@@ -28,8 +28,8 @@ MonoBehaviour:
   clipmapCenterResolution: 128
   clipmapLevelCount: 6
   clipmapBaseSampleStep: 1
-  lastGeneratedHeightSignature: 115b8e05cbc1157421be4491a855a83ae65d50a5a7cad6ccc8f5541329bcb2e5
-  heightmapGenerationRevision: 8
+  lastGeneratedHeightSignature: 3ffa4868446ae945f4af8d1e0c60de658e2ea06cc47add043fac0343b5580997
+  heightmapGenerationRevision: 9
   lastGeneratedCollisionSignature: 5507cbe9a8b0b0c7ac52b57c6d5f7235228bf8525e67580e77c344e3dfef8dd9
-  collisionMeshGenerationRevision: 4
-  collisionSourceHeightmapGenerationRevision: 8
+  collisionMeshGenerationRevision: 5
+  collisionSourceHeightmapGenerationRevision: 9

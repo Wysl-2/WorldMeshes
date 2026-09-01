@@ -65,6 +65,10 @@ public partial class WorldMeshesEditorWindow :
 
         GUILayout.Space(10f);
 
+        DrawRuntimeHeightCompositionValidationSettings();
+
+        GUILayout.Space(10f);
+
         DrawSceneViewFollowingSettings();
 
         GUILayout.Space(10f);

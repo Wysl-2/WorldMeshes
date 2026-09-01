@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using Unity.Collections;
 using UnityEditor;
 using UnityEngine;
 
@@ -199,6 +198,35 @@ public static class TerrainRuntimeHeightCompiler
         float maximumCompiledHeight =
             float.NegativeInfinity;
 
+        TerrainRuntimeHeightCompositionContext
+            compositionContext =
+                new TerrainRuntimeHeightCompositionContext();
+
+        if (
+            !compositionContext.TryPrepare(
+                worldSettings,
+                authoringData,
+                out string compositionPreparationError
+            )
+        )
+        {
+            compositionContext.Dispose();
+
+            Debug.LogError(
+                "Cannot compile runtime heightmaps because the " +
+                "modifier composition context could not be prepared.\n\n" +
+                compositionPreparationError
+            );
+
+            return;
+        }
+
+        float[] compiledHeightData =
+            new float[
+                samplesPerSide *
+                samplesPerSide
+            ];
+
         bool cancelled =
             false;
 
@@ -248,9 +276,11 @@ public static class TerrainRuntimeHeightCompiler
 
                     bool success =
                         CompileOneTile(
+                            compositionContext,
                             tileX,
                             tileZ,
                             samplesPerSide,
+                            compiledHeightData,
                             out float tileMinimumHeight,
                             out float tileMaximumHeight
                         );
@@ -349,6 +379,8 @@ public static class TerrainRuntimeHeightCompiler
         }
         finally
         {
+            compositionContext.Dispose();
+
             EditorUtility.ClearProgressBar();
         }
 
@@ -475,9 +507,11 @@ public static class TerrainRuntimeHeightCompiler
     // =====================================================
 
     private static bool CompileOneTile(
+        TerrainRuntimeHeightCompositionContext compositionContext,
         int tileX,
         int tileZ,
         int samplesPerSide,
+        float[] compiledHeightData,
         out float minimumHeight,
         out float maximumHeight
     )
@@ -487,6 +521,34 @@ public static class TerrainRuntimeHeightCompiler
 
         maximumHeight =
             float.NegativeInfinity;
+
+        if (compositionContext == null)
+        {
+            Debug.LogError(
+                "Runtime height composition context is null."
+            );
+
+            return false;
+        }
+
+        int expectedSampleCount =
+            samplesPerSide *
+            samplesPerSide;
+
+        if (
+            compiledHeightData == null
+            ||
+            compiledHeightData.Length !=
+                expectedSampleCount
+        )
+        {
+            Debug.LogError(
+                "Runtime height compilation received an invalid " +
+                "reusable sample buffer."
+            );
+
+            return false;
+        }
 
         string sourcePath =
             TerrainAuthoringStateUtility
@@ -512,36 +574,112 @@ public static class TerrainRuntimeHeightCompiler
             return false;
         }
 
-        NativeArray<float> sourceHeightData;
-
-        try
-        {
-            sourceHeightData =
-                sourceTexture.GetPixelData<float>(
-                    0
-                );
-        }
-        catch (
-            System.Exception exception
+        if (
+            sourceTexture.width !=
+                samplesPerSide
+            ||
+            sourceTexture.height !=
+                samplesPerSide
         )
         {
             Debug.LogError(
-                $"Could not read authoring height tile " +
-                $"({tileX}, {tileZ}) during compilation.\n\n" +
-                exception.Message
+                $"Authoring height tile ({tileX}, {tileZ}) has " +
+                "unexpected dimensions during runtime compilation.\n\n" +
+                $"Expected: {samplesPerSide} x {samplesPerSide}\n" +
+                $"Actual: {sourceTexture.width} x {sourceTexture.height}"
             );
 
             return false;
         }
 
+        Vector2Int coordinate =
+            new Vector2Int(
+                tileX,
+                tileZ
+            );
+
+        if (
+            compositionContext.RequiresComposition(
+                coordinate
+            )
+        )
+        {
+            if (
+                !compositionContext
+                    .TryComposeCommittedTile(
+                        sourceTexture,
+                        coordinate,
+                        compiledHeightData,
+                        out string compositionError
+                    )
+            )
+            {
+                Debug.LogError(
+                    $"Could not compose runtime height tile " +
+                    $"({tileX}, {tileZ}).\n\n" +
+                    compositionError
+                );
+
+                return false;
+            }
+        }
+        else
+        {
+            try
+            {
+                var sourceHeightData =
+                    sourceTexture.GetPixelData<float>(
+                        0
+                    );
+
+                if (
+                    sourceHeightData.Length !=
+                        expectedSampleCount
+                )
+                {
+                    Debug.LogError(
+                        $"Authoring height tile ({tileX}, {tileZ}) " +
+                        "contains an unexpected sample count during " +
+                        "runtime compilation."
+                    );
+
+                    return false;
+                }
+
+                for (
+                    int index = 0;
+                    index < sourceHeightData.Length;
+                    index++
+                )
+                {
+                    compiledHeightData[index] =
+                        sourceHeightData[index];
+                }
+            }
+            catch (
+                System.Exception exception
+            )
+            {
+                Debug.LogError(
+                    $"Could not read authoring height tile " +
+                    $"({tileX}, {tileZ}) during compilation.\n\n" +
+                    exception.Message
+                );
+
+                return false;
+            }
+        }
+
         for (
             int index = 0;
-            index < sourceHeightData.Length;
+            index < compiledHeightData.Length;
             index++
         )
         {
             float height =
-                sourceHeightData[index];
+                compiledHeightData[
+                    index
+                ];
 
             if (
                 float.IsNaN(
@@ -554,9 +692,8 @@ public static class TerrainRuntimeHeightCompiler
             )
             {
                 Debug.LogError(
-                    $"Authoring height tile ({tileX}, {tileZ}) " +
-                    "contains an invalid height sample during " +
-                    "runtime compilation."
+                    $"Compiled runtime height tile ({tileX}, {tileZ}) " +
+                    "contains a non-finite height sample."
                 );
 
                 return false;
@@ -586,25 +723,19 @@ public static class TerrainRuntimeHeightCompiler
         )
         {
             Debug.LogError(
-                $"Authoring height tile ({tileX}, {tileZ}) " +
+                $"Compiled runtime height tile ({tileX}, {tileZ}) " +
                 "contains no height samples."
             );
 
             return false;
         }
 
-        /*
-         * Stage 1 currently copies committed authoring data
-         * directly. The future compositor will replace the
-         * sourceHeightData evaluation here; the outer compiler
-         * and height-range accumulation can remain unchanged.
-         */
         return
             SaveOrUpdateRuntimeHeightTile(
                 tileX,
                 tileZ,
                 samplesPerSide,
-                sourceHeightData
+                compiledHeightData
             );
     }
 
@@ -616,7 +747,7 @@ public static class TerrainRuntimeHeightCompiler
         int tileX,
         int tileZ,
         int samplesPerSide,
-        NativeArray<float> heightData
+        float[] heightData
     )
     {
         string assetPath =

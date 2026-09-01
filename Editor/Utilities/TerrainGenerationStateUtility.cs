@@ -11,11 +11,11 @@ public static class TerrainGenerationStateUtility
     // =====================================================
 
     /*
-     * Incremented because the runtime manifest now records
-     * compiled height range metadata used by clipmap bounds.
+     * Runtime heightmaps now bake the current modifier-inclusive
+     * composite rather than copying committed base tiles directly.
      */
     public const int RuntimeHeightCompilerVersion =
-        3;
+        4;
 
     public const int CollisionGeneratorVersion =
         1;
