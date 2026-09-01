@@ -758,6 +758,10 @@ public partial class WorldMeshesEditorWindow :
                 );
             }
         }
+
+        DrawStampSmoothingSettings(
+            stamp
+        );
     }
 
     // =====================================================

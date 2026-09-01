@@ -15,7 +15,7 @@ public static class TerrainGenerationStateUtility
      * composite rather than copying committed base tiles directly.
      */
     public const int RuntimeHeightCompilerVersion =
-        4;
+        6;
 
     public const int CollisionGeneratorVersion =
         1;

@@ -21,6 +21,8 @@ float2 _StampMinXZ;
 float2 _StampSizeXZ;
 float _StampHeightDelta;
 float _StampFalloff;
+float _StampSmoothingRadius;
+float _StampSmoothingStrength;
 
 float _ValidationHeightDelta;
 
@@ -154,29 +156,6 @@ float CalculateFootprintFalloff(
     float2 stampUV
 )
 {
-    /*
-     * Exact deterministic falloff contract:
-     *
-     * nearestEdge:
-     *     0 at any rectangle edge
-     *     0.5 at the rectangle center
-     *
-     * edgeDistance01:
-     *     nearestEdge * 2
-     *     therefore 0 at edge, 1 at center
-     *
-     * Falloff == 0:
-     *     no additional footprint attenuation
-     *
-     * Falloff > 0:
-     *     smooth fade from the rectangle edge until
-     *     edgeDistance01 reaches Falloff
-     *
-     * Examples:
-     *     Falloff 0.25 -> fade over outer 12.5% per side
-     *     Falloff 0.50 -> fade over outer 25% per side
-     *     Falloff 1.00 -> fade extends edge-to-center
-     */
     if (_StampFalloff <= 0.0)
     {
         return 1.0;
@@ -204,6 +183,210 @@ float CalculateFootprintFalloff(
             0.0,
             saturate(_StampFalloff),
             edgeDistance01
+        );
+}
+
+float SampleRawStampWeight(
+    float2 stampUV
+)
+{
+    return
+        saturate(
+            _StampTexture.SampleLevel(
+                sampler_StampTexture,
+                stampUV,
+                0.0
+            ).r
+        );
+}
+
+float GetGaussianWeight1D(
+    int coordinate
+)
+{
+    int distance =
+        abs(
+            coordinate
+        );
+
+    if (distance == 0)
+    {
+        return 6.0;
+    }
+
+    if (distance == 1)
+    {
+        return 4.0;
+    }
+
+    return 1.0;
+}
+
+float SampleGaussianStampWeight(
+    float2 stampUV
+)
+{
+    float safeSizeX =
+        max(
+            _StampSizeXZ.x,
+            0.000001
+        );
+
+    float safeSizeZ =
+        max(
+            _StampSizeXZ.y,
+            0.000001
+        );
+
+    /*
+     * Smoothing radius is authored in WORLD METRES.
+     *
+     * Five taps per axis are located at:
+     * -Radius, -Radius/2, 0, +Radius/2, +Radius.
+     *
+     * Independent X/Z conversion keeps physical smoothing isotropic even
+     * when the stamp footprint itself is rectangular.
+     */
+    float2 radiusUV =
+        float2(
+            _StampSmoothingRadius /
+                safeSizeX,
+            _StampSmoothingRadius /
+                safeSizeZ
+        );
+
+    float accumulatedValue =
+        0.0;
+
+    float accumulatedWeight =
+        0.0;
+
+    [unroll]
+    for (
+        int offsetZ = -2;
+        offsetZ <= 2;
+        offsetZ++
+    )
+    {
+        float zFactor =
+            (float)offsetZ *
+            0.5;
+
+        float weightZ =
+            GetGaussianWeight1D(
+                offsetZ
+            );
+
+        [unroll]
+        for (
+            int offsetX = -2;
+            offsetX <= 2;
+            offsetX++
+        )
+        {
+            float xFactor =
+                (float)offsetX *
+                0.5;
+
+            /*
+             * Keep the full 5x5 Gaussian topology at every point.
+             *
+             * The original Stage 16A implementation rejected taps outside
+             * UV 0..1 and renormalized the surviving samples. As Radius grew,
+             * complete rows/columns crossed the footprint boundary at the
+             * discrete Radius / 2 and Radius distances. That changed the
+             * effective filter abruptly and produced nested rectangular ridges.
+             *
+             * Clamp only the SOURCE lookup coordinate instead. Every one of
+             * the 25 Gaussian weights remains active everywhere inside the
+             * mathematical stamp footprint, so the filter changes continuously.
+             *
+             * ApplyAdditiveStamp still rejects terrain samples whose central
+             * stampUV lies outside 0..1, and footprint Falloff is still applied
+             * afterward. This does NOT expand the modifier footprint.
+             */
+            float2 sampleUV =
+                saturate(
+                    stampUV
+                    +
+                    float2(
+                        radiusUV.x *
+                            xFactor,
+                        radiusUV.y *
+                            zFactor
+                    )
+                );
+
+            float weight =
+                GetGaussianWeight1D(
+                    offsetX
+                )
+                *
+                weightZ;
+
+            accumulatedValue +=
+                SampleRawStampWeight(
+                    sampleUV
+                )
+                *
+                weight;
+
+            accumulatedWeight +=
+                weight;
+        }
+    }
+
+    if (accumulatedWeight <= 0.0)
+    {
+        return
+            SampleRawStampWeight(
+                stampUV
+            );
+    }
+
+    return
+        saturate(
+            accumulatedValue /
+            accumulatedWeight
+        );
+}
+
+float SampleFinalStampTextureWeight(
+    float2 stampUV
+)
+{
+    float rawWeight =
+        SampleRawStampWeight(
+            stampUV
+        );
+
+    /*
+     * Exact legacy fast path. Existing modifiers default to Radius = 0.
+     * They therefore retain the original single bilinear sample and pay no
+     * Gaussian sampling cost.
+     */
+    if (
+        _StampSmoothingRadius <= 0.0
+        || _StampSmoothingStrength <= 0.0
+    )
+    {
+        return rawWeight;
+    }
+
+    float smoothedWeight =
+        SampleGaussianStampWeight(
+            stampUV
+        );
+
+    return
+        saturate(
+            lerp(
+                rawWeight,
+                smoothedWeight,
+                saturate(
+                    _StampSmoothingStrength
+                )
+            )
         );
 }
 
@@ -241,10 +424,6 @@ void ApplyAdditiveStamp(
         ) /
         _StampSizeXZ;
 
-    /*
-     * Outside the mathematical rectangle there is no contribution.
-     * Do not clamp outside samples into the border texel.
-     */
     if (
         stampUV.x < 0.0
         || stampUV.x > 1.0
@@ -256,19 +435,13 @@ void ApplyAdditiveStamp(
     }
 
     /*
-     * Height-texture semantics are explicitly 0..1. Saturating the
-     * sample guarantees the conservative CPU contribution interval:
-     *
-     *     positive HeightDelta -> [0, HeightDelta]
-     *     negative HeightDelta -> [HeightDelta, 0]
+     * Smoothing modifies only the source texture weight. The established
+     * footprint falloff is applied afterward, so its spatial contract remains
+     * unchanged and the modifier still contributes nowhere outside its bounds.
      */
     float textureWeight =
-        saturate(
-            _StampTexture.SampleLevel(
-                sampler_StampTexture,
-                stampUV,
-                0.0
-            ).r
+        SampleFinalStampTextureWeight(
+            stampUV
         );
 
     float footprintFalloff =
@@ -277,7 +450,10 @@ void ApplyAdditiveStamp(
         );
 
     float finalWeight =
-        textureWeight *
+        saturate(
+            textureWeight
+        )
+        *
         footprintFalloff;
 
     float contribution =

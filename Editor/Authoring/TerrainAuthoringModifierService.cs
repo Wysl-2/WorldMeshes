@@ -1068,6 +1068,14 @@ public static partial class TerrainAuthoringModifierService
                 stamp.Falloff
             );
 
+            copy.SetSmoothingRadiusInternal(
+                stamp.SmoothingRadius
+            );
+
+            copy.SetSmoothingStrengthInternal(
+                stamp.SmoothingStrength
+            );
+
             copy.SetBlendModeInternal(
                 stamp.BlendMode
             );

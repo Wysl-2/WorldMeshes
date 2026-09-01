@@ -4,10 +4,11 @@ using System.Text;
 using UnityEngine;
 
 /*
- * First concrete non-destructive height modifier data type.
+ * Concrete non-destructive additive height-stamp modifier.
  *
- * No terrain composition is performed here. The class only stores the
- * persistent authoring parameters required by later compositor stages.
+ * Persistent values stored here describe terrain output only. Editor-only
+ * selection, handles, diagnostics, and visualization preferences live outside
+ * this runtime data type.
  */
 [Serializable]
 public sealed class TerrainStampModifier :
@@ -42,12 +43,24 @@ public sealed class TerrainStampModifier :
     private float falloff =
         0.25f;
 
+    [SerializeField]
+    [Min(0f)]
+    private float smoothingRadius =
+        0f;
+
+    [SerializeField]
+    [Range(
+        0f,
+        1f
+    )]
+    private float smoothingStrength =
+        1f;
+
     public TerrainHeightStampAsset StampAsset
     {
         get
         {
-            return
-                stampAsset;
+            return stampAsset;
         }
     }
 
@@ -123,6 +136,35 @@ public sealed class TerrainStampModifier :
         }
     }
 
+    public float SmoothingRadius
+    {
+        get
+        {
+            return
+                Mathf.Max(
+                    0f,
+                    SanitizeFinite(
+                        smoothingRadius,
+                        0f
+                    )
+                );
+        }
+    }
+
+    public float SmoothingStrength
+    {
+        get
+        {
+            return
+                Mathf.Clamp01(
+                    SanitizeFinite(
+                        smoothingStrength,
+                        1f
+                    )
+                );
+        }
+    }
+
     public override Bounds GetAffectedWorldBounds()
     {
         Vector2 safePosition =
@@ -131,6 +173,12 @@ public sealed class TerrainStampModifier :
         Vector2 safeSize =
             SizeXZ;
 
+        /*
+         * Smoothing stays inside the existing mathematical stamp footprint.
+         * The compositor clamps Gaussian SOURCE lookup coordinates to the
+         * stamp texture boundary while still rejecting terrain samples whose
+         * central stamp coordinate lies outside this footprint.
+         */
         return
             new Bounds(
                 new Vector3(
@@ -240,10 +288,37 @@ public sealed class TerrainStampModifier :
             );
     }
 
+    internal void SetSmoothingRadiusInternal(
+        float value
+    )
+    {
+        smoothingRadius =
+            Mathf.Max(
+                0f,
+                SanitizeFinite(
+                    value,
+                    0f
+                )
+            );
+    }
+
+    internal void SetSmoothingStrengthInternal(
+        float value
+    )
+    {
+        smoothingStrength =
+            Mathf.Clamp01(
+                SanitizeFinite(
+                    value,
+                    1f
+                )
+            );
+    }
+
     protected override string GetSignatureTypeId()
     {
         return
-            "TerrainStampModifierV1";
+            "TerrainStampModifierV2";
     }
 
     protected override void AppendTypeSpecificSignatureData(
@@ -269,6 +344,16 @@ public sealed class TerrainStampModifier :
             builder,
             Falloff
         );
+
+        AppendFloat(
+            builder,
+            SmoothingRadius
+        );
+
+        AppendFloat(
+            builder,
+            SmoothingStrength
+        );
     }
 
     private static float SanitizeFinite(
@@ -286,11 +371,9 @@ public sealed class TerrainStampModifier :
             )
         )
         {
-            return
-                fallback;
+            return fallback;
         }
 
-        return
-            value;
+        return value;
     }
 }

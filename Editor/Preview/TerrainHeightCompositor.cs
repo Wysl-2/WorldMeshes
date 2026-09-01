@@ -775,6 +775,16 @@ public sealed class TerrainHeightCompositor
                 stampModifier.Falloff
             );
 
+            computeShader.SetFloat(
+                "_StampSmoothingRadius",
+                stampModifier.SmoothingRadius
+            );
+
+            computeShader.SetFloat(
+                "_StampSmoothingStrength",
+                stampModifier.SmoothingStrength
+            );
+
             computeShader.Dispatch(
                 additiveStampKernel,
                 groupsX,
