@@ -214,10 +214,13 @@ public partial class WorldMeshesEditorWindow :
     {
         DrawWorkspaceHeader(
             "Terrain",
-            "Control the edit-mode terrain preview and authoring " +
-            "visualization. Production modifier authoring controls " +
-            "will live in this workspace."
+            "Manage non-destructive terrain modifiers and control the " +
+            "edit-mode terrain preview and authoring visualization."
         );
+
+        DrawModifierAuthoringSettings();
+
+        DrawWorkspaceSectionGap();
 
         DrawHeightPreviewSettings();
 
