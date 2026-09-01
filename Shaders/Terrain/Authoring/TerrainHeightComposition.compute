@@ -19,6 +19,9 @@ float2 _WorldSizeXZ;
 
 float2 _StampMinXZ;
 float2 _StampSizeXZ;
+float2 _StampTextureSize;
+int _StampMipCount;
+
 float _StampHeightDelta;
 float _StampFalloff;
 float _StampSmoothingRadius;
@@ -186,8 +189,9 @@ float CalculateFootprintFalloff(
         );
 }
 
-float SampleRawStampWeight(
-    float2 stampUV
+float SampleStampWeightAtExactLod(
+    float2 stampUV,
+    float lod
 )
 {
     return
@@ -195,8 +199,19 @@ float SampleRawStampWeight(
             _StampTexture.SampleLevel(
                 sampler_StampTexture,
                 stampUV,
-                0.0
+                lod
             ).r
+        );
+}
+
+float SampleRawStampWeight(
+    float2 stampUV
+)
+{
+    return
+        SampleStampWeightAtExactLod(
+            stampUV,
+            0.0
         );
 }
 
@@ -222,6 +237,153 @@ float GetGaussianWeight1D(
     return 1.0;
 }
 
+float CalculateAdaptiveSmoothingLod()
+{
+    float maxLod =
+        max(
+            (float)(_StampMipCount - 1),
+            0.0
+        );
+
+    if (
+        maxLod <= 0.0
+        || _StampSmoothingRadius <= 0.0
+    )
+    {
+        return 0.0;
+    }
+
+    float2 safeTextureSize =
+        max(
+            _StampTextureSize,
+            float2(
+                1.0,
+                1.0
+            )
+        );
+
+    float2 safeStampSize =
+        max(
+            _StampSizeXZ,
+            float2(
+                0.000001,
+                0.000001
+            )
+        );
+
+    float2 sourceTexelWorldSize =
+        safeStampSize /
+        safeTextureSize;
+
+    float2 radiusInTexels =
+        _StampSmoothingRadius /
+        max(
+            sourceTexelWorldSize,
+            float2(
+                0.000001,
+                0.000001
+            )
+        );
+
+    float coarsestRadiusInTexels =
+        max(
+            radiusInTexels.x,
+            radiusInTexels.y
+        );
+
+    /*
+     * Keep the physical Radius represented by roughly four texels at the
+     * selected prefiltered scale. Small radii naturally resolve to mip 0;
+     * large radii move into increasingly broad source mip levels.
+     */
+    const float TargetRadiusTexels =
+        4.0;
+
+    float lod =
+        log2(
+            max(
+                coarsestRadiusInTexels /
+                    TargetRadiusTexels,
+                1.0
+            )
+        );
+
+    return
+        clamp(
+            lod,
+            0.0,
+            maxLod
+        );
+}
+
+float SampleStampWeightAtAdaptiveLod(
+    float2 stampUV,
+    float lod
+)
+{
+    float maxLod =
+        max(
+            (float)(_StampMipCount - 1),
+            0.0
+        );
+
+    float safeLod =
+        clamp(
+            lod,
+            0.0,
+            maxLod
+        );
+
+    float lowerLod =
+        floor(
+            safeLod
+        );
+
+    float upperLod =
+        min(
+            lowerLod + 1.0,
+            maxLod
+        );
+
+    float lowerWeight =
+        SampleStampWeightAtExactLod(
+            stampUV,
+            lowerLod
+        );
+
+    float mipBlend =
+        safeLod -
+        lowerLod;
+
+    /*
+     * The stamp importer remains Bilinear, giving deterministic filtering
+     * inside each numeric mip level. Blend adjacent levels explicitly so a
+     * continuously changing Radius never creates integer-LOD transitions.
+     */
+    if (
+        mipBlend <= 0.0001
+        || upperLod <= lowerLod
+    )
+    {
+        return lowerWeight;
+    }
+
+    float upperWeight =
+        SampleStampWeightAtExactLod(
+            stampUV,
+            upperLod
+        );
+
+    return
+        saturate(
+            lerp(
+                lowerWeight,
+                upperWeight,
+                mipBlend
+            )
+        );
+}
+
 float SampleGaussianStampWeight(
     float2 stampUV
 )
@@ -239,13 +401,9 @@ float SampleGaussianStampWeight(
         );
 
     /*
-     * Smoothing radius is authored in WORLD METRES.
-     *
-     * Five taps per axis are located at:
-     * -Radius, -Radius/2, 0, +Radius/2, +Radius.
-     *
-     * Independent X/Z conversion keeps physical smoothing isotropic even
-     * when the stamp footprint itself is rectangular.
+     * Radius remains authored in WORLD METRES and the five Gaussian positions
+     * remain -R, -R/2, 0, +R/2, +R. The adaptive mip level changes only how
+     * much source information each tap represents.
      */
     float2 radiusUV =
         float2(
@@ -254,6 +412,9 @@ float SampleGaussianStampWeight(
             _StampSmoothingRadius /
                 safeSizeZ
         );
+
+    float smoothingLod =
+        CalculateAdaptiveSmoothingLod();
 
     float accumulatedValue =
         0.0;
@@ -289,21 +450,8 @@ float SampleGaussianStampWeight(
                 0.5;
 
             /*
-             * Keep the full 5x5 Gaussian topology at every point.
-             *
-             * The original Stage 16A implementation rejected taps outside
-             * UV 0..1 and renormalized the surviving samples. As Radius grew,
-             * complete rows/columns crossed the footprint boundary at the
-             * discrete Radius / 2 and Radius distances. That changed the
-             * effective filter abruptly and produced nested rectangular ridges.
-             *
-             * Clamp only the SOURCE lookup coordinate instead. Every one of
-             * the 25 Gaussian weights remains active everywhere inside the
-             * mathematical stamp footprint, so the filter changes continuously.
-             *
-             * ApplyAdditiveStamp still rejects terrain samples whose central
-             * stampUV lies outside 0..1, and footprint Falloff is still applied
-             * afterward. This does NOT expand the modifier footprint.
+             * Preserve the Stage 16A ridge fix: all 25 Gaussian weights remain
+             * active and only source lookup UVs clamp at the stamp boundary.
              */
             float2 sampleUV =
                 saturate(
@@ -325,8 +473,9 @@ float SampleGaussianStampWeight(
                 weightZ;
 
             accumulatedValue +=
-                SampleRawStampWeight(
-                    sampleUV
+                SampleStampWeightAtAdaptiveLod(
+                    sampleUV,
+                    smoothingLod
                 )
                 *
                 weight;
@@ -361,9 +510,8 @@ float SampleFinalStampTextureWeight(
         );
 
     /*
-     * Exact legacy fast path. Existing modifiers default to Radius = 0.
-     * They therefore retain the original single bilinear sample and pay no
-     * Gaussian sampling cost.
+     * Exact legacy fast path. Radius == 0 or Strength == 0 performs the raw
+     * mip-0 sample and incurs no adaptive Gaussian work.
      */
     if (
         _StampSmoothingRadius <= 0.0
@@ -435,9 +583,8 @@ void ApplyAdditiveStamp(
     }
 
     /*
-     * Smoothing modifies only the source texture weight. The established
-     * footprint falloff is applied afterward, so its spatial contract remains
-     * unchanged and the modifier still contributes nowhere outside its bounds.
+     * Smoothing changes only source texture weight. The established footprint
+     * Falloff remains afterward, preserving modifier bounds and edge behavior.
      */
     float textureWeight =
         SampleFinalStampTextureWeight(

@@ -583,6 +583,7 @@ public sealed class TerrainHeightCompositor
             if (
                 !ValidateStampTexture(
                     stampAsset.HeightTexture,
+                    stampModifier,
                     modifierIndex,
                     out errorMessage
                 )
@@ -720,6 +721,30 @@ public sealed class TerrainHeightCompositor
                 additiveStampKernel,
                 "_StampTexture",
                 stampAsset.HeightTexture
+            );
+
+            computeShader.SetVector(
+                "_StampTextureSize",
+                new Vector4(
+                    Mathf.Max(
+                        1,
+                        stampAsset.HeightTexture.width
+                    ),
+                    Mathf.Max(
+                        1,
+                        stampAsset.HeightTexture.height
+                    ),
+                    0f,
+                    0f
+                )
+            );
+
+            computeShader.SetInt(
+                "_StampMipCount",
+                Mathf.Max(
+                    1,
+                    stampAsset.HeightTexture.mipmapCount
+                )
             );
 
             computeShader.SetVector(
@@ -879,14 +904,16 @@ public sealed class TerrainHeightCompositor
      *     red 0 = no contribution
      *     red 1 = full HeightDelta contribution
      *
-     * The shader clamps the sampled red channel to 0..1 so the
-     * conservative range contract remains guaranteed.
+     * The shader clamps sampled red values to 0..1 so the conservative
+     * contribution-range contract remains guaranteed.
      *
-     * Bilinear + Clamp are enforced here. Explicit mip 0 is used by
-     * the compute shader, so mipmaps are not relied upon.
+     * Bilinear + Clamp remain mandatory. Small-radius smoothing uses mip 0.
+     * Medium/large-radius smoothing automatically samples prefiltered mip
+     * levels and manually blends adjacent levels for continuous Radius edits.
      */
     private static bool ValidateStampTexture(
         Texture2D stampTexture,
+        TerrainStampModifier stampModifier,
         int modifierIndex,
         out string errorMessage
     )
@@ -896,6 +923,25 @@ public sealed class TerrainHeightCompositor
         if (stampTexture == null)
         {
             return true;
+        }
+
+        if (
+            RequiresMipAssistedSmoothing(
+                stampTexture,
+                stampModifier
+            )
+            &&
+            stampTexture.mipmapCount <= 1
+        )
+        {
+            errorMessage =
+                "Large-radius terrain-stamp smoothing requires source " +
+                "mipmaps so broad filters can use prefiltered height data.\n\n" +
+                $"Modifier index: {modifierIndex}\n" +
+                $"Texture: {stampTexture.name}\n\n" +
+                "Enable Generate Mip Maps on the height-stamp texture importer.";
+
+            return false;
         }
 
         string assetPath =
@@ -960,6 +1006,68 @@ public sealed class TerrainHeightCompositor
         }
 
         return true;
+    }
+
+    private static bool RequiresMipAssistedSmoothing(
+        Texture2D stampTexture,
+        TerrainStampModifier stampModifier
+    )
+    {
+        if (
+            stampTexture == null
+            ||
+            stampModifier == null
+            ||
+            stampModifier.SmoothingRadius <= 0f
+            ||
+            stampModifier.SmoothingStrength <= 0f
+        )
+        {
+            return false;
+        }
+
+        Vector2 stampSize =
+            stampModifier.SizeXZ;
+
+        float texelWorldSizeX =
+            stampSize.x
+            /
+            Mathf.Max(
+                1,
+                stampTexture.width
+            );
+
+        float texelWorldSizeZ =
+            stampSize.y
+            /
+            Mathf.Max(
+                1,
+                stampTexture.height
+            );
+
+        float radiusInTexelsX =
+            stampModifier.SmoothingRadius
+            /
+            Mathf.Max(
+                0.000001f,
+                texelWorldSizeX
+            );
+
+        float radiusInTexelsZ =
+            stampModifier.SmoothingRadius
+            /
+            Mathf.Max(
+                0.000001f,
+                texelWorldSizeZ
+            );
+
+        return
+            Mathf.Max(
+                radiusInTexelsX,
+                radiusInTexelsZ
+            )
+            >
+            4f;
     }
 
     private static bool OverlapsTileXZ(

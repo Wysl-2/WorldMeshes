@@ -16,55 +16,35 @@ MonoBehaviour:
   flatHeight: 0
   importedHeightmap: {fileID: 0}
   heightModifiers:
-  - rid: 8462234730159145029
-  - rid: 8462234730159145030
-  - rid: 8462234730159145031
-  - rid: 8462234730159145032
-  authoringRevision: 146
+  - rid: 8462234730159145034
+  - rid: 8462234730159145035
+  authoringRevision: 382
   references:
     version: 2
     RefIds:
-    - rid: 8462234730159145029
+    - rid: 8462234730159145034
       type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
       data:
-        stableId: db6a4ee3dccf4a54912d360f6db2d147
+        stableId: 6ce172225ced4a22a2139042c990fe1d
         enabled: 1
         blendMode: 0
-        stampAsset: {fileID: 11400000, guid: 6a689e9b9ac1ae45497970ca4bb9c9da, type: 2}
-        positionXZ: {x: 2993.454, y: 2663.8752}
-        sizeXZ: {x: 1210.1289, y: 1008.8635}
-        heightDelta: 120
-        falloff: 0.25
-    - rid: 8462234730159145030
+        stampAsset: {fileID: 11400000, guid: fa7b80f5ee690564f9603fb1aee4e03b, type: 2}
+        positionXZ: {x: 2855.7449, y: 2541.4004}
+        sizeXZ: {x: 2048, y: 2048}
+        heightDelta: 600
+        falloff: 0.3
+        smoothingRadius: 429.08276
+        smoothingStrength: 1
+    - rid: 8462234730159145035
       type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
       data:
-        stableId: 72b7edc835b7446aa1509143f9858c6d
+        stableId: ac190c68bc224d62b6963dfdb018f489
         enabled: 1
         blendMode: 0
-        stampAsset: {fileID: 11400000, guid: 6a689e9b9ac1ae45497970ca4bb9c9da, type: 2}
-        positionXZ: {x: 2762.4487, y: 3066.0642}
-        sizeXZ: {x: 809.69727, y: 903.7334}
-        heightDelta: 80
-        falloff: 0.25
-    - rid: 8462234730159145031
-      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
-      data:
-        stableId: 5c7529ac7cc04be7b8a478e61c26d2e7
-        enabled: 1
-        blendMode: 0
-        stampAsset: {fileID: 11400000, guid: 194f3ef39340ba8378448372e6b0933f, type: 2}
-        positionXZ: {x: 3198.6865, y: 4171.4043}
-        sizeXZ: {x: 1074.6177, y: 1007.87085}
-        heightDelta: 30
-        falloff: 0.25
-    - rid: 8462234730159145032
-      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
-      data:
-        stableId: 102be061b9ff4f7096ab7f31c41b3adc
-        enabled: 1
-        blendMode: 0
-        stampAsset: {fileID: 11400000, guid: 8676c6ec004226947aaddaa9f1cb43b1, type: 2}
-        positionXZ: {x: 3763.0107, y: 3270.6758}
-        sizeXZ: {x: 348.47656, y: 399.94287}
-        heightDelta: 80
-        falloff: 0.25
+        stampAsset: {fileID: 11400000, guid: fa7b80f5ee690564f9603fb1aee4e03b, type: 2}
+        positionXZ: {x: 4563.3145, y: 2496.8489}
+        sizeXZ: {x: 1974.7424, y: 1841.1514}
+        heightDelta: 400
+        falloff: 0.3
+        smoothingRadius: 200
+        smoothingStrength: 1
