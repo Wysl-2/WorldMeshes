@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEditor.EditorTools;
 using UnityEngine;
@@ -107,6 +108,15 @@ public sealed class TerrainStampEditorTool :
                 authoringData
             );
 
+        if (
+            HandleFrameSelectedShortcut(
+                authoringData
+            )
+        )
+        {
+            return;
+        }
+
         float planeY =
             GetCurrentAuthoringPlaneY();
 
@@ -136,6 +146,12 @@ public sealed class TerrainStampEditorTool :
                 TerrainStampModifier selectedStamp
         )
         {
+            DrawSelectedStampVisualizations(
+                worldSettings,
+                selectedStamp,
+                planeY
+            );
+
             DrawSelectedStampHandles(
                 authoringData,
                 worldSettings,
@@ -582,6 +598,357 @@ public sealed class TerrainStampEditorTool :
             oldColor;
     }
 
+
+    private static void DrawSelectedStampVisualizations(
+        WorldSettings worldSettings,
+        TerrainStampModifier stamp,
+        float planeY
+    )
+    {
+        if (stamp == null)
+        {
+            return;
+        }
+
+        if (
+            TerrainStampEditorToolPreferences
+                .ShowAffectedTileOverlay
+        )
+        {
+            DrawAffectedTileOverlay(
+                worldSettings,
+                stamp,
+                planeY
+            );
+        }
+
+        if (
+            TerrainStampEditorToolPreferences
+                .ShowFalloffVisualization
+        )
+        {
+            DrawFalloffVisualization(
+                stamp,
+                planeY
+            );
+        }
+
+        if (stamp.StampAsset == null)
+        {
+            StampFootprint footprint =
+                GetStampFootprint(
+                    stamp
+                );
+
+            Vector3 labelPosition =
+                new Vector3(
+                    footprint.CenterX,
+                    planeY,
+                    footprint.CenterZ
+                );
+
+            Handles.Label(
+                labelPosition,
+                "Unassigned Stamp",
+                EditorStyles.miniBoldLabel
+            );
+        }
+    }
+
+    private static void DrawFalloffVisualization(
+        TerrainStampModifier stamp,
+        float planeY
+    )
+    {
+        float falloff =
+            Mathf.Clamp01(
+                stamp.Falloff
+            );
+
+        /*
+         * The compositor uses:
+         *
+         * nearestEdge =
+         *     min(uv.x, 1-uv.x, uv.y, 1-uv.y)
+         *
+         * edgeDistance01 =
+         *     saturate(nearestEdge * 2)
+         *
+         * smoothstep(0, Falloff, edgeDistance01)
+         *
+         * Full strength therefore begins when:
+         *
+         * nearestEdge >= Falloff / 2
+         *
+         * so each side is inset by half of the Falloff fraction.
+         * The resulting full-strength rectangle has:
+         *
+         * innerSize = outerSize * (1 - Falloff)
+         */
+        if (falloff <= 0f)
+        {
+            return;
+        }
+
+        StampFootprint outer =
+            GetStampFootprint(
+                stamp
+            );
+
+        float width =
+            outer.MaximumX -
+            outer.MinimumX;
+
+        float depth =
+            outer.MaximumZ -
+            outer.MinimumZ;
+
+        float insetX =
+            width *
+            falloff *
+            0.5f;
+
+        float insetZ =
+            depth *
+            falloff *
+            0.5f;
+
+        StampFootprint inner =
+            new StampFootprint(
+                outer.MinimumX +
+                    insetX,
+                outer.MaximumX -
+                    insetX,
+                outer.MinimumZ +
+                    insetZ,
+                outer.MaximumZ -
+                    insetZ
+            );
+
+        Color oldColor =
+            Handles.color;
+
+        Handles.color =
+            Handles.preselectionColor;
+
+        const float minimumRegionSize =
+            0.0001f;
+
+        bool collapsed =
+            inner.MaximumX -
+                inner.MinimumX <=
+                    minimumRegionSize
+            ||
+            inner.MaximumZ -
+                inner.MinimumZ <=
+                    minimumRegionSize;
+
+        if (collapsed)
+        {
+            Vector3 center =
+                new Vector3(
+                    outer.CenterX,
+                    planeY,
+                    outer.CenterZ
+                );
+
+            float markerSize =
+                Mathf.Max(
+                    0.01f,
+                    GetHandleSize(
+                        center
+                    ) *
+                    0.75f
+                );
+
+            Handles.DrawLine(
+                center -
+                    Vector3.right *
+                    markerSize,
+                center +
+                    Vector3.right *
+                    markerSize
+            );
+
+            Handles.DrawLine(
+                center -
+                    Vector3.forward *
+                    markerSize,
+                center +
+                    Vector3.forward *
+                    markerSize
+            );
+        }
+        else
+        {
+            DrawFootprintOutline(
+                inner,
+                planeY,
+                false
+            );
+        }
+
+        Handles.color =
+            oldColor;
+    }
+
+    private static void DrawAffectedTileOverlay(
+        WorldSettings worldSettings,
+        TerrainStampModifier stamp,
+        float planeY
+    )
+    {
+        if (
+            worldSettings == null
+            ||
+            stamp == null
+        )
+        {
+            return;
+        }
+
+        List<Vector2Int> affectedTiles =
+            new List<Vector2Int>();
+
+        TerrainAuthoringPreviewDirtyRegionUtility
+            .CollectTilesOverlappingBounds(
+                worldSettings,
+                stamp.GetAffectedWorldBounds(),
+                affectedTiles,
+                1
+            );
+
+        if (affectedTiles.Count <= 0)
+        {
+            return;
+        }
+
+        float tileWorldSize =
+            Mathf.Max(
+                0.000001f,
+                worldSettings.HeightTileWorldSize
+            );
+
+        Color oldColor =
+            Handles.color;
+
+        Handles.color =
+            Handles.secondaryColor;
+
+        for (
+            int index = 0;
+            index <
+                affectedTiles.Count;
+            index++
+        )
+        {
+            Vector2Int tile =
+                affectedTiles[
+                    index
+                ];
+
+            float minimumX =
+                tile.x *
+                tileWorldSize;
+
+            float minimumZ =
+                tile.y *
+                tileWorldSize;
+
+            StampFootprint tileFootprint =
+                new StampFootprint(
+                    minimumX,
+                    minimumX +
+                        tileWorldSize,
+                    minimumZ,
+                    minimumZ +
+                        tileWorldSize
+                );
+
+            DrawFootprintOutline(
+                tileFootprint,
+                planeY,
+                true
+            );
+        }
+
+        Handles.color =
+            oldColor;
+    }
+
+    private static void DrawFootprintOutline(
+        StampFootprint footprint,
+        float planeY,
+        bool dotted
+    )
+    {
+        Vector3 p0 =
+            new Vector3(
+                footprint.MinimumX,
+                planeY,
+                footprint.MinimumZ
+            );
+
+        Vector3 p1 =
+            new Vector3(
+                footprint.MaximumX,
+                planeY,
+                footprint.MinimumZ
+            );
+
+        Vector3 p2 =
+            new Vector3(
+                footprint.MaximumX,
+                planeY,
+                footprint.MaximumZ
+            );
+
+        Vector3 p3 =
+            new Vector3(
+                footprint.MinimumX,
+                planeY,
+                footprint.MaximumZ
+            );
+
+        if (dotted)
+        {
+            Handles.DrawDottedLine(
+                p0,
+                p1,
+                5f
+            );
+
+            Handles.DrawDottedLine(
+                p1,
+                p2,
+                5f
+            );
+
+            Handles.DrawDottedLine(
+                p2,
+                p3,
+                5f
+            );
+
+            Handles.DrawDottedLine(
+                p3,
+                p0,
+                5f
+            );
+
+            return;
+        }
+
+        Handles.DrawAAPolyLine(
+            1.5f,
+            p0,
+            p1,
+            p2,
+            p3,
+            p0
+        );
+    }
+
     // =====================================================
     // SELECTED STAMP HANDLES
     // =====================================================
@@ -605,6 +972,13 @@ public sealed class TerrainStampEditorTool :
             Handles.selectedColor;
 
         DrawMoveHandle(
+            authoringData,
+            worldSettings,
+            stamp,
+            planeY
+        );
+
+        DrawHeightDeltaHandle(
             authoringData,
             worldSettings,
             stamp,
@@ -673,6 +1047,135 @@ public sealed class TerrainStampEditorTool :
             stamp,
             planeY,
             StampCorner.MinimumXMaximumZ
+        );
+
+        Handles.color =
+            oldColor;
+    }
+
+
+    private void DrawHeightDeltaHandle(
+        TerrainAuthoringData authoringData,
+        WorldSettings worldSettings,
+        TerrainStampModifier stamp,
+        float planeY
+    )
+    {
+        StampFootprint footprint =
+            GetStampFootprint(
+                stamp
+            );
+
+        Vector3 footprintEdge =
+            new Vector3(
+                footprint.MaximumX,
+                planeY,
+                footprint.CenterZ
+            );
+
+        float baseHandleSize =
+            GetHandleSize(
+                footprintEdge
+            );
+
+        Vector3 handleBase =
+            footprintEdge +
+            Vector3.right *
+                baseHandleSize *
+                3f;
+
+        Vector3 handlePosition =
+            handleBase +
+            Vector3.up *
+                stamp.HeightDelta;
+
+        float handleSize =
+            GetHandleSize(
+                handlePosition
+            );
+
+        Color oldColor =
+            Handles.color;
+
+        Handles.color =
+            Handles.selectedColor;
+
+        Handles.DrawDottedLine(
+            footprintEdge,
+            handleBase,
+            4f
+        );
+
+        Handles.DrawAAPolyLine(
+            2f,
+            handleBase,
+            handlePosition
+        );
+
+        Handles.Label(
+            handlePosition +
+                Vector3.right *
+                handleSize,
+            $"ΔH {stamp.HeightDelta:0.##}",
+            EditorStyles.miniBoldLabel
+        );
+
+        int hotBefore =
+            GUIUtility.hotControl;
+
+        EditorGUI.BeginChangeCheck();
+
+        Vector3 moved =
+            Handles.Slider(
+                handlePosition,
+                Vector3.up,
+                handleSize,
+                Handles.ConeHandleCap,
+                0f
+            );
+
+        bool changed =
+            EditorGUI.EndChangeCheck();
+
+        int hotAfter =
+            GUIUtility.hotControl;
+
+        if (
+            !UpdateHandleTransactionState(
+                hotBefore,
+                hotAfter,
+                planeY,
+                authoringData,
+                worldSettings,
+                stamp,
+                "Set Terrain Stamp Height"
+            )
+        )
+        {
+            Handles.color =
+                oldColor;
+
+            return;
+        }
+
+        if (
+            changed
+            &&
+            IsActiveHandleControl(
+                hotBefore,
+                hotAfter
+            )
+        )
+        {
+            ApplyInteractiveHeightDelta(
+                moved.y -
+                planeY
+            );
+        }
+
+        CommitIfHandleReleased(
+            hotBefore,
+            hotAfter
         );
 
         Handles.color =
@@ -1077,6 +1580,34 @@ public sealed class TerrainStampEditorTool :
                 .UpdateInteractiveStampFootprint(
                     positionXZ,
                     sizeXZ,
+                    out string updateError
+                )
+        )
+        {
+            toolErrorMessage =
+                updateError;
+
+            CancelActiveHandleEdit();
+
+            return;
+        }
+
+        toolErrorMessage =
+            "";
+
+        TerrainAuthoringModifierSelection
+            .NotifyModifierDataChanged();
+    }
+
+
+    private void ApplyInteractiveHeightDelta(
+        float heightDelta
+    )
+    {
+        if (
+            !TerrainAuthoringModifierService
+                .UpdateInteractiveStampHeightDelta(
+                    heightDelta,
                     out string updateError
                 )
         )
@@ -1522,6 +2053,70 @@ public sealed class TerrainStampEditorTool :
                 ) *
                 HandleScreenScale
             );
+    }
+
+
+    private bool HandleFrameSelectedShortcut(
+        TerrainAuthoringData authoringData
+    )
+    {
+        Event currentEvent =
+            Event.current;
+
+        if (
+            currentEvent.type !=
+                EventType.KeyDown
+            ||
+            currentEvent.keyCode !=
+                KeyCode.F
+            ||
+            currentEvent.alt
+            ||
+            currentEvent.control
+            ||
+            currentEvent.command
+            ||
+            currentEvent.shift
+            ||
+            TerrainAuthoringModifierService
+                .HasActiveInteractiveEdit
+        )
+        {
+            return false;
+        }
+
+        if (
+            !TerrainAuthoringModifierSelection
+                .TryGetSelectedModifier(
+                    authoringData,
+                    out TerrainHeightModifier modifier,
+                    out _
+                )
+        )
+        {
+            return false;
+        }
+
+        if (
+            !TerrainAuthoringModifierSceneUtility
+                .TryFrameModifier(
+                    modifier,
+                    out string frameError
+                )
+        )
+        {
+            toolErrorMessage =
+                frameError;
+        }
+        else
+        {
+            toolErrorMessage =
+                "";
+        }
+
+        currentEvent.Use();
+
+        return true;
     }
 
     // =====================================================

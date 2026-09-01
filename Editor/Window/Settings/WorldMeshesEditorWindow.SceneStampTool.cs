@@ -29,10 +29,11 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.HelpBox(
-            "The Scene Stamp Tool draws terrain stamp footprints and " +
-            "provides direct XZ move and resize handles. Scene edits " +
-            "use the same StableId selection and modifier service as " +
-            "the production modifier inspector.",
+            "The Scene Stamp Tool provides direct selection, XZ movement, " +
+            "footprint resizing, and Height Delta editing for terrain " +
+            "stamp modifiers. Scene edits use the same StableId selection " +
+            "and TerrainAuthoringModifierService mutation boundary as the " +
+            "production modifier inspector.",
             MessageType.None
         );
 
@@ -52,6 +53,57 @@ public partial class WorldMeshesEditorWindow :
             );
         }
 
+        GUILayout.Space(4f);
+
+        GUILayout.Label(
+            "Scene Overlays",
+            EditorStyles.miniBoldLabel
+        );
+
+        bool showFalloff =
+            EditorGUILayout.Toggle(
+                "Falloff Visualization",
+                TerrainStampEditorToolPreferences
+                    .ShowFalloffVisualization
+            );
+
+        if (
+            showFalloff !=
+            TerrainStampEditorToolPreferences
+                .ShowFalloffVisualization
+        )
+        {
+            TerrainStampEditorToolPreferences
+                .ShowFalloffVisualization =
+                    showFalloff;
+        }
+
+        bool showAffectedTiles =
+            EditorGUILayout.Toggle(
+                "Affected Tile Overlay",
+                TerrainStampEditorToolPreferences
+                    .ShowAffectedTileOverlay
+            );
+
+        if (
+            showAffectedTiles !=
+            TerrainStampEditorToolPreferences
+                .ShowAffectedTileOverlay
+        )
+        {
+            TerrainStampEditorToolPreferences
+                .ShowAffectedTileOverlay =
+                    showAffectedTiles;
+        }
+
+        EditorGUILayout.HelpBox(
+            "Falloff Visualization shows the selected stamp's exact " +
+            "full-strength boundary. Affected Tile Overlay shows the " +
+            "height tiles that the existing dirty-region utility considers " +
+            "affected, including its normal one-sample padding.",
+            MessageType.None
+        );
+
         bool editingAllowed =
             contextAvailable
             &&
@@ -59,6 +111,8 @@ public partial class WorldMeshesEditorWindow :
             &&
             !EditorApplication
                 .isPlayingOrWillChangePlaymode;
+
+        GUILayout.Space(4f);
 
         EditorGUI.BeginDisabledGroup(
             !toolActive
@@ -108,8 +162,10 @@ public partial class WorldMeshesEditorWindow :
             EditorGUILayout.HelpBox(
                 "Click a footprint to select it. Drag the center handle " +
                 "to move in X/Z. Drag edge or corner handles to resize. " +
-                "Each complete drag is one Undo operation. Press Escape " +
-                "during a drag to cancel it.",
+                "Use the vertical ΔH handle beside the selected stamp to " +
+                "edit Height Delta. Each complete drag is one Undo " +
+                "operation. Press Escape during a drag to cancel it. " +
+                "Press F to frame the selected modifier.",
                 MessageType.Info
             );
         }

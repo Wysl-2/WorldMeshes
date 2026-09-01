@@ -427,6 +427,141 @@ public static partial class TerrainAuthoringModifierService
         return true;
     }
 
+
+    public static bool UpdateInteractiveStampHeightDelta(
+        float heightDelta,
+        out string errorMessage
+    )
+    {
+        errorMessage =
+            "";
+
+        InteractiveModifierEditState state =
+            activeInteractiveEdit;
+
+        if (state == null)
+        {
+            errorMessage =
+                "No terrain modifier interactive edit is active.";
+
+            return false;
+        }
+
+        if (
+            state.AuthoringData == null
+            ||
+            state.WorldSettings == null
+        )
+        {
+            errorMessage =
+                "The active terrain modifier interactive edit lost its context.";
+
+            return false;
+        }
+
+        if (
+            state.AuthoringData.authoringRevision !=
+                state.RevisionBefore
+        )
+        {
+            errorMessage =
+                "Terrain authoring revision changed during the interactive edit.";
+
+            return false;
+        }
+
+        if (
+            !TryFindStampModifier(
+                state.AuthoringData,
+                state.StableId,
+                out TerrainStampModifier modifier,
+                out errorMessage
+            )
+        )
+        {
+            return false;
+        }
+
+        float previousHeightDelta =
+            modifier.HeightDelta;
+
+        modifier.SetHeightDeltaInternal(
+            heightDelta
+        );
+
+        if (
+            Mathf.Approximately(
+                modifier.HeightDelta,
+                previousHeightDelta
+            )
+        )
+        {
+            return true;
+        }
+
+        if (
+            !TerrainAuthoringModifierChangeTracker
+                .TryCaptureStack(
+                    state.AuthoringData,
+                    out List<TerrainHeightModifierSnapshot> current,
+                    out errorMessage
+                )
+        )
+        {
+            return false;
+        }
+
+        if (
+            TerrainHeightModifierSnapshot
+                .StackEquals(
+                    state.CurrentStack,
+                    current
+                )
+        )
+        {
+            state.CurrentStack =
+                current;
+
+            return true;
+        }
+
+        HashSet<Vector2Int> dirtyTiles =
+            new HashSet<Vector2Int>();
+
+        TerrainAuthoringModifierChangeTracker
+            .CollectChangedTiles(
+                state.WorldSettings,
+                state.CurrentStack,
+                current,
+                dirtyTiles
+            );
+
+        EditorUtility.SetDirty(
+            state.AuthoringData
+        );
+
+        TerrainAuthoringModifierChangeTracker
+            .UpdateTrackedState(
+                state.AuthoringData,
+                state.WorldSettings,
+                current,
+                state.NotifyPreview
+            );
+
+        if (state.NotifyPreview)
+        {
+            TerrainAuthoringPreviewService
+                .NotifyCompositeAuthoringStateChanged(
+                    dirtyTiles
+                );
+        }
+
+        state.CurrentStack =
+            current;
+
+        return true;
+    }
+
     public static bool CommitInteractiveEdit(
         out string errorMessage
     )
