@@ -9,6 +9,7 @@
  *     float  _AuthoringVisualizationEnabled;
  *     float  _AuthoringVisualizationMode;
  *     float4 _AuthoringHeightRange;
+ *     float  _AuthoringCurvatureScale;
  *
  *     float  _AuthoringContoursEnabled;
  *     float  _AuthoringContourInterval;
@@ -35,7 +36,8 @@
 
 #define WORLDMESHES_AUTHORING_MODE_LIT    0.0
 #define WORLDMESHES_AUTHORING_MODE_HEIGHT 1.0
-#define WORLDMESHES_AUTHORING_MODE_SLOPE  2.0
+#define WORLDMESHES_AUTHORING_MODE_SLOPE     2.0
+#define WORLDMESHES_AUTHORING_MODE_CURVATURE 3.0
 
 // =========================================================
 // COMMON HELPERS
@@ -318,6 +320,204 @@ float3 GetAuthoringSlopeColor(
             )
             /
             0.333333
+        );
+}
+
+
+// =========================================================
+// CURVATURE BASE MODE
+// =========================================================
+
+/*
+ * Multi-scale terrain curvature diagnostic.
+ *
+ * The exposed scale is a world-space radius in metres. SampleTerrainHeight
+ * already maps arbitrary world positions to authoritative native samples,
+ * so the radius remains independent of clipmap LOD geometry.
+ *
+ * Positive values mean the center sits above its surroundings (convex /
+ * ridge-like). Negative values mean it sits below them (concave /
+ * gully-like).
+ *
+ * Dividing the center-vs-neighbour deviation by radius produces a
+ * dimensionless multi-scale signal that remains readable as the radius is
+ * changed. This is intentionally a terrain-authoring diagnostic rather than
+ * a differential-geometry curvature estimator.
+ */
+float GetAuthoringTerrainCurvature(
+    float2 worldXZ,
+    float centerHeight
+)
+{
+    float nativeSpacing =
+        max(
+            _HeightSampleSpacing,
+            0.000001
+        );
+
+    float radius =
+        max(
+            _AuthoringCurvatureScale,
+            nativeSpacing
+        );
+
+    float leftValid;
+    float rightValid;
+    float backValid;
+    float forwardValid;
+
+    float heightLeft =
+        SampleTerrainHeight(
+            worldXZ -
+            float2(
+                radius,
+                0.0
+            ),
+            leftValid
+        );
+
+    float heightRight =
+        SampleTerrainHeight(
+            worldXZ +
+            float2(
+                radius,
+                0.0
+            ),
+            rightValid
+        );
+
+    float heightBack =
+        SampleTerrainHeight(
+            worldXZ -
+            float2(
+                0.0,
+                radius
+            ),
+            backValid
+        );
+
+    float heightForward =
+        SampleTerrainHeight(
+            worldXZ +
+            float2(
+                0.0,
+                radius
+            ),
+            forwardValid
+        );
+
+    /*
+     * At world/cache edges, use the center value for unavailable samples.
+     * This prevents invalid cache data from creating artificial curvature.
+     */
+    if (leftValid < 0.5)
+    {
+        heightLeft =
+            centerHeight;
+    }
+
+    if (rightValid < 0.5)
+    {
+        heightRight =
+            centerHeight;
+    }
+
+    if (backValid < 0.5)
+    {
+        heightBack =
+            centerHeight;
+    }
+
+    if (forwardValid < 0.5)
+    {
+        heightForward =
+            centerHeight;
+    }
+
+    float neighbourAverage =
+        (
+            heightLeft +
+            heightRight +
+            heightBack +
+            heightForward
+        )
+        *
+        0.25;
+
+    return
+        (
+            centerHeight -
+            neighbourAverage
+        )
+        /
+        radius;
+}
+
+float3 GetAuthoringCurvatureColor(
+    float2 worldXZ,
+    float centerHeight
+)
+{
+    float curvature =
+        GetAuthoringTerrainCurvature(
+            worldXZ,
+            centerHeight
+        );
+
+    /*
+     * A value of 0.25 means the center differs from the average of the
+     * surrounding samples by one quarter of the selected radius.
+     * This gives the visualization a stable, useful default contrast while
+     * leaving Curvature Scale as the only exposed curvature parameter.
+     */
+    const float displayRange =
+        0.25;
+
+    float strength =
+        saturate(
+            abs(
+                curvature
+            )
+            /
+            displayRange
+        );
+
+    const float3 planarColor =
+        float3(
+            0.12,
+            0.64,
+            0.18
+        );
+
+    const float3 concaveColor =
+        float3(
+            0.08,
+            0.30,
+            1.00
+        );
+
+    const float3 convexColor =
+        float3(
+            0.96,
+            0.16,
+            0.06
+        );
+
+    if (curvature < 0.0)
+    {
+        return
+            lerp(
+                planarColor,
+                concaveColor,
+                strength
+            );
+    }
+
+    return
+        lerp(
+            planarColor,
+            convexColor,
+            strength
         );
 }
 
@@ -665,6 +865,21 @@ float3 GetAuthoringDiagnosticBaseColor(
         return
             GetAuthoringSlopeColor(
                 normalWS
+            );
+    }
+
+    if (
+        AuthoringVisualizationModeIs(
+            WORLDMESHES_AUTHORING_MODE_CURVATURE
+        )
+        >
+        0.5
+    )
+    {
+        return
+            GetAuthoringCurvatureColor(
+                positionWS.xz,
+                positionWS.y
             );
     }
 

@@ -160,6 +160,12 @@ Shader "Custom/ClipmapTerrain"
         ) = (0, 1, 0, 0)
 
         [HideInInspector]
+        _AuthoringCurvatureScale(
+            "Authoring Curvature Scale",
+            Float
+        ) = 16
+
+        [HideInInspector]
         _AuthoringContoursEnabled(
             "Authoring Contours Enabled",
             Float
@@ -389,6 +395,7 @@ Shader "Custom/ClipmapTerrain"
                 float _AuthoringVisualizationEnabled;
                 float _AuthoringVisualizationMode;
                 float4 _AuthoringHeightRange;
+                float _AuthoringCurvatureScale;
 
                 float _AuthoringContoursEnabled;
                 float _AuthoringContourInterval;
@@ -630,7 +637,7 @@ Shader "Custom/ClipmapTerrain"
                 // ---------------------------------------------
 
                 /*
-                 * Height and Slope modes intentionally bypass PBR
+                 * Height, Slope, and Curvature modes intentionally bypass PBR
                  * lighting and fog so the diagnostic color has a
                  * stable meaning everywhere in the Scene View.
                  *

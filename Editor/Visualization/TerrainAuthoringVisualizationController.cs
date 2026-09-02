@@ -7,7 +7,8 @@ public enum TerrainAuthoringVisualizationMode
 {
     Lit = 0,
     Height = 1,
-    Slope = 2
+    Slope = 2,
+    Curvature = 3
 }
 
 public enum TerrainAuthoringVisualizationStatus
@@ -47,6 +48,9 @@ public static class TerrainAuthoringVisualizationController
     private const string BaseModeEditorPrefsKey =
         "WorldMeshes.AuthoringVisualization.BaseMode";
 
+    private const string CurvatureScaleEditorPrefsKey =
+        "WorldMeshes.AuthoringVisualization.CurvatureScale";
+
     private const string ContoursEditorPrefsKey =
         "WorldMeshes.AuthoringVisualization.Contours";
 
@@ -68,6 +72,12 @@ public static class TerrainAuthoringVisualizationController
     private const float DefaultContourInterval =
         10f;
 
+    private const float DefaultCurvatureScale =
+        16f;
+
+    private const float MinimumCurvatureScale =
+        0.25f;
+
     // =====================================================
     // SHADER PROPERTY IDS
     // =====================================================
@@ -85,6 +95,11 @@ public static class TerrainAuthoringVisualizationController
     private static readonly int HeightRangePropertyId =
         Shader.PropertyToID(
             "_AuthoringHeightRange"
+        );
+
+    private static readonly int CurvatureScalePropertyId =
+        Shader.PropertyToID(
+            "_AuthoringCurvatureScale"
         );
 
     private static readonly int ContoursEnabledPropertyId =
@@ -213,7 +228,7 @@ public static class TerrainAuthoringVisualizationController
                     (int)TerrainAuthoringVisualizationMode.Lit
                 ||
                 storedValue >
-                    (int)TerrainAuthoringVisualizationMode.Slope
+                    (int)TerrainAuthoringVisualizationMode.Curvature
             )
             {
                 return
@@ -235,7 +250,7 @@ public static class TerrainAuthoringVisualizationController
                     (int)TerrainAuthoringVisualizationMode.Lit
                 ||
                 integerValue >
-                    (int)TerrainAuthoringVisualizationMode.Slope
+                    (int)TerrainAuthoringVisualizationMode.Curvature
             )
             {
                 value =
@@ -250,6 +265,51 @@ public static class TerrainAuthoringVisualizationController
             EditorPrefs.SetInt(
                 BaseModeEditorPrefsKey,
                 (int)value
+            );
+
+            RequestReapply();
+        }
+    }
+
+    public static float CurvatureScale
+    {
+        get
+        {
+            return
+                Mathf.Max(
+                    MinimumCurvatureScale,
+                    EditorPrefs.GetFloat(
+                        CurvatureScaleEditorPrefsKey,
+                        DefaultCurvatureScale
+                    )
+                );
+        }
+
+        set
+        {
+            float safeValue =
+                IsFinite(
+                    value
+                )
+                    ? Mathf.Max(
+                        MinimumCurvatureScale,
+                        value
+                    )
+                    : DefaultCurvatureScale;
+
+            if (
+                Mathf.Approximately(
+                    CurvatureScale,
+                    safeValue
+                )
+            )
+            {
+                return;
+            }
+
+            EditorPrefs.SetFloat(
+                CurvatureScaleEditorPrefsKey,
+                safeValue
             );
 
             RequestReapply();
@@ -511,6 +571,9 @@ public static class TerrainAuthoringVisualizationController
                 BaseMode ==
                     TerrainAuthoringVisualizationMode.Slope
                 ||
+                BaseMode ==
+                    TerrainAuthoringVisualizationMode.Curvature
+                ||
                 ContoursEnabled;
         }
     }
@@ -559,6 +622,11 @@ public static class TerrainAuthoringVisualizationController
         EditorPrefs.SetInt(
             BaseModeEditorPrefsKey,
             (int)TerrainAuthoringVisualizationMode.Lit
+        );
+
+        EditorPrefs.SetFloat(
+            CurvatureScaleEditorPrefsKey,
+            DefaultCurvatureScale
         );
 
         EditorPrefs.SetBool(
@@ -765,7 +833,10 @@ public static class TerrainAuthoringVisualizationController
                 TerrainAuthoringVisualizationMode.Height
             ||
             requestedMode ==
-                TerrainAuthoringVisualizationMode.Slope;
+                TerrainAuthoringVisualizationMode.Slope
+            ||
+            requestedMode ==
+                TerrainAuthoringVisualizationMode.Curvature;
 
         if (
             requestedHeightDependentMode
@@ -870,6 +941,11 @@ public static class TerrainAuthoringVisualizationController
                 );
 
                 propertyBlock.SetFloat(
+                    CurvatureScalePropertyId,
+                    CurvatureScale
+                );
+
+                propertyBlock.SetFloat(
                     ContoursEnabledPropertyId,
                     effectiveContours
                         ? 1f
@@ -969,7 +1045,7 @@ public static class TerrainAuthoringVisualizationController
         {
             SetStatus(
                 TerrainAuthoringVisualizationStatus.HeightPreviewRequired,
-                "Height, Slope, and Contour diagnostics require a ready Height Preview. Height/Slope currently fall back to Lit and contours are suppressed; spatial overlays remain available."
+                "Height, Slope, Curvature, and Contour diagnostics require a ready Height Preview. Height/Slope/Curvature currently fall back to Lit and contours are suppressed; spatial overlays remain available."
             );
         }
         else if (!visualizationEnabled)
@@ -1196,6 +1272,10 @@ public static class TerrainAuthoringVisualizationController
             &&
             material.HasProperty(
                 HeightRangePropertyId
+            )
+            &&
+            material.HasProperty(
+                CurvatureScalePropertyId
             )
             &&
             material.HasProperty(

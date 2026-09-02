@@ -38,6 +38,88 @@ public partial class WorldMeshesEditorWindow :
             TerrainAuthoringVisualizationController
                 .BaseMode =
                     newBaseMode;
+
+            baseMode =
+                newBaseMode;
+        }
+
+        // =================================================
+        // CURVATURE
+        // =================================================
+
+        if (
+            baseMode ==
+                TerrainAuthoringVisualizationMode.Curvature
+        )
+        {
+            GUILayout.Space(
+                5f
+            );
+
+            GUILayout.Label(
+                "Curvature",
+                EditorStyles.boldLabel
+            );
+
+            float curvatureScale =
+                TerrainAuthoringVisualizationController
+                    .CurvatureScale;
+
+            EditorGUI.BeginChangeCheck();
+
+            float newCurvatureScale =
+                EditorGUILayout.Slider(
+                    "Scale (m)",
+                    curvatureScale,
+                    1f,
+                    256f
+                );
+
+            if (EditorGUI.EndChangeCheck())
+            {
+                TerrainAuthoringVisualizationController
+                    .CurvatureScale =
+                        newCurvatureScale;
+            }
+
+            GUILayout.BeginHorizontal();
+
+            GUILayout.Label(
+                "Presets",
+                GUILayout.Width(
+                    100f
+                )
+            );
+
+            DrawCurvatureScalePresetButton(
+                2f
+            );
+
+            DrawCurvatureScalePresetButton(
+                8f
+            );
+
+            DrawCurvatureScalePresetButton(
+                16f
+            );
+
+            DrawCurvatureScalePresetButton(
+                32f
+            );
+
+            DrawCurvatureScalePresetButton(
+                64f
+            );
+
+            GUILayout.EndHorizontal();
+
+            EditorGUILayout.HelpBox(
+                "Scale is the world-space sampling radius used to " +
+                "measure terrain curvature. Small values reveal local " +
+                "surface detail; larger values emphasize broader ridges, " +
+                "shoulders, and gullies.",
+                MessageType.None
+            );
         }
 
         GUILayout.Space(
@@ -255,14 +337,15 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.HelpBox(
-            "Lit uses the normal terrain PBR path. Height and " +
-            "Slope are unlit diagnostics derived from the displaced " +
-            "terrain height and normal.\n\n" +
+            "Lit uses the normal terrain PBR path. Height, Slope, and " +
+            "Curvature are unlit diagnostics derived from the displaced " +
+            "terrain heightfield. Curvature uses the exposed Scale value " +
+            "as a world-space sampling radius and updates interactively.\n\n" +
 
-            "Contours require a ready Height Preview. Chunk Grid, " +
-            "Height Tile Grid, World Boundary, and LOD Regions are " +
-            "spatial diagnostics and remain usable without height " +
-            "preview data.\n\n" +
+            "Height, Slope, Curvature, and Contours require a ready Height " +
+            "Preview. Chunk Grid, Height Tile Grid, World Boundary, and " +
+            "LOD Regions are spatial diagnostics and remain usable without " +
+            "height preview data.\n\n" +
 
             "Visualization is applied transiently with renderer " +
             "MaterialPropertyBlocks and is disabled before Play Mode.",
@@ -270,6 +353,23 @@ public partial class WorldMeshesEditorWindow :
         );
 
         GUILayout.EndVertical();
+    }
+
+    private static void DrawCurvatureScalePresetButton(
+        float scale
+    )
+    {
+        if (
+            GUILayout.Button(
+                scale.ToString("0"),
+                GUILayout.ExpandWidth(true)
+            )
+        )
+        {
+            TerrainAuthoringVisualizationController
+                .CurvatureScale =
+                    scale;
+        }
     }
 
     private static void DrawContourPresetButton(

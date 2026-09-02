@@ -12,39 +12,137 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0ef78fb91c27e0050ad2fac4a19fc2ce, type: 3}
   m_Name: TerrainAuthoringData
   m_EditorClassIdentifier: Assembly-CSharp::TerrainAuthoringData
-  sourceMode: 1
+  sourceMode: 0
   flatHeight: 0
   importedHeightmap: {fileID: 0}
   heightModifiers:
-  - rid: 8462234730159145034
-  - rid: 8462234730159145035
-  authoringRevision: 382
+  - rid: 8462234730159145042
+  - rid: 3932701354711842885
+  - rid: 3932701354711842886
+  - rid: 8462234730159145044
+  - rid: 3932701354711842884
+  - rid: 3932701354711842890
+  - rid: 3932701354711842887
+  - rid: 3932701354711842888
+  - rid: 3932701354711842889
+  authoringRevision: 715
   references:
     version: 2
     RefIds:
-    - rid: 8462234730159145034
+    - rid: 3932701354711842884
       type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
       data:
-        stableId: 6ce172225ced4a22a2139042c990fe1d
+        stableId: 2d02dcac4d424d3fa7c366b967ec35da
         enabled: 1
         blendMode: 0
-        stampAsset: {fileID: 11400000, guid: fa7b80f5ee690564f9603fb1aee4e03b, type: 2}
-        positionXZ: {x: 2855.7449, y: 2541.4004}
-        sizeXZ: {x: 2048, y: 2048}
-        heightDelta: 600
-        falloff: 0.3
-        smoothingRadius: 429.08276
+        stampAsset: {fileID: 11400000, guid: 3294769e2ab8dfe33827d65044b6e4a6, type: 2}
+        positionXZ: {x: 3371.2126, y: 1446.9966}
+        sizeXZ: {x: 3000, y: 3000}
+        heightDelta: 450
+        falloff: 0.6
+        smoothingRadius: 6
         smoothingStrength: 1
-    - rid: 8462234730159145035
+    - rid: 3932701354711842885
       type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
       data:
-        stableId: ac190c68bc224d62b6963dfdb018f489
+        stableId: 8ccbcf3c73414eb79ac8bbfd1f3fc58a
         enabled: 1
         blendMode: 0
-        stampAsset: {fileID: 11400000, guid: fa7b80f5ee690564f9603fb1aee4e03b, type: 2}
-        positionXZ: {x: 4563.3145, y: 2496.8489}
-        sizeXZ: {x: 1974.7424, y: 1841.1514}
-        heightDelta: 400
-        falloff: 0.3
-        smoothingRadius: 200
+        stampAsset: {fileID: 11400000, guid: 2c7ac9ef8cd5e71acbbc7220c5d909fb, type: 2}
+        positionXZ: {x: 3582.857, y: 3549.7961}
+        sizeXZ: {x: 1974.682, y: 1667.824}
+        heightDelta: 20
+        falloff: 0.6
+        smoothingRadius: 6
+        smoothingStrength: 1
+    - rid: 3932701354711842886
+      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
+      data:
+        stableId: 561bb46857494fc590240848d0465316
+        enabled: 1
+        blendMode: 0
+        stampAsset: {fileID: 11400000, guid: 2c7ac9ef8cd5e71acbbc7220c5d909fb, type: 2}
+        positionXZ: {x: 3575.7532, y: 2010.2915}
+        sizeXZ: {x: 1974.682, y: 1667.824}
+        heightDelta: 60
+        falloff: 0.6
+        smoothingRadius: 6
+        smoothingStrength: 1
+    - rid: 3932701354711842887
+      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
+      data:
+        stableId: aa2291f7458b40caad6b6aa8744c3ab4
+        enabled: 1
+        blendMode: 0
+        stampAsset: {fileID: 11400000, guid: a9087cb93b556a5e59715b23206e2c38, type: 2}
+        positionXZ: {x: 4599.6035, y: 2280.8984}
+        sizeXZ: {x: 2048, y: 2048}
+        heightDelta: 5
+        falloff: 0.25
+        smoothingRadius: 1
+        smoothingStrength: 1
+    - rid: 3932701354711842888
+      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
+      data:
+        stableId: 9fd0d0473db24021b5de55c469440fec
+        enabled: 1
+        blendMode: 0
+        stampAsset: {fileID: 11400000, guid: a9087cb93b556a5e59715b23206e2c38, type: 2}
+        positionXZ: {x: 3570.584, y: 3332.858}
+        sizeXZ: {x: 2048, y: 2048}
+        heightDelta: 5
+        falloff: 0.4
+        smoothingRadius: 1
+        smoothingStrength: 1
+    - rid: 3932701354711842889
+      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
+      data:
+        stableId: d1999be540c7413ca58a0b54ae345c48
+        enabled: 1
+        blendMode: 0
+        stampAsset: {fileID: 11400000, guid: a9087cb93b556a5e59715b23206e2c38, type: 2}
+        positionXZ: {x: 5065.916, y: 3754.655}
+        sizeXZ: {x: 2048, y: 2048}
+        heightDelta: 3
+        falloff: 0.5
+        smoothingRadius: 1
+        smoothingStrength: 1
+    - rid: 3932701354711842890
+      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
+      data:
+        stableId: afd2727dcaf9486eabfa3104dd2e049e
+        enabled: 1
+        blendMode: 0
+        stampAsset: {fileID: 11400000, guid: bc89c1bd317bce95e91c127f3b49c633, type: 2}
+        positionXZ: {x: 3028.0334, y: 1879.4827}
+        sizeXZ: {x: 2619.001, y: 2638.389}
+        heightDelta: 80
+        falloff: 0.6
+        smoothingRadius: 6
+        smoothingStrength: 1
+    - rid: 8462234730159145042
+      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
+      data:
+        stableId: c1d806c025ef473d82bfefbd887eb02f
+        enabled: 1
+        blendMode: 0
+        stampAsset: {fileID: 11400000, guid: 2c7ac9ef8cd5e71acbbc7220c5d909fb, type: 2}
+        positionXZ: {x: 3741.163, y: 2875.666}
+        sizeXZ: {x: 4096, y: 4096}
+        heightDelta: 120
+        falloff: 0.5
+        smoothingRadius: 6
+        smoothingStrength: 1
+    - rid: 8462234730159145044
+      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
+      data:
+        stableId: 62c93103ba8246d4bcaa64e4f9476b1b
+        enabled: 1
+        blendMode: 0
+        stampAsset: {fileID: 11400000, guid: 3294769e2ab8dfe33827d65044b6e4a6, type: 2}
+        positionXZ: {x: 3456.4387, y: 4264.0264}
+        sizeXZ: {x: 3000, y: 3000}
+        heightDelta: 500
+        falloff: 0.5
+        smoothingRadius: 6
         smoothingStrength: 1
