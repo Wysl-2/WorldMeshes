@@ -58,6 +58,75 @@ Shader "Custom/ClipmapTerrain"
         ) = 4
 
         // =================================================
+        // SCREE
+        // =================================================
+
+        _ScreeColor(
+            "Scree Color",
+            Color
+        ) = (1, 1, 1, 1)
+
+        _ScreeMap(
+            "Scree Map",
+            2D
+        ) = "white" {}
+
+        _ScreeMapWorldSize(
+            "Scree World Size",
+            Float
+        ) = 8
+
+        _ScreeTriplanarSharpness(
+            "Scree Triplanar Sharpness",
+            Range(1, 16)
+        ) = 4
+
+        _ScreeSlopeMin(
+            "Scree Slope Minimum",
+            Range(0, 90)
+        ) = 15
+
+        _ScreeSlopePreferredMin(
+            "Scree Slope Preferred Minimum",
+            Range(0, 90)
+        ) = 25
+
+        _ScreeSlopePreferredMax(
+            "Scree Slope Preferred Maximum",
+            Range(0, 90)
+        ) = 40
+
+        _ScreeSlopeMax(
+            "Scree Slope Maximum",
+            Range(0, 90)
+        ) = 55
+
+        _ScreeCurvatureScale(
+            "Scree Curvature Scale",
+            Range(1, 256)
+        ) = 16
+
+        _ScreeConvexRejectStart(
+            "Scree Convex Reject Start",
+            Range(0, 0.5)
+        ) = 0.03
+
+        _ScreeConvexRejectEnd(
+            "Scree Convex Reject End",
+            Range(0, 0.5)
+        ) = 0.12
+
+        _ScreeGeologyScale(
+            "Scree Geological Patch Scale",
+            Range(1, 512)
+        ) = 120
+
+        _ScreeGeologyStrength(
+            "Scree Geological Patch Strength",
+            Range(0, 1)
+        ) = 0.45
+
+        // =================================================
         // PBR
         // =================================================
 
@@ -347,6 +416,14 @@ Shader "Custom/ClipmapTerrain"
                 sampler_SlopeMap
             );
 
+            TEXTURE2D(
+                _ScreeMap
+            );
+
+            SAMPLER(
+                sampler_ScreeMap
+            );
+
             // =================================================
             // PER-MATERIAL / MPB DATA
             // =================================================
@@ -368,6 +445,24 @@ Shader "Custom/ClipmapTerrain"
                 float _SlopeBlendStart;
                 float _SlopeBlendEnd;
                 float _SlopeTriplanarSharpness;
+
+                half4 _ScreeColor;
+
+                float4 _ScreeMap_ST;
+                float _ScreeMapWorldSize;
+                float _ScreeTriplanarSharpness;
+
+                float _ScreeSlopeMin;
+                float _ScreeSlopePreferredMin;
+                float _ScreeSlopePreferredMax;
+                float _ScreeSlopeMax;
+
+                float _ScreeCurvatureScale;
+                float _ScreeConvexRejectStart;
+                float _ScreeConvexRejectEnd;
+
+                float _ScreeGeologyScale;
+                float _ScreeGeologyStrength;
 
                 half _Metallic;
                 half _Smoothness;
@@ -428,6 +523,8 @@ Shader "Custom/ClipmapTerrain"
             // =================================================
 
             #include "Assets/WorldMeshes/Shaders/Terrain/ClipmapTerrainHeight.hlsl"
+            #include "Assets/WorldMeshes/Shaders/Terrain/ClipmapTerrainAnalysis.hlsl"
+            #include "Assets/WorldMeshes/Shaders/Terrain/ClipmapTerrainSuitability.hlsl"
             #include "Assets/WorldMeshes/Shaders/Terrain/ClipmapTerrainVisualization.hlsl"
 
             // =================================================
@@ -539,6 +636,101 @@ Shader "Custom/ClipmapTerrain"
             }
 
             // =================================================
+            // SAMPLE SCREE TEXTURE - TRIPLANAR
+            // =================================================
+
+            half4 SampleScreeTriplanar(
+                float3 positionWS,
+                half3 normalWS
+            )
+            {
+                float worldSize =
+                    max(
+                        _ScreeMapWorldSize,
+                        0.0001
+                    );
+
+                float3 weights =
+                    pow(
+                        abs(
+                            (float3)normalWS
+                        ),
+                        max(
+                            _ScreeTriplanarSharpness,
+                            1.0
+                        )
+                    );
+
+                weights /=
+                    max(
+                        weights.x +
+                        weights.y +
+                        weights.z,
+                        0.0001
+                    );
+
+                float2 uvX =
+                    positionWS.zy /
+                    worldSize;
+
+                float2 uvY =
+                    positionWS.xz /
+                    worldSize;
+
+                float2 uvZ =
+                    positionWS.xy /
+                    worldSize;
+
+                uvX =
+                    uvX *
+                    _ScreeMap_ST.xy +
+                    _ScreeMap_ST.zw;
+
+                uvY =
+                    uvY *
+                    _ScreeMap_ST.xy +
+                    _ScreeMap_ST.zw;
+
+                uvZ =
+                    uvZ *
+                    _ScreeMap_ST.xy +
+                    _ScreeMap_ST.zw;
+
+                half4 sampleX =
+                    SAMPLE_TEXTURE2D(
+                        _ScreeMap,
+                        sampler_ScreeMap,
+                        uvX
+                    );
+
+                half4 sampleY =
+                    SAMPLE_TEXTURE2D(
+                        _ScreeMap,
+                        sampler_ScreeMap,
+                        uvY
+                    );
+
+                half4 sampleZ =
+                    SAMPLE_TEXTURE2D(
+                        _ScreeMap,
+                        sampler_ScreeMap,
+                        uvZ
+                    );
+
+                return
+                    (
+                        sampleX *
+                            weights.x +
+                        sampleY *
+                            weights.y +
+                        sampleZ *
+                            weights.z
+                    )
+                    *
+                    _ScreeColor;
+            }
+
+            // =================================================
             // VERTEX SHADER
             // =================================================
 
@@ -637,7 +829,7 @@ Shader "Custom/ClipmapTerrain"
                 // ---------------------------------------------
 
                 /*
-                 * Height, Slope, and Curvature modes intentionally bypass PBR
+                 * Height, Slope, Curvature, and Scree Suitability modes intentionally bypass PBR
                  * lighting and fog so the diagnostic color has a
                  * stable meaning everywhere in the Scene View.
                  *
@@ -747,9 +939,44 @@ Shader "Custom/ClipmapTerrain"
                         slopeAmount
                     );
 
-                half4 surfaceColor =
+                // ---------------------------------------------
+                // Scree texture - shared suitability mask
+                // ---------------------------------------------
+
+                half4 screeColor =
+                    SampleScreeTriplanar(
+                        IN.positionWS,
+                        normalWS
+                    );
+
+                float screeSuitability =
+                    GetScreeSuitability(
+                        IN.positionWS,
+                        normalWS
+                    );
+
+                /*
+                 * The existing steep-rock surface keeps priority. Scree
+                 * fills suitable ground/moderate slopes beneath that layer
+                 * rather than painting over cliff rock.
+                 */
+                float screeBlend =
+                    screeSuitability *
+                    (
+                        1.0 -
+                        rockBlend
+                    );
+
+                half4 groundAndScreeColor =
                     lerp(
                         groundColor,
+                        screeColor,
+                        screeBlend
+                    );
+
+                half4 surfaceColor =
+                    lerp(
+                        groundAndScreeColor,
                         rockColor,
                         rockBlend
                     );

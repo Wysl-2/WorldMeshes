@@ -68,6 +68,10 @@ Material:
         m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
+    - _ScreeMap:
+        m_Texture: {fileID: 2800000, guid: ff64da88a81b269d695b911d57eabd89, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     - _SlopeMap:
         m_Texture: {fileID: 2800000, guid: e5eacc9aa391eb95eb5f8efcfe85dc8d, type: 3}
         m_Scale: {x: 1, y: 1}
@@ -93,6 +97,20 @@ Material:
     - _AddPrecomputedVelocity: 0
     - _AlphaClip: 0
     - _AlphaToMask: 0
+    - _AuthoringChunkGridEnabled: 0
+    - _AuthoringChunkSize: 128
+    - _AuthoringContourInterval: 10
+    - _AuthoringContoursEnabled: 0
+    - _AuthoringCurvatureScale: 16
+    - _AuthoringHeightTileGridEnabled: 0
+    - _AuthoringHeightTileWorldSize: 256
+    - _AuthoringLODCount: 1
+    - _AuthoringLODLevel: 0
+    - _AuthoringLODRegionsEnabled: 0
+    - _AuthoringVisualizationEnabled: 0
+    - _AuthoringVisualizationMode: 0
+    - _AuthoringWireframeOnly: 0
+    - _AuthoringWorldBoundaryEnabled: 0
     - _BaseMapWorldSize: 24
     - _Blend: 0
     - _BlendModePreserveSpecular: 1
@@ -117,6 +135,17 @@ Material:
     - _Parallax: 0.005
     - _QueueOffset: 0
     - _ReceiveShadows: 1
+    - _ScreeConvexRejectEnd: 0.132
+    - _ScreeConvexRejectStart: 0.046
+    - _ScreeCurvatureScale: 41.5
+    - _ScreeGeologyScale: 47
+    - _ScreeGeologyStrength: 0.269
+    - _ScreeMapWorldSize: 16
+    - _ScreeSlopeMax: 45
+    - _ScreeSlopeMin: 30
+    - _ScreeSlopePreferredMax: 40
+    - _ScreeSlopePreferredMin: 40
+    - _ScreeTriplanarSharpness: 4
     - _SlopeBlendEnd: 0.85
     - _SlopeBlendStart: 0.01
     - _SlopeMapWorldSize: 16
@@ -128,15 +157,18 @@ Material:
     - _SrcBlendAlpha: 1
     - _Surface: 0
     - _WorkflowMode: 1
+    - _WorldBoundsReady: 0
     - _XRMotionVectorsPass: 1
     - _ZWrite: 1
     m_Colors:
+    - _AuthoringHeightRange: {r: 0, g: 1, b: 0, a: 0}
     - _BaseColor: {r: 0.46226418, g: 0.46226418, b: 0.46226418, a: 1}
     - _ClipmapTransitionOffset: {r: 0, g: 0, b: 0, a: 0}
     - _Color: {r: 1, g: 1, b: 1, a: 1}
     - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
     - _HeightCacheOriginTile: {r: 0, g: 0, b: 0, a: 0}
     - _HeightCacheSize: {r: 1, g: 1, b: 0, a: 0}
+    - _ScreeColor: {r: 1, g: 1, b: 1, a: 1}
     - _SlopeColor: {r: 1, g: 1, b: 1, a: 1}
     - _SpecColor: {r: 0.19999996, g: 0.19999996, b: 0.19999996, a: 1}
     - _WorldSizeXZ: {r: 1, g: 1, b: 0, a: 0}

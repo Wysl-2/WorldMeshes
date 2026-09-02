@@ -4,6 +4,75 @@ using UnityEngine;
 public partial class WorldMeshesEditorWindow :
     EditorWindow
 {
+    // =====================================================
+    // SCREE MATERIAL PROPERTY IDS
+    // =====================================================
+
+    private static readonly int ScreeMapPropertyId =
+        Shader.PropertyToID(
+            "_ScreeMap"
+        );
+
+    private static readonly int ScreeColorPropertyId =
+        Shader.PropertyToID(
+            "_ScreeColor"
+        );
+
+    private static readonly int ScreeMapWorldSizePropertyId =
+        Shader.PropertyToID(
+            "_ScreeMapWorldSize"
+        );
+
+    private static readonly int ScreeTriplanarSharpnessPropertyId =
+        Shader.PropertyToID(
+            "_ScreeTriplanarSharpness"
+        );
+
+    private static readonly int ScreeSlopeMinPropertyId =
+        Shader.PropertyToID(
+            "_ScreeSlopeMin"
+        );
+
+    private static readonly int ScreeSlopePreferredMinPropertyId =
+        Shader.PropertyToID(
+            "_ScreeSlopePreferredMin"
+        );
+
+    private static readonly int ScreeSlopePreferredMaxPropertyId =
+        Shader.PropertyToID(
+            "_ScreeSlopePreferredMax"
+        );
+
+    private static readonly int ScreeSlopeMaxPropertyId =
+        Shader.PropertyToID(
+            "_ScreeSlopeMax"
+        );
+
+    private static readonly int ScreeCurvatureScalePropertyId =
+        Shader.PropertyToID(
+            "_ScreeCurvatureScale"
+        );
+
+    private static readonly int ScreeConvexRejectStartPropertyId =
+        Shader.PropertyToID(
+            "_ScreeConvexRejectStart"
+        );
+
+    private static readonly int ScreeConvexRejectEndPropertyId =
+        Shader.PropertyToID(
+            "_ScreeConvexRejectEnd"
+        );
+
+    private static readonly int ScreeGeologyScalePropertyId =
+        Shader.PropertyToID(
+            "_ScreeGeologyScale"
+        );
+
+    private static readonly int ScreeGeologyStrengthPropertyId =
+        Shader.PropertyToID(
+            "_ScreeGeologyStrength"
+        );
+
     private void DrawAuthoringVisualizationSettings()
     {
         GUILayout.BeginVertical(
@@ -120,6 +189,18 @@ public partial class WorldMeshesEditorWindow :
                 "shoulders, and gullies.",
                 MessageType.None
             );
+        }
+
+        // =================================================
+        // SCREE SUITABILITY
+        // =================================================
+
+        if (
+            baseMode ==
+                TerrainAuthoringVisualizationMode.ScreeSuitability
+        )
+        {
+            DrawScreeSuitabilitySettings();
         }
 
         GUILayout.Space(
@@ -337,15 +418,17 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.HelpBox(
-            "Lit uses the normal terrain PBR path. Height, Slope, and " +
-            "Curvature are unlit diagnostics derived from the displaced " +
-            "terrain heightfield. Curvature uses the exposed Scale value " +
-            "as a world-space sampling radius and updates interactively.\n\n" +
+            "Lit uses the normal terrain PBR path. Height, Slope, Curvature, " +
+            "and Scree Suitability are unlit diagnostics derived from the " +
+            "displaced terrain heightfield. Curvature uses the exposed Scale " +
+            "value as a world-space sampling radius and updates " +
+            "interactively. Scree Suitability displays the exact 0..1 mask " +
+            "used to blend the scree surface in Lit mode.\n\n" +
 
-            "Height, Slope, Curvature, and Contours require a ready Height " +
-            "Preview. Chunk Grid, Height Tile Grid, World Boundary, and " +
-            "LOD Regions are spatial diagnostics and remain usable without " +
-            "height preview data.\n\n" +
+            "Height, Slope, Curvature, Scree Suitability, and Contours " +
+            "require a ready Height Preview. Chunk Grid, Height Tile Grid, " +
+            "World Boundary, and LOD Regions are spatial diagnostics and " +
+            "remain usable without height preview data.\n\n" +
 
             "Visualization is applied transiently with renderer " +
             "MaterialPropertyBlocks and is disabled before Play Mode.",
@@ -353,6 +436,374 @@ public partial class WorldMeshesEditorWindow :
         );
 
         GUILayout.EndVertical();
+    }
+
+    private static void DrawScreeSuitabilitySettings()
+    {
+        GUILayout.Space(
+            5f
+        );
+
+        GUILayout.Label(
+            "Scree Suitability",
+            EditorStyles.boldLabel
+        );
+
+        Material terrainMaterial =
+            AssetDatabase.LoadAssetAtPath<Material>(
+                WorldMeshesPaths
+                    .ClipmapTerrainMaterialPath
+            );
+
+        if (terrainMaterial == null)
+        {
+            EditorGUILayout.HelpBox(
+                "The clipmap terrain material could not be loaded from:\n" +
+                WorldMeshesPaths.ClipmapTerrainMaterialPath,
+                MessageType.Error
+            );
+
+            return;
+        }
+
+        if (
+            !terrainMaterial.HasProperty(
+                ScreeMapPropertyId
+            )
+        )
+        {
+            EditorGUILayout.HelpBox(
+                "The current clipmap terrain shader does not expose the " +
+                "scree surface properties. Install the shader portion of " +
+                "the Scree Suitability package first.",
+                MessageType.Error
+            );
+
+            return;
+        }
+
+        Texture screeMap =
+            terrainMaterial.GetTexture(
+                ScreeMapPropertyId
+            );
+
+        Color screeColor =
+            terrainMaterial.GetColor(
+                ScreeColorPropertyId
+            );
+
+        float screeMapWorldSize =
+            terrainMaterial.GetFloat(
+                ScreeMapWorldSizePropertyId
+            );
+
+        float screeTriplanarSharpness =
+            terrainMaterial.GetFloat(
+                ScreeTriplanarSharpnessPropertyId
+            );
+
+        float slopeMin =
+            terrainMaterial.GetFloat(
+                ScreeSlopeMinPropertyId
+            );
+
+        float slopePreferredMin =
+            terrainMaterial.GetFloat(
+                ScreeSlopePreferredMinPropertyId
+            );
+
+        float slopePreferredMax =
+            terrainMaterial.GetFloat(
+                ScreeSlopePreferredMaxPropertyId
+            );
+
+        float slopeMax =
+            terrainMaterial.GetFloat(
+                ScreeSlopeMaxPropertyId
+            );
+
+        float curvatureScale =
+            terrainMaterial.GetFloat(
+                ScreeCurvatureScalePropertyId
+            );
+
+        float convexRejectStart =
+            terrainMaterial.GetFloat(
+                ScreeConvexRejectStartPropertyId
+            );
+
+        float convexRejectEnd =
+            terrainMaterial.GetFloat(
+                ScreeConvexRejectEndPropertyId
+            );
+
+        float geologyScale =
+            terrainMaterial.GetFloat(
+                ScreeGeologyScalePropertyId
+            );
+
+        float geologyStrength =
+            terrainMaterial.GetFloat(
+                ScreeGeologyStrengthPropertyId
+            );
+
+        EditorGUI.BeginChangeCheck();
+
+        Texture newScreeMap =
+            (Texture)EditorGUILayout.ObjectField(
+                "Scree Texture",
+                screeMap,
+                typeof(Texture2D),
+                false
+            );
+
+        Color newScreeColor =
+            EditorGUILayout.ColorField(
+                "Scree Tint",
+                screeColor
+            );
+
+        float newScreeMapWorldSize =
+            EditorGUILayout.Slider(
+                "Texture World Size (m)",
+                screeMapWorldSize,
+                0.25f,
+                128f
+            );
+
+        float newScreeTriplanarSharpness =
+            EditorGUILayout.Slider(
+                "Triplanar Sharpness",
+                screeTriplanarSharpness,
+                1f,
+                16f
+            );
+
+        GUILayout.Space(
+            4f
+        );
+
+        GUILayout.Label(
+            "Slope",
+            EditorStyles.miniBoldLabel
+        );
+
+        float newSlopeMin =
+            EditorGUILayout.Slider(
+                "Minimum (deg)",
+                slopeMin,
+                0f,
+                90f
+            );
+
+        float newSlopePreferredMin =
+            EditorGUILayout.Slider(
+                "Preferred Min (deg)",
+                slopePreferredMin,
+                0f,
+                90f
+            );
+
+        float newSlopePreferredMax =
+            EditorGUILayout.Slider(
+                "Preferred Max (deg)",
+                slopePreferredMax,
+                0f,
+                90f
+            );
+
+        float newSlopeMax =
+            EditorGUILayout.Slider(
+                "Maximum (deg)",
+                slopeMax,
+                0f,
+                90f
+            );
+
+        GUILayout.Space(
+            4f
+        );
+
+        GUILayout.Label(
+            "Curvature",
+            EditorStyles.miniBoldLabel
+        );
+
+        float newCurvatureScale =
+            EditorGUILayout.Slider(
+                "Scale (m)",
+                curvatureScale,
+                1f,
+                256f
+            );
+
+        float newConvexRejectStart =
+            EditorGUILayout.Slider(
+                "Convex Reject Start",
+                convexRejectStart,
+                0f,
+                0.5f
+            );
+
+        float newConvexRejectEnd =
+            EditorGUILayout.Slider(
+                "Convex Reject End",
+                convexRejectEnd,
+                0f,
+                0.5f
+            );
+
+        GUILayout.Space(
+            4f
+        );
+
+        GUILayout.Label(
+            "Geological Variation",
+            EditorStyles.miniBoldLabel
+        );
+
+        float newGeologyScale =
+            EditorGUILayout.Slider(
+                "Patch Scale (m)",
+                geologyScale,
+                1f,
+                512f
+            );
+
+        float newGeologyStrength =
+            EditorGUILayout.Slider(
+                "Patch Strength",
+                geologyStrength,
+                0f,
+                1f
+            );
+
+        if (EditorGUI.EndChangeCheck())
+        {
+            Undo.RecordObject(
+                terrainMaterial,
+                "Change Scree Suitability"
+            );
+
+            terrainMaterial.SetTexture(
+                ScreeMapPropertyId,
+                newScreeMap
+            );
+
+            terrainMaterial.SetColor(
+                ScreeColorPropertyId,
+                newScreeColor
+            );
+
+            terrainMaterial.SetFloat(
+                ScreeMapWorldSizePropertyId,
+                Mathf.Max(
+                    0.0001f,
+                    newScreeMapWorldSize
+                )
+            );
+
+            terrainMaterial.SetFloat(
+                ScreeTriplanarSharpnessPropertyId,
+                Mathf.Clamp(
+                    newScreeTriplanarSharpness,
+                    1f,
+                    16f
+                )
+            );
+
+            terrainMaterial.SetFloat(
+                ScreeSlopeMinPropertyId,
+                Mathf.Clamp(
+                    newSlopeMin,
+                    0f,
+                    90f
+                )
+            );
+
+            terrainMaterial.SetFloat(
+                ScreeSlopePreferredMinPropertyId,
+                Mathf.Clamp(
+                    newSlopePreferredMin,
+                    0f,
+                    90f
+                )
+            );
+
+            terrainMaterial.SetFloat(
+                ScreeSlopePreferredMaxPropertyId,
+                Mathf.Clamp(
+                    newSlopePreferredMax,
+                    0f,
+                    90f
+                )
+            );
+
+            terrainMaterial.SetFloat(
+                ScreeSlopeMaxPropertyId,
+                Mathf.Clamp(
+                    newSlopeMax,
+                    0f,
+                    90f
+                )
+            );
+
+            terrainMaterial.SetFloat(
+                ScreeCurvatureScalePropertyId,
+                Mathf.Max(
+                    0.25f,
+                    newCurvatureScale
+                )
+            );
+
+            terrainMaterial.SetFloat(
+                ScreeConvexRejectStartPropertyId,
+                Mathf.Max(
+                    0f,
+                    newConvexRejectStart
+                )
+            );
+
+            terrainMaterial.SetFloat(
+                ScreeConvexRejectEndPropertyId,
+                Mathf.Max(
+                    0f,
+                    newConvexRejectEnd
+                )
+            );
+
+            terrainMaterial.SetFloat(
+                ScreeGeologyScalePropertyId,
+                Mathf.Max(
+                    0.001f,
+                    newGeologyScale
+                )
+            );
+
+            terrainMaterial.SetFloat(
+                ScreeGeologyStrengthPropertyId,
+                Mathf.Clamp01(
+                    newGeologyStrength
+                )
+            );
+
+            EditorUtility.SetDirty(
+                terrainMaterial
+            );
+
+            TerrainAuthoringVisualizationController
+                .RequestReapply();
+        }
+
+        EditorGUILayout.HelpBox(
+            "The suitability mask is shared by this diagnostic and Lit " +
+            "terrain rendering. It combines a preferred slope band, " +
+            "rejection of strongly convex terrain, and broad geological " +
+            "variation. Black means unsuitable and red means strongest " +
+            "scree coverage. In Lit mode the existing steep-rock blend " +
+            "retains priority over scree.",
+            MessageType.None
+        );
     }
 
     private static void DrawCurvatureScalePresetButton(

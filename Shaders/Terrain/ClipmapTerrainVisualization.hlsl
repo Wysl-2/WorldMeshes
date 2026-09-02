@@ -38,6 +38,7 @@
 #define WORLDMESHES_AUTHORING_MODE_HEIGHT 1.0
 #define WORLDMESHES_AUTHORING_MODE_SLOPE     2.0
 #define WORLDMESHES_AUTHORING_MODE_CURVATURE 3.0
+#define WORLDMESHES_AUTHORING_MODE_SCREE     4.0
 
 // =========================================================
 // COMMON HELPERS
@@ -349,108 +350,12 @@ float GetAuthoringTerrainCurvature(
     float centerHeight
 )
 {
-    float nativeSpacing =
-        max(
-            _HeightSampleSpacing,
-            0.000001
-        );
-
-    float radius =
-        max(
-            _AuthoringCurvatureScale,
-            nativeSpacing
-        );
-
-    float leftValid;
-    float rightValid;
-    float backValid;
-    float forwardValid;
-
-    float heightLeft =
-        SampleTerrainHeight(
-            worldXZ -
-            float2(
-                radius,
-                0.0
-            ),
-            leftValid
-        );
-
-    float heightRight =
-        SampleTerrainHeight(
-            worldXZ +
-            float2(
-                radius,
-                0.0
-            ),
-            rightValid
-        );
-
-    float heightBack =
-        SampleTerrainHeight(
-            worldXZ -
-            float2(
-                0.0,
-                radius
-            ),
-            backValid
-        );
-
-    float heightForward =
-        SampleTerrainHeight(
-            worldXZ +
-            float2(
-                0.0,
-                radius
-            ),
-            forwardValid
-        );
-
-    /*
-     * At world/cache edges, use the center value for unavailable samples.
-     * This prevents invalid cache data from creating artificial curvature.
-     */
-    if (leftValid < 0.5)
-    {
-        heightLeft =
-            centerHeight;
-    }
-
-    if (rightValid < 0.5)
-    {
-        heightRight =
-            centerHeight;
-    }
-
-    if (backValid < 0.5)
-    {
-        heightBack =
-            centerHeight;
-    }
-
-    if (forwardValid < 0.5)
-    {
-        heightForward =
-            centerHeight;
-    }
-
-    float neighbourAverage =
-        (
-            heightLeft +
-            heightRight +
-            heightBack +
-            heightForward
-        )
-        *
-        0.25;
-
     return
-        (
-            centerHeight -
-            neighbourAverage
-        )
-        /
-        radius;
+        CalculateTerrainCurvature(
+            worldXZ,
+            centerHeight,
+            _AuthoringCurvatureScale
+        );
 }
 
 float3 GetAuthoringCurvatureColor(
@@ -518,6 +423,88 @@ float3 GetAuthoringCurvatureColor(
             planarColor,
             convexColor,
             strength
+        );
+}
+
+// =========================================================
+// SCREE SUITABILITY BASE MODE
+// =========================================================
+
+float3 GetAuthoringScreeSuitabilityColor(
+    float3 positionWS,
+    float3 normalWS
+)
+{
+    float suitability =
+        GetScreeSuitability(
+            positionWS,
+            normalWS
+        );
+
+    const float3 unsuitableColor =
+        float3(
+            0.015,
+            0.020,
+            0.030
+        );
+
+    const float3 lowColor =
+        float3(
+            0.05,
+            0.22,
+            0.78
+        );
+
+    const float3 mediumColor =
+        float3(
+            0.96,
+            0.82,
+            0.10
+        );
+
+    const float3 highColor =
+        float3(
+            0.96,
+            0.10,
+            0.04
+        );
+
+    if (suitability < 0.333333)
+    {
+        return
+            lerp(
+                unsuitableColor,
+                lowColor,
+                suitability /
+                    0.333333
+            );
+    }
+
+    if (suitability < 0.666667)
+    {
+        return
+            lerp(
+                lowColor,
+                mediumColor,
+                (
+                    suitability -
+                    0.333333
+                )
+                /
+                0.333334
+            );
+    }
+
+    return
+        lerp(
+            mediumColor,
+            highColor,
+            (
+                suitability -
+                0.666667
+            )
+            /
+            0.333333
         );
 }
 
@@ -880,6 +867,21 @@ float3 GetAuthoringDiagnosticBaseColor(
             GetAuthoringCurvatureColor(
                 positionWS.xz,
                 positionWS.y
+            );
+    }
+
+    if (
+        AuthoringVisualizationModeIs(
+            WORLDMESHES_AUTHORING_MODE_SCREE
+        )
+        >
+        0.5
+    )
+    {
+        return
+            GetAuthoringScreeSuitabilityColor(
+                positionWS,
+                normalWS
             );
     }
 

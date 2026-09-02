@@ -8,7 +8,8 @@ public enum TerrainAuthoringVisualizationMode
     Lit = 0,
     Height = 1,
     Slope = 2,
-    Curvature = 3
+    Curvature = 3,
+    ScreeSuitability = 4
 }
 
 public enum TerrainAuthoringVisualizationStatus
@@ -228,7 +229,7 @@ public static class TerrainAuthoringVisualizationController
                     (int)TerrainAuthoringVisualizationMode.Lit
                 ||
                 storedValue >
-                    (int)TerrainAuthoringVisualizationMode.Curvature
+                    (int)TerrainAuthoringVisualizationMode.ScreeSuitability
             )
             {
                 return
@@ -250,7 +251,7 @@ public static class TerrainAuthoringVisualizationController
                     (int)TerrainAuthoringVisualizationMode.Lit
                 ||
                 integerValue >
-                    (int)TerrainAuthoringVisualizationMode.Curvature
+                    (int)TerrainAuthoringVisualizationMode.ScreeSuitability
             )
             {
                 value =
@@ -574,6 +575,9 @@ public static class TerrainAuthoringVisualizationController
                 BaseMode ==
                     TerrainAuthoringVisualizationMode.Curvature
                 ||
+                BaseMode ==
+                    TerrainAuthoringVisualizationMode.ScreeSuitability
+                ||
                 ContoursEnabled;
         }
     }
@@ -836,7 +840,10 @@ public static class TerrainAuthoringVisualizationController
                 TerrainAuthoringVisualizationMode.Slope
             ||
             requestedMode ==
-                TerrainAuthoringVisualizationMode.Curvature;
+                TerrainAuthoringVisualizationMode.Curvature
+            ||
+            requestedMode ==
+                TerrainAuthoringVisualizationMode.ScreeSuitability;
 
         if (
             requestedHeightDependentMode
@@ -1045,7 +1052,7 @@ public static class TerrainAuthoringVisualizationController
         {
             SetStatus(
                 TerrainAuthoringVisualizationStatus.HeightPreviewRequired,
-                "Height, Slope, Curvature, and Contour diagnostics require a ready Height Preview. Height/Slope/Curvature currently fall back to Lit and contours are suppressed; spatial overlays remain available."
+                "Height, Slope, Curvature, Scree Suitability, and Contour diagnostics require a ready Height Preview. Height/Slope/Curvature/Scree Suitability currently fall back to Lit and contours are suppressed; spatial overlays remain available."
             );
         }
         else if (!visualizationEnabled)
