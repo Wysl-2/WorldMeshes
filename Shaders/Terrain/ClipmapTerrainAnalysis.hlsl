@@ -7,7 +7,13 @@
  * ClipmapTerrainHeight.hlsl must be included first because curvature
  * analysis samples the authoritative height cache through
  * SampleTerrainHeight(...).
+ *
+ * Stage 6 also centralizes the generic normal -> slope-degrees conversion
+ * here so visualization and suitability rules no longer keep their own
+ * copies of that measurement.
  */
+
+#include "Assets/WorldMeshes/Shaders/Terrain/TerrainAnalysisCommon.hlsl"
 
 // =========================================================
 // MULTI-SCALE CURVATURE
@@ -28,6 +34,9 @@
  *
  * This is intentionally a practical heightfield analysis signal rather
  * than a differential-geometry curvature estimator.
+ *
+ * This direct height-cache calculation remains as the runtime fallback until
+ * a later stage provides baked/streamed runtime suitability data.
  */
 float CalculateTerrainCurvature(
     float2 worldXZ,

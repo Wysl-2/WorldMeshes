@@ -223,31 +223,12 @@ float3 GetAuthoringHeightColor(
 // SLOPE BASE MODE
 // =========================================================
 
-float GetTerrainSlopeDegrees(
-    float3 normalWS
-)
-{
-    float upDot =
-        saturate(
-            normalize(
-                normalWS
-            ).y
-        );
-
-    return
-        degrees(
-            acos(
-                upDot
-            )
-        );
-}
-
 float3 GetAuthoringSlopeColor(
     float3 normalWS
 )
 {
     float slopeDegrees =
-        GetTerrainSlopeDegrees(
+        CalculateTerrainSlopeDegrees(
             normalWS
         );
 

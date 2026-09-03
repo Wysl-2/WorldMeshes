@@ -4,8 +4,8 @@
 /*
  * Shared terrain suitability calculations.
  *
- * ClipmapTerrainHeight.hlsl and ClipmapTerrainAnalysis.hlsl must be
- * included before this file.
+ * ClipmapTerrainHeight.hlsl, ClipmapTerrainAnalysis.hlsl, and
+ * TerrainAnalysisSampling.hlsl must be included before this file.
  *
  * The caller must declare:
  *
@@ -20,40 +20,36 @@
  *
  *     float _ScreeGeologyScale;
  *     float _ScreeGeologyStrength;
+ *
+ * Stage 6 edit-mode cached analysis bindings:
+ *
+ *     Texture2DArray<float> _AuthoringScreeSlopeAnalysis;
+ *     Texture2DArray<float> _AuthoringScreeCurvatureAnalysis;
+ *     float _AuthoringScreeAnalysisReady;
+ *
+ *     float4 _AuthoringAnalysisCacheOriginTile;
+ *     float4 _AuthoringAnalysisCacheSize;
+ *     float _AuthoringAnalysisSamplesPerSide;
+ *     float _AuthoringAnalysisSampleSpacing;
+ *     float4 _AuthoringAnalysisWorldSizeXZ;
+ *
+ * Cached analysis is editor-only at this stage. When those bindings are not
+ * ready, the suitability path falls back to direct terrain measurements so
+ * runtime rendering remains unchanged.
  */
 
 // =========================================================
-// SLOPE
+// SLOPE RULE
 // =========================================================
 
-float GetScreeSlopeDegrees(
-    float3 normalWS
-)
-{
-    float upDot =
-        saturate(
-            normalize(
-                normalWS
-            ).y
-        );
-
-    return
-        degrees(
-            acos(
-                upDot
-            )
-        );
-}
-
+/*
+ * Suitability consumes a generic terrain-analysis measurement rather than
+ * deriving slope itself.
+ */
 float GetScreeSlopeWeight(
-    float3 normalWS
+    float slopeDegrees
 )
 {
-    float slopeDegrees =
-        GetScreeSlopeDegrees(
-            normalWS
-        );
-
     float minimumSlope =
         min(
             _ScreeSlopeMin,
@@ -116,26 +112,22 @@ float GetScreeSlopeWeight(
         );
 }
 
+
 // =========================================================
-// CURVATURE
+// CURVATURE RULE
 // =========================================================
 
+/*
+ * Suitability consumes the generic curvature analysis value.
+ *
+ * Scree may occupy planar and mildly concave slopes, but strongly convex
+ * terrain is more characteristic of exposed ridges/outcrops. Only positive
+ * curvature is therefore rejected.
+ */
 float GetScreeCurvatureWeight(
-    float3 positionWS
+    float curvature
 )
 {
-    float curvature =
-        CalculateTerrainCurvature(
-            positionWS.xz,
-            positionWS.y,
-            _ScreeCurvatureScale
-        );
-
-    /*
-     * Scree may occupy planar and mildly concave slopes, but strongly
-     * convex terrain is more characteristic of exposed ridges/outcrops.
-     * Only positive curvature is therefore rejected in this first pass.
-     */
     float positiveCurvature =
         max(
             curvature,
@@ -169,6 +161,7 @@ float GetScreeCurvatureWeight(
         1.0 -
         rejection;
 }
+
 
 // =========================================================
 // BROAD GEOLOGICAL VARIATION
@@ -206,6 +199,7 @@ float WorldMeshesScreeHash21(
             p3.z
         );
 }
+
 
 float WorldMeshesScreeValueNoise(
     float2 coordinate
@@ -278,6 +272,7 @@ float WorldMeshesScreeValueNoise(
         );
 }
 
+
 float GetScreeGeologyWeight(
     float2 worldXZ
 )
@@ -294,7 +289,7 @@ float GetScreeGeologyWeight(
 
     /*
      * Two low-frequency octaves reduce obvious square-cell structure while
-     * keeping this deliberately cheap enough for the first implementation.
+     * keeping the geology mask deliberately cheap.
      */
     float broadNoise =
         WorldMeshesScreeValueNoise(
@@ -334,24 +329,22 @@ float GetScreeGeologyWeight(
         );
 }
 
+
 // =========================================================
-// FINAL SCREE SUITABILITY
+// FINAL RULE FROM ANALYSIS VALUES
 // =========================================================
 
-float GetScreeSuitability(
-    float3 positionWS,
-    float3 normalWS
+float GetScreeSuitabilityFromAnalysis(
+    float2 worldXZ,
+    float slopeDegrees,
+    float curvature
 )
 {
     float slopeWeight =
         GetScreeSlopeWeight(
-            normalWS
+            slopeDegrees
         );
 
-    /*
-     * Avoid the four additional curvature samples when slope alone has
-     * already rejected the fragment.
-     */
     if (slopeWeight <= 0.0001)
     {
         return
@@ -360,7 +353,133 @@ float GetScreeSuitability(
 
     float curvatureWeight =
         GetScreeCurvatureWeight(
-            positionWS
+            curvature
+        );
+
+    if (curvatureWeight <= 0.0001)
+    {
+        return
+            0.0;
+    }
+
+    float geologyWeight =
+        GetScreeGeologyWeight(
+            worldXZ
+        );
+
+    return
+        saturate(
+            slopeWeight *
+            curvatureWeight *
+            geologyWeight
+        );
+}
+
+
+// =========================================================
+// CACHED EDIT-MODE ANALYSIS
+// =========================================================
+
+bool TryGetCachedScreeAnalysis(
+    float2 worldXZ,
+    out float slopeDegrees,
+    out float curvature
+)
+{
+    slopeDegrees =
+        0.0;
+
+    curvature =
+        0.0;
+
+    if (
+        _AuthoringScreeAnalysisReady <
+        0.5
+    )
+    {
+        return
+            false;
+    }
+
+    float slopeValid;
+
+    slopeDegrees =
+        WorldMeshesSampleTerrainAnalysisBilinear(
+            _AuthoringScreeSlopeAnalysis,
+            worldXZ,
+            (int2)_AuthoringAnalysisCacheOriginTile.xy,
+            (int2)_AuthoringAnalysisCacheSize.xy,
+            (int)_AuthoringAnalysisSamplesPerSide,
+            _AuthoringAnalysisSampleSpacing,
+            _AuthoringAnalysisWorldSizeXZ.xy,
+            slopeValid
+        );
+
+    if (slopeValid < 0.5)
+    {
+        return
+            false;
+    }
+
+    float curvatureValid;
+
+    curvature =
+        WorldMeshesSampleTerrainAnalysisBilinear(
+            _AuthoringScreeCurvatureAnalysis,
+            worldXZ,
+            (int2)_AuthoringAnalysisCacheOriginTile.xy,
+            (int2)_AuthoringAnalysisCacheSize.xy,
+            (int)_AuthoringAnalysisSamplesPerSide,
+            _AuthoringAnalysisSampleSpacing,
+            _AuthoringAnalysisWorldSizeXZ.xy,
+            curvatureValid
+        );
+
+    return
+        curvatureValid >
+        0.5;
+}
+
+
+// =========================================================
+// DIRECT RUNTIME FALLBACK
+// =========================================================
+
+float GetDirectScreeSuitability(
+    float3 positionWS,
+    float3 normalWS
+)
+{
+    float slopeDegrees =
+        CalculateTerrainSlopeDegrees(
+            normalWS
+        );
+
+    /*
+     * Keep the same early slope rejection used by the previous suitability
+     * implementation so runtime cost/behaviour remains familiar.
+     */
+    float slopeWeight =
+        GetScreeSlopeWeight(
+            slopeDegrees
+        );
+
+    if (slopeWeight <= 0.0001)
+    {
+        return
+            0.0;
+    }
+
+    float curvature =
+        CalculateTerrainCurvature(
+            positionWS.xz,
+            positionWS.y,
+            _ScreeCurvatureScale
+        );
+
+    float curvatureWeight =
+        GetScreeCurvatureWeight(
+            curvature
         );
 
     if (curvatureWeight <= 0.0001)
@@ -379,6 +498,47 @@ float GetScreeSuitability(
             slopeWeight *
             curvatureWeight *
             geologyWeight
+        );
+}
+
+
+// =========================================================
+// FINAL SCREE SUITABILITY
+// =========================================================
+
+float GetScreeSuitability(
+    float3 positionWS,
+    float3 normalWS
+)
+{
+    float slopeDegrees;
+    float curvature;
+
+    if (
+        TryGetCachedScreeAnalysis(
+            positionWS.xz,
+            slopeDegrees,
+            curvature
+        )
+    )
+    {
+        return
+            GetScreeSuitabilityFromAnalysis(
+                positionWS.xz,
+                slopeDegrees,
+                curvature
+            );
+    }
+
+    /*
+     * Runtime currently has no raw Terrain Analysis streamer. The direct
+     * path remains authoritative whenever editor-only cached bindings are
+     * absent. A later baked-surface-mask stage can remove this fallback.
+     */
+    return
+        GetDirectScreeSuitability(
+            positionWS,
+            normalWS
         );
 }
 

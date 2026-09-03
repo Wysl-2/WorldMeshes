@@ -886,6 +886,49 @@ public static partial class TerrainAuthoringVisualizationController
             ReleaseCurvatureVisualizationAnalysis();
         }
 
+        TerrainAnalysisLayer screeSlopeAnalysisLayer =
+            null;
+
+        TerrainAnalysisLayer screeCurvatureAnalysisLayer =
+            null;
+
+        string screeAnalysisError =
+            "";
+
+        /*
+         * Cached Scree analysis is useful only when the fragment shader is
+         * actually evaluating Scree:
+         *
+         * - Lit mode uses Scree for surface blending.
+         * - Scree Suitability mode visualizes the same suitability mask.
+         *
+         * Other unlit diagnostics bypass the Scree path entirely, so release
+         * the scale-editable Scree Curvature scratch layer there.
+         */
+        bool requiresCachedScreeAnalysis =
+            heightPreviewReady
+            &&
+            (
+                effectiveMode ==
+                    TerrainAuthoringVisualizationMode.Lit
+                ||
+                effectiveMode ==
+                    TerrainAuthoringVisualizationMode.ScreeSuitability
+            );
+
+        if (requiresCachedScreeAnalysis)
+        {
+            TryPrepareScreeAnalysis(
+                out screeSlopeAnalysisLayer,
+                out screeCurvatureAnalysisLayer,
+                out screeAnalysisError
+            );
+        }
+        else
+        {
+            ReleaseScreeSuitabilityAnalysis();
+        }
+
         bool effectiveContours =
             ContoursEnabled
             &&
@@ -988,6 +1031,12 @@ public static partial class TerrainAuthoringVisualizationController
                     curvatureAnalysisLayer
                 );
 
+                ApplyScreeAnalysisProperties(
+                    propertyBlock,
+                    screeSlopeAnalysisLayer,
+                    screeCurvatureAnalysisLayer
+                );
+
                 propertyBlock.SetFloat(
                     ContoursEnabledPropertyId,
                     effectiveContours
@@ -1071,7 +1120,7 @@ public static partial class TerrainAuthoringVisualizationController
         {
             SetStatus(
                 TerrainAuthoringVisualizationStatus.Error,
-                "No clipmap renderer uses a terrain material with the Stage 5 authoring visualization properties."
+                "No clipmap renderer uses a terrain material with the Stage 6 authoring visualization/analysis properties."
             );
 
             RepaintEditorViews();
@@ -1094,6 +1143,19 @@ public static partial class TerrainAuthoringVisualizationController
                 TerrainAuthoringVisualizationStatus.Error,
                 "Curvature visualization could not obtain its cached Terrain Analysis layer.\n\n" +
                 curvatureAnalysisError
+            );
+        }
+        else if (
+            !string.IsNullOrEmpty(
+                screeAnalysisError
+            )
+        )
+        {
+            SetStatus(
+                TerrainAuthoringVisualizationStatus.Error,
+                "Scree Suitability could not obtain its cached Slope/Curvature Terrain Analysis layers. " +
+                "The terrain shader is using the direct fallback path.\n\n" +
+                screeAnalysisError
             );
         }
         else if (missingRequiredHeightPreview)
@@ -1128,6 +1190,7 @@ public static partial class TerrainAuthoringVisualizationController
     private static void DisableVisualization()
     {
         ReleaseCurvatureVisualizationAnalysis();
+        ReleaseScreeSuitabilityAnalysis();
 
         if (
             Application.isPlaying
@@ -1207,6 +1270,17 @@ public static partial class TerrainAuthoringVisualizationController
                 propertyBlock.SetFloat(
                     VisualizationEnabledPropertyId,
                     0f
+                );
+
+                /*
+                 * Runtime does not have the editor Terrain Analysis backend.
+                 * Clear the cached Scree-ready flag before Play Mode so the
+                 * shader deterministically uses its direct runtime fallback.
+                 */
+                ApplyScreeAnalysisProperties(
+                    propertyBlock,
+                    null,
+                    null
                 );
 
                 renderer.SetPropertyBlock(
@@ -1337,6 +1411,10 @@ public static partial class TerrainAuthoringVisualizationController
             &&
             material.HasProperty(
                 CurvatureAnalysisReadyPropertyId
+            )
+            &&
+            material.HasProperty(
+                ScreeAnalysisReadyPropertyId
             )
             &&
             material.HasProperty(

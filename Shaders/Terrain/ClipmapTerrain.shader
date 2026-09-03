@@ -247,6 +247,24 @@ Shader "Custom/ClipmapTerrain"
         ) = 0
 
         [HideInInspector]
+        _AuthoringScreeSlopeAnalysis(
+            "Authoring Scree Slope Analysis",
+            2DArray
+        ) = "" {}
+
+        [HideInInspector]
+        _AuthoringScreeCurvatureAnalysis(
+            "Authoring Scree Curvature Analysis",
+            2DArray
+        ) = "" {}
+
+        [HideInInspector]
+        _AuthoringScreeAnalysisReady(
+            "Authoring Scree Analysis Ready",
+            Float
+        ) = 0
+
+        [HideInInspector]
         _AuthoringAnalysisCacheOriginTile(
             "Authoring Analysis Cache Origin Tile",
             Vector
@@ -473,6 +491,17 @@ Shader "Custom/ClipmapTerrain"
             Texture2DArray<float>
                 _AuthoringCurvatureAnalysis;
 
+            /*
+             * Stage 6 edit-mode Scree Suitability inputs.
+             * Runtime leaves _AuthoringScreeAnalysisReady at zero and uses
+             * the direct terrain-analysis fallback.
+             */
+            Texture2DArray<float>
+                _AuthoringScreeSlopeAnalysis;
+
+            Texture2DArray<float>
+                _AuthoringScreeCurvatureAnalysis;
+
             // =================================================
             // PER-MATERIAL / MPB DATA
             // =================================================
@@ -542,6 +571,7 @@ Shader "Custom/ClipmapTerrain"
                 float _AuthoringCurvatureScale;
 
                 float _AuthoringCurvatureAnalysisReady;
+                float _AuthoringScreeAnalysisReady;
                 float4 _AuthoringAnalysisCacheOriginTile;
                 float4 _AuthoringAnalysisCacheSize;
                 float _AuthoringAnalysisSamplesPerSide;

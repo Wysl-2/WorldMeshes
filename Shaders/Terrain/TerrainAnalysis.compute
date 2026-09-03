@@ -1,6 +1,8 @@
 #pragma kernel GenerateSlope
 #pragma kernel GenerateCurvature
 
+#include "Assets/WorldMeshes/Shaders/Terrain/TerrainAnalysisCommon.hlsl"
+
 Texture2DArray<float> _HeightCache;
 RWTexture2DArray<float> _AnalysisOutput;
 
@@ -348,16 +350,9 @@ float CalculateSlopeDegrees(
             )
         );
 
-    float upDot =
-        saturate(
-            normalWS.y
-        );
-
     return
-        degrees(
-            acos(
-                upDot
-            )
+        CalculateTerrainSlopeDegrees(
+            normalWS
         );
 }
 
