@@ -9,7 +9,9 @@ public enum TerrainAuthoringVisualizationMode
     Height = 1,
     Slope = 2,
     Curvature = 3,
-    ScreeSuitability = 4
+    ScreeSuitability = 4,
+    Roughness = 5,
+    LocalRelief = 6
 }
 
 public enum TerrainAuthoringVisualizationStatus
@@ -52,6 +54,12 @@ public static partial class TerrainAuthoringVisualizationController
     private const string CurvatureScaleEditorPrefsKey =
         "WorldMeshes.AuthoringVisualization.CurvatureScale";
 
+    private const string RoughnessScaleEditorPrefsKey =
+        "WorldMeshes.AuthoringVisualization.RoughnessScale";
+
+    private const string LocalReliefScaleEditorPrefsKey =
+        "WorldMeshes.AuthoringVisualization.LocalReliefScale";
+
     private const string ContoursEditorPrefsKey =
         "WorldMeshes.AuthoringVisualization.Contours";
 
@@ -75,6 +83,12 @@ public static partial class TerrainAuthoringVisualizationController
 
     private const float DefaultCurvatureScale =
         16f;
+
+    private const float DefaultRoughnessScale =
+        16f;
+
+    private const float DefaultLocalReliefScale =
+        32f;
 
     private const float MinimumCurvatureScale =
         0.25f;
@@ -229,7 +243,7 @@ public static partial class TerrainAuthoringVisualizationController
                     (int)TerrainAuthoringVisualizationMode.Lit
                 ||
                 storedValue >
-                    (int)TerrainAuthoringVisualizationMode.ScreeSuitability
+                    (int)TerrainAuthoringVisualizationMode.LocalRelief
             )
             {
                 return
@@ -251,7 +265,7 @@ public static partial class TerrainAuthoringVisualizationController
                     (int)TerrainAuthoringVisualizationMode.Lit
                 ||
                 integerValue >
-                    (int)TerrainAuthoringVisualizationMode.ScreeSuitability
+                    (int)TerrainAuthoringVisualizationMode.LocalRelief
             )
             {
                 value =
@@ -310,6 +324,96 @@ public static partial class TerrainAuthoringVisualizationController
 
             EditorPrefs.SetFloat(
                 CurvatureScaleEditorPrefsKey,
+                safeValue
+            );
+
+            RequestReapply();
+        }
+    }
+
+    public static float RoughnessScale
+    {
+        get
+        {
+            return
+                Mathf.Max(
+                    MinimumCurvatureScale,
+                    EditorPrefs.GetFloat(
+                        RoughnessScaleEditorPrefsKey,
+                        DefaultRoughnessScale
+                    )
+                );
+        }
+
+        set
+        {
+            float safeValue =
+                IsFinite(
+                    value
+                )
+                    ? Mathf.Max(
+                        MinimumCurvatureScale,
+                        value
+                    )
+                    : DefaultRoughnessScale;
+
+            if (
+                Mathf.Approximately(
+                    RoughnessScale,
+                    safeValue
+                )
+            )
+            {
+                return;
+            }
+
+            EditorPrefs.SetFloat(
+                RoughnessScaleEditorPrefsKey,
+                safeValue
+            );
+
+            RequestReapply();
+        }
+    }
+
+    public static float LocalReliefScale
+    {
+        get
+        {
+            return
+                Mathf.Max(
+                    MinimumCurvatureScale,
+                    EditorPrefs.GetFloat(
+                        LocalReliefScaleEditorPrefsKey,
+                        DefaultLocalReliefScale
+                    )
+                );
+        }
+
+        set
+        {
+            float safeValue =
+                IsFinite(
+                    value
+                )
+                    ? Mathf.Max(
+                        MinimumCurvatureScale,
+                        value
+                    )
+                    : DefaultLocalReliefScale;
+
+            if (
+                Mathf.Approximately(
+                    LocalReliefScale,
+                    safeValue
+                )
+            )
+            {
+                return;
+            }
+
+            EditorPrefs.SetFloat(
+                LocalReliefScaleEditorPrefsKey,
                 safeValue
             );
 
@@ -578,6 +682,12 @@ public static partial class TerrainAuthoringVisualizationController
                 BaseMode ==
                     TerrainAuthoringVisualizationMode.ScreeSuitability
                 ||
+                BaseMode ==
+                    TerrainAuthoringVisualizationMode.Roughness
+                ||
+                BaseMode ==
+                    TerrainAuthoringVisualizationMode.LocalRelief
+                ||
                 ContoursEnabled;
         }
     }
@@ -631,6 +741,16 @@ public static partial class TerrainAuthoringVisualizationController
         EditorPrefs.SetFloat(
             CurvatureScaleEditorPrefsKey,
             DefaultCurvatureScale
+        );
+
+        EditorPrefs.SetFloat(
+            RoughnessScaleEditorPrefsKey,
+            DefaultRoughnessScale
+        );
+
+        EditorPrefs.SetFloat(
+            LocalReliefScaleEditorPrefsKey,
+            DefaultLocalReliefScale
         );
 
         EditorPrefs.SetBool(
@@ -843,7 +963,13 @@ public static partial class TerrainAuthoringVisualizationController
                 TerrainAuthoringVisualizationMode.Curvature
             ||
             requestedMode ==
-                TerrainAuthoringVisualizationMode.ScreeSuitability;
+                TerrainAuthoringVisualizationMode.ScreeSuitability
+            ||
+            requestedMode ==
+                TerrainAuthoringVisualizationMode.Roughness
+            ||
+            requestedMode ==
+                TerrainAuthoringVisualizationMode.LocalRelief;
 
         if (
             requestedHeightDependentMode
@@ -855,21 +981,27 @@ public static partial class TerrainAuthoringVisualizationController
                 TerrainAuthoringVisualizationMode.Lit;
         }
 
-        TerrainAnalysisLayer curvatureAnalysisLayer =
+        TerrainAnalysisLayer visualizationAnalysisLayer =
             null;
 
-        string curvatureAnalysisError =
+        TerrainAnalysisDefinition visualizationAnalysisDefinition =
+            null;
+
+        string visualizationAnalysisError =
             "";
 
         if (
-            effectiveMode ==
-                TerrainAuthoringVisualizationMode.Curvature
+            IsRawAnalysisVisualizationMode(
+                effectiveMode
+            )
         )
         {
             if (
-                !TryPrepareCurvatureAnalysis(
-                    out curvatureAnalysisLayer,
-                    out curvatureAnalysisError
+                !TryPrepareAnalysisVisualization(
+                    effectiveMode,
+                    out visualizationAnalysisLayer,
+                    out visualizationAnalysisDefinition,
+                    out visualizationAnalysisError
                 )
             )
             {
@@ -880,10 +1012,11 @@ public static partial class TerrainAuthoringVisualizationController
         else
         {
             /*
-             * Curvature visualization owns one transient analysis slot.
-             * Leaving the mode releases that scratch allocation.
+             * All scale-dependent raw diagnostics share one owner-scoped
+             * transient Terrain Analysis slot. Leaving raw-analysis modes
+             * releases that scratch allocation.
              */
-            ReleaseCurvatureVisualizationAnalysis();
+            ReleaseAnalysisVisualization();
         }
 
         TerrainAnalysisLayer screeSlopeAnalysisLayer =
@@ -1026,9 +1159,10 @@ public static partial class TerrainAuthoringVisualizationController
                     CurvatureScale
                 );
 
-                ApplyCurvatureAnalysisProperties(
+                ApplyAnalysisVisualizationProperties(
                     propertyBlock,
-                    curvatureAnalysisLayer
+                    visualizationAnalysisLayer,
+                    visualizationAnalysisDefinition
                 );
 
                 ApplyScreeAnalysisProperties(
@@ -1120,7 +1254,7 @@ public static partial class TerrainAuthoringVisualizationController
         {
             SetStatus(
                 TerrainAuthoringVisualizationStatus.Error,
-                "No clipmap renderer uses a terrain material with the Stage 6 authoring visualization/analysis properties."
+                "No clipmap renderer uses a terrain material with the Stage 9 authoring visualization/analysis properties."
             );
 
             RepaintEditorViews();
@@ -1135,14 +1269,14 @@ public static partial class TerrainAuthoringVisualizationController
 
         if (
             !string.IsNullOrEmpty(
-                curvatureAnalysisError
+                visualizationAnalysisError
             )
         )
         {
             SetStatus(
                 TerrainAuthoringVisualizationStatus.Error,
-                "Curvature visualization could not obtain its cached Terrain Analysis layer.\n\n" +
-                curvatureAnalysisError
+                "Authoring analysis visualization could not obtain its cached Terrain Analysis layer.\n\n" +
+                visualizationAnalysisError
             );
         }
         else if (
@@ -1162,7 +1296,7 @@ public static partial class TerrainAuthoringVisualizationController
         {
             SetStatus(
                 TerrainAuthoringVisualizationStatus.HeightPreviewRequired,
-                "Height, Slope, Curvature, Scree Suitability, and Contour diagnostics require a ready Height Preview. Height/Slope/Curvature/Scree Suitability currently fall back to Lit and contours are suppressed; spatial overlays remain available."
+                "Height, Slope, Curvature, Roughness, Local Relief, Scree Suitability, and Contour diagnostics require a ready Height Preview. Height/raw-analysis/Scree modes currently fall back to Lit and contours are suppressed; spatial overlays remain available."
             );
         }
         else if (!visualizationEnabled)
@@ -1189,7 +1323,7 @@ public static partial class TerrainAuthoringVisualizationController
 
     private static void DisableVisualization()
     {
-        ReleaseCurvatureVisualizationAnalysis();
+        ReleaseAnalysisVisualization();
         ReleaseScreeSuitabilityAnalysis();
 
         if (
@@ -1273,9 +1407,19 @@ public static partial class TerrainAuthoringVisualizationController
                 );
 
                 /*
+                 * Runtime does not use editor raw Terrain Analysis bindings.
+                 * Disable the generic analysis diagnostic without clearing
+                 * unrelated MaterialPropertyBlock state.
+                 */
+                ApplyAnalysisVisualizationProperties(
+                    propertyBlock,
+                    null,
+                    null
+                );
+
+                /*
                  * Runtime does not have the editor Terrain Analysis backend.
-                 * Clear the cached Scree-ready flag before Play Mode so the
-                 * shader deterministically uses its direct runtime fallback.
+                 * Clear the cached Scree-ready flag before Play Mode.
                  */
                 ApplyScreeAnalysisProperties(
                     propertyBlock,
@@ -1410,7 +1554,7 @@ public static partial class TerrainAuthoringVisualizationController
             )
             &&
             material.HasProperty(
-                CurvatureAnalysisReadyPropertyId
+                AnalysisVisualizationReadyPropertyId
             )
             &&
             material.HasProperty(

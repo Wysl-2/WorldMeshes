@@ -3,15 +3,15 @@ using System;
 /*
  * Identifies one exact terrain-analysis field.
  *
- * Some analysis types are scale-independent:
+ * Scale-independent:
  *
  *     Slope
  *
- * Others may exist at multiple world-space scales:
+ * Scale-dependent:
  *
  *     Curvature(8 m)
- *     Curvature(16 m)
- *     Curvature(64 m)
+ *     Roughness(16 m)
+ *     LocalRelief(32 m)
  *
  * Scale is quantized to centimetres before becoming part of the key.
  * This avoids raw floating-point values creating duplicate cache entries
@@ -96,6 +96,28 @@ public readonly struct TerrainAnalysisKey :
         return
             new TerrainAnalysisKey(
                 TerrainAnalysisType.Curvature,
+                scaleMeters
+            );
+    }
+
+    public static TerrainAnalysisKey Roughness(
+        float scaleMeters
+    )
+    {
+        return
+            new TerrainAnalysisKey(
+                TerrainAnalysisType.Roughness,
+                scaleMeters
+            );
+    }
+
+    public static TerrainAnalysisKey LocalRelief(
+        float scaleMeters
+    )
+    {
+        return
+            new TerrainAnalysisKey(
+                TerrainAnalysisType.LocalRelief,
                 scaleMeters
             );
     }

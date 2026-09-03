@@ -1,26 +1,37 @@
 using UnityEngine;
 
 /*
- * Stage 5 cached Curvature visualization integration.
+ * Stage 9 generic raw Terrain Analysis visualization.
  *
- * This partial keeps analysis binding details separate from the existing
- * visualization controller's general editor-state code.
+ * This file intentionally keeps the historical CurvatureAnalysis.cs path so
+ * the existing Unity .meta/GUID is preserved during migration, but the
+ * implementation is no longer Curvature-specific.
  */
 public static partial class TerrainAuthoringVisualizationController
 {
-    private const string CurvatureVisualizationAnalysisOwnerId =
-        "WorldMeshes.AuthoringVisualization.Curvature";
+    private const string AnalysisVisualizationOwnerId =
+        "WorldMeshes.AuthoringVisualization.Analysis";
 
-    private static readonly int CurvatureAnalysisTexturePropertyId =
+    private static readonly int AnalysisVisualizationTexturePropertyId =
         Shader.PropertyToID(
-            "_AuthoringCurvatureAnalysis"
+            "_AuthoringAnalysisTexture"
         );
 
-    private static readonly int CurvatureAnalysisReadyPropertyId =
+    private static readonly int AnalysisVisualizationReadyPropertyId =
         Shader.PropertyToID(
-            "_AuthoringCurvatureAnalysisReady"
+            "_AuthoringAnalysisReady"
         );
 
+    private static readonly int AnalysisVisualizationDisplayRangePropertyId =
+        Shader.PropertyToID(
+            "_AuthoringAnalysisDisplayRange"
+        );
+
+    /*
+     * These layout properties remain shared with the Scree authoring
+     * suitability path, which binds Slope + Curvature generated from the same
+     * preview cache.
+     */
     private static readonly int AnalysisCacheOriginTilePropertyId =
         Shader.PropertyToID(
             "_AuthoringAnalysisCacheOriginTile"
@@ -46,57 +57,239 @@ public static partial class TerrainAuthoringVisualizationController
             "_AuthoringAnalysisWorldSizeXZ"
         );
 
-    private static bool TryPrepareCurvatureAnalysis(
+    public static bool IsRawAnalysisVisualizationMode(
+        TerrainAuthoringVisualizationMode mode
+    )
+    {
+        return
+            mode ==
+                TerrainAuthoringVisualizationMode.Slope
+            ||
+            mode ==
+                TerrainAuthoringVisualizationMode.Curvature
+            ||
+            mode ==
+                TerrainAuthoringVisualizationMode.Roughness
+            ||
+            mode ==
+                TerrainAuthoringVisualizationMode.LocalRelief;
+    }
+
+    public static bool TryGetAnalysisVisualizationKey(
+        TerrainAuthoringVisualizationMode mode,
+        out TerrainAnalysisKey key
+    )
+    {
+        switch (mode)
+        {
+            case TerrainAuthoringVisualizationMode.Slope:
+                key =
+                    TerrainAnalysisKey.Slope;
+
+                return true;
+
+            case TerrainAuthoringVisualizationMode.Curvature:
+                key =
+                    TerrainAnalysisKey.Curvature(
+                        CurvatureScale
+                    );
+
+                return true;
+
+            case TerrainAuthoringVisualizationMode.Roughness:
+                key =
+                    TerrainAnalysisKey.Roughness(
+                        RoughnessScale
+                    );
+
+                return true;
+
+            case TerrainAuthoringVisualizationMode.LocalRelief:
+                key =
+                    TerrainAnalysisKey.LocalRelief(
+                        LocalReliefScale
+                    );
+
+                return true;
+
+            default:
+                key =
+                    default;
+
+                return false;
+        }
+    }
+
+    public static float GetAnalysisVisualizationScale(
+        TerrainAuthoringVisualizationMode mode
+    )
+    {
+        switch (mode)
+        {
+            case TerrainAuthoringVisualizationMode.Curvature:
+                return
+                    CurvatureScale;
+
+            case TerrainAuthoringVisualizationMode.Roughness:
+                return
+                    RoughnessScale;
+
+            case TerrainAuthoringVisualizationMode.LocalRelief:
+                return
+                    LocalReliefScale;
+
+            default:
+                return
+                    0f;
+        }
+    }
+
+    public static void SetAnalysisVisualizationScale(
+        TerrainAuthoringVisualizationMode mode,
+        float scale
+    )
+    {
+        switch (mode)
+        {
+            case TerrainAuthoringVisualizationMode.Curvature:
+                CurvatureScale =
+                    scale;
+
+                break;
+
+            case TerrainAuthoringVisualizationMode.Roughness:
+                RoughnessScale =
+                    scale;
+
+                break;
+
+            case TerrainAuthoringVisualizationMode.LocalRelief:
+                LocalReliefScale =
+                    scale;
+
+                break;
+        }
+    }
+
+    private static bool TryPrepareAnalysisVisualization(
+        TerrainAuthoringVisualizationMode mode,
         out TerrainAnalysisLayer layer,
+        out TerrainAnalysisDefinition definition,
         out string errorMessage
     )
     {
         layer =
-            TerrainAnalysisService
-                .RequestTransientLayer(
-                    CurvatureVisualizationAnalysisOwnerId,
-                    TerrainAnalysisKey.Curvature(
-                        CurvatureScale
-                    )
-                );
+            null;
+
+        definition =
+            null;
+
+        errorMessage =
+            "";
 
         if (
-            layer != null &&
-            layer.IsReady &&
-            layer.Texture != null &&
-            layer.Texture.IsCreated()
+            !TryGetAnalysisVisualizationKey(
+                mode,
+                out TerrainAnalysisKey key
+            )
         )
         {
             errorMessage =
-                "";
+                "The selected authoring mode is not a raw Terrain Analysis visualization.";
 
+            return false;
+        }
+
+        if (
+            !TerrainAnalysisRegistry
+                .TryValidateKey(
+                    key,
+                    out definition,
+                    out errorMessage
+                )
+            ||
+            definition == null
+        )
+        {
+            return false;
+        }
+
+        if (definition.RequiresScale)
+        {
+            /*
+             * A single owner slot prevents interactive scale changes from
+             * accumulating full Texture2DArray layers.
+             */
+            layer =
+                TerrainAnalysisService
+                    .RequestTransientLayer(
+                        AnalysisVisualizationOwnerId,
+                        key
+                    );
+        }
+        else
+        {
+            /*
+             * Scale-independent Slope is useful to other consumers such as
+             * Scree generation. Reuse the persistent shared layer.
+             */
+            TerrainAnalysisService
+                .ReleaseTransientLayer(
+                    AnalysisVisualizationOwnerId
+                );
+
+            layer =
+                TerrainAnalysisService
+                    .RequestLayer(
+                        key
+                    );
+        }
+
+        if (
+            layer != null
+            &&
+            layer.IsReady
+            &&
+            layer.Texture != null
+            &&
+            layer.Texture.IsCreated()
+        )
+        {
             return true;
         }
 
         errorMessage =
-            layer != null &&
+            layer != null
+            &&
             !string.IsNullOrEmpty(
                 layer.ErrorMessage
             )
                 ? layer.ErrorMessage
-                : "Curvature analysis could not be generated for the authoring visualization.";
+                : definition.DisplayName +
+                  " analysis could not be generated for authoring visualization.";
 
         return false;
     }
 
-    private static void ApplyCurvatureAnalysisProperties(
+    private static void ApplyAnalysisVisualizationProperties(
         MaterialPropertyBlock block,
-        TerrainAnalysisLayer layer
+        TerrainAnalysisLayer layer,
+        TerrainAnalysisDefinition definition
     )
     {
         bool ready =
-            layer != null &&
-            layer.IsReady &&
-            layer.Texture != null &&
+            layer != null
+            &&
+            definition != null
+            &&
+            layer.IsReady
+            &&
+            layer.Texture != null
+            &&
             layer.Texture.IsCreated();
 
         block.SetFloat(
-            CurvatureAnalysisReadyPropertyId,
+            AnalysisVisualizationReadyPropertyId,
             ready
                 ? 1f
                 : 0f
@@ -108,7 +301,7 @@ public static partial class TerrainAuthoringVisualizationController
         }
 
         block.SetTexture(
-            CurvatureAnalysisTexturePropertyId,
+            AnalysisVisualizationTexturePropertyId,
             layer.Texture
         );
 
@@ -151,13 +344,32 @@ public static partial class TerrainAuthoringVisualizationController
                 0f
             )
         );
+
+        definition.GetVisualizationRange(
+            layer.Key,
+            out float minimum,
+            out float maximum
+        );
+
+        block.SetVector(
+            AnalysisVisualizationDisplayRangePropertyId,
+            new Vector4(
+                minimum,
+                maximum,
+                definition.VisualizationKind ==
+                    TerrainAnalysisVisualizationKind.Signed
+                    ? 1f
+                    : 0f,
+                0f
+            )
+        );
     }
 
-    private static void ReleaseCurvatureVisualizationAnalysis()
+    private static void ReleaseAnalysisVisualization()
     {
         TerrainAnalysisService
             .ReleaseTransientLayer(
-                CurvatureVisualizationAnalysisOwnerId
+                AnalysisVisualizationOwnerId
             );
     }
 }

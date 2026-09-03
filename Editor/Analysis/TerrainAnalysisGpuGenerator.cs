@@ -4,6 +4,13 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
 
+/*
+ * Stage 9 generic GPU Terrain Analysis backend.
+ *
+ * Type-specific metadata now comes from TerrainAnalysisRegistry. Adding a new
+ * registered analysis kernel no longer requires another field/switch branch
+ * in this generator.
+ */
 [InitializeOnLoad]
 public sealed class TerrainAnalysisGpuGenerator :
     ITerrainAnalysisGenerator
@@ -11,24 +18,47 @@ public sealed class TerrainAnalysisGpuGenerator :
     public const string ComputeShaderAssetPath =
         "Assets/WorldMeshes/Shaders/Terrain/TerrainAnalysis.compute";
 
-    private const string SlopeKernelName =
-        "GenerateSlope";
+    private sealed class KernelState
+    {
+        public readonly TerrainAnalysisDefinition Definition;
+        public readonly int Kernel;
+        public readonly uint ThreadGroupSizeX;
+        public readonly uint ThreadGroupSizeY;
 
-    private const string CurvatureKernelName =
-        "GenerateCurvature";
+        public KernelState(
+            TerrainAnalysisDefinition definition,
+            int kernel,
+            uint threadGroupSizeX,
+            uint threadGroupSizeY
+        )
+        {
+            Definition =
+                definition;
+
+            Kernel =
+                kernel;
+
+            ThreadGroupSizeX =
+                threadGroupSizeX;
+
+            ThreadGroupSizeY =
+                threadGroupSizeY;
+        }
+    }
 
     private static readonly TerrainAnalysisGpuGenerator Instance =
         new TerrainAnalysisGpuGenerator();
 
     private ComputeShader computeShader;
 
-    private int slopeKernel = -1;
-    private int curvatureKernel = -1;
-
-    private uint slopeThreadGroupSizeX;
-    private uint slopeThreadGroupSizeY;
-    private uint curvatureThreadGroupSizeX;
-    private uint curvatureThreadGroupSizeY;
+    private readonly Dictionary<
+        TerrainAnalysisType,
+        KernelState
+    > kernelStates =
+        new Dictionary<
+            TerrainAnalysisType,
+            KernelState
+        >();
 
     /*
      * Used to distinguish ordinary in-place preview slice updates from a
@@ -61,11 +91,15 @@ public sealed class TerrainAnalysisGpuGenerator :
         out string errorMessage
     )
     {
-        result = default;
-        errorMessage = "";
+        result =
+            default;
+
+        errorMessage =
+            "";
 
         if (
-            EditorApplication.isPlayingOrWillChangePlaymode
+            EditorApplication
+                .isPlayingOrWillChangePlaymode
         )
         {
             errorMessage =
@@ -76,10 +110,12 @@ public sealed class TerrainAnalysisGpuGenerator :
         }
 
         if (
-            !TryValidateKey(
-                key,
-                out errorMessage
-            )
+            !TerrainAnalysisRegistry
+                .TryValidateKey(
+                    key,
+                    out _,
+                    out errorMessage
+                )
         )
         {
             return false;
@@ -119,11 +155,14 @@ public sealed class TerrainAnalysisGpuGenerator :
             );
 
         if (
-            output == null ||
+            output == null
+            ||
             !output.IsCreated()
         )
         {
-            DestroyCandidate(output);
+            DestroyCandidate(
+                output
+            );
 
             errorMessage =
                 "The GPU terrain-analysis texture could not be created.";
@@ -134,35 +173,41 @@ public sealed class TerrainAnalysisGpuGenerator :
         if (
             !TryGetKernel(
                 key,
-                out int kernel,
-                out uint threadGroupSizeX,
-                out uint threadGroupSizeY,
+                out KernelState kernelState,
                 out errorMessage
             )
         )
         {
-            DestroyCandidate(output);
+            DestroyCandidate(
+                output
+            );
+
             return false;
         }
 
         int groupsX =
             DivideRoundUp(
                 samplesPerSide,
-                threadGroupSizeX
+                kernelState
+                    .ThreadGroupSizeX
             );
 
         int groupsY =
             DivideRoundUp(
                 samplesPerSide,
-                threadGroupSizeY
+                kernelState
+                    .ThreadGroupSizeY
             );
 
         if (
-            groupsX <= 0 ||
+            groupsX <= 0
+            ||
             groupsY <= 0
         )
         {
-            DestroyCandidate(output);
+            DestroyCandidate(
+                output
+            );
 
             errorMessage =
                 "Terrain analysis calculated an invalid compute dispatch.";
@@ -173,7 +218,7 @@ public sealed class TerrainAnalysisGpuGenerator :
         try
         {
             SetCommonKernelParameters(
-                kernel,
+                kernelState.Kernel,
                 key,
                 heightCache,
                 output,
@@ -190,15 +235,19 @@ public sealed class TerrainAnalysisGpuGenerator :
             );
 
             computeShader.Dispatch(
-                kernel,
+                kernelState.Kernel,
                 groupsX,
                 groupsY,
                 sliceCount
             );
         }
-        catch (Exception exception)
+        catch (
+            Exception exception
+        )
         {
-            DestroyCandidate(output);
+            DestroyCandidate(
+                output
+            );
 
             errorMessage =
                 "Terrain analysis GPU dispatch failed for " +
@@ -223,9 +272,12 @@ public sealed class TerrainAnalysisGpuGenerator :
 
         if (!result.IsValid)
         {
-            DestroyCandidate(output);
+            DestroyCandidate(
+                output
+            );
 
-            result = default;
+            result =
+                default;
 
             errorMessage =
                 "Terrain analysis generation completed, but the generated " +
@@ -247,13 +299,19 @@ public sealed class TerrainAnalysisGpuGenerator :
         out string errorMessage
     )
     {
-        sourceSignature = "";
-        errorMessage = "";
+        sourceSignature =
+            "";
+
+        errorMessage =
+            "";
 
         if (
-            layer == null ||
-            !layer.IsReady ||
-            layer.Texture == null ||
+            layer == null
+            ||
+            !layer.IsReady
+            ||
+            layer.Texture == null
+            ||
             !layer.Texture.IsCreated()
         )
         {
@@ -264,7 +322,8 @@ public sealed class TerrainAnalysisGpuGenerator :
         }
 
         if (
-            tileCoordinates == null ||
+            tileCoordinates == null
+            ||
             tileCoordinates.Count == 0
         )
         {
@@ -275,7 +334,8 @@ public sealed class TerrainAnalysisGpuGenerator :
         }
 
         if (
-            EditorApplication.isPlayingOrWillChangePlaymode
+            EditorApplication
+                .isPlayingOrWillChangePlaymode
         )
         {
             errorMessage =
@@ -286,10 +346,12 @@ public sealed class TerrainAnalysisGpuGenerator :
         }
 
         if (
-            !TryValidateKey(
-                layer.Key,
-                out errorMessage
-            )
+            !TerrainAnalysisRegistry
+                .TryValidateKey(
+                    layer.Key,
+                    out _,
+                    out errorMessage
+                )
         )
         {
             return false;
@@ -371,9 +433,7 @@ public sealed class TerrainAnalysisGpuGenerator :
         if (
             !TryGetKernel(
                 layer.Key,
-                out int kernel,
-                out uint threadGroupSizeX,
-                out uint threadGroupSizeY,
+                out KernelState kernelState,
                 out errorMessage
             )
         )
@@ -384,17 +444,20 @@ public sealed class TerrainAnalysisGpuGenerator :
         int groupsX =
             DivideRoundUp(
                 samplesPerSide,
-                threadGroupSizeX
+                kernelState
+                    .ThreadGroupSizeX
             );
 
         int groupsY =
             DivideRoundUp(
                 samplesPerSide,
-                threadGroupSizeY
+                kernelState
+                    .ThreadGroupSizeY
             );
 
         if (
-            groupsX <= 0 ||
+            groupsX <= 0
+            ||
             groupsY <= 0
         )
         {
@@ -424,10 +487,13 @@ public sealed class TerrainAnalysisGpuGenerator :
                 cacheOriginTile;
 
             if (
-                localTile.x < 0 ||
-                localTile.y < 0 ||
+                localTile.x < 0
+                ||
+                localTile.y < 0
+                ||
                 localTile.x >=
-                    cacheSize.x ||
+                    cacheSize.x
+                ||
                 localTile.y >=
                     cacheSize.y
             )
@@ -463,7 +529,7 @@ public sealed class TerrainAnalysisGpuGenerator :
         try
         {
             SetCommonKernelParameters(
-                kernel,
+                kernelState.Kernel,
                 layer.Key,
                 heightCache,
                 layer.Texture,
@@ -530,7 +596,7 @@ public sealed class TerrainAnalysisGpuGenerator :
                 );
 
                 computeShader.Dispatch(
-                    kernel,
+                    kernelState.Kernel,
                     groupsX,
                     groupsY,
                     runLength
@@ -540,7 +606,9 @@ public sealed class TerrainAnalysisGpuGenerator :
                     nextIndex;
             }
         }
-        catch (Exception exception)
+        catch (
+            Exception exception
+        )
         {
             errorMessage =
                 "Incremental terrain analysis GPU dispatch failed for " +
@@ -557,20 +625,21 @@ public sealed class TerrainAnalysisGpuGenerator :
         return true;
     }
 
+    // =====================================================
+    // GENERATOR PREPARATION / REGISTRY KERNELS
+    // =====================================================
+
     private bool TryPrepare(
         out string errorMessage
     )
     {
-        errorMessage = "";
+        errorMessage =
+            "";
 
         if (
-            computeShader != null &&
-            slopeKernel >= 0 &&
-            curvatureKernel >= 0 &&
-            slopeThreadGroupSizeX > 0 &&
-            slopeThreadGroupSizeY > 0 &&
-            curvatureThreadGroupSizeX > 0 &&
-            curvatureThreadGroupSizeY > 0
+            computeShader != null
+            &&
+            KernelStateIsComplete()
         )
         {
             return true;
@@ -606,9 +675,10 @@ public sealed class TerrainAnalysisGpuGenerator :
         }
 
         computeShader =
-            AssetDatabase.LoadAssetAtPath<ComputeShader>(
-                ComputeShaderAssetPath
-            );
+            AssetDatabase
+                .LoadAssetAtPath<ComputeShader>(
+                    ComputeShaderAssetPath
+                );
 
         if (computeShader == null)
         {
@@ -621,59 +691,93 @@ public sealed class TerrainAnalysisGpuGenerator :
             return false;
         }
 
+        kernelStates.Clear();
+
+        IReadOnlyList<TerrainAnalysisDefinition> definitions =
+            TerrainAnalysisRegistry
+                .Definitions;
+
         try
         {
-            slopeKernel =
-                computeShader.FindKernel(
-                    SlopeKernelName
+            for (
+                int index = 0;
+                index < definitions.Count;
+                index++
+            )
+            {
+                TerrainAnalysisDefinition definition =
+                    definitions[index];
+
+                if (
+                    definition == null
+                    ||
+                    string.IsNullOrEmpty(
+                        definition.ComputeKernelName
+                    )
+                )
+                {
+                    throw new InvalidOperationException(
+                        "A registered Terrain Analysis definition has no compute kernel name."
+                    );
+                }
+
+                int kernel =
+                    computeShader.FindKernel(
+                        definition
+                            .ComputeKernelName
+                    );
+
+                computeShader
+                    .GetKernelThreadGroupSizes(
+                        kernel,
+                        out uint threadGroupSizeX,
+                        out uint threadGroupSizeY,
+                        out _
+                    );
+
+                if (
+                    threadGroupSizeX == 0
+                    ||
+                    threadGroupSizeY == 0
+                )
+                {
+                    throw new InvalidOperationException(
+                        "Terrain Analysis kernel reported an invalid thread-group size: " +
+                        definition.ComputeKernelName
+                    );
+                }
+
+                kernelStates.Add(
+                    definition.Type,
+                    new KernelState(
+                        definition,
+                        kernel,
+                        threadGroupSizeX,
+                        threadGroupSizeY
+                    )
                 );
-
-            curvatureKernel =
-                computeShader.FindKernel(
-                    CurvatureKernelName
-                );
-
-            computeShader.GetKernelThreadGroupSizes(
-                slopeKernel,
-                out slopeThreadGroupSizeX,
-                out slopeThreadGroupSizeY,
-                out _
-            );
-
-            computeShader.GetKernelThreadGroupSizes(
-                curvatureKernel,
-                out curvatureThreadGroupSizeX,
-                out curvatureThreadGroupSizeY,
-                out _
-            );
+            }
         }
-        catch (Exception exception)
-        {
-            ResetShaderState();
-
-            errorMessage =
-                "TerrainAnalysis.compute is missing one or more required " +
-                "kernels.\n\nRequired:\n- " +
-                SlopeKernelName +
-                "\n- " +
-                CurvatureKernelName +
-                "\n\n" +
-                exception.Message;
-
-            return false;
-        }
-
-        if (
-            slopeThreadGroupSizeX == 0 ||
-            slopeThreadGroupSizeY == 0 ||
-            curvatureThreadGroupSizeX == 0 ||
-            curvatureThreadGroupSizeY == 0
+        catch (
+            Exception exception
         )
         {
             ResetShaderState();
 
             errorMessage =
-                "TerrainAnalysis.compute reported an invalid thread-group size.";
+                "TerrainAnalysis.compute could not prepare all registered " +
+                "Terrain Analysis kernels.\n\n" +
+                exception.Message;
+
+            return false;
+        }
+
+        if (!KernelStateIsComplete())
+        {
+            ResetShaderState();
+
+            errorMessage =
+                "Terrain Analysis kernel registration is incomplete.";
 
             return false;
         }
@@ -681,93 +785,104 @@ public sealed class TerrainAnalysisGpuGenerator :
         return true;
     }
 
-    private static bool TryValidateKey(
-        TerrainAnalysisKey key,
-        out string errorMessage
-    )
+    private bool KernelStateIsComplete()
     {
-        errorMessage = "";
+        IReadOnlyList<TerrainAnalysisDefinition> definitions =
+            TerrainAnalysisRegistry
+                .Definitions;
 
-        switch (key.Type)
+        if (
+            definitions == null
+            ||
+            kernelStates.Count !=
+                definitions.Count
+        )
         {
-            case TerrainAnalysisType.Slope:
-                if (key.HasScale)
-                {
-                    errorMessage =
-                        "Slope analysis is scale-independent and must not specify a scale.";
-
-                    return false;
-                }
-
-                return true;
-
-            case TerrainAnalysisType.Curvature:
-                if (!key.HasScale)
-                {
-                    errorMessage =
-                        "Curvature analysis requires a world-space scale.";
-
-                    return false;
-                }
-
-                return true;
-
-            default:
-                errorMessage =
-                    "Unsupported terrain analysis type: " +
-                    key.Type;
-
-                return false;
+            return false;
         }
+
+        for (
+            int index = 0;
+            index < definitions.Count;
+            index++
+        )
+        {
+            TerrainAnalysisDefinition definition =
+                definitions[index];
+
+            if (
+                definition == null
+                ||
+                !kernelStates.TryGetValue(
+                    definition.Type,
+                    out KernelState state
+                )
+                ||
+                state == null
+                ||
+                state.Kernel < 0
+                ||
+                state.ThreadGroupSizeX == 0
+                ||
+                state.ThreadGroupSizeY == 0
+            )
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private bool TryGetKernel(
         TerrainAnalysisKey key,
-        out int kernel,
-        out uint threadGroupSizeX,
-        out uint threadGroupSizeY,
+        out KernelState kernelState,
         out string errorMessage
     )
     {
-        kernel = -1;
-        threadGroupSizeX = 0;
-        threadGroupSizeY = 0;
-        errorMessage = "";
+        kernelState =
+            null;
 
-        switch (key.Type)
+        errorMessage =
+            "";
+
+        if (
+            !TerrainAnalysisRegistry
+                .TryValidateKey(
+                    key,
+                    out TerrainAnalysisDefinition definition,
+                    out errorMessage
+                )
+            ||
+            definition == null
+        )
         {
-            case TerrainAnalysisType.Slope:
-                kernel =
-                    slopeKernel;
-
-                threadGroupSizeX =
-                    slopeThreadGroupSizeX;
-
-                threadGroupSizeY =
-                    slopeThreadGroupSizeY;
-
-                return true;
-
-            case TerrainAnalysisType.Curvature:
-                kernel =
-                    curvatureKernel;
-
-                threadGroupSizeX =
-                    curvatureThreadGroupSizeX;
-
-                threadGroupSizeY =
-                    curvatureThreadGroupSizeY;
-
-                return true;
-
-            default:
-                errorMessage =
-                    "Unsupported terrain analysis type: " +
-                    key.Type;
-
-                return false;
+            return false;
         }
+
+        if (
+            !kernelStates.TryGetValue(
+                definition.Type,
+                out kernelState
+            )
+            ||
+            kernelState == null
+        )
+        {
+            errorMessage =
+                "No prepared GPU kernel exists for terrain analysis " +
+                definition.DisplayName +
+                ".";
+
+            return false;
+        }
+
+        return true;
     }
+
+    // =====================================================
+    // SOURCE / COMMON PARAMETERS
+    // =====================================================
 
     private static bool TryGetSource(
         out RenderTexture heightCache,
@@ -812,14 +927,22 @@ public sealed class TerrainAnalysisGpuGenerator :
             cacheSize.y;
 
         if (
-            heightCache == null ||
-            !heightCache.IsCreated() ||
-            cacheSize.x <= 0 ||
-            cacheSize.y <= 0 ||
-            sliceCount <= 0 ||
-            samplesPerSide <= 1 ||
-            sampleSpacing <= 0f ||
-            worldSizeXZ.x <= 0f ||
+            heightCache == null
+            ||
+            !heightCache.IsCreated()
+            ||
+            cacheSize.x <= 0
+            ||
+            cacheSize.y <= 0
+            ||
+            sliceCount <= 0
+            ||
+            samplesPerSide <= 1
+            ||
+            sampleSpacing <= 0f
+            ||
+            worldSizeXZ.x <= 0f
+            ||
             worldSizeXZ.y <= 0f
         )
         {
@@ -922,11 +1045,20 @@ public sealed class TerrainAnalysisGpuGenerator :
         descriptor.volumeDepth =
             sliceCount;
 
-        descriptor.msaaSamples = 1;
-        descriptor.useMipMap = false;
-        descriptor.autoGenerateMips = false;
-        descriptor.enableRandomWrite = true;
-        descriptor.sRGB = false;
+        descriptor.msaaSamples =
+            1;
+
+        descriptor.useMipMap =
+            false;
+
+        descriptor.autoGenerateMips =
+            false;
+
+        descriptor.enableRandomWrite =
+            true;
+
+        descriptor.sRGB =
+            false;
 
         RenderTexture texture =
             new RenderTexture(
@@ -948,7 +1080,10 @@ public sealed class TerrainAnalysisGpuGenerator :
 
         if (!texture.Create())
         {
-            DestroyCandidate(texture);
+            DestroyCandidate(
+                texture
+            );
+
             return null;
         }
 
@@ -961,7 +1096,8 @@ public sealed class TerrainAnalysisGpuGenerator :
     )
     {
         if (
-            value <= 0 ||
+            value <= 0
+            ||
             divisor == 0
         )
         {
@@ -978,6 +1114,10 @@ public sealed class TerrainAnalysisGpuGenerator :
             (int)divisor;
     }
 
+    // =====================================================
+    // PREVIEW INVALIDATION / LIFETIME
+    // =====================================================
+
     private static void OnCompositeTilesUpdated(
         IReadOnlyList<Vector2Int> tileCoordinates
     )
@@ -990,7 +1130,10 @@ public sealed class TerrainAnalysisGpuGenerator :
 
     private static void OnPreviewStateChanged()
     {
-        if (!TerrainAuthoringPreviewService.CacheReady)
+        if (
+            !TerrainAuthoringPreviewService
+                .CacheReady
+        )
         {
             lastObservedHeightCacheInstanceId =
                 0;
@@ -1016,7 +1159,7 @@ public sealed class TerrainAnalysisGpuGenerator :
 
         if (
             lastObservedHeightCacheInstanceId ==
-            0
+                0
         )
         {
             lastObservedHeightCacheInstanceId =
@@ -1030,7 +1173,7 @@ public sealed class TerrainAnalysisGpuGenerator :
 
         if (
             currentCacheInstanceId !=
-            lastObservedHeightCacheInstanceId
+                lastObservedHeightCacheInstanceId
         )
         {
             lastObservedHeightCacheInstanceId =
@@ -1063,23 +1206,23 @@ public sealed class TerrainAnalysisGpuGenerator :
 
         TerrainAnalysisService.Clear();
 
-        TerrainAnalysisService.UnregisterGenerator(
-            Instance
-        );
+        TerrainAnalysisService
+            .UnregisterGenerator(
+                Instance
+            );
 
         Instance.ResetShaderState();
     }
 
     private void ResetShaderState()
     {
-        computeShader = null;
-        slopeKernel = -1;
-        curvatureKernel = -1;
-        slopeThreadGroupSizeX = 0;
-        slopeThreadGroupSizeY = 0;
-        curvatureThreadGroupSizeX = 0;
-        curvatureThreadGroupSizeY = 0;
-        lastObservedHeightCacheInstanceId = 0;
+        computeShader =
+            null;
+
+        kernelStates.Clear();
+
+        lastObservedHeightCacheInstanceId =
+            0;
     }
 
     private static bool VectorApproximately(
@@ -1113,8 +1256,9 @@ public sealed class TerrainAnalysisGpuGenerator :
             texture.Release();
         }
 
-        UnityEngine.Object.DestroyImmediate(
-            texture
-        );
+        UnityEngine.Object
+            .DestroyImmediate(
+                texture
+            );
     }
 }

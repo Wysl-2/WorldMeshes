@@ -1,5 +1,7 @@
 #pragma kernel GenerateSlope
 #pragma kernel GenerateCurvature
+#pragma kernel GenerateRoughness
+#pragma kernel GenerateLocalRelief
 
 #include "Assets/WorldMeshes/Shaders/Terrain/TerrainAnalysisCommon.hlsl"
 
@@ -246,6 +248,27 @@ bool TryGetOutputSample(
 // SHARED NEIGHBOUR SAMPLING
 // =========================================================
 
+void SampleHeightOrCenter(
+    float2 worldXZ,
+    float2 offset,
+    float centerHeight,
+    out float height
+)
+{
+    if (
+        !TrySampleTerrainHeight(
+            worldXZ +
+            offset,
+            height
+        )
+    )
+    {
+        height =
+            centerHeight;
+    }
+}
+
+
 void SampleFourNeighbours(
     float2 worldXZ,
     float centerHeight,
@@ -256,53 +279,46 @@ void SampleFourNeighbours(
     out float heightForward
 )
 {
-    bool leftValid =
-        TrySampleTerrainHeight(
-            worldXZ -
-            float2(radius, 0.0),
-            heightLeft
+    SampleHeightOrCenter(
+        worldXZ,
+        float2(-radius, 0.0),
+        centerHeight,
+        heightLeft
+    );
+
+    SampleHeightOrCenter(
+        worldXZ,
+        float2(radius, 0.0),
+        centerHeight,
+        heightRight
+    );
+
+    SampleHeightOrCenter(
+        worldXZ,
+        float2(0.0, -radius),
+        centerHeight,
+        heightBack
+    );
+
+    SampleHeightOrCenter(
+        worldXZ,
+        float2(0.0, radius),
+        centerHeight,
+        heightForward
+    );
+}
+
+
+float GetAnalysisRadius()
+{
+    return
+        max(
+            _AnalysisScaleMeters,
+            max(
+                _SampleSpacing,
+                0.000001
+            )
         );
-
-    bool rightValid =
-        TrySampleTerrainHeight(
-            worldXZ +
-            float2(radius, 0.0),
-            heightRight
-        );
-
-    bool backValid =
-        TrySampleTerrainHeight(
-            worldXZ -
-            float2(0.0, radius),
-            heightBack
-        );
-
-    bool forwardValid =
-        TrySampleTerrainHeight(
-            worldXZ +
-            float2(0.0, radius),
-            heightForward
-        );
-
-    if (!leftValid)
-    {
-        heightLeft = centerHeight;
-    }
-
-    if (!rightValid)
-    {
-        heightRight = centerHeight;
-    }
-
-    if (!backValid)
-    {
-        heightBack = centerHeight;
-    }
-
-    if (!forwardValid)
-    {
-        heightForward = centerHeight;
-    }
 }
 
 
@@ -399,13 +415,7 @@ float CalculateCurvature(
 )
 {
     float radius =
-        max(
-            _AnalysisScaleMeters,
-            max(
-                _SampleSpacing,
-                0.000001
-            )
-        );
+        GetAnalysisRadius();
 
     float heightLeft;
     float heightRight;
@@ -468,6 +478,390 @@ void GenerateCurvature(
         outputAddress
     ] =
         CalculateCurvature(
+            worldXZ,
+            centerHeight
+        );
+}
+
+
+// =========================================================
+// ROUGHNESS
+// =========================================================
+
+/*
+ * Dimensionless multi-scale roughness.
+ *
+ * Eight samples on a ring are compared to a local planar trend estimated
+ * from the opposite cardinal samples. A perfectly planar slope therefore
+ * approaches zero instead of appearing "rough" merely because it is steep.
+ *
+ * The RMS vertical residual is divided by radius so values remain broadly
+ * comparable as the requested analysis scale changes.
+ */
+float CalculateRoughness(
+    float2 worldXZ,
+    float centerHeight
+)
+{
+    float radius =
+        GetAnalysisRadius();
+
+    const float diagonalFactor =
+        0.70710678118;
+
+    float diagonal =
+        radius *
+        diagonalFactor;
+
+    float hL;
+    float hR;
+    float hB;
+    float hF;
+
+    SampleFourNeighbours(
+        worldXZ,
+        centerHeight,
+        radius,
+        hL,
+        hR,
+        hB,
+        hF
+    );
+
+    float hLB;
+    float hLF;
+    float hRB;
+    float hRF;
+
+    SampleHeightOrCenter(
+        worldXZ,
+        float2(-diagonal, -diagonal),
+        centerHeight,
+        hLB
+    );
+
+    SampleHeightOrCenter(
+        worldXZ,
+        float2(-diagonal, diagonal),
+        centerHeight,
+        hLF
+    );
+
+    SampleHeightOrCenter(
+        worldXZ,
+        float2(diagonal, -diagonal),
+        centerHeight,
+        hRB
+    );
+
+    SampleHeightOrCenter(
+        worldXZ,
+        float2(diagonal, diagonal),
+        centerHeight,
+        hRF
+    );
+
+    float inverseDiameter =
+        1.0 /
+        max(
+            2.0 *
+            radius,
+            0.000001
+        );
+
+    float gradientX =
+        (
+            hR -
+            hL
+        )
+        *
+        inverseDiameter;
+
+    float gradientZ =
+        (
+            hF -
+            hB
+        )
+        *
+        inverseDiameter;
+
+    float residualL =
+        hL -
+        (
+            centerHeight -
+            gradientX *
+            radius
+        );
+
+    float residualR =
+        hR -
+        (
+            centerHeight +
+            gradientX *
+            radius
+        );
+
+    float residualB =
+        hB -
+        (
+            centerHeight -
+            gradientZ *
+            radius
+        );
+
+    float residualF =
+        hF -
+        (
+            centerHeight +
+            gradientZ *
+            radius
+        );
+
+    float residualLB =
+        hLB -
+        (
+            centerHeight -
+            gradientX *
+            diagonal -
+            gradientZ *
+            diagonal
+        );
+
+    float residualLF =
+        hLF -
+        (
+            centerHeight -
+            gradientX *
+            diagonal +
+            gradientZ *
+            diagonal
+        );
+
+    float residualRB =
+        hRB -
+        (
+            centerHeight +
+            gradientX *
+            diagonal -
+            gradientZ *
+            diagonal
+        );
+
+    float residualRF =
+        hRF -
+        (
+            centerHeight +
+            gradientX *
+            diagonal +
+            gradientZ *
+            diagonal
+        );
+
+    float meanSquaredResidual =
+        (
+            residualL * residualL +
+            residualR * residualR +
+            residualB * residualB +
+            residualF * residualF +
+            residualLB * residualLB +
+            residualLF * residualLF +
+            residualRB * residualRB +
+            residualRF * residualRF
+        )
+        /
+        8.0;
+
+    float rmsResidual =
+        sqrt(
+            max(
+                meanSquaredResidual,
+                0.0
+            )
+        );
+
+    return
+        rmsResidual /
+        max(
+            radius,
+            0.000001
+        );
+}
+
+
+[numthreads(8, 8, 1)]
+void GenerateRoughness(
+    uint3 dispatchThreadId :
+    SV_DispatchThreadID
+)
+{
+    uint3 outputAddress;
+    float2 worldXZ;
+    float centerHeight;
+
+    if (
+        !TryGetOutputSample(
+            dispatchThreadId,
+            outputAddress,
+            worldXZ,
+            centerHeight
+        )
+    )
+    {
+        return;
+    }
+
+    _AnalysisOutput[
+        outputAddress
+    ] =
+        CalculateRoughness(
+            worldXZ,
+            centerHeight
+        );
+}
+
+
+// =========================================================
+// LOCAL RELIEF
+// =========================================================
+
+/*
+ * Local Relief is the local elevation range in metres:
+ *
+ *     max sampled height - min sampled height
+ *
+ * Samples lie on the same radius used by Roughness. Unlike Roughness this
+ * intentionally retains broad slope/amplitude information; it answers how
+ * much vertical terrain range exists around the sample, not how irregular
+ * that terrain is.
+ */
+float CalculateLocalRelief(
+    float2 worldXZ,
+    float centerHeight
+)
+{
+    float radius =
+        GetAnalysisRadius();
+
+    const float diagonalFactor =
+        0.70710678118;
+
+    float diagonal =
+        radius *
+        diagonalFactor;
+
+    float hL;
+    float hR;
+    float hB;
+    float hF;
+
+    SampleFourNeighbours(
+        worldXZ,
+        centerHeight,
+        radius,
+        hL,
+        hR,
+        hB,
+        hF
+    );
+
+    float hLB;
+    float hLF;
+    float hRB;
+    float hRF;
+
+    SampleHeightOrCenter(
+        worldXZ,
+        float2(-diagonal, -diagonal),
+        centerHeight,
+        hLB
+    );
+
+    SampleHeightOrCenter(
+        worldXZ,
+        float2(-diagonal, diagonal),
+        centerHeight,
+        hLF
+    );
+
+    SampleHeightOrCenter(
+        worldXZ,
+        float2(diagonal, -diagonal),
+        centerHeight,
+        hRB
+    );
+
+    SampleHeightOrCenter(
+        worldXZ,
+        float2(diagonal, diagonal),
+        centerHeight,
+        hRF
+    );
+
+    float minimumHeight =
+        min(
+            centerHeight,
+            min(
+                min(
+                    min(hL, hR),
+                    min(hB, hF)
+                ),
+                min(
+                    min(hLB, hLF),
+                    min(hRB, hRF)
+                )
+            )
+        );
+
+    float maximumHeight =
+        max(
+            centerHeight,
+            max(
+                max(
+                    max(hL, hR),
+                    max(hB, hF)
+                ),
+                max(
+                    max(hLB, hLF),
+                    max(hRB, hRF)
+                )
+            )
+        );
+
+    return
+        max(
+            0.0,
+            maximumHeight -
+            minimumHeight
+        );
+}
+
+
+[numthreads(8, 8, 1)]
+void GenerateLocalRelief(
+    uint3 dispatchThreadId :
+    SV_DispatchThreadID
+)
+{
+    uint3 outputAddress;
+    float2 worldXZ;
+    float centerHeight;
+
+    if (
+        !TryGetOutputSample(
+            dispatchThreadId,
+            outputAddress,
+            worldXZ,
+            centerHeight
+        )
+    )
+    {
+        return;
+    }
+
+    _AnalysisOutput[
+        outputAddress
+    ] =
+        CalculateLocalRelief(
             worldXZ,
             centerHeight
         );

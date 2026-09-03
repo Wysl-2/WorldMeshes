@@ -284,16 +284,22 @@ Shader "Custom/ClipmapTerrain"
         ) = 16
 
         [HideInInspector]
-        _AuthoringCurvatureAnalysis(
-            "Authoring Curvature Analysis",
+        _AuthoringAnalysisTexture(
+            "Authoring Analysis Texture",
             2DArray
         ) = "" {}
 
         [HideInInspector]
-        _AuthoringCurvatureAnalysisReady(
-            "Authoring Curvature Analysis Ready",
+        _AuthoringAnalysisReady(
+            "Authoring Analysis Ready",
             Float
         ) = 0
+
+        [HideInInspector]
+        _AuthoringAnalysisDisplayRange(
+            "Authoring Analysis Display Range",
+            Vector
+        ) = (0, 1, 0, 0)
 
         [HideInInspector]
         _AuthoringScreeSlopeAnalysis(
@@ -543,11 +549,12 @@ Shader "Custom/ClipmapTerrain"
                 _SurfaceMaskCache;
 
             /*
-             * Editor-only cached Terrain Analysis texture.
-             * Bound transiently through MaterialPropertyBlock.
+             * Stage 9 generic editor-only raw Terrain Analysis texture.
+             * Slope, Curvature, Roughness, and Local Relief all use this
+             * same transient binding path.
              */
             Texture2DArray<float>
-                _AuthoringCurvatureAnalysis;
+                _AuthoringAnalysisTexture;
 
             /*
              * Stage 6 edit-mode Scree Suitability inputs.
@@ -634,7 +641,8 @@ Shader "Custom/ClipmapTerrain"
                 float4 _AuthoringHeightRange;
                 float _AuthoringCurvatureScale;
 
-                float _AuthoringCurvatureAnalysisReady;
+                float _AuthoringAnalysisReady;
+                float4 _AuthoringAnalysisDisplayRange;
                 float _AuthoringScreeAnalysisReady;
                 float4 _AuthoringAnalysisCacheOriginTile;
                 float4 _AuthoringAnalysisCacheSize;

@@ -113,82 +113,150 @@ public partial class WorldMeshesEditorWindow :
         }
 
         // =================================================
-        // CURVATURE
+        // RAW TERRAIN ANALYSIS
         // =================================================
 
         if (
-            baseMode ==
-                TerrainAuthoringVisualizationMode.Curvature
+            TerrainAuthoringVisualizationController
+                .IsRawAnalysisVisualizationMode(
+                    baseMode
+                )
         )
         {
             GUILayout.Space(
                 5f
             );
 
-            GUILayout.Label(
-                "Curvature",
-                EditorStyles.boldLabel
-            );
-
-            float curvatureScale =
+            if (
                 TerrainAuthoringVisualizationController
-                    .CurvatureScale;
-
-            EditorGUI.BeginChangeCheck();
-
-            float newCurvatureScale =
-                EditorGUILayout.Slider(
-                    "Scale (m)",
-                    curvatureScale,
-                    1f,
-                    256f
+                    .TryGetAnalysisVisualizationKey(
+                        baseMode,
+                        out TerrainAnalysisKey analysisKey
+                    )
+                &&
+                TerrainAnalysisRegistry
+                    .TryGetDefinition(
+                        analysisKey.Type,
+                        out TerrainAnalysisDefinition analysisDefinition
+                    )
+                &&
+                analysisDefinition != null
+            )
+            {
+                GUILayout.Label(
+                    analysisDefinition.DisplayName,
+                    EditorStyles.boldLabel
                 );
 
-            if (EditorGUI.EndChangeCheck())
-            {
-                TerrainAuthoringVisualizationController
-                    .CurvatureScale =
-                        newCurvatureScale;
+                if (analysisDefinition.RequiresScale)
+                {
+                    float analysisScale =
+                        TerrainAuthoringVisualizationController
+                            .GetAnalysisVisualizationScale(
+                                baseMode
+                            );
+
+                    EditorGUI.BeginChangeCheck();
+
+                    float newAnalysisScale =
+                        EditorGUILayout.Slider(
+                            "Scale (m)",
+                            analysisScale,
+                            1f,
+                            256f
+                        );
+
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        TerrainAuthoringVisualizationController
+                            .SetAnalysisVisualizationScale(
+                                baseMode,
+                                newAnalysisScale
+                            );
+                    }
+
+                    GUILayout.BeginHorizontal();
+
+                    GUILayout.Label(
+                        "Presets",
+                        GUILayout.Width(
+                            100f
+                        )
+                    );
+
+                    DrawAnalysisScalePresetButton(
+                        baseMode,
+                        2f
+                    );
+
+                    DrawAnalysisScalePresetButton(
+                        baseMode,
+                        8f
+                    );
+
+                    DrawAnalysisScalePresetButton(
+                        baseMode,
+                        16f
+                    );
+
+                    DrawAnalysisScalePresetButton(
+                        baseMode,
+                        32f
+                    );
+
+                    DrawAnalysisScalePresetButton(
+                        baseMode,
+                        64f
+                    );
+
+                    GUILayout.EndHorizontal();
+                }
+
+                string analysisHelp;
+
+                switch (analysisKey.Type)
+                {
+                    case TerrainAnalysisType.Slope:
+                        analysisHelp =
+                            "Slope displays the cached Terrain Analysis slope field in degrees. " +
+                            "This is now the same raw analysis data consumed by generation/suitability systems, " +
+                            "rather than a separate fragment-normal approximation.";
+
+                        break;
+
+                    case TerrainAnalysisType.Curvature:
+                        analysisHelp =
+                            "Curvature is signed: blue is concave, green is approximately planar, " +
+                            "and red is convex. Scale is the world-space sampling radius.";
+
+                        break;
+
+                    case TerrainAnalysisType.Roughness:
+                        analysisHelp =
+                            "Roughness is a dimensionless RMS deviation from a local planar trend. " +
+                            "Smooth planar slopes approach zero; broken or irregular terrain becomes stronger.";
+
+                        break;
+
+                    case TerrainAnalysisType.LocalRelief:
+                        analysisHelp =
+                            "Local Relief is the local elevation range in metres (maximum sampled height minus minimum sampled height) " +
+                            "within the selected world-space radius.";
+
+                        break;
+
+                    default:
+                        analysisHelp =
+                            "This diagnostic samples the registered Terrain Analysis layer directly.";
+
+                        break;
+                }
+
+                EditorGUILayout.HelpBox(
+                    analysisHelp,
+                    MessageType.None
+                );
             }
-
-            GUILayout.BeginHorizontal();
-
-            GUILayout.Label(
-                "Presets",
-                GUILayout.Width(
-                    100f
-                )
-            );
-
-            DrawCurvatureScalePresetButton(
-                2f
-            );
-
-            DrawCurvatureScalePresetButton(
-                8f
-            );
-
-            DrawCurvatureScalePresetButton(
-                16f
-            );
-
-            DrawCurvatureScalePresetButton(
-                32f
-            );
-
-            DrawCurvatureScalePresetButton(
-                64f
-            );
-
-            GUILayout.EndHorizontal();
-
-            EditorGUILayout.HelpBox(
-                "Scale is the world-space sampling radius used to " +
-                "measure terrain curvature. Small values reveal local " +
-                "surface detail; larger values emphasize broader ridges, " +
-                "shoulders, and gullies.",
-                MessageType.None
-            );
         }
 
         // =================================================
@@ -418,14 +486,14 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.HelpBox(
-            "Lit uses the normal terrain PBR path. Height, Slope, Curvature, " +
-            "and Scree Suitability are unlit diagnostics derived from the " +
-            "displaced terrain heightfield. Curvature uses the exposed Scale " +
-            "value as a world-space sampling radius and updates " +
-            "interactively. Scree Suitability displays the exact 0..1 mask " +
-            "used to blend the scree surface in Lit mode.\n\n" +
+            "Lit uses the normal terrain PBR path. Height and Scree Suitability are " +
+            "special diagnostics; Slope, Curvature, Roughness, and Local Relief " +
+            "all use the shared cached Terrain Analysis visualization path. " +
+            "Scale-dependent analyses update interactively without accumulating " +
+            "multiple scratch Texture2DArray layers. Scree Suitability displays " +
+            "the exact 0..1 mask used to blend the scree surface in Lit mode.\n\n" +
 
-            "Height, Slope, Curvature, Scree Suitability, and Contours " +
+            "Height, Slope, Curvature, Roughness, Local Relief, Scree Suitability, and Contours " +
             "require a ready Height Preview. Chunk Grid, Height Tile Grid, " +
             "World Boundary, and LOD Regions are spatial diagnostics and " +
             "remain usable without height preview data.\n\n" +
@@ -782,7 +850,8 @@ public partial class WorldMeshesEditorWindow :
         );
     }
 
-    private static void DrawCurvatureScalePresetButton(
+    private static void DrawAnalysisScalePresetButton(
+        TerrainAuthoringVisualizationMode mode,
         float scale
     )
     {
@@ -794,8 +863,10 @@ public partial class WorldMeshesEditorWindow :
         )
         {
             TerrainAuthoringVisualizationController
-                .CurvatureScale =
-                    scale;
+                .SetAnalysisVisualizationScale(
+                    mode,
+                    scale
+                );
         }
     }
 

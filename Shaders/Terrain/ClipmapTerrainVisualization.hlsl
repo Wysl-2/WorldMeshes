@@ -9,7 +9,15 @@
  *     float  _AuthoringVisualizationEnabled;
  *     float  _AuthoringVisualizationMode;
  *     float4 _AuthoringHeightRange;
- *     float  _AuthoringCurvatureScale;
+ *     Texture2DArray<float> _AuthoringAnalysisTexture;
+ *     float  _AuthoringAnalysisReady;
+ *     float4 _AuthoringAnalysisDisplayRange;
+ *
+ *     float4 _AuthoringAnalysisCacheOriginTile;
+ *     float4 _AuthoringAnalysisCacheSize;
+ *     float  _AuthoringAnalysisSamplesPerSide;
+ *     float  _AuthoringAnalysisSampleSpacing;
+ *     float4 _AuthoringAnalysisWorldSizeXZ;
  *
  *     float  _AuthoringContoursEnabled;
  *     float  _AuthoringContourInterval;
@@ -34,11 +42,13 @@
 // BASE MODE IDS
 // =========================================================
 
-#define WORLDMESHES_AUTHORING_MODE_LIT    0.0
-#define WORLDMESHES_AUTHORING_MODE_HEIGHT 1.0
-#define WORLDMESHES_AUTHORING_MODE_SLOPE     2.0
-#define WORLDMESHES_AUTHORING_MODE_CURVATURE 3.0
-#define WORLDMESHES_AUTHORING_MODE_SCREE     4.0
+#define WORLDMESHES_AUTHORING_MODE_LIT         0.0
+#define WORLDMESHES_AUTHORING_MODE_HEIGHT      1.0
+#define WORLDMESHES_AUTHORING_MODE_SLOPE       2.0
+#define WORLDMESHES_AUTHORING_MODE_CURVATURE   3.0
+#define WORLDMESHES_AUTHORING_MODE_SCREE       4.0
+#define WORLDMESHES_AUTHORING_MODE_ROUGHNESS   5.0
+#define WORLDMESHES_AUTHORING_MODE_LOCALRELIEF 6.0
 
 // =========================================================
 // COMMON HELPERS
@@ -220,60 +230,103 @@ float3 GetAuthoringHeightColor(
 }
 
 // =========================================================
-// SLOPE BASE MODE
+// GENERIC RAW TERRAIN ANALYSIS BASE MODES
 // =========================================================
 
-float3 GetAuthoringSlopeColor(
-    float3 normalWS
+float GetAuthoringAnalysisValue(
+    float2 worldXZ,
+    out float valid
 )
 {
-    float slopeDegrees =
-        CalculateTerrainSlopeDegrees(
-            normalWS
+    valid =
+        0.0;
+
+    if (
+        _AuthoringAnalysisReady <
+        0.5
+    )
+    {
+        return
+            0.0;
+    }
+
+    return
+        WorldMeshesSampleTerrainAnalysisBilinear(
+            _AuthoringAnalysisTexture,
+            worldXZ,
+            (int2)_AuthoringAnalysisCacheOriginTile.xy,
+            (int2)_AuthoringAnalysisCacheSize.xy,
+            (int)_AuthoringAnalysisSamplesPerSide,
+            _AuthoringAnalysisSampleSpacing,
+            _AuthoringAnalysisWorldSizeXZ.xy,
+            valid
+        );
+}
+
+
+float3 GetAuthoringUnsignedAnalysisColor(
+    float value
+)
+{
+    float minimumValue =
+        _AuthoringAnalysisDisplayRange.x;
+
+    float maximumValue =
+        max(
+            _AuthoringAnalysisDisplayRange.y,
+            minimumValue +
+                0.0001
         );
 
     float t =
         saturate(
-            slopeDegrees /
-            90.0
+            (
+                value -
+                minimumValue
+            )
+            /
+            (
+                maximumValue -
+                minimumValue
+            )
         );
 
-    const float3 flatColor =
+    const float3 lowColor =
         float3(
-            0.10,
-            0.72,
-            0.18
+            0.04,
+            0.12,
+            0.34
         );
 
-    const float3 moderateColor =
+    const float3 lowMidColor =
         float3(
-            0.95,
-            0.88,
+            0.04,
+            0.68,
+            0.82
+        );
+
+    const float3 highMidColor =
+        float3(
+            0.94,
+            0.86,
             0.12
         );
 
-    const float3 steepColor =
+    const float3 highColor =
         float3(
-            0.96,
-            0.43,
-            0.08
-        );
-
-    const float3 cliffColor =
-        float3(
-            0.82,
-            0.06,
-            0.05
+            0.92,
+            0.08,
+            0.04
         );
 
     if (t < 0.333333)
     {
         return
             lerp(
-                flatColor,
-                moderateColor,
+                lowColor,
+                lowMidColor,
                 t /
-                0.333333
+                    0.333333
             );
     }
 
@@ -281,8 +334,8 @@ float3 GetAuthoringSlopeColor(
     {
         return
             lerp(
-                moderateColor,
-                steepColor,
+                lowMidColor,
+                highMidColor,
                 (
                     t -
                     0.333333
@@ -294,8 +347,8 @@ float3 GetAuthoringSlopeColor(
 
     return
         lerp(
-            steepColor,
-            cliffColor,
+            highMidColor,
+            highColor,
             (
                 t -
                 0.666667
@@ -306,125 +359,108 @@ float3 GetAuthoringSlopeColor(
 }
 
 
-// =========================================================
-// CURVATURE BASE MODE
-// =========================================================
-
-/*
- * Multi-scale terrain curvature diagnostic.
- *
- * The exposed scale is a world-space radius in metres. SampleTerrainHeight
- * already maps arbitrary world positions to authoritative native samples,
- * so the radius remains independent of clipmap LOD geometry.
- *
- * Positive values mean the center sits above its surroundings (convex /
- * ridge-like). Negative values mean it sits below them (concave /
- * gully-like).
- *
- * Dividing the center-vs-neighbour deviation by radius produces a
- * dimensionless multi-scale signal that remains readable as the radius is
- * changed. This is intentionally a terrain-authoring diagnostic rather than
- * a differential-geometry curvature estimator.
- */
-float GetAuthoringTerrainCurvature(
-    float2 worldXZ
+float3 GetAuthoringSignedAnalysisColor(
+    float value
 )
 {
-    if (
-        _AuthoringCurvatureAnalysisReady <
-        0.5
-    )
-    {
-        return
-            0.0;
-    }
-
-    float valid;
-
-    float curvature =
-        WorldMeshesSampleTerrainAnalysisBilinear(
-            _AuthoringCurvatureAnalysis,
-            worldXZ,
-            (int2)_AuthoringAnalysisCacheOriginTile.xy,
-            (int2)_AuthoringAnalysisCacheSize.xy,
-            (int)_AuthoringAnalysisSamplesPerSide,
-            _AuthoringAnalysisSampleSpacing,
-            _AuthoringAnalysisWorldSizeXZ.xy,
-            valid
+    float displayMagnitude =
+        max(
+            max(
+                abs(
+                    _AuthoringAnalysisDisplayRange.x
+                ),
+                abs(
+                    _AuthoringAnalysisDisplayRange.y
+                )
+            ),
+            0.0001
         );
-
-    return
-        valid >
-        0.5
-            ? curvature
-            : 0.0;
-}
-
-float3 GetAuthoringCurvatureColor(
-    float2 worldXZ
-)
-{
-    float curvature =
-        GetAuthoringTerrainCurvature(
-            worldXZ
-        );
-
-    /*
-     * A value of 0.25 means the center differs from the average of the
-     * surrounding samples by one quarter of the selected radius.
-     * This gives the visualization a stable, useful default contrast while
-     * leaving Curvature Scale as the only exposed curvature parameter.
-     */
-    const float displayRange =
-        0.25;
 
     float strength =
         saturate(
             abs(
-                curvature
+                value
             )
             /
-            displayRange
+            displayMagnitude
         );
 
-    const float3 planarColor =
+    const float3 zeroColor =
         float3(
             0.12,
             0.64,
             0.18
         );
 
-    const float3 concaveColor =
+    const float3 negativeColor =
         float3(
             0.08,
             0.30,
             1.00
         );
 
-    const float3 convexColor =
+    const float3 positiveColor =
         float3(
             0.96,
             0.16,
             0.06
         );
 
-    if (curvature < 0.0)
+    if (value < 0.0)
     {
         return
             lerp(
-                planarColor,
-                concaveColor,
+                zeroColor,
+                negativeColor,
                 strength
             );
     }
 
     return
         lerp(
-            planarColor,
-            convexColor,
+            zeroColor,
+            positiveColor,
             strength
         );
 }
+
+
+float3 GetAuthoringAnalysisColor(
+    float2 worldXZ
+)
+{
+    float valid;
+
+    float value =
+        GetAuthoringAnalysisValue(
+            worldXZ,
+            valid
+        );
+
+    if (valid < 0.5)
+    {
+        return
+            float3(
+                0.04,
+                0.04,
+                0.04
+            );
+    }
+
+    bool signedField =
+        _AuthoringAnalysisDisplayRange.z >
+        0.5;
+
+    return
+        signedField
+            ? GetAuthoringSignedAnalysisColor(
+                value
+            )
+            : GetAuthoringUnsignedAnalysisColor(
+                value
+            );
+}
+
 
 // =========================================================
 // SCREE SUITABILITY BASE MODE
@@ -841,30 +877,35 @@ float3 GetAuthoringDiagnosticBaseColor(
             );
     }
 
-    if (
+    bool rawAnalysisMode =
         AuthoringVisualizationModeIs(
             WORLDMESHES_AUTHORING_MODE_SLOPE
         )
         >
         0.5
-    )
-    {
-        return
-            GetAuthoringSlopeColor(
-                normalWS
-            );
-    }
-
-    if (
+        ||
         AuthoringVisualizationModeIs(
             WORLDMESHES_AUTHORING_MODE_CURVATURE
         )
         >
         0.5
-    )
+        ||
+        AuthoringVisualizationModeIs(
+            WORLDMESHES_AUTHORING_MODE_ROUGHNESS
+        )
+        >
+        0.5
+        ||
+        AuthoringVisualizationModeIs(
+            WORLDMESHES_AUTHORING_MODE_LOCALRELIEF
+        )
+        >
+        0.5;
+
+    if (rawAnalysisMode)
     {
         return
-            GetAuthoringCurvatureColor(
+            GetAuthoringAnalysisColor(
                 positionWS.xz
             );
     }
