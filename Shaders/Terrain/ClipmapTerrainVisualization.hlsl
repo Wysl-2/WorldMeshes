@@ -346,27 +346,46 @@ float3 GetAuthoringSlopeColor(
  * a differential-geometry curvature estimator.
  */
 float GetAuthoringTerrainCurvature(
-    float2 worldXZ,
-    float centerHeight
+    float2 worldXZ
 )
 {
-    return
-        CalculateTerrainCurvature(
+    if (
+        _AuthoringCurvatureAnalysisReady <
+        0.5
+    )
+    {
+        return
+            0.0;
+    }
+
+    float valid;
+
+    float curvature =
+        WorldMeshesSampleTerrainAnalysisBilinear(
+            _AuthoringCurvatureAnalysis,
             worldXZ,
-            centerHeight,
-            _AuthoringCurvatureScale
+            (int2)_AuthoringAnalysisCacheOriginTile.xy,
+            (int2)_AuthoringAnalysisCacheSize.xy,
+            (int)_AuthoringAnalysisSamplesPerSide,
+            _AuthoringAnalysisSampleSpacing,
+            _AuthoringAnalysisWorldSizeXZ.xy,
+            valid
         );
+
+    return
+        valid >
+        0.5
+            ? curvature
+            : 0.0;
 }
 
 float3 GetAuthoringCurvatureColor(
-    float2 worldXZ,
-    float centerHeight
+    float2 worldXZ
 )
 {
     float curvature =
         GetAuthoringTerrainCurvature(
-            worldXZ,
-            centerHeight
+            worldXZ
         );
 
     /*
@@ -865,8 +884,7 @@ float3 GetAuthoringDiagnosticBaseColor(
     {
         return
             GetAuthoringCurvatureColor(
-                positionWS.xz,
-                positionWS.y
+                positionWS.xz
             );
     }
 

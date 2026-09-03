@@ -235,6 +235,48 @@ Shader "Custom/ClipmapTerrain"
         ) = 16
 
         [HideInInspector]
+        _AuthoringCurvatureAnalysis(
+            "Authoring Curvature Analysis",
+            2DArray
+        ) = "" {}
+
+        [HideInInspector]
+        _AuthoringCurvatureAnalysisReady(
+            "Authoring Curvature Analysis Ready",
+            Float
+        ) = 0
+
+        [HideInInspector]
+        _AuthoringAnalysisCacheOriginTile(
+            "Authoring Analysis Cache Origin Tile",
+            Vector
+        ) = (0, 0, 0, 0)
+
+        [HideInInspector]
+        _AuthoringAnalysisCacheSize(
+            "Authoring Analysis Cache Size",
+            Vector
+        ) = (1, 1, 0, 0)
+
+        [HideInInspector]
+        _AuthoringAnalysisSamplesPerSide(
+            "Authoring Analysis Samples Per Side",
+            Float
+        ) = 257
+
+        [HideInInspector]
+        _AuthoringAnalysisSampleSpacing(
+            "Authoring Analysis Sample Spacing",
+            Float
+        ) = 1
+
+        [HideInInspector]
+        _AuthoringAnalysisWorldSizeXZ(
+            "Authoring Analysis World Size XZ",
+            Vector
+        ) = (0, 0, 0, 0)
+
+        [HideInInspector]
         _AuthoringContoursEnabled(
             "Authoring Contours Enabled",
             Float
@@ -424,6 +466,13 @@ Shader "Custom/ClipmapTerrain"
                 sampler_ScreeMap
             );
 
+            /*
+             * Editor-only cached Terrain Analysis texture.
+             * Bound transiently through MaterialPropertyBlock.
+             */
+            Texture2DArray<float>
+                _AuthoringCurvatureAnalysis;
+
             // =================================================
             // PER-MATERIAL / MPB DATA
             // =================================================
@@ -492,6 +541,13 @@ Shader "Custom/ClipmapTerrain"
                 float4 _AuthoringHeightRange;
                 float _AuthoringCurvatureScale;
 
+                float _AuthoringCurvatureAnalysisReady;
+                float4 _AuthoringAnalysisCacheOriginTile;
+                float4 _AuthoringAnalysisCacheSize;
+                float _AuthoringAnalysisSamplesPerSide;
+                float _AuthoringAnalysisSampleSpacing;
+                float4 _AuthoringAnalysisWorldSizeXZ;
+
                 float _AuthoringContoursEnabled;
                 float _AuthoringContourInterval;
 
@@ -524,6 +580,7 @@ Shader "Custom/ClipmapTerrain"
 
             #include "Assets/WorldMeshes/Shaders/Terrain/ClipmapTerrainHeight.hlsl"
             #include "Assets/WorldMeshes/Shaders/Terrain/ClipmapTerrainAnalysis.hlsl"
+            #include "Assets/WorldMeshes/Shaders/Terrain/TerrainAnalysisSampling.hlsl"
             #include "Assets/WorldMeshes/Shaders/Terrain/ClipmapTerrainSuitability.hlsl"
             #include "Assets/WorldMeshes/Shaders/Terrain/ClipmapTerrainVisualization.hlsl"
 

@@ -6,11 +6,35 @@ public static class TerrainAnalysisService
     private static readonly TerrainAnalysisCache Cache =
         new TerrainAnalysisCache();
 
+    /*
+     * Owner-scoped transient layers are intended for interactive consumers
+     * such as authoring visualization sliders.
+     *
+     * Each owner receives at most one layer. Requesting a different key for
+     * the same owner releases the previous GPU texture before generating the
+     * replacement, preventing arbitrary scale changes from accumulating many
+     * large analysis Texture2DArrays in the persistent cache.
+     *
+     * Persistent RequestLayer(...) behavior is unchanged.
+     */
+    private static readonly Dictionary<
+        string,
+        TerrainAnalysisLayer
+    > TransientLayers =
+        new Dictionary<
+            string,
+            TerrainAnalysisLayer
+        >();
+
     private static ITerrainAnalysisGenerator generator;
     private static int generationRevision;
 
-    public static int ActiveLayerCount => Cache.Count;
-    public static bool GeneratorAvailable => generator != null;
+    public static int ActiveLayerCount =>
+        Cache.Count +
+        TransientLayers.Count;
+
+    public static bool GeneratorAvailable =>
+        generator != null;
 
     public static TerrainAnalysisLayer RequestLayer(
         TerrainAnalysisKey key
@@ -19,40 +43,118 @@ public static class TerrainAnalysisService
         TerrainAnalysisLayer layer =
             Cache.GetOrCreateLayer(key);
 
-        if (
-            layer.IsReady ||
-            generator == null
-        )
-        {
-            return layer;
-        }
-
-        if (
-            generator.TryGenerate(
-                key,
-                out TerrainAnalysisGenerationResult result,
-                out string errorMessage
-            ) &&
-            result.IsValid
-        )
-        {
-            layer.SetResult(
-                result,
-                NextGenerationRevision()
-            );
-
-            return layer;
-        }
-
-        layer.SetGenerationError(
-            string.IsNullOrEmpty(errorMessage)
-                ? "Terrain analysis generation failed."
-                : errorMessage
+        EnsureLayerGenerated(
+            layer
         );
 
         return layer;
     }
 
+    // =====================================================
+    // OWNER-SCOPED TRANSIENT ANALYSIS
+    // =====================================================
+
+    public static TerrainAnalysisLayer RequestTransientLayer(
+        string ownerId,
+        TerrainAnalysisKey key
+    )
+    {
+        if (string.IsNullOrEmpty(ownerId))
+        {
+            return null;
+        }
+
+        if (
+            TransientLayers.TryGetValue(
+                ownerId,
+                out TerrainAnalysisLayer layer
+            )
+        )
+        {
+            if (
+                layer != null &&
+                layer.Key.Equals(key)
+            )
+            {
+                EnsureLayerGenerated(
+                    layer
+                );
+
+                return layer;
+            }
+
+            if (layer != null)
+            {
+                layer.Reset();
+            }
+
+            TransientLayers.Remove(
+                ownerId
+            );
+        }
+
+        layer =
+            new TerrainAnalysisLayer(
+                key
+            );
+
+        TransientLayers.Add(
+            ownerId,
+            layer
+        );
+
+        EnsureLayerGenerated(
+            layer
+        );
+
+        return layer;
+    }
+
+    public static bool TryGetTransientLayer(
+        string ownerId,
+        out TerrainAnalysisLayer layer
+    )
+    {
+        layer =
+            null;
+
+        if (string.IsNullOrEmpty(ownerId))
+        {
+            return false;
+        }
+
+        return
+            TransientLayers.TryGetValue(
+                ownerId,
+                out layer
+            );
+    }
+
+    public static bool ReleaseTransientLayer(
+        string ownerId
+    )
+    {
+        if (
+            string.IsNullOrEmpty(ownerId) ||
+            !TransientLayers.TryGetValue(
+                ownerId,
+                out TerrainAnalysisLayer layer
+            )
+        )
+        {
+            return false;
+        }
+
+        if (layer != null)
+        {
+            layer.Reset();
+        }
+
+        return
+            TransientLayers.Remove(
+                ownerId
+            );
+    }
 
     // =====================================================
     // ANALYSIS TILE / ADDRESS ACCESS
@@ -175,13 +277,12 @@ public static class TerrainAnalysisService
                 );
     }
 
-
     /*
      * Called after the authoring preview has successfully recomposited a set
      * of source height tiles.
      *
-     * Each ready requested analysis layer expands that source set by its own
-     * dependency radius and regenerates only the affected analysis slices.
+     * Both persistent and transient ready analysis layers expand that source
+     * set by their dependency radius and regenerate only affected slices.
      */
     public static void NotifySourceTilesChanged(
         IReadOnlyList<Vector2Int> changedSourceTiles
@@ -197,23 +298,29 @@ public static class TerrainAnalysisService
 
         if (generator == null)
         {
-            /*
-             * We know the source changed but cannot update cached analysis.
-             * Keep correctness by forcing full generation if a backend is
-             * registered and the layer is requested later.
-             */
             InvalidateAll();
             return;
         }
 
         List<TerrainAnalysisLayer> activeLayers =
             new List<TerrainAnalysisLayer>(
-                Cache.Count
+                Cache.Count +
+                TransientLayers.Count
             );
 
         Cache.CopyLayers(
             activeLayers
         );
+
+        foreach (
+            TerrainAnalysisLayer transientLayer
+            in TransientLayers.Values
+        )
+        {
+            activeLayers.Add(
+                transientLayer
+            );
+        }
 
         HashSet<Vector2Int> affectedTileSet =
             new HashSet<Vector2Int>();
@@ -304,7 +411,8 @@ public static class TerrainAnalysisService
 
             /*
              * Leave the old GPU texture allocated, but mark the layer stale.
-             * The next RequestLayer() will perform a complete regeneration.
+             * Its next persistent/transient request falls back to complete
+             * generation.
              */
             layer.SetGenerationError(
                 string.IsNullOrEmpty(errorMessage)
@@ -335,11 +443,35 @@ public static class TerrainAnalysisService
     public static void InvalidateAll()
     {
         Cache.InvalidateAll();
+
+        foreach (
+            TerrainAnalysisLayer layer
+            in TransientLayers.Values
+        )
+        {
+            if (layer != null)
+            {
+                layer.Invalidate();
+            }
+        }
     }
 
     public static void Clear()
     {
         Cache.Clear();
+
+        foreach (
+            TerrainAnalysisLayer layer
+            in TransientLayers.Values
+        )
+        {
+            if (layer != null)
+            {
+                layer.Reset();
+            }
+        }
+
+        TransientLayers.Clear();
     }
 
     public static void RegisterGenerator(
@@ -376,6 +508,44 @@ public static class TerrainAnalysisService
 
         generator = null;
         InvalidateAll();
+    }
+
+    private static void EnsureLayerGenerated(
+        TerrainAnalysisLayer layer
+    )
+    {
+        if (
+            layer == null ||
+            layer.IsReady ||
+            generator == null
+        )
+        {
+            return;
+        }
+
+        if (
+            generator.TryGenerate(
+                layer.Key,
+                out TerrainAnalysisGenerationResult result,
+                out string errorMessage
+            )
+            &&
+            result.IsValid
+        )
+        {
+            layer.SetResult(
+                result,
+                NextGenerationRevision()
+            );
+
+            return;
+        }
+
+        layer.SetGenerationError(
+            string.IsNullOrEmpty(errorMessage)
+                ? "Terrain analysis generation failed."
+                : errorMessage
+        );
     }
 
     private static int NextGenerationRevision()

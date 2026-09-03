@@ -40,7 +40,7 @@ public enum TerrainAuthoringVisualizationStatus
  * - TerrainClipmapLayoutApplier
  */
 [InitializeOnLoad]
-public static class TerrainAuthoringVisualizationController
+public static partial class TerrainAuthoringVisualizationController
 {
     // =====================================================
     // EDITOR PREFERENCES
@@ -855,6 +855,37 @@ public static class TerrainAuthoringVisualizationController
                 TerrainAuthoringVisualizationMode.Lit;
         }
 
+        TerrainAnalysisLayer curvatureAnalysisLayer =
+            null;
+
+        string curvatureAnalysisError =
+            "";
+
+        if (
+            effectiveMode ==
+                TerrainAuthoringVisualizationMode.Curvature
+        )
+        {
+            if (
+                !TryPrepareCurvatureAnalysis(
+                    out curvatureAnalysisLayer,
+                    out curvatureAnalysisError
+                )
+            )
+            {
+                effectiveMode =
+                    TerrainAuthoringVisualizationMode.Lit;
+            }
+        }
+        else
+        {
+            /*
+             * Curvature visualization owns one transient analysis slot.
+             * Leaving the mode releases that scratch allocation.
+             */
+            ReleaseCurvatureVisualizationAnalysis();
+        }
+
         bool effectiveContours =
             ContoursEnabled
             &&
@@ -950,6 +981,11 @@ public static class TerrainAuthoringVisualizationController
                 propertyBlock.SetFloat(
                     CurvatureScalePropertyId,
                     CurvatureScale
+                );
+
+                ApplyCurvatureAnalysisProperties(
+                    propertyBlock,
+                    curvatureAnalysisLayer
                 );
 
                 propertyBlock.SetFloat(
@@ -1048,7 +1084,19 @@ public static class TerrainAuthoringVisualizationController
             &&
             !heightPreviewReady;
 
-        if (missingRequiredHeightPreview)
+        if (
+            !string.IsNullOrEmpty(
+                curvatureAnalysisError
+            )
+        )
+        {
+            SetStatus(
+                TerrainAuthoringVisualizationStatus.Error,
+                "Curvature visualization could not obtain its cached Terrain Analysis layer.\n\n" +
+                curvatureAnalysisError
+            );
+        }
+        else if (missingRequiredHeightPreview)
         {
             SetStatus(
                 TerrainAuthoringVisualizationStatus.HeightPreviewRequired,
@@ -1079,6 +1127,8 @@ public static class TerrainAuthoringVisualizationController
 
     private static void DisableVisualization()
     {
+        ReleaseCurvatureVisualizationAnalysis();
+
         if (
             Application.isPlaying
             ||
@@ -1283,6 +1333,10 @@ public static class TerrainAuthoringVisualizationController
             &&
             material.HasProperty(
                 CurvatureScalePropertyId
+            )
+            &&
+            material.HasProperty(
+                CurvatureAnalysisReadyPropertyId
             )
             &&
             material.HasProperty(
