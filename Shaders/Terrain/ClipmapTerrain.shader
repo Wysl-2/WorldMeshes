@@ -81,46 +81,55 @@ Shader "Custom/ClipmapTerrain"
             Range(1, 16)
         ) = 4
 
+        [HideInInspector]
         _ScreeSlopeMin(
             "Scree Slope Minimum",
             Range(0, 90)
         ) = 15
 
+        [HideInInspector]
         _ScreeSlopePreferredMin(
             "Scree Slope Preferred Minimum",
             Range(0, 90)
         ) = 25
 
+        [HideInInspector]
         _ScreeSlopePreferredMax(
             "Scree Slope Preferred Maximum",
             Range(0, 90)
         ) = 40
 
+        [HideInInspector]
         _ScreeSlopeMax(
             "Scree Slope Maximum",
             Range(0, 90)
         ) = 55
 
+        [HideInInspector]
         _ScreeCurvatureScale(
             "Scree Curvature Scale",
             Range(1, 256)
         ) = 16
 
+        [HideInInspector]
         _ScreeConvexRejectStart(
             "Scree Convex Reject Start",
             Range(0, 0.5)
         ) = 0.03
 
+        [HideInInspector]
         _ScreeConvexRejectEnd(
             "Scree Convex Reject End",
             Range(0, 0.5)
         ) = 0.12
 
+        [HideInInspector]
         _ScreeGeologyScale(
             "Scree Geological Patch Scale",
             Range(1, 512)
         ) = 120
 
+        [HideInInspector]
         _ScreeGeologyStrength(
             "Scree Geological Patch Strength",
             Range(0, 1)

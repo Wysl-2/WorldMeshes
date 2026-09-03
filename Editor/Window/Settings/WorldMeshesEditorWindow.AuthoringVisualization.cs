@@ -474,13 +474,45 @@ public partial class WorldMeshesEditorWindow :
         {
             EditorGUILayout.HelpBox(
                 "The current clipmap terrain shader does not expose the " +
-                "scree surface properties. Install the shader portion of " +
-                "the Scree Suitability package first.",
+                "Scree surface properties.",
                 MessageType.Error
             );
 
             return;
         }
+
+        TerrainSurfaceSettings surfaceSettings =
+            TerrainSurfaceSettingsEditorUtility
+                .LoadOrCreate(
+                    out string surfaceSettingsError
+                );
+
+        if (surfaceSettings == null)
+        {
+            EditorGUILayout.HelpBox(
+                "TerrainSurfaceSettings could not be loaded or created.\n\n" +
+                surfaceSettingsError,
+                MessageType.Error
+            );
+
+            return;
+        }
+
+        ScreeSettings scree =
+            surfaceSettings.Scree;
+
+        // =================================================
+        // SURFACE APPEARANCE - MATERIAL OWNED
+        // =================================================
+
+        GUILayout.Space(
+            4f
+        );
+
+        GUILayout.Label(
+            "Surface Appearance",
+            EditorStyles.miniBoldLabel
+        );
 
         Texture screeMap =
             terrainMaterial.GetTexture(
@@ -500,51 +532,6 @@ public partial class WorldMeshesEditorWindow :
         float screeTriplanarSharpness =
             terrainMaterial.GetFloat(
                 ScreeTriplanarSharpnessPropertyId
-            );
-
-        float slopeMin =
-            terrainMaterial.GetFloat(
-                ScreeSlopeMinPropertyId
-            );
-
-        float slopePreferredMin =
-            terrainMaterial.GetFloat(
-                ScreeSlopePreferredMinPropertyId
-            );
-
-        float slopePreferredMax =
-            terrainMaterial.GetFloat(
-                ScreeSlopePreferredMaxPropertyId
-            );
-
-        float slopeMax =
-            terrainMaterial.GetFloat(
-                ScreeSlopeMaxPropertyId
-            );
-
-        float curvatureScale =
-            terrainMaterial.GetFloat(
-                ScreeCurvatureScalePropertyId
-            );
-
-        float convexRejectStart =
-            terrainMaterial.GetFloat(
-                ScreeConvexRejectStartPropertyId
-            );
-
-        float convexRejectEnd =
-            terrainMaterial.GetFloat(
-                ScreeConvexRejectEndPropertyId
-            );
-
-        float geologyScale =
-            terrainMaterial.GetFloat(
-                ScreeGeologyScalePropertyId
-            );
-
-        float geologyStrength =
-            terrainMaterial.GetFloat(
-                ScreeGeologyStrengthPropertyId
             );
 
         EditorGUI.BeginChangeCheck();
@@ -579,110 +566,11 @@ public partial class WorldMeshesEditorWindow :
                 16f
             );
 
-        GUILayout.Space(
-            4f
-        );
-
-        GUILayout.Label(
-            "Slope",
-            EditorStyles.miniBoldLabel
-        );
-
-        float newSlopeMin =
-            EditorGUILayout.Slider(
-                "Minimum (deg)",
-                slopeMin,
-                0f,
-                90f
-            );
-
-        float newSlopePreferredMin =
-            EditorGUILayout.Slider(
-                "Preferred Min (deg)",
-                slopePreferredMin,
-                0f,
-                90f
-            );
-
-        float newSlopePreferredMax =
-            EditorGUILayout.Slider(
-                "Preferred Max (deg)",
-                slopePreferredMax,
-                0f,
-                90f
-            );
-
-        float newSlopeMax =
-            EditorGUILayout.Slider(
-                "Maximum (deg)",
-                slopeMax,
-                0f,
-                90f
-            );
-
-        GUILayout.Space(
-            4f
-        );
-
-        GUILayout.Label(
-            "Curvature",
-            EditorStyles.miniBoldLabel
-        );
-
-        float newCurvatureScale =
-            EditorGUILayout.Slider(
-                "Scale (m)",
-                curvatureScale,
-                1f,
-                256f
-            );
-
-        float newConvexRejectStart =
-            EditorGUILayout.Slider(
-                "Convex Reject Start",
-                convexRejectStart,
-                0f,
-                0.5f
-            );
-
-        float newConvexRejectEnd =
-            EditorGUILayout.Slider(
-                "Convex Reject End",
-                convexRejectEnd,
-                0f,
-                0.5f
-            );
-
-        GUILayout.Space(
-            4f
-        );
-
-        GUILayout.Label(
-            "Geological Variation",
-            EditorStyles.miniBoldLabel
-        );
-
-        float newGeologyScale =
-            EditorGUILayout.Slider(
-                "Patch Scale (m)",
-                geologyScale,
-                1f,
-                512f
-            );
-
-        float newGeologyStrength =
-            EditorGUILayout.Slider(
-                "Patch Strength",
-                geologyStrength,
-                0f,
-                1f
-            );
-
         if (EditorGUI.EndChangeCheck())
         {
             Undo.RecordObject(
                 terrainMaterial,
-                "Change Scree Suitability"
+                "Change Scree Surface Appearance"
             );
 
             terrainMaterial.SetTexture(
@@ -712,81 +600,6 @@ public partial class WorldMeshesEditorWindow :
                 )
             );
 
-            terrainMaterial.SetFloat(
-                ScreeSlopeMinPropertyId,
-                Mathf.Clamp(
-                    newSlopeMin,
-                    0f,
-                    90f
-                )
-            );
-
-            terrainMaterial.SetFloat(
-                ScreeSlopePreferredMinPropertyId,
-                Mathf.Clamp(
-                    newSlopePreferredMin,
-                    0f,
-                    90f
-                )
-            );
-
-            terrainMaterial.SetFloat(
-                ScreeSlopePreferredMaxPropertyId,
-                Mathf.Clamp(
-                    newSlopePreferredMax,
-                    0f,
-                    90f
-                )
-            );
-
-            terrainMaterial.SetFloat(
-                ScreeSlopeMaxPropertyId,
-                Mathf.Clamp(
-                    newSlopeMax,
-                    0f,
-                    90f
-                )
-            );
-
-            terrainMaterial.SetFloat(
-                ScreeCurvatureScalePropertyId,
-                Mathf.Max(
-                    0.25f,
-                    newCurvatureScale
-                )
-            );
-
-            terrainMaterial.SetFloat(
-                ScreeConvexRejectStartPropertyId,
-                Mathf.Max(
-                    0f,
-                    newConvexRejectStart
-                )
-            );
-
-            terrainMaterial.SetFloat(
-                ScreeConvexRejectEndPropertyId,
-                Mathf.Max(
-                    0f,
-                    newConvexRejectEnd
-                )
-            );
-
-            terrainMaterial.SetFloat(
-                ScreeGeologyScalePropertyId,
-                Mathf.Max(
-                    0.001f,
-                    newGeologyScale
-                )
-            );
-
-            terrainMaterial.SetFloat(
-                ScreeGeologyStrengthPropertyId,
-                Mathf.Clamp01(
-                    newGeologyStrength
-                )
-            );
-
             EditorUtility.SetDirty(
                 terrainMaterial
             );
@@ -795,13 +608,176 @@ public partial class WorldMeshesEditorWindow :
                 .RequestReapply();
         }
 
+        // =================================================
+        // SUITABILITY - TERRAIN SURFACE SETTINGS OWNED
+        // =================================================
+
+        GUILayout.Space(
+            6f
+        );
+
+        GUILayout.Label(
+            "Suitability Rules",
+            EditorStyles.miniBoldLabel
+        );
+
         EditorGUILayout.HelpBox(
-            "The suitability mask is shared by this diagnostic and Lit " +
-            "terrain rendering. It combines a preferred slope band, " +
+            "Suitability rules are stored in TerrainSurfaceSettings.asset. " +
+            "The terrain material now owns Scree appearance only.",
+            MessageType.None
+        );
+
+        EditorGUI.BeginChangeCheck();
+
+        GUILayout.Space(
+            2f
+        );
+
+        GUILayout.Label(
+            "Slope",
+            EditorStyles.miniBoldLabel
+        );
+
+        float newSlopeMin =
+            EditorGUILayout.Slider(
+                "Minimum (deg)",
+                scree.slopeMin,
+                0f,
+                90f
+            );
+
+        float newSlopePreferredMin =
+            EditorGUILayout.Slider(
+                "Preferred Min (deg)",
+                scree.slopePreferredMin,
+                0f,
+                90f
+            );
+
+        float newSlopePreferredMax =
+            EditorGUILayout.Slider(
+                "Preferred Max (deg)",
+                scree.slopePreferredMax,
+                0f,
+                90f
+            );
+
+        float newSlopeMax =
+            EditorGUILayout.Slider(
+                "Maximum (deg)",
+                scree.slopeMax,
+                0f,
+                90f
+            );
+
+        GUILayout.Space(
+            4f
+        );
+
+        GUILayout.Label(
+            "Curvature",
+            EditorStyles.miniBoldLabel
+        );
+
+        float newCurvatureScale =
+            EditorGUILayout.Slider(
+                "Scale (m)",
+                scree.curvatureScale,
+                1f,
+                256f
+            );
+
+        float newConvexRejectStart =
+            EditorGUILayout.Slider(
+                "Convex Reject Start",
+                scree.convexRejectStart,
+                0f,
+                0.5f
+            );
+
+        float newConvexRejectEnd =
+            EditorGUILayout.Slider(
+                "Convex Reject End",
+                scree.convexRejectEnd,
+                0f,
+                0.5f
+            );
+
+        GUILayout.Space(
+            4f
+        );
+
+        GUILayout.Label(
+            "Geological Variation",
+            EditorStyles.miniBoldLabel
+        );
+
+        float newGeologyScale =
+            EditorGUILayout.Slider(
+                "Patch Scale (m)",
+                scree.geologyScale,
+                1f,
+                512f
+            );
+
+        float newGeologyStrength =
+            EditorGUILayout.Slider(
+                "Patch Strength",
+                scree.geologyStrength,
+                0f,
+                1f
+            );
+
+        if (EditorGUI.EndChangeCheck())
+        {
+            Undo.RecordObject(
+                surfaceSettings,
+                "Change Scree Suitability"
+            );
+
+            scree.slopeMin =
+                newSlopeMin;
+
+            scree.slopePreferredMin =
+                newSlopePreferredMin;
+
+            scree.slopePreferredMax =
+                newSlopePreferredMax;
+
+            scree.slopeMax =
+                newSlopeMax;
+
+            scree.curvatureScale =
+                newCurvatureScale;
+
+            scree.convexRejectStart =
+                newConvexRejectStart;
+
+            scree.convexRejectEnd =
+                newConvexRejectEnd;
+
+            scree.geologyScale =
+                newGeologyScale;
+
+            scree.geologyStrength =
+                newGeologyStrength;
+
+            scree.Sanitize();
+
+            EditorUtility.SetDirty(
+                surfaceSettings
+            );
+
+            TerrainAuthoringVisualizationController
+                .RequestReapply();
+        }
+
+        EditorGUILayout.HelpBox(
+            "The suitability mask combines a preferred slope band, " +
             "rejection of strongly convex terrain, and broad geological " +
             "variation. Black means unsuitable and red means strongest " +
-            "scree coverage. In Lit mode the existing steep-rock blend " +
-            "retains priority over scree.",
+            "Scree coverage. In Lit mode the existing steep-rock blend " +
+            "retains priority over Scree.",
             MessageType.None
         );
     }

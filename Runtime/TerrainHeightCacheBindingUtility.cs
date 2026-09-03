@@ -176,6 +176,15 @@ public static class TerrainHeightCacheBindingUtility
         MaterialPropertyBlock propertyBlock =
             new MaterialPropertyBlock();
 
+        /*
+         * Surface settings are runtime configuration, not material-owned
+         * suitability state. The editor creates the default Resources asset
+         * automatically; a missing asset is tolerated here so height-cache
+         * binding itself remains robust during first import/domain reload.
+         */
+        TerrainSurfaceSettings surfaceSettings =
+            TerrainSurfaceSettings.LoadDefault();
+
         Vector4 cacheOrigin =
             new Vector4(
                 cacheOriginTile.x,
@@ -217,6 +226,16 @@ public static class TerrainHeightCacheBindingUtility
             meshRenderer.GetPropertyBlock(
                 propertyBlock
             );
+
+            if (surfaceSettings != null)
+            {
+                TerrainSurfaceSettingsBindingUtility
+                    .TryApplyToPropertyBlock(
+                        propertyBlock,
+                        surfaceSettings,
+                        out _
+                    );
+            }
 
             propertyBlock.SetTexture(
                 HeightCachePropertyId,

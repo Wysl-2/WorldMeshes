@@ -21,6 +21,18 @@ public static class WorldMeshesPaths
         Configuration +
         "/TerrainAuthoringData.asset";
 
+    /*
+     * The default surface settings live under a Resources folder so the
+     * runtime terrain streamer can load them without AssetDatabase.
+     */
+    public const string ConfigurationResources =
+        Configuration +
+        "/Resources";
+
+    public const string TerrainSurfaceSettingsAssetPath =
+        ConfigurationResources +
+        "/TerrainSurfaceSettings.asset";
+
     // =====================================================
     // MATERIALS
     // =====================================================

@@ -54,31 +54,17 @@ public static partial class TerrainAuthoringVisualizationController
         errorMessage =
             "";
 
-        Material terrainMaterial =
-            AssetDatabase.LoadAssetAtPath<Material>(
-                WorldMeshesPaths
-                    .ClipmapTerrainMaterialPath
-            );
+        TerrainSurfaceSettings surfaceSettings =
+            TerrainSurfaceSettingsEditorUtility
+                .LoadOrCreate(
+                    out string surfaceSettingsError
+                );
 
-        if (terrainMaterial == null)
+        if (surfaceSettings == null)
         {
             errorMessage =
-                "The clipmap terrain material could not be loaded from:\n" +
-                WorldMeshesPaths.ClipmapTerrainMaterialPath;
-
-            ReleaseScreeSuitabilityAnalysis();
-
-            return false;
-        }
-
-        if (
-            !terrainMaterial.HasProperty(
-                ScreeCurvatureScaleMaterialPropertyId
-            )
-        )
-        {
-            errorMessage =
-                "The clipmap terrain material does not expose _ScreeCurvatureScale.";
+                "TerrainSurfaceSettings could not be loaded or created.\n\n" +
+                surfaceSettingsError;
 
             ReleaseScreeSuitabilityAnalysis();
 
@@ -87,10 +73,10 @@ public static partial class TerrainAuthoringVisualizationController
 
         float curvatureScale =
             Mathf.Max(
-                0.25f,
-                terrainMaterial.GetFloat(
-                    ScreeCurvatureScaleMaterialPropertyId
-                )
+                1f,
+                surfaceSettings
+                    .Scree
+                    .curvatureScale
             );
 
         slopeLayer =
@@ -158,6 +144,27 @@ public static partial class TerrainAuthoringVisualizationController
         TerrainAnalysisLayer curvatureLayer
     )
     {
+        /*
+         * Apply authoritative Stage 7 suitability configuration on every
+         * visualization reapply. This keeps editor rendering current when
+         * TerrainSurfaceSettings is edited without mutating the material.
+         */
+        TerrainSurfaceSettings surfaceSettings =
+            TerrainSurfaceSettingsEditorUtility
+                .LoadOrCreate(
+                    out _
+                );
+
+        if (surfaceSettings != null)
+        {
+            TerrainSurfaceSettingsBindingUtility
+                .TryApplyToPropertyBlock(
+                    block,
+                    surfaceSettings,
+                    out _
+                );
+        }
+
         bool ready =
             IsReadyAnalysisLayer(
                 slopeLayer
