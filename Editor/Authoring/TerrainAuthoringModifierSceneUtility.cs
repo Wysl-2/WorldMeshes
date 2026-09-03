@@ -1,12 +1,14 @@
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
 /*
  * Small shared Scene View helpers for terrain modifier authoring.
  *
- * Stage 15B only frames modifiers. Stage 15C can reuse this utility for
- * modifier Scene View interaction without making the editor window own
- * Scene View camera behavior.
+ * Scene View interaction should be local to the modifier being edited.
+ * Global preview min/max values are intentionally used only as a fallback:
+ * a distant mountain must not move or enlarge the Scene UI for an unrelated
+ * stamp elsewhere in the world.
  */
 public static class TerrainAuthoringModifierSceneUtility
 {
@@ -15,6 +17,209 @@ public static class TerrainAuthoringModifierSceneUtility
 
     private const float MinimumVerticalFrameSize =
         10f;
+
+    private const float MinimumInteractionLift =
+        0.05f;
+
+    private const float InteractionLiftSampleFraction =
+        0.25f;
+
+    private const float HeightDeltaDirectionEpsilon =
+        0.0001f;
+
+    private static readonly List<Vector2Int>
+        localHeightTiles =
+            new List<Vector2Int>();
+
+    public static bool TryGetStampInteractionPlaneY(
+        WorldSettings worldSettings,
+        TerrainStampModifier stamp,
+        out float planeY
+    )
+    {
+        planeY =
+            0f;
+
+        if (
+            worldSettings == null
+            ||
+            stamp == null
+            ||
+            !TryGetLocalPreviewHeightRange(
+                worldSettings,
+                stamp,
+                out float minimumHeight,
+                out float maximumHeight
+            )
+        )
+        {
+            return false;
+        }
+
+        float referenceHeight;
+
+        if (
+            stamp.HeightDelta >
+                HeightDeltaDirectionEpsilon
+        )
+        {
+            referenceHeight =
+                minimumHeight;
+        }
+        else if (
+            stamp.HeightDelta <
+                -HeightDeltaDirectionEpsilon
+        )
+        {
+            referenceHeight =
+                maximumHeight;
+        }
+        else
+        {
+            referenceHeight =
+                (
+                    minimumHeight +
+                    maximumHeight
+                )
+                *
+                0.5f;
+        }
+
+        float sampleSpacing =
+            Mathf.Max(
+                0.000001f,
+                worldSettings.chunkSize
+                /
+                Mathf.Max(
+                    1,
+                    worldSettings
+                        .heightfieldResolutionPerChunk
+                )
+            );
+
+        float visualLift =
+            Mathf.Max(
+                MinimumInteractionLift,
+                sampleSpacing *
+                    InteractionLiftSampleFraction
+            );
+
+        planeY =
+            referenceHeight +
+            visualLift;
+
+        return
+            IsFinite(
+                planeY
+            );
+    }
+
+    public static bool TryGetLocalPreviewHeightRange(
+        WorldSettings worldSettings,
+        TerrainHeightModifier modifier,
+        out float minimumHeight,
+        out float maximumHeight
+    )
+    {
+        minimumHeight =
+            float.PositiveInfinity;
+
+        maximumHeight =
+            float.NegativeInfinity;
+
+        if (
+            worldSettings == null
+            ||
+            modifier == null
+            ||
+            !TerrainAuthoringPreviewService
+                .CacheReady
+        )
+        {
+            return false;
+        }
+
+        localHeightTiles.Clear();
+
+        TerrainAuthoringPreviewDirtyRegionUtility
+            .CollectTilesOverlappingBounds(
+                worldSettings,
+                modifier.GetAffectedWorldBounds(),
+                localHeightTiles,
+                1
+            );
+
+        bool foundRange =
+            false;
+
+        for (
+            int index = 0;
+            index <
+                localHeightTiles.Count;
+            index++
+        )
+        {
+            Vector2Int coordinate =
+                localHeightTiles[
+                    index
+                ];
+
+            if (
+                !TerrainAuthoringPreviewService
+                    .TryGetCompositeSliceRange(
+                        coordinate.x,
+                        coordinate.y,
+                        out float tileMinimum,
+                        out float tileMaximum
+                    )
+                ||
+                !IsFinite(
+                    tileMinimum
+                )
+                ||
+                !IsFinite(
+                    tileMaximum
+                )
+                ||
+                tileMaximum <
+                    tileMinimum
+            )
+            {
+                continue;
+            }
+
+            minimumHeight =
+                Mathf.Min(
+                    minimumHeight,
+                    tileMinimum
+                );
+
+            maximumHeight =
+                Mathf.Max(
+                    maximumHeight,
+                    tileMaximum
+                );
+
+            foundRange =
+                true;
+        }
+
+        localHeightTiles.Clear();
+
+        return
+            foundRange
+            &&
+            IsFinite(
+                minimumHeight
+            )
+            &&
+            IsFinite(
+                maximumHeight
+            )
+            &&
+            maximumHeight >=
+                minimumHeight;
+    }
 
     public static bool TryFrameModifier(
         TerrainHeightModifier modifier,
@@ -62,43 +267,54 @@ public static class TerrainAuthoringModifierSceneUtility
         Vector3 center =
             affectedBounds.center;
 
-        float previewMinimumHeight =
-            TerrainAuthoringPreviewService
-                .MinimumPreviewHeight;
+        WorldSettings worldSettings =
+            AssetDatabase
+                .LoadAssetAtPath<WorldSettings>(
+                    WorldMeshesPaths
+                        .WorldSettingsAssetPath
+                );
 
-        float previewMaximumHeight =
-            TerrainAuthoringPreviewService
-                .MaximumPreviewHeight;
+        bool usableLocalRange =
+            TryGetLocalPreviewHeightRange(
+                worldSettings,
+                modifier,
+                out float previewMinimumHeight,
+                out float previewMaximumHeight
+            );
 
-        bool usablePreviewRange =
-            TerrainAuthoringPreviewService
-                .CacheReady
-            &&
-            !float.IsNaN(
-                previewMinimumHeight
-            )
-            &&
-            !float.IsInfinity(
-                previewMinimumHeight
-            )
-            &&
-            !float.IsNaN(
-                previewMaximumHeight
-            )
-            &&
-            !float.IsInfinity(
-                previewMaximumHeight
-            )
-            &&
-            previewMaximumHeight >=
-                previewMinimumHeight;
+        if (!usableLocalRange)
+        {
+            previewMinimumHeight =
+                TerrainAuthoringPreviewService
+                    .MinimumPreviewHeight;
+
+            previewMaximumHeight =
+                TerrainAuthoringPreviewService
+                    .MaximumPreviewHeight;
+
+            usableLocalRange =
+                TerrainAuthoringPreviewService
+                    .CacheReady
+                &&
+                IsFinite(
+                    previewMinimumHeight
+                )
+                &&
+                IsFinite(
+                    previewMaximumHeight
+                )
+                &&
+                previewMaximumHeight >=
+                    previewMinimumHeight;
+        }
 
         center.y =
-            usablePreviewRange
+            usableLocalRange
                 ? (
                     previewMinimumHeight +
                     previewMaximumHeight
-                ) *
+                )
+                *
                 0.5f
                 : 0f;
 
@@ -125,7 +341,7 @@ public static class TerrainAuthoringModifierSceneUtility
             );
 
         float previewHeightSpan =
-            usablePreviewRange
+            usableLocalRange
                 ? Mathf.Max(
                     0f,
                     previewMaximumHeight -
@@ -160,5 +376,19 @@ public static class TerrainAuthoringModifierSceneUtility
         sceneView.Repaint();
 
         return true;
+    }
+
+    private static bool IsFinite(
+        float value
+    )
+    {
+        return
+            !float.IsNaN(
+                value
+            )
+            &&
+            !float.IsInfinity(
+                value
+            );
     }
 }

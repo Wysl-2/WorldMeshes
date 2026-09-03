@@ -2137,6 +2137,40 @@ public sealed class TerrainStampEditorTool :
                 activeHandlePlaneY;
         }
 
+        if (
+            TerrainAuthoringModifierContextUtility
+                .TryLoadDefault(
+                    out WorldSettings worldSettings,
+                    out TerrainAuthoringData authoringData,
+                    out _
+                )
+            &&
+            TerrainAuthoringModifierSelection
+                .TryGetSelectedModifier(
+                    authoringData,
+                    out TerrainHeightModifier selectedModifier,
+                    out _
+                )
+            &&
+            selectedModifier is
+                TerrainStampModifier selectedStamp
+            &&
+            TerrainAuthoringModifierSceneUtility
+                .TryGetStampInteractionPlaneY(
+                    worldSettings,
+                    selectedStamp,
+                    out float localPlaneY
+                )
+            &&
+            IsFinite(
+                localPlaneY
+            )
+        )
+        {
+            return
+                localPlaneY;
+        }
+
         float minimum =
             TerrainAuthoringPreviewService
                 .MinimumPreviewHeight;
