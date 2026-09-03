@@ -104,11 +104,6 @@ public static partial class TerrainAuthoringVisualizationController
 
         if (!ready)
         {
-            block.SetTexture(
-                CurvatureAnalysisTexturePropertyId,
-                null
-            );
-
             return;
         }
 

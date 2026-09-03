@@ -181,16 +181,6 @@ public static partial class TerrainAuthoringVisualizationController
 
         if (!ready)
         {
-            block.SetTexture(
-                ScreeSlopeAnalysisTexturePropertyId,
-                null
-            );
-
-            block.SetTexture(
-                ScreeCurvatureAnalysisTexturePropertyId,
-                null
-            );
-
             return;
         }
 
