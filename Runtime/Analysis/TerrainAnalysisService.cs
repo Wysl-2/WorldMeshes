@@ -53,6 +53,129 @@ public static class TerrainAnalysisService
         return layer;
     }
 
+
+    // =====================================================
+    // ANALYSIS TILE / ADDRESS ACCESS
+    // =====================================================
+
+    /*
+     * RequestTile may lazily generate the requested layer first.
+     */
+    public static bool RequestTile(
+        TerrainAnalysisKey key,
+        Vector2Int tileCoordinate,
+        out TerrainAnalysisTile tile
+    )
+    {
+        TerrainAnalysisLayer layer =
+            RequestLayer(
+                key
+            );
+
+        return
+            TerrainAnalysisAddressingUtility
+                .TryGetTile(
+                    layer,
+                    tileCoordinate,
+                    out tile
+                );
+    }
+
+    /*
+     * TryGetTile never triggers generation. It only accesses an existing
+     * ready layer.
+     */
+    public static bool TryGetTile(
+        TerrainAnalysisKey key,
+        Vector2Int tileCoordinate,
+        out TerrainAnalysisTile tile
+    )
+    {
+        tile =
+            default;
+
+        if (
+            !Cache.TryGetLayer(
+                key,
+                out TerrainAnalysisLayer layer
+            )
+            ||
+            layer == null
+            ||
+            !layer.IsReady
+        )
+        {
+            return false;
+        }
+
+        return
+            TerrainAnalysisAddressingUtility
+                .TryGetTile(
+                    layer,
+                    tileCoordinate,
+                    out tile
+                );
+    }
+
+    /*
+     * RequestAddress may lazily generate the requested analysis layer.
+     */
+    public static bool RequestAddress(
+        TerrainAnalysisKey key,
+        Vector2 worldXZ,
+        out TerrainAnalysisAddress address
+    )
+    {
+        TerrainAnalysisLayer layer =
+            RequestLayer(
+                key
+            );
+
+        return
+            TerrainAnalysisAddressingUtility
+                .TryGetAddress(
+                    layer,
+                    worldXZ,
+                    out address
+                );
+    }
+
+    /*
+     * TryGetAddress never triggers generation.
+     */
+    public static bool TryGetAddress(
+        TerrainAnalysisKey key,
+        Vector2 worldXZ,
+        out TerrainAnalysisAddress address
+    )
+    {
+        address =
+            default;
+
+        if (
+            !Cache.TryGetLayer(
+                key,
+                out TerrainAnalysisLayer layer
+            )
+            ||
+            layer == null
+            ||
+            !layer.IsReady
+        )
+        {
+            return false;
+        }
+
+        return
+            TerrainAnalysisAddressingUtility
+                .TryGetAddress(
+                    layer,
+                    worldXZ,
+                    out address
+                );
+    }
+
+
     /*
      * Called after the authoring preview has successfully recomposited a set
      * of source height tiles.
