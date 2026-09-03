@@ -5,7 +5,7 @@ using UnityEngine.AddressableAssets;
 using UnityEngine.ResourceManagement.AsyncOperations;
 using UnityEngine.Rendering;
 
-public class TerrainHeightmapStreamer :
+public partial class TerrainHeightmapStreamer :
     MonoBehaviour
 {
     // =====================================================
@@ -583,7 +583,9 @@ public class TerrainHeightmapStreamer :
         bool shouldBeBound =
             cacheReady
             &&
-            heightCache != null;
+            heightCache != null
+            &&
+            surfaceMaskCache != null;
 
         if (shouldBeBound)
         {
@@ -649,7 +651,7 @@ public class TerrainHeightmapStreamer :
                 );
 
         shaderCacheBound =
-            success;
+            false;
 
         if (!success)
         {
@@ -663,10 +665,39 @@ public class TerrainHeightmapStreamer :
             return;
         }
 
+        if (
+            !BindSurfaceMaskCacheToClipmapRenderers(
+                out string surfaceMaskBindingError
+            )
+        )
+        {
+            TerrainHeightCacheBindingUtility
+                .Disable(
+                    transform
+                );
+
+            TerrainSurfaceMaskBindingUtility
+                .Disable(
+                    transform
+                );
+
+            Debug.LogError(
+                "TerrainHeightmapStreamer could not bind the synchronized " +
+                "surface-mask cache to the clipmap.\n\n" +
+                surfaceMaskBindingError,
+                this
+            );
+
+            return;
+        }
+
+        shaderCacheBound =
+            true;
+
         if (logCacheUpdates)
         {
             Debug.Log(
-                "Terrain height cache bound to clipmap shader.\n\n" +
+                "Terrain height + surface caches bound to clipmap shader.\n\n" +
 
                 $"Renderers: " +
                 $"{boundRendererCount}\n\n" +
@@ -704,6 +735,8 @@ public class TerrainHeightmapStreamer :
             .Disable(
                 transform
             );
+
+        DisableSurfaceMaskOnClipmapRenderers();
 
         shaderCacheBound =
             false;
@@ -779,6 +812,15 @@ public class TerrainHeightmapStreamer :
                 this
             );
 
+            return false;
+        }
+
+        // -------------------------------------------------
+        // Surface-mask manifest / signatures
+        // -------------------------------------------------
+
+        if (!ValidateSurfaceMaskConfiguration())
+        {
             return false;
         }
 
@@ -885,6 +927,13 @@ public class TerrainHeightmapStreamer :
 
         if (!CreateHeightCacheBuffers())
         {
+            return false;
+        }
+
+        if (!CreateSurfaceMaskCacheBuffers())
+        {
+            DestroyHeightCacheBuffers();
+
             return false;
         }
 
@@ -1747,10 +1796,14 @@ public class TerrainHeightmapStreamer :
             heightCache == null
             ||
             stagingHeightCache == null
+            ||
+            surfaceMaskCache == null
+            ||
+            stagingSurfaceMaskCache == null
         )
         {
             Debug.LogError(
-                "Terrain height-cache buffers are not available.",
+                "Terrain height/surface cache buffers are not available.",
                 this
             );
 
@@ -1764,6 +1817,8 @@ public class TerrainHeightmapStreamer :
             heightmapManifest
                 .heightTileSamplesPerSide;
 
+        BeginSurfaceLoadAttempt();
+
         // =====================================================
         // REQUIRED TILE SET
         // =====================================================
@@ -1775,6 +1830,9 @@ public class TerrainHeightmapStreamer :
             new List<Vector2Int>();
 
         List<Vector2Int> newlyLoadedTiles =
+            new List<Vector2Int>();
+
+        List<Vector2Int> enteringSurfaceTiles =
             new List<Vector2Int>();
 
         int retainedTileCount =
@@ -1847,6 +1905,18 @@ public class TerrainHeightmapStreamer :
                 else
                 {
                     enteringTiles.Add(
+                        tileCoordinate
+                    );
+                }
+
+                if (
+                    !TryGetUsableResidentSurfaceTile(
+                        tileCoordinate,
+                        out _
+                    )
+                )
+                {
+                    enteringSurfaceTiles.Add(
                         tileCoordinate
                     );
                 }
@@ -1928,6 +1998,35 @@ public class TerrainHeightmapStreamer :
             newlyLoadedTiles.Add(
                 tileCoordinate
             );
+        }
+
+        // =====================================================
+        // BEGIN ALL ENTERING SURFACE-MASK TILE LOADS
+        // =====================================================
+
+        foreach (
+            Vector2Int tileCoordinate
+            in enteringSurfaceTiles
+        )
+        {
+            if (
+                !TryBeginSurfaceTileLoad(
+                    tileCoordinate,
+                    out string surfaceLoadError
+                )
+            )
+            {
+                Debug.LogError(
+                    surfaceLoadError,
+                    this
+                );
+
+                FailCurrentLoad(
+                    newlyLoadedTiles
+                );
+
+                yield break;
+            }
         }
 
         // =====================================================
@@ -2081,6 +2180,64 @@ public class TerrainHeightmapStreamer :
         }
 
         // =====================================================
+        // COMPLETE ENTERING SURFACE-MASK TILE LOADS
+        // =====================================================
+
+        foreach (
+            Vector2Int tileCoordinate
+            in enteringSurfaceTiles
+        )
+        {
+            if (
+                !TryGetResidentSurfaceTile(
+                    tileCoordinate,
+                    out ResidentSurfaceTile surfaceTile
+                )
+            )
+            {
+                Debug.LogError(
+                    "A newly requested terrain surface-mask tile was not present in the residency table.\n\n" +
+                    $"Tile: ({tileCoordinate.x}, {tileCoordinate.y})",
+                    this
+                );
+
+                FailCurrentLoad(
+                    newlyLoadedTiles
+                );
+
+                yield break;
+            }
+
+            AsyncOperationHandle<Texture2D> surfaceHandle =
+                surfaceTile.handle;
+
+            if (!surfaceHandle.IsDone)
+            {
+                yield return
+                    surfaceHandle;
+            }
+
+            if (
+                !TryFinalizeResidentSurfaceTile(
+                    tileCoordinate,
+                    out string surfaceFinalizeError
+                )
+            )
+            {
+                Debug.LogError(
+                    surfaceFinalizeError,
+                    this
+                );
+
+                FailCurrentLoad(
+                    newlyLoadedTiles
+                );
+
+                yield break;
+            }
+        }
+
+        // =====================================================
         // POPULATE STAGING GPU CACHE
         // =====================================================
 
@@ -2211,6 +2368,29 @@ public class TerrainHeightmapStreamer :
         }
 
         // =====================================================
+        // POPULATE SYNCHRONIZED SURFACE STAGING CACHE
+        // =====================================================
+
+        if (
+            !TryPopulateSurfaceStagingCache(
+                origin,
+                out string surfaceStagingError
+            )
+        )
+        {
+            Debug.LogError(
+                surfaceStagingError,
+                this
+            );
+
+            FailCurrentLoad(
+                newlyLoadedTiles
+            );
+
+            yield break;
+        }
+
+        // =====================================================
         // ATOMIC CACHE COMMIT
         // =====================================================
 
@@ -2234,6 +2414,13 @@ public class TerrainHeightmapStreamer :
         stagingHeightCache =
             previousActiveCache;
 
+        /*
+         * Height and surface buffers are committed under the same origin.
+         * Until both staging caches were complete, neither active cache was
+         * changed.
+         */
+        SwapSurfaceMaskCaches();
+
         cacheOriginTile =
             origin;
 
@@ -2254,6 +2441,10 @@ public class TerrainHeightmapStreamer :
             ReleaseResidentTilesNotRequired(
                 requiredTiles
             );
+
+        CompleteSurfaceLoadAttempt(
+            requiredTiles
+        );
 
         // =====================================================
         // COMPLETE
@@ -2438,6 +2629,8 @@ public class TerrainHeightmapStreamer :
             }
         }
 
+        RollbackSurfaceLoadAttempt();
+
         loadRoutine =
             null;
     }
@@ -2602,8 +2795,10 @@ public class TerrainHeightmapStreamer :
             false;
 
         ReleaseResidentTiles();
+        ReleaseResidentSurfaceTiles();
 
         DestroyHeightCacheBuffers();
+        DestroySurfaceMaskCacheBuffers();
 
         initialized =
             false;

@@ -19,8 +19,7 @@ public partial class WorldMeshesEditorWindow :
         if (worldSettings == null)
         {
             EditorGUILayout.HelpBox(
-                "Assign or create WorldSettings to view " +
-                "terrain generation state.",
+                "Assign or create WorldSettings to view terrain generation state.",
                 MessageType.Warning
             );
 
@@ -49,6 +48,13 @@ public partial class WorldMeshesEditorWindow :
                     );
 
         TerrainGenerationStateUtility.GenerationStatus
+            surfaceMaskStatus =
+                TerrainGenerationStateUtility
+                    .GetSurfaceMaskStatus(
+                        worldSettings
+                    );
+
+        TerrainGenerationStateUtility.GenerationStatus
             collisionStatus =
                 TerrainGenerationStateUtility
                     .GetCollisionMeshStatus(
@@ -72,6 +78,14 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.LabelField(
+            "Runtime Surface Masks",
+            TerrainGenerationStateUtility
+                .GetStatusLabel(
+                    surfaceMaskStatus
+                )
+        );
+
+        EditorGUILayout.LabelField(
             "Collision Meshes",
             TerrainGenerationStateUtility
                 .GetStatusLabel(
@@ -83,7 +97,9 @@ public partial class WorldMeshesEditorWindow :
         // REVISIONS
         // =================================================
 
-        GUILayout.Space(5f);
+        GUILayout.Space(
+            5f
+        );
 
         EditorGUILayout.LabelField(
             "Authoring Revision",
@@ -111,6 +127,20 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.LabelField(
+            "Surface Mask Revision",
+            worldSettings
+                .surfaceMaskGenerationRevision
+                .ToString()
+        );
+
+        EditorGUILayout.LabelField(
+            "Surface Height Source",
+            worldSettings
+                .surfaceSourceHeightmapGenerationRevision
+                .ToString()
+        );
+
+        EditorGUILayout.LabelField(
             "Collision Revision",
             worldSettings
                 .collisionMeshGenerationRevision
@@ -128,7 +158,9 @@ public partial class WorldMeshesEditorWindow :
         // WARNINGS
         // =================================================
 
-        GUILayout.Space(5f);
+        GUILayout.Space(
+            5f
+        );
 
         if (
             authoringStatus !=
@@ -137,9 +169,7 @@ public partial class WorldMeshesEditorWindow :
         )
         {
             EditorGUILayout.HelpBox(
-                "The committed authoring heightfield is not " +
-                "current. Reinitialize it before compiling " +
-                "runtime heightmaps.",
+                "The committed authoring heightfield is not current. Reinitialize it before compiling runtime heightmaps.",
                 MessageType.Warning
             );
         }
@@ -150,8 +180,18 @@ public partial class WorldMeshesEditorWindow :
         )
         {
             EditorGUILayout.HelpBox(
-                "Runtime heightmaps are out of date with the " +
-                "current authored terrain or heightfield layout.",
+                "Runtime heightmaps are out of date with the current authored terrain or heightfield layout.",
+                MessageType.Warning
+            );
+        }
+        else if (
+            surfaceMaskStatus ==
+            TerrainGenerationStateUtility
+                .GenerationStatus.OutOfDate
+        )
+        {
+            EditorGUILayout.HelpBox(
+                "Runtime surface masks are out of date with the current runtime heightmaps or TerrainSurfaceSettings.",
                 MessageType.Warning
             );
         }
@@ -162,13 +202,16 @@ public partial class WorldMeshesEditorWindow :
         )
         {
             EditorGUILayout.HelpBox(
-                "Collision meshes are out of date with the " +
-                "current runtime heightmaps or collision settings.",
+                "Collision meshes are out of date with the current runtime heightmaps or collision settings.",
                 MessageType.Warning
             );
         }
         else if (
             heightmapStatus ==
+                TerrainGenerationStateUtility
+                    .GenerationStatus.Current
+            &&
+            surfaceMaskStatus ==
                 TerrainGenerationStateUtility
                     .GenerationStatus.Current
             &&
@@ -182,7 +225,6 @@ public partial class WorldMeshesEditorWindow :
                 MessageType.Info
             );
         }
-
 
         GUILayout.EndVertical();
     }

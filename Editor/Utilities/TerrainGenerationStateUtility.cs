@@ -4,7 +4,7 @@ using System.Text;
 using UnityEditor;
 using UnityEngine;
 
-public static class TerrainGenerationStateUtility
+public static partial class TerrainGenerationStateUtility
 {
     // =====================================================
     // VERSIONS
@@ -415,6 +415,16 @@ public static class TerrainGenerationStateUtility
 
         worldSettings.heightmapGenerationRevision =
             0;
+
+        worldSettings.lastGeneratedSurfaceSignature =
+            "";
+
+        worldSettings.surfaceMaskGenerationRevision =
+            0;
+
+        worldSettings
+            .surfaceSourceHeightmapGenerationRevision =
+                -1;
 
         worldSettings.lastGeneratedCollisionSignature =
             "";

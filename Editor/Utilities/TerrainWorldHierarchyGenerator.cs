@@ -962,10 +962,37 @@ public static class TerrainWorldHierarchyGenerator
             );
         }
 
+        TerrainSurfaceMaskManifest surfaceManifest =
+            AssetDatabase
+                .LoadAssetAtPath<TerrainSurfaceMaskManifest>(
+                    TerrainRuntimeSurfaceMaskAssetUtility
+                        .SurfaceMaskManifestPath
+                );
+
+        if (surfaceManifest == null)
+        {
+            Debug.LogWarning(
+                "TerrainHeightmapStreamer could not be fully configured because the baked runtime surface-mask manifest does not exist.\n\n" +
+                "Bake Runtime Surface Masks and then run Sync World Hierarchy again."
+            );
+        }
+        else if (!surfaceManifest.isComplete)
+        {
+            Debug.LogWarning(
+                "TerrainHeightmapStreamer could not be fully configured because the runtime surface-mask manifest is incomplete.\n\n" +
+                "Bake Runtime Surface Masks again."
+            );
+        }
+
         changed |=
             streamer.Configure(
                 worldSettings,
                 manifest
+            );
+
+        changed |=
+            streamer.ConfigureSurfaceMaskManifest(
+                surfaceManifest
             );
 
         return

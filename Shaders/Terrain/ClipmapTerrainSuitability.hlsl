@@ -511,6 +511,26 @@ float GetScreeSuitability(
     float3 normalWS
 )
 {
+    /*
+     * Stage 8 runtime path: final suitability is baked once and streamed with
+     * the height cache. Editor authoring visualization still reaches the live
+     * analysis path because no runtime SurfaceMask cache is bound there.
+     */
+    float bakedSuitability;
+
+    if (
+        WorldMeshesTrySampleBakedScreeSuitability(
+            positionWS.xz,
+            bakedSuitability
+        )
+    )
+    {
+        return
+            saturate(
+                bakedSuitability
+            );
+    }
+
     float slopeDegrees;
     float curvature;
 

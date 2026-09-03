@@ -1025,24 +1025,121 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         }
 
         // =================================================
+        // RUNTIME SURFACE MASKS
+        // =================================================
+
+        GUILayout.Space(
+            12f
+        );
+
+        GUILayout.Label(
+            "Runtime Surface Masks",
+            EditorStyles.boldLabel
+        );
+
+        TerrainGenerationStateUtility.GenerationStatus
+            surfaceMaskStatus =
+                TerrainGenerationStateUtility
+                    .GetSurfaceMaskStatus(
+                        worldSettings
+                    );
+
+        bool surfaceMasksCurrent =
+            surfaceMaskStatus ==
+            TerrainGenerationStateUtility
+                .GenerationStatus.Current;
+
+        EditorGUILayout.LabelField(
+            "Surface Mask State",
+            TerrainGenerationStateUtility
+                .GetStatusLabel(
+                    surfaceMaskStatus
+                )
+        );
+
+        EditorGUILayout.LabelField(
+            "Surface Output Folder",
+            TerrainRuntimeSurfaceMaskAssetUtility
+                .SurfaceMaskTileFolder
+        );
+
+        EditorGUILayout.LabelField(
+            "Channel Layout",
+            "R8: R = Scree Suitability"
+        );
+
+        if (
+            surfaceMaskStatus ==
+            TerrainGenerationStateUtility
+                .GenerationStatus.OutOfDate
+        )
+        {
+            EditorGUILayout.HelpBox(
+                "The baked runtime surface masks are out of date with the current runtime heightmaps or TerrainSurfaceSettings.",
+                MessageType.Warning
+            );
+        }
+
+        if (
+            heightmapsCurrent
+            &&
+            !TerrainAuthoringPreviewService
+                .CacheReady
+        )
+        {
+            EditorGUILayout.HelpBox(
+                "Surface-mask baking uses the existing GPU Terrain Analysis cache. If Height Preview is not Ready, the Bake button requests a refresh; run the bake again after the preview becomes Ready.",
+                MessageType.Info
+            );
+        }
+
+        EditorGUI.BeginDisabledGroup(
+            !heightmapsCurrent
+            ||
+            TerrainSurfaceMaskCompiler
+                .IsGenerating
+        );
+
+        if (
+            GUILayout.Button(
+                TerrainSurfaceMaskCompiler.IsGenerating
+                    ? "Baking Runtime Surface Masks..."
+                    : "Bake Runtime Surface Masks",
+                GUILayout.ExpandWidth(true)
+            )
+        )
+        {
+            TerrainSurfaceMaskCompiler
+                .GenerateSurfaceMasks(
+                    worldSettings
+                );
+
+            Repaint();
+        }
+
+        EditorGUI.EndDisabledGroup();
+
+        // =================================================
         // ADDRESSABLES
         // =================================================
 
         EditorGUI.BeginDisabledGroup(
             !heightmapsCurrent
+            ||
+            !surfaceMasksCurrent
         );
 
         GUILayout.Space(5f);
 
         if (
             GUILayout.Button(
-                "Configure Heightmap Addressables",
+                "Configure Runtime Terrain Addressables",
                 GUILayout.ExpandWidth(true)
             )
         )
         {
-            TerrainHeightmapAddressablesUtility
-                .PrepareHeightmapTilesForRuntime();
+            TerrainRuntimeAddressablesUtility
+                .PrepareTerrainStreamingAssets();
         }
 
         GUILayout.Space(5f);
@@ -1058,7 +1155,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                 EditorUtility.DisplayDialog(
                     "Build Addressables Content",
 
-                    "This will configure the generated heightmap " +
+                    "This will configure the generated heightmap and surface-mask " +
                     "tiles as Addressables and rebuild the project's " +
                     "Addressables player content.\n\n" +
 
@@ -1073,8 +1170,8 @@ public partial class WorldMeshesEditorWindow : EditorWindow
 
             if (confirmed)
             {
-                TerrainHeightmapAddressablesUtility
-                    .PrepareAndBuildHeightmapTilesForRuntime();
+                TerrainRuntimeAddressablesUtility
+                    .PrepareAndBuildTerrainStreamingAssets();
             }
         }
 
@@ -1085,11 +1182,11 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         EditorGUILayout.HelpBox(
             "Use Asset Database (fastest):\n" +
             "A new Addressables build is not required after every " +
-            "terrain compilation.\n\n" +
+            "height/surface generation pass.\n\n" +
 
             "Use Existing Build:\n" +
             "Run Configure + Build Addressables Content after " +
-            "compiling new runtime heightmaps.",
+            "compiling heightmaps or baking new surface masks.",
             MessageType.Info
         );
     }

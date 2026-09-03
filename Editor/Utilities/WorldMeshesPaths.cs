@@ -109,4 +109,20 @@ public static class WorldMeshesPaths
     public const string HeightmapManifestAssetPath =
         GeneratedHeightmaps +
         "/HeightmapManifest.asset";
+
+    // =====================================================
+    // GENERATED SURFACE MASKS
+    // =====================================================
+
+    public const string GeneratedSurfaceMasks =
+        Generated +
+        "/SurfaceMasks";
+
+    public const string SurfaceMaskTiles =
+        GeneratedSurfaceMasks +
+        "/Tiles";
+
+    public const string SurfaceMaskManifestAssetPath =
+        GeneratedSurfaceMasks +
+        "/SurfaceMaskManifest.asset";
 }

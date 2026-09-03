@@ -190,6 +190,46 @@ Shader "Custom/ClipmapTerrain"
         ) = 0
 
         // =================================================
+        // RUNTIME SURFACE MASK CACHE
+        // =================================================
+
+        [HideInInspector]
+        _SurfaceMaskCache(
+            "Surface Mask Cache",
+            2DArray
+        ) = "" {}
+
+        [HideInInspector]
+        _SurfaceMaskCacheOriginTile(
+            "Surface Mask Cache Origin Tile",
+            Vector
+        ) = (0, 0, 0, 0)
+
+        [HideInInspector]
+        _SurfaceMaskCacheSize(
+            "Surface Mask Cache Size",
+            Vector
+        ) = (1, 1, 0, 0)
+
+        [HideInInspector]
+        _SurfaceMaskSamplesPerSide(
+            "Surface Mask Samples Per Side",
+            Float
+        ) = 257
+
+        [HideInInspector]
+        _SurfaceMaskSampleSpacing(
+            "Surface Mask Sample Spacing",
+            Float
+        ) = 1
+
+        [HideInInspector]
+        _SurfaceMaskCacheReady(
+            "Surface Mask Cache Ready",
+            Float
+        ) = 0
+
+        // =================================================
         // WORLD BOUNDS
         // =================================================
 
@@ -494,6 +534,15 @@ Shader "Custom/ClipmapTerrain"
             );
 
             /*
+             * Stage 8 synchronized baked runtime suitability cache.
+             *
+             * Current channel layout:
+             *     R = Scree Suitability
+             */
+            Texture2DArray<float>
+                _SurfaceMaskCache;
+
+            /*
              * Editor-only cached Terrain Analysis texture.
              * Bound transiently through MaterialPropertyBlock.
              */
@@ -559,6 +608,12 @@ Shader "Custom/ClipmapTerrain"
                 float _HeightTileSamplesPerSide;
                 float _HeightSampleSpacing;
 
+                float4 _SurfaceMaskCacheOriginTile;
+                float4 _SurfaceMaskCacheSize;
+                float _SurfaceMaskSamplesPerSide;
+                float _SurfaceMaskSampleSpacing;
+                float _SurfaceMaskCacheReady;
+
                 float4 _WorldSizeXZ;
                 float _WorldBoundsReady;
 
@@ -620,6 +675,7 @@ Shader "Custom/ClipmapTerrain"
             #include "Assets/WorldMeshes/Shaders/Terrain/ClipmapTerrainHeight.hlsl"
             #include "Assets/WorldMeshes/Shaders/Terrain/ClipmapTerrainAnalysis.hlsl"
             #include "Assets/WorldMeshes/Shaders/Terrain/TerrainAnalysisSampling.hlsl"
+            #include "Assets/WorldMeshes/Shaders/Terrain/TerrainSurfaceMaskSampling.hlsl"
             #include "Assets/WorldMeshes/Shaders/Terrain/ClipmapTerrainSuitability.hlsl"
             #include "Assets/WorldMeshes/Shaders/Terrain/ClipmapTerrainVisualization.hlsl"
 

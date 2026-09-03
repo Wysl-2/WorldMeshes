@@ -666,109 +666,135 @@ public static class TerrainAnalysisReadbackService
     }
 
     private static void CompleteReadbackRun(
-        List<TerrainAnalysisTile> run,
-        AsyncGPUReadbackRequest request
+    List<TerrainAnalysisTile> run,
+    AsyncGPUReadbackRequest request
+)
+{
+    if (request.hasError)
+    {
+        CompleteRunWithError(
+            run,
+            "Terrain analysis GPU readback failed."
+        );
+
+        return;
+    }
+
+    if (
+        run == null ||
+        run.Count == 0
     )
     {
-        if (request.hasError)
-        {
-            CompleteRunWithError(
-                run,
-                "Terrain analysis GPU readback failed."
-            );
+        return;
+    }
 
-            return;
-        }
+    int samples =
+        run[0].SamplesPerSide;
 
-        if (
-            run == null ||
-            run.Count == 0
-        )
-        {
-            return;
-        }
+    int valuesPerTile =
+        samples *
+        samples;
 
-        int samples =
-            run[0].SamplesPerSide;
+    /*
+     * A Texture2DArray readback exposes each requested array
+     * slice as a separate readback layer.
+     *
+     * GetData<T>() without a layer does NOT concatenate every
+     * requested Texture2DArray slice.
+     */
+    if (
+        request.layerCount !=
+        run.Count
+    )
+    {
+        CompleteRunWithError(
+            run,
+            "Terrain analysis GPU readback returned an " +
+            "unexpected layer count.\n\n" +
+            $"Expected: {run.Count}\n" +
+            $"Actual: {request.layerCount}"
+        );
 
-        int valuesPerTile =
-            samples *
-            samples;
+        return;
+    }
 
+    for (
+        int tileIndex = 0;
+        tileIndex < run.Count;
+        tileIndex++
+    )
+    {
+        TerrainAnalysisTile tile =
+            run[tileIndex];
+
+        /*
+         * tileIndex is relative to this readback request.
+         *
+         * It is NOT the absolute Texture2DArray slice index.
+         */
         var raw =
-            request.GetData<ushort>();
-
-        int expectedLength =
-            valuesPerTile *
-            run.Count;
+            request.GetData<ushort>(
+                tileIndex
+            );
 
         if (
             raw.Length !=
-            expectedLength
+            valuesPerTile
         )
         {
             CompleteRunWithError(
                 run,
-                "Terrain analysis GPU readback returned an unexpected sample count."
+                "Terrain analysis GPU readback returned an " +
+                "unexpected sample count for one layer.\n\n" +
+                $"Tile: {tile.TileCoordinate}\n" +
+                $"Readback Layer: {tileIndex}\n" +
+                $"Expected: {valuesPerTile}\n" +
+                $"Actual: {raw.Length}"
             );
 
             return;
         }
 
+        float[] values =
+            new float[
+                valuesPerTile
+            ];
+
         for (
-            int tileIndex = 0;
-            tileIndex < run.Count;
-            tileIndex++
+            int valueIndex = 0;
+            valueIndex < valuesPerTile;
+            valueIndex++
         )
         {
-            TerrainAnalysisTile tile =
-                run[tileIndex];
-
-            float[] values =
-                new float[
-                    valuesPerTile
-                ];
-
-            int baseIndex =
-                tileIndex *
-                valuesPerTile;
-
-            for (
-                int valueIndex = 0;
-                valueIndex < valuesPerTile;
-                valueIndex++
-            )
-            {
-                values[valueIndex] =
-                    HalfToSingle(
-                        raw[
-                            baseIndex +
-                            valueIndex
-                        ]
-                    );
-            }
-
-            TerrainAnalysisTileData data =
-                new TerrainAnalysisTileData(
-                    tile,
-                    values
+            values[valueIndex] =
+                HalfToSingle(
+                    raw[
+                        valueIndex
+                    ]
                 );
-
-            ReadbackCacheKey key =
-                new ReadbackCacheKey(
-                    tile
-                );
-
-            Cache[key] =
-                data;
-
-            CompleteInFlight(
-                key,
-                data,
-                ""
-            );
         }
+
+        TerrainAnalysisTileData data =
+            new TerrainAnalysisTileData(
+                tile,
+                values
+            );
+
+        ReadbackCacheKey key =
+            new ReadbackCacheKey(
+                tile
+            );
+
+        Cache[key] =
+            data;
+
+        CompleteInFlight(
+            key,
+            data,
+            ""
+        );
     }
+}
 
     private static void CompleteRunWithError(
         List<TerrainAnalysisTile> run,

@@ -265,6 +265,26 @@ public class WorldSettings : ScriptableObject
         0;
 
     // =====================================================
+    // GENERATED RUNTIME SURFACE-MASK STATE
+    // =====================================================
+
+    [HideInInspector]
+    public string lastGeneratedSurfaceSignature =
+        "";
+
+    [HideInInspector]
+    public int surfaceMaskGenerationRevision =
+        0;
+
+    /*
+     * Runtime heightmap revision used to generate the current
+     * baked runtime surface masks.
+     */
+    [HideInInspector]
+    public int surfaceSourceHeightmapGenerationRevision =
+        -1;
+
+    // =====================================================
     // COLLISION MESH GENERATION STATE
     // =====================================================
 

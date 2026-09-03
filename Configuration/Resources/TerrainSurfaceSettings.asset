@@ -13,10 +13,10 @@ MonoBehaviour:
   m_Name: TerrainSurfaceSettings
   m_EditorClassIdentifier: Assembly-CSharp::TerrainSurfaceSettings
   scree:
-    slopeMin: 10
-    slopePreferredMin: 45
-    slopePreferredMax: 50
-    slopeMax: 60
+    slopeMin: 5
+    slopePreferredMin: 55
+    slopePreferredMax: 60
+    slopeMax: 70
     curvatureScale: 32
     convexRejectStart: 0
     convexRejectEnd: 0.2
