@@ -1,3 +1,6 @@
+using System.Collections.Generic;
+using UnityEngine;
+
 public static class TerrainAnalysisService
 {
     private static readonly TerrainAnalysisCache Cache =
@@ -33,16 +36,9 @@ public static class TerrainAnalysisService
             result.IsValid
         )
         {
-            generationRevision++;
-
-            if (generationRevision <= 0)
-            {
-                generationRevision = 1;
-            }
-
             layer.SetResult(
                 result,
-                generationRevision
+                NextGenerationRevision()
             );
 
             return layer;
@@ -55,6 +51,144 @@ public static class TerrainAnalysisService
         );
 
         return layer;
+    }
+
+    /*
+     * Called after the authoring preview has successfully recomposited a set
+     * of source height tiles.
+     *
+     * Each ready requested analysis layer expands that source set by its own
+     * dependency radius and regenerates only the affected analysis slices.
+     */
+    public static void NotifySourceTilesChanged(
+        IReadOnlyList<Vector2Int> changedSourceTiles
+    )
+    {
+        if (
+            changedSourceTiles == null ||
+            changedSourceTiles.Count == 0
+        )
+        {
+            return;
+        }
+
+        if (generator == null)
+        {
+            /*
+             * We know the source changed but cannot update cached analysis.
+             * Keep correctness by forcing full generation if a backend is
+             * registered and the layer is requested later.
+             */
+            InvalidateAll();
+            return;
+        }
+
+        List<TerrainAnalysisLayer> activeLayers =
+            new List<TerrainAnalysisLayer>(
+                Cache.Count
+            );
+
+        Cache.CopyLayers(
+            activeLayers
+        );
+
+        HashSet<Vector2Int> affectedTileSet =
+            new HashSet<Vector2Int>();
+
+        List<Vector2Int> affectedTiles =
+            new List<Vector2Int>();
+
+        for (
+            int layerIndex = 0;
+            layerIndex < activeLayers.Count;
+            layerIndex++
+        )
+        {
+            TerrainAnalysisLayer layer =
+                activeLayers[
+                    layerIndex
+                ];
+
+            if (
+                layer == null ||
+                !layer.IsReady
+            )
+            {
+                continue;
+            }
+
+            if (
+                !TerrainAnalysisDependencyUtility
+                    .TryGetDependencyRadiusMeters(
+                        layer.Key,
+                        layer.SampleSpacing,
+                        out float dependencyRadiusMeters
+                    )
+            )
+            {
+                layer.SetGenerationError(
+                    "No dependency radius is defined for terrain analysis " +
+                    layer.Key +
+                    "."
+                );
+
+                continue;
+            }
+
+            affectedTileSet.Clear();
+
+            TerrainAnalysisInvalidationUtility
+                .CollectAffectedTiles(
+                    layer,
+                    changedSourceTiles,
+                    dependencyRadiusMeters,
+                    affectedTileSet
+                );
+
+            if (affectedTileSet.Count == 0)
+            {
+                continue;
+            }
+
+            affectedTiles.Clear();
+
+            foreach (
+                Vector2Int tile
+                in affectedTileSet
+            )
+            {
+                affectedTiles.Add(
+                    tile
+                );
+            }
+
+            if (
+                generator.TryUpdateTiles(
+                    layer,
+                    affectedTiles,
+                    out string sourceSignature,
+                    out string errorMessage
+                )
+            )
+            {
+                layer.MarkIncrementalUpdate(
+                    sourceSignature,
+                    NextGenerationRevision()
+                );
+
+                continue;
+            }
+
+            /*
+             * Leave the old GPU texture allocated, but mark the layer stale.
+             * The next RequestLayer() will perform a complete regeneration.
+             */
+            layer.SetGenerationError(
+                string.IsNullOrEmpty(errorMessage)
+                    ? "Incremental terrain analysis update failed."
+                    : errorMessage
+            );
+        }
     }
 
     public static bool TryGetLayer(
@@ -119,5 +253,17 @@ public static class TerrainAnalysisService
 
         generator = null;
         InvalidateAll();
+    }
+
+    private static int NextGenerationRevision()
+    {
+        generationRevision++;
+
+        if (generationRevision <= 0)
+        {
+            generationRevision = 1;
+        }
+
+        return generationRevision;
     }
 }

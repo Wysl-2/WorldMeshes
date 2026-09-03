@@ -14,6 +14,13 @@ float2 _WorldSizeXZ;
 
 float _AnalysisScaleMeters;
 
+/*
+ * Full generation sets this to zero and dispatches every slice.
+ * Incremental generation sets this to the first target slice and dispatches
+ * only one or more contiguous requested slices.
+ */
+int _OutputSliceOffset;
+
 
 // =========================================================
 // HEIGHT CACHE ADDRESSING
@@ -155,16 +162,17 @@ bool TryGetOutputSample(
         _HeightCacheSize.x *
         _HeightCacheSize.y;
 
+    int slice =
+        _OutputSliceOffset +
+        (int)dispatchThreadId.z;
+
     if (
-        dispatchThreadId.z >=
-        (uint)max(sliceCount, 0)
+        slice < 0 ||
+        slice >= sliceCount
     )
     {
         return false;
     }
-
-    int slice =
-        (int)dispatchThreadId.z;
 
     int2 cacheLocalTile =
         int2(
@@ -222,7 +230,11 @@ bool TryGetOutputSample(
     }
 
     outputAddress =
-        dispatchThreadId;
+        uint3(
+            dispatchThreadId.x,
+            dispatchThreadId.y,
+            (uint)slice
+        );
 
     return true;
 }

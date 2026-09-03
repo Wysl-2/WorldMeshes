@@ -9,6 +9,7 @@ public readonly struct TerrainAnalysisGenerationResult
     public readonly float SampleSpacing;
     public readonly Vector2 WorldSizeXZ;
     public readonly string SourceSignature;
+    public readonly int SourceHeightCacheInstanceId;
 
     public TerrainAnalysisGenerationResult(
         RenderTexture texture,
@@ -17,7 +18,8 @@ public readonly struct TerrainAnalysisGenerationResult
         int samplesPerSide,
         float sampleSpacing,
         Vector2 worldSizeXZ,
-        string sourceSignature
+        string sourceSignature,
+        int sourceHeightCacheInstanceId
     )
     {
         Texture = texture;
@@ -27,6 +29,8 @@ public readonly struct TerrainAnalysisGenerationResult
         SampleSpacing = sampleSpacing;
         WorldSizeXZ = worldSizeXZ;
         SourceSignature = sourceSignature ?? "";
+        SourceHeightCacheInstanceId =
+            sourceHeightCacheInstanceId;
     }
 
     public int SliceCount
@@ -52,6 +56,7 @@ public readonly struct TerrainAnalysisGenerationResult
                 SampleSpacing > 0f &&
                 WorldSizeXZ.x > 0f &&
                 WorldSizeXZ.y > 0f &&
+                SourceHeightCacheInstanceId != 0 &&
                 Texture.width == SamplesPerSide &&
                 Texture.height == SamplesPerSide &&
                 Texture.volumeDepth == SliceCount;

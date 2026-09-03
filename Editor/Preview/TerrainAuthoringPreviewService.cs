@@ -40,6 +40,14 @@ public static class TerrainAuthoringPreviewService
 
     public static event System.Action PreviewStateChanged;
 
+    /*
+     * Fired only after a dirty composite-height transaction has
+     * completed successfully and the listed source tiles contain
+     * their final current authoring heights.
+     */
+    public static event System.Action<IReadOnlyList<Vector2Int>>
+        CompositeTilesUpdated;
+
     // =====================================================
     // EDITOR PREFERENCE
     // =====================================================
@@ -1708,6 +1716,14 @@ public static class TerrainAuthoringPreviewService
 
             overallSignatureAcknowledgementRequested =
                 false;
+
+            /*
+             * Analysis consumers need the exact successfully updated
+             * source tiles before the broader preview-state event.
+             */
+            CompositeTilesUpdated?.Invoke(
+                dirtySnapshot
+            );
 
             /*
              * The same RenderTexture object remains bound. Notify

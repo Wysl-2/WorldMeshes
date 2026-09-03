@@ -3,9 +3,8 @@ using System.Collections.Generic;
 /*
  * Owns all currently registered terrain-analysis layers.
  *
- * This cache is intentionally internal. Consumers request analysis through
- * TerrainAnalysisService rather than creating or managing cache entries
- * directly.
+ * Consumers request analysis through TerrainAnalysisService rather than
+ * creating or managing cache entries directly.
  */
 internal sealed class TerrainAnalysisCache
 {
@@ -66,6 +65,26 @@ internal sealed class TerrainAnalysisCache
                 key,
                 out layer
             );
+    }
+
+    public void CopyLayers(
+        ICollection<TerrainAnalysisLayer> output
+    )
+    {
+        if (output == null)
+        {
+            return;
+        }
+
+        foreach (
+            TerrainAnalysisLayer layer
+            in layers.Values
+        )
+        {
+            output.Add(
+                layer
+            );
+        }
     }
 
     public bool RemoveLayer(

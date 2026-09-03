@@ -14,6 +14,18 @@ public sealed class TerrainAnalysisLayer
     public Vector2 WorldSizeXZ { get; private set; }
 
     public string SourceSignature { get; private set; }
+
+    /*
+     * Identifies the exact TerrainAuthoringPreviewCache RenderTexture that
+     * generated this layer. Stage 3 uses this to prevent a partial update
+     * from being applied across a full source-cache replacement.
+     */
+    public int SourceHeightCacheInstanceId
+    {
+        get;
+        private set;
+    }
+
     public string ErrorMessage { get; private set; }
 
     public int SliceCount
@@ -49,6 +61,8 @@ public sealed class TerrainAnalysisLayer
         SampleSpacing = result.SampleSpacing;
         WorldSizeXZ = result.WorldSizeXZ;
         SourceSignature = result.SourceSignature;
+        SourceHeightCacheInstanceId =
+            result.SourceHeightCacheInstanceId;
         Revision = Mathf.Max(0, revision);
         IsReady = result.IsValid;
         ErrorMessage = "";
@@ -62,6 +76,28 @@ public sealed class TerrainAnalysisLayer
                 previousTexture
             );
         }
+    }
+
+    internal void MarkIncrementalUpdate(
+        string sourceSignature,
+        int revision
+    )
+    {
+        SourceSignature =
+            sourceSignature ?? "";
+
+        Revision =
+            Mathf.Max(
+                0,
+                revision
+            );
+
+        IsReady =
+            Texture != null &&
+            Texture.IsCreated();
+
+        ErrorMessage =
+            "";
     }
 
     internal void SetGenerationError(
@@ -93,6 +129,7 @@ public sealed class TerrainAnalysisLayer
         SampleSpacing = 0f;
         WorldSizeXZ = Vector2.zero;
         SourceSignature = "";
+        SourceHeightCacheInstanceId = 0;
         ErrorMessage = "";
     }
 
