@@ -471,6 +471,94 @@ public static class TerrainAuthoringPreviewService
             .TotalComputeDispatchCount;
 
 
+
+    // =====================================================
+    // TERRAIN ANALYSIS SOURCE ACCESS
+    // =====================================================
+
+    /*
+     * Narrow editor-only access for TerrainAnalysisGpuGenerator.
+     *
+     * PreviewService retains ownership of the height cache. Terrain Analysis
+     * receives only the current GPU source and immutable layout metadata
+     * required to generate derived analysis layers.
+     */
+    internal static bool TryGetTerrainAnalysisSource(
+        out RenderTexture heightCache,
+        out Vector2Int cacheOriginTile,
+        out Vector2Int cacheSize,
+        out int samplesPerSide,
+        out float sampleSpacing,
+        out Vector2 worldSizeXZ,
+        out string sourceSignature
+    )
+    {
+        heightCache = null;
+        cacheOriginTile = Vector2Int.zero;
+        cacheSize = Vector2Int.zero;
+        samplesPerSide = 0;
+        sampleSpacing = 0f;
+        worldSizeXZ = Vector2.zero;
+        sourceSignature = "";
+
+        if (
+            previewCache == null ||
+            !previewCache.IsReady
+        )
+        {
+            return false;
+        }
+
+        heightCache =
+            previewCache.HeightCache;
+
+        cacheOriginTile =
+            previewCache.CacheOriginTile;
+
+        cacheSize =
+            previewCache.CacheSize;
+
+        samplesPerSide =
+            previewCache.SamplesPerSide;
+
+        sampleSpacing =
+            previewCache.SampleSpacing;
+
+        worldSizeXZ =
+            previewCache.WorldSizeXZ;
+
+        string authoringSignature =
+            previewCache.SourceOverallAuthoringSignature;
+
+        if (
+            string.IsNullOrEmpty(
+                authoringSignature
+            )
+        )
+        {
+            authoringSignature =
+                previewCache.SourceCommittedHeightfieldSignature;
+        }
+
+        sourceSignature =
+            authoringSignature +
+            "|cache:" +
+            heightCache.GetInstanceID() +
+            "|updates:" +
+            previewCache.TotalIncrementalSliceUpdates;
+
+        return
+            heightCache != null &&
+            heightCache.IsCreated() &&
+            cacheSize.x > 0 &&
+            cacheSize.y > 0 &&
+            samplesPerSide > 1 &&
+            sampleSpacing > 0f &&
+            worldSizeXZ.x > 0f &&
+            worldSizeXZ.y > 0f;
+    }
+
+
     // =====================================================
     // STAGE 10 VALIDATION DIAGNOSTICS
     // =====================================================

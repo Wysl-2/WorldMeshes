@@ -1,0 +1,467 @@
+#pragma kernel GenerateSlope
+#pragma kernel GenerateCurvature
+
+Texture2DArray<float> _HeightCache;
+RWTexture2DArray<float> _AnalysisOutput;
+
+int2 _HeightCacheOriginTile;
+int2 _HeightCacheSize;
+
+int _SamplesPerSide;
+
+float _SampleSpacing;
+float2 _WorldSizeXZ;
+
+float _AnalysisScaleMeters;
+
+
+// =========================================================
+// HEIGHT CACHE ADDRESSING
+// =========================================================
+
+bool TrySampleTerrainHeight(
+    float2 worldXZ,
+    out float height
+)
+{
+    height = 0.0;
+
+    if (
+        _HeightCacheSize.x <= 0 ||
+        _HeightCacheSize.y <= 0 ||
+        _SamplesPerSide <= 1 ||
+        _SampleSpacing <= 0.0 ||
+        _WorldSizeXZ.x <= 0.0 ||
+        _WorldSizeXZ.y <= 0.0
+    )
+    {
+        return false;
+    }
+
+    float spacing =
+        max(
+            _SampleSpacing,
+            0.000001
+        );
+
+    int tileIntervals =
+        _SamplesPerSide -
+        1;
+
+    float2 clampedWorldXZ =
+        clamp(
+            worldXZ,
+            float2(0.0, 0.0),
+            _WorldSizeXZ
+        );
+
+    int2 globalSample =
+        (int2)floor(
+            clampedWorldXZ /
+            spacing +
+            0.5
+        );
+
+    int2 worldMaxSample =
+        (int2)floor(
+            _WorldSizeXZ /
+            spacing +
+            0.5
+        );
+
+    int2 totalTileCount =
+        (
+            worldMaxSample +
+            tileIntervals -
+            1
+        )
+        /
+        tileIntervals;
+
+    totalTileCount =
+        max(
+            totalTileCount,
+            int2(1, 1)
+        );
+
+    int2 tileCoordinate =
+        globalSample /
+        tileIntervals;
+
+    tileCoordinate =
+        min(
+            tileCoordinate,
+            totalTileCount - 1
+        );
+
+    int2 localSample =
+        globalSample -
+        tileCoordinate *
+        tileIntervals;
+
+    int2 cacheLocalTile =
+        tileCoordinate -
+        _HeightCacheOriginTile;
+
+    if (
+        cacheLocalTile.x < 0 ||
+        cacheLocalTile.y < 0 ||
+        cacheLocalTile.x >= _HeightCacheSize.x ||
+        cacheLocalTile.y >= _HeightCacheSize.y
+    )
+    {
+        return false;
+    }
+
+    int slice =
+        cacheLocalTile.x +
+        cacheLocalTile.y *
+        _HeightCacheSize.x;
+
+    height =
+        _HeightCache.Load(
+            int4(
+                localSample.x,
+                localSample.y,
+                slice,
+                0
+            )
+        );
+
+    return true;
+}
+
+
+bool TryGetOutputSample(
+    uint3 dispatchThreadId,
+    out uint3 outputAddress,
+    out float2 worldXZ,
+    out float centerHeight
+)
+{
+    outputAddress = uint3(0, 0, 0);
+    worldXZ = float2(0.0, 0.0);
+    centerHeight = 0.0;
+
+    if (
+        dispatchThreadId.x >= (uint)_SamplesPerSide ||
+        dispatchThreadId.y >= (uint)_SamplesPerSide
+    )
+    {
+        return false;
+    }
+
+    int sliceCount =
+        _HeightCacheSize.x *
+        _HeightCacheSize.y;
+
+    if (
+        dispatchThreadId.z >=
+        (uint)max(sliceCount, 0)
+    )
+    {
+        return false;
+    }
+
+    int slice =
+        (int)dispatchThreadId.z;
+
+    int2 cacheLocalTile =
+        int2(
+            slice % _HeightCacheSize.x,
+            slice / _HeightCacheSize.x
+        );
+
+    int2 tileCoordinate =
+        _HeightCacheOriginTile +
+        cacheLocalTile;
+
+    int tileIntervals =
+        _SamplesPerSide -
+        1;
+
+    float tileWorldSize =
+        tileIntervals *
+        _SampleSpacing;
+
+    worldXZ =
+        (float2)tileCoordinate *
+        tileWorldSize +
+        float2(
+            dispatchThreadId.x,
+            dispatchThreadId.y
+        )
+        *
+        _SampleSpacing;
+
+    float worldTolerance =
+        max(
+            abs(_SampleSpacing) *
+            0.001,
+            0.00001
+        );
+
+    if (
+        worldXZ.x < -worldTolerance ||
+        worldXZ.y < -worldTolerance ||
+        worldXZ.x > _WorldSizeXZ.x + worldTolerance ||
+        worldXZ.y > _WorldSizeXZ.y + worldTolerance
+    )
+    {
+        return false;
+    }
+
+    if (
+        !TrySampleTerrainHeight(
+            worldXZ,
+            centerHeight
+        )
+    )
+    {
+        return false;
+    }
+
+    outputAddress =
+        dispatchThreadId;
+
+    return true;
+}
+
+
+// =========================================================
+// SHARED NEIGHBOUR SAMPLING
+// =========================================================
+
+void SampleFourNeighbours(
+    float2 worldXZ,
+    float centerHeight,
+    float radius,
+    out float heightLeft,
+    out float heightRight,
+    out float heightBack,
+    out float heightForward
+)
+{
+    bool leftValid =
+        TrySampleTerrainHeight(
+            worldXZ -
+            float2(radius, 0.0),
+            heightLeft
+        );
+
+    bool rightValid =
+        TrySampleTerrainHeight(
+            worldXZ +
+            float2(radius, 0.0),
+            heightRight
+        );
+
+    bool backValid =
+        TrySampleTerrainHeight(
+            worldXZ -
+            float2(0.0, radius),
+            heightBack
+        );
+
+    bool forwardValid =
+        TrySampleTerrainHeight(
+            worldXZ +
+            float2(0.0, radius),
+            heightForward
+        );
+
+    if (!leftValid)
+    {
+        heightLeft = centerHeight;
+    }
+
+    if (!rightValid)
+    {
+        heightRight = centerHeight;
+    }
+
+    if (!backValid)
+    {
+        heightBack = centerHeight;
+    }
+
+    if (!forwardValid)
+    {
+        heightForward = centerHeight;
+    }
+}
+
+
+// =========================================================
+// SLOPE
+// =========================================================
+
+float CalculateSlopeDegrees(
+    float2 worldXZ,
+    float centerHeight
+)
+{
+    float spacing =
+        max(
+            _SampleSpacing,
+            0.000001
+        );
+
+    float heightLeft;
+    float heightRight;
+    float heightBack;
+    float heightForward;
+
+    SampleFourNeighbours(
+        worldXZ,
+        centerHeight,
+        spacing,
+        heightLeft,
+        heightRight,
+        heightBack,
+        heightForward
+    );
+
+    float3 normalWS =
+        normalize(
+            float3(
+                heightLeft -
+                heightRight,
+
+                2.0 *
+                spacing,
+
+                heightBack -
+                heightForward
+            )
+        );
+
+    float upDot =
+        saturate(
+            normalWS.y
+        );
+
+    return
+        degrees(
+            acos(
+                upDot
+            )
+        );
+}
+
+
+[numthreads(8, 8, 1)]
+void GenerateSlope(
+    uint3 dispatchThreadId :
+    SV_DispatchThreadID
+)
+{
+    uint3 outputAddress;
+    float2 worldXZ;
+    float centerHeight;
+
+    if (
+        !TryGetOutputSample(
+            dispatchThreadId,
+            outputAddress,
+            worldXZ,
+            centerHeight
+        )
+    )
+    {
+        return;
+    }
+
+    _AnalysisOutput[
+        outputAddress
+    ] =
+        CalculateSlopeDegrees(
+            worldXZ,
+            centerHeight
+        );
+}
+
+
+// =========================================================
+// CURVATURE
+// =========================================================
+
+float CalculateCurvature(
+    float2 worldXZ,
+    float centerHeight
+)
+{
+    float radius =
+        max(
+            _AnalysisScaleMeters,
+            max(
+                _SampleSpacing,
+                0.000001
+            )
+        );
+
+    float heightLeft;
+    float heightRight;
+    float heightBack;
+    float heightForward;
+
+    SampleFourNeighbours(
+        worldXZ,
+        centerHeight,
+        radius,
+        heightLeft,
+        heightRight,
+        heightBack,
+        heightForward
+    );
+
+    float neighbourAverage =
+        (
+            heightLeft +
+            heightRight +
+            heightBack +
+            heightForward
+        )
+        *
+        0.25;
+
+    return
+        (
+            centerHeight -
+            neighbourAverage
+        )
+        /
+        radius;
+}
+
+
+[numthreads(8, 8, 1)]
+void GenerateCurvature(
+    uint3 dispatchThreadId :
+    SV_DispatchThreadID
+)
+{
+    uint3 outputAddress;
+    float2 worldXZ;
+    float centerHeight;
+
+    if (
+        !TryGetOutputSample(
+            dispatchThreadId,
+            outputAddress,
+            worldXZ,
+            centerHeight
+        )
+    )
+    {
+        return;
+    }
+
+    _AnalysisOutput[
+        outputAddress
+    ] =
+        CalculateCurvature(
+            worldXZ,
+            centerHeight
+        );
+}

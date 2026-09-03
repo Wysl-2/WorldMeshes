@@ -1,40 +1,60 @@
-/*
- * Central public entry point for terrain analysis.
- *
- * Stage 1 only establishes the request/cache ownership contract. Requesting
- * a layer registers it and returns its stable TerrainAnalysisLayer object;
- * no slope or curvature data is generated yet.
- *
- * Later stages will extend this service with GPU generation, dirty-tile
- * invalidation, sampling, and readback without requiring consumers to own
- * those implementation details.
- *
- * This service contains no scree-, rock-, vegetation-, or biome-specific
- * logic. Those systems consume terrain analysis rather than becoming part
- * of it.
- */
 public static class TerrainAnalysisService
 {
     private static readonly TerrainAnalysisCache Cache =
         new TerrainAnalysisCache();
 
-    public static int ActiveLayerCount
-    {
-        get
-        {
-            return
-                Cache.Count;
-        }
-    }
+    private static ITerrainAnalysisGenerator generator;
+    private static int generationRevision;
+
+    public static int ActiveLayerCount => Cache.Count;
+    public static bool GeneratorAvailable => generator != null;
 
     public static TerrainAnalysisLayer RequestLayer(
         TerrainAnalysisKey key
     )
     {
-        return
-            Cache.GetOrCreateLayer(
-                key
+        TerrainAnalysisLayer layer =
+            Cache.GetOrCreateLayer(key);
+
+        if (
+            layer.IsReady ||
+            generator == null
+        )
+        {
+            return layer;
+        }
+
+        if (
+            generator.TryGenerate(
+                key,
+                out TerrainAnalysisGenerationResult result,
+                out string errorMessage
+            ) &&
+            result.IsValid
+        )
+        {
+            generationRevision++;
+
+            if (generationRevision <= 0)
+            {
+                generationRevision = 1;
+            }
+
+            layer.SetResult(
+                result,
+                generationRevision
             );
+
+            return layer;
+        }
+
+        layer.SetGenerationError(
+            string.IsNullOrEmpty(errorMessage)
+                ? "Terrain analysis generation failed."
+                : errorMessage
+        );
+
+        return layer;
     }
 
     public static bool TryGetLayer(
@@ -42,21 +62,17 @@ public static class TerrainAnalysisService
         out TerrainAnalysisLayer layer
     )
     {
-        return
-            Cache.TryGetLayer(
-                key,
-                out layer
-            );
+        return Cache.TryGetLayer(
+            key,
+            out layer
+        );
     }
 
     public static bool ReleaseLayer(
         TerrainAnalysisKey key
     )
     {
-        return
-            Cache.RemoveLayer(
-                key
-            );
+        return Cache.RemoveLayer(key);
     }
 
     public static void InvalidateAll()
@@ -67,5 +83,41 @@ public static class TerrainAnalysisService
     public static void Clear()
     {
         Cache.Clear();
+    }
+
+    public static void RegisterGenerator(
+        ITerrainAnalysisGenerator newGenerator
+    )
+    {
+        if (
+            ReferenceEquals(
+                generator,
+                newGenerator
+            )
+        )
+        {
+            return;
+        }
+
+        generator = newGenerator;
+        InvalidateAll();
+    }
+
+    public static void UnregisterGenerator(
+        ITerrainAnalysisGenerator existingGenerator
+    )
+    {
+        if (
+            !ReferenceEquals(
+                generator,
+                existingGenerator
+            )
+        )
+        {
+            return;
+        }
+
+        generator = null;
+        InvalidateAll();
     }
 }
