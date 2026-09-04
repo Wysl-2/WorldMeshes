@@ -41,6 +41,8 @@ public partial class WorldMeshesEditorWindow :
         }
 
         ClearSmoothingInteractiveState();
+
+        CancelStampSourceRemapInteractionOnDisable();
     }
 
     // =====================================================

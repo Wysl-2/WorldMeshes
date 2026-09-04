@@ -804,6 +804,10 @@ public partial class WorldMeshesEditorWindow :
             }
         }
 
+        DrawStampSourceRemapSettings(
+            stamp
+        );
+
         GUILayout.Space(
             5f
         );

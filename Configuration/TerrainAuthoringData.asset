@@ -27,7 +27,7 @@ MonoBehaviour:
   - rid: 3932701402812383301
   - rid: 3932701383432863811
   - rid: 3932701383432863812
-  authoringRevision: 900
+  authoringRevision: 937
   references:
     version: 2
     RefIds:
@@ -43,6 +43,9 @@ MonoBehaviour:
         rotationDegrees: 12.870743
         flipX: 1
         flipZ: 1
+        sourceInputMin: 0
+        sourceInputMax: 1
+        sourceGamma: 1
         heightDelta: 460.26907
         falloff: 0.3152609
         smoothingRadius: 6
@@ -59,6 +62,9 @@ MonoBehaviour:
         rotationDegrees: -0.24359131
         flipX: 0
         flipZ: 0
+        sourceInputMin: 0
+        sourceInputMax: 1
+        sourceGamma: 1
         heightDelta: 5
         falloff: 0.5
         smoothingRadius: 3
@@ -75,6 +81,9 @@ MonoBehaviour:
         rotationDegrees: 0
         flipX: 0
         flipZ: 0
+        sourceInputMin: 0
+        sourceInputMax: 1
+        sourceGamma: 1
         heightDelta: 80
         falloff: 0.6
         smoothingRadius: 6
@@ -91,6 +100,9 @@ MonoBehaviour:
         rotationDegrees: -30.058334
         flipX: 0
         flipZ: 0
+        sourceInputMin: 0
+        sourceInputMax: 1
+        sourceGamma: 1
         heightDelta: 80
         falloff: 0.25
         smoothingRadius: 0
@@ -107,6 +119,9 @@ MonoBehaviour:
         rotationDegrees: 0
         flipX: 0
         flipZ: 0
+        sourceInputMin: 0
+        sourceInputMax: 1
+        sourceGamma: 1
         heightDelta: 42.27927
         falloff: 0.25
         smoothingRadius: 0
@@ -123,6 +138,9 @@ MonoBehaviour:
         rotationDegrees: -0.24359131
         flipX: 0
         flipZ: 0
+        sourceInputMin: 0
+        sourceInputMax: 1
+        sourceGamma: 1
         heightDelta: 15
         falloff: 0.4151991
         smoothingRadius: 3
@@ -139,6 +157,9 @@ MonoBehaviour:
         rotationDegrees: -0.24359131
         flipX: 0
         flipZ: 0
+        sourceInputMin: 0
+        sourceInputMax: 1
+        sourceGamma: 1
         heightDelta: 15
         falloff: 0.5
         smoothingRadius: 3
@@ -155,6 +176,9 @@ MonoBehaviour:
         rotationDegrees: -0.24359131
         flipX: 0
         flipZ: 0
+        sourceInputMin: 0
+        sourceInputMax: 1
+        sourceGamma: 1
         heightDelta: 5
         falloff: 0.5
         smoothingRadius: 3
@@ -171,6 +195,9 @@ MonoBehaviour:
         rotationDegrees: -10.341797
         flipX: 0
         flipZ: 0
+        sourceInputMin: 0
+        sourceInputMax: 1
+        sourceGamma: 1
         heightDelta: 5
         falloff: 0.5
         smoothingRadius: 3
@@ -182,14 +209,17 @@ MonoBehaviour:
         enabled: 1
         blendMode: 0
         stampAsset: {fileID: 11400000, guid: 2c7ac9ef8cd5e71acbbc7220c5d909fb, type: 2}
-        positionXZ: {x: 4229.952, y: 3706.3682}
+        positionXZ: {x: 4328.3203, y: 3748.312}
         sizeXZ: {x: 4096, y: 4096}
         rotationDegrees: 13.543091
         flipX: 0
         flipZ: 0
+        sourceInputMin: 0
+        sourceInputMax: 1
+        sourceGamma: 1
         heightDelta: 180
         falloff: 0.5
-        smoothingRadius: 6
+        smoothingRadius: 4
         smoothingStrength: 1
     - rid: 8462234730159145044
       type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
@@ -203,6 +233,9 @@ MonoBehaviour:
         rotationDegrees: 0
         flipX: 0
         flipZ: 0
+        sourceInputMin: 0
+        sourceInputMax: 1
+        sourceGamma: 1
         heightDelta: 439.59436
         falloff: 0.2173241
         smoothingRadius: 40
