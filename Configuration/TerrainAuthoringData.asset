@@ -17,17 +17,17 @@ MonoBehaviour:
   importedHeightmap: {fileID: 0}
   heightModifiers:
   - rid: 8462234730159145042
-  - rid: 3932701354711842885
-  - rid: 3932701354711842886
   - rid: 8462234730159145044
   - rid: 3932701354711842884
   - rid: 3932701354711842890
-  - rid: 3932701354711842887
-  - rid: 3932701354711842888
   - rid: 3932701354711842889
+  - rid: 3932701402812383298
+  - rid: 3932701402812383299
+  - rid: 3932701402812383300
+  - rid: 3932701402812383301
   - rid: 3932701383432863811
   - rid: 3932701383432863812
-  authoringRevision: 781
+  authoringRevision: 885
   references:
     version: 2
     RefIds:
@@ -38,63 +38,12 @@ MonoBehaviour:
         enabled: 1
         blendMode: 0
         stampAsset: {fileID: 11400000, guid: 3294769e2ab8dfe33827d65044b6e4a6, type: 2}
-        positionXZ: {x: 3371.2126, y: 1446.9966}
-        sizeXZ: {x: 3000, y: 3000}
-        heightDelta: 450
+        positionXZ: {x: 2883.197, y: 1242.9371}
+        sizeXZ: {x: 3295.923, y: 3295.923}
+        rotationDegrees: 12.870743
+        heightDelta: 460.26907
         falloff: 0.6
         smoothingRadius: 6
-        smoothingStrength: 1
-    - rid: 3932701354711842885
-      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
-      data:
-        stableId: 8ccbcf3c73414eb79ac8bbfd1f3fc58a
-        enabled: 1
-        blendMode: 0
-        stampAsset: {fileID: 11400000, guid: 2c7ac9ef8cd5e71acbbc7220c5d909fb, type: 2}
-        positionXZ: {x: 3582.857, y: 3549.7961}
-        sizeXZ: {x: 1974.682, y: 1667.824}
-        heightDelta: 20
-        falloff: 0.6
-        smoothingRadius: 6
-        smoothingStrength: 1
-    - rid: 3932701354711842886
-      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
-      data:
-        stableId: 561bb46857494fc590240848d0465316
-        enabled: 1
-        blendMode: 0
-        stampAsset: {fileID: 11400000, guid: 2c7ac9ef8cd5e71acbbc7220c5d909fb, type: 2}
-        positionXZ: {x: 3575.7532, y: 2010.2915}
-        sizeXZ: {x: 1974.682, y: 1667.824}
-        heightDelta: 60
-        falloff: 0.6
-        smoothingRadius: 6
-        smoothingStrength: 1
-    - rid: 3932701354711842887
-      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
-      data:
-        stableId: aa2291f7458b40caad6b6aa8744c3ab4
-        enabled: 1
-        blendMode: 0
-        stampAsset: {fileID: 11400000, guid: a9087cb93b556a5e59715b23206e2c38, type: 2}
-        positionXZ: {x: 4599.6035, y: 2280.8984}
-        sizeXZ: {x: 2048, y: 2048}
-        heightDelta: 5
-        falloff: 0.25
-        smoothingRadius: 5
-        smoothingStrength: 1
-    - rid: 3932701354711842888
-      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
-      data:
-        stableId: 9fd0d0473db24021b5de55c469440fec
-        enabled: 1
-        blendMode: 0
-        stampAsset: {fileID: 11400000, guid: a9087cb93b556a5e59715b23206e2c38, type: 2}
-        positionXZ: {x: 3570.584, y: 3332.858}
-        sizeXZ: {x: 2048, y: 2048}
-        heightDelta: 5
-        falloff: 0.4
-        smoothingRadius: 3
         smoothingStrength: 1
     - rid: 3932701354711842889
       type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
@@ -103,9 +52,10 @@ MonoBehaviour:
         enabled: 1
         blendMode: 0
         stampAsset: {fileID: 11400000, guid: a9087cb93b556a5e59715b23206e2c38, type: 2}
-        positionXZ: {x: 5065.916, y: 3754.655}
-        sizeXZ: {x: 2048, y: 2048}
-        heightDelta: 3
+        positionXZ: {x: 3053.2832, y: 3084.4827}
+        sizeXZ: {x: 6113.16, y: 6023.166}
+        rotationDegrees: -0.24359131
+        heightDelta: 5
         falloff: 0.5
         smoothingRadius: 3
         smoothingStrength: 1
@@ -118,6 +68,7 @@ MonoBehaviour:
         stampAsset: {fileID: 11400000, guid: bc89c1bd317bce95e91c127f3b49c633, type: 2}
         positionXZ: {x: 4301.919, y: 1325.8009}
         sizeXZ: {x: 2619.001, y: 2638.389}
+        rotationDegrees: 0
         heightDelta: 80
         falloff: 0.6
         smoothingRadius: 6
@@ -129,8 +80,9 @@ MonoBehaviour:
         enabled: 1
         blendMode: 0
         stampAsset: {fileID: 11400000, guid: bc89c1bd317bce95e91c127f3b49c633, type: 2}
-        positionXZ: {x: 5254.245, y: 775.09564}
-        sizeXZ: {x: 1815.2578, y: 1689.7166}
+        positionXZ: {x: 5412.0938, y: 567.037}
+        sizeXZ: {x: 3014.9404, y: 2675.5923}
+        rotationDegrees: -30.058334
         heightDelta: 80
         falloff: 0.25
         smoothingRadius: 0
@@ -142,11 +94,68 @@ MonoBehaviour:
         enabled: 1
         blendMode: 0
         stampAsset: {fileID: 11400000, guid: bc89c1bd317bce95e91c127f3b49c633, type: 2}
-        positionXZ: {x: 5284.434, y: 5820.2773}
+        positionXZ: {x: 5248.093, y: 5471.47}
         sizeXZ: {x: 1815.2578, y: 1689.7166}
+        rotationDegrees: 0
         heightDelta: 42.27927
         falloff: 0.25
         smoothingRadius: 0
+        smoothingStrength: 1
+    - rid: 3932701402812383298
+      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
+      data:
+        stableId: 24b2512dce3c4b77831ec76cc5a8f5e3
+        enabled: 1
+        blendMode: 0
+        stampAsset: {fileID: 11400000, guid: a9087cb93b556a5e59715b23206e2c38, type: 2}
+        positionXZ: {x: 3105.1875, y: 4283.001}
+        sizeXZ: {x: 3373.8115, y: 3203.641}
+        rotationDegrees: -0.24359131
+        heightDelta: 15
+        falloff: 0.5
+        smoothingRadius: 3
+        smoothingStrength: 1
+    - rid: 3932701402812383299
+      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
+      data:
+        stableId: 83417566d4164e0bb672c6b3d40d9c78
+        enabled: 1
+        blendMode: 0
+        stampAsset: {fileID: 11400000, guid: a9087cb93b556a5e59715b23206e2c38, type: 2}
+        positionXZ: {x: 3106.3938, y: 1362.3564}
+        sizeXZ: {x: 3373.8115, y: 3203.641}
+        rotationDegrees: -0.24359131
+        heightDelta: 15
+        falloff: 0.5
+        smoothingRadius: 3
+        smoothingStrength: 1
+    - rid: 3932701402812383300
+      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
+      data:
+        stableId: 98d7ad6455964ee28aeece0107ca61c6
+        enabled: 1
+        blendMode: 0
+        stampAsset: {fileID: 11400000, guid: a9087cb93b556a5e59715b23206e2c38, type: 2}
+        positionXZ: {x: 5371.6357, y: 1650.4656}
+        sizeXZ: {x: 3373.8115, y: 3270.3398}
+        rotationDegrees: -0.24359131
+        heightDelta: 5
+        falloff: 0.5
+        smoothingRadius: 3
+        smoothingStrength: 1
+    - rid: 3932701402812383301
+      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
+      data:
+        stableId: 2f820d9412eb47b09d1904fadefe9a72
+        enabled: 1
+        blendMode: 0
+        stampAsset: {fileID: 11400000, guid: a9087cb93b556a5e59715b23206e2c38, type: 2}
+        positionXZ: {x: 5389.836, y: 4660.1646}
+        sizeXZ: {x: 3373.8115, y: 3270.3398}
+        rotationDegrees: -10.341797
+        heightDelta: 5
+        falloff: 0.5
+        smoothingRadius: 3
         smoothingStrength: 1
     - rid: 8462234730159145042
       type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
@@ -155,9 +164,10 @@ MonoBehaviour:
         enabled: 1
         blendMode: 0
         stampAsset: {fileID: 11400000, guid: 2c7ac9ef8cd5e71acbbc7220c5d909fb, type: 2}
-        positionXZ: {x: 4098.107, y: 3343.927}
+        positionXZ: {x: 4229.952, y: 3706.3682}
         sizeXZ: {x: 4096, y: 4096}
-        heightDelta: 302.30716
+        rotationDegrees: 13.543091
+        heightDelta: 180
         falloff: 0.5
         smoothingRadius: 6
         smoothingStrength: 1
@@ -168,9 +178,10 @@ MonoBehaviour:
         enabled: 1
         blendMode: 0
         stampAsset: {fileID: 11400000, guid: 3294769e2ab8dfe33827d65044b6e4a6, type: 2}
-        positionXZ: {x: 3456.4387, y: 4264.0264}
-        sizeXZ: {x: 3000, y: 3000}
-        heightDelta: 500
+        positionXZ: {x: 2842.2812, y: 4496.4697}
+        sizeXZ: {x: 3772.1252, y: 3566.2126}
+        rotationDegrees: 0
+        heightDelta: 439.59436
         falloff: 0.5
         smoothingRadius: 40
         smoothingStrength: 1

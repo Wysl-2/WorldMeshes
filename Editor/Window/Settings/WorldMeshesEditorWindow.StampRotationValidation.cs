@@ -213,10 +213,10 @@ public partial class WorldMeshesEditorWindow :
         EditorGUI.EndDisabledGroup();
 
         EditorGUILayout.HelpBox(
-            "Diagnostics only. These fixed-angle buttons use the normal " +
-            "TerrainAuthoringModifierService rotation mutation so Package 2 " +
-            "can be tested before Package 3 adds production rotation controls. " +
-            "They support normal Undo/Redo.",
+            "Diagnostics only. These fixed-angle shortcuts remain useful for " +
+            "exact oriented Scene-tool and compositor regression checks. " +
+            "Production rotation editing is available in the Terrain modifier " +
+            "inspector and the Stamp Scene tool. They support normal Undo/Redo.",
             MessageType.None
         );
     }

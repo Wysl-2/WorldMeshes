@@ -35,6 +35,15 @@ public sealed class TerrainStampEditorTool :
     private const float FalloffHandleTangentOffsetFraction =
         0.18f;
 
+    private const float RotationSnapDegrees =
+        15f;
+
+    private const float RotationHandleGapScaleMultiplier =
+        4f;
+
+    private const float RotationLabelOffsetScaleMultiplier =
+        1.5f;
+
     private int activeHandleControlId;
 
     private float activeHandlePlaneY =
@@ -1233,6 +1242,13 @@ public sealed class TerrainStampEditorTool :
             planeY
         );
 
+        DrawRotationHandle(
+            authoringData,
+            worldSettings,
+            stamp,
+            planeY
+        );
+
         DrawHeightDeltaHandle(
             authoringData,
             worldSettings,
@@ -1319,6 +1335,239 @@ public sealed class TerrainStampEditorTool :
 
         Handles.color =
             oldColor;
+    }
+
+    // =====================================================
+    // ROTATION
+    // =====================================================
+
+    private void DrawRotationHandle(
+        TerrainAuthoringData authoringData,
+        WorldSettings worldSettings,
+        TerrainStampModifier stamp,
+        float planeY
+    )
+    {
+        StampFootprint footprint =
+            GetStampFootprint(
+                stamp
+            );
+
+        Vector3 center =
+            ToWorldPosition(
+                footprint.CenterXZ,
+                planeY
+            );
+
+        float radius =
+            GetRotationHandleRadius(
+                footprint,
+                center
+            );
+
+        Quaternion currentRotation =
+            Quaternion.Euler(
+                0f,
+                stamp.RotationDegrees,
+                0f
+            );
+
+        float snapDegrees =
+            Event.current.shift
+                ? RotationSnapDegrees
+                : 0f;
+
+        int hotBefore =
+            GUIUtility.hotControl;
+
+        EditorGUI.BeginChangeCheck();
+
+        Quaternion editedRotation =
+            Handles.Disc(
+                currentRotation,
+                center,
+                Vector3.up,
+                radius,
+                false,
+                snapDegrees
+            );
+
+        bool changed =
+            EditorGUI.EndChangeCheck();
+
+        int hotAfter =
+            GUIUtility.hotControl;
+
+        if (
+            !UpdateHandleTransactionState(
+                hotBefore,
+                hotAfter,
+                planeY,
+                authoringData,
+                worldSettings,
+                stamp,
+                "Rotate Terrain Stamp Modifier"
+            )
+        )
+        {
+            return;
+        }
+
+        bool active =
+            IsActiveHandleControl(
+                hotBefore,
+                hotAfter
+            );
+
+        if (
+            changed
+            &&
+            active
+        )
+        {
+            float rotationDegrees =
+                GetSignedYRotationDegrees(
+                    editedRotation,
+                    stamp.RotationDegrees
+                );
+
+            ApplyInteractiveRotation(
+                rotationDegrees
+            );
+        }
+
+        if (active)
+        {
+            DrawRotationFeedback(
+                stamp,
+                planeY
+            );
+        }
+
+        CommitIfHandleReleased(
+            hotBefore,
+            hotAfter
+        );
+    }
+
+    private static float GetRotationHandleRadius(
+        StampFootprint footprint,
+        Vector3 center
+    )
+    {
+        float footprintRadius =
+            Mathf.Sqrt(
+                footprint.HalfWidth *
+                    footprint.HalfWidth
+                +
+                footprint.HalfDepth *
+                    footprint.HalfDepth
+            );
+
+        float screenGap =
+            GetHandleSize(
+                center
+            )
+            *
+            RotationHandleGapScaleMultiplier;
+
+        return
+            Mathf.Max(
+                0.01f,
+                footprintRadius +
+                    screenGap
+            );
+    }
+
+    private static float GetSignedYRotationDegrees(
+        Quaternion rotation,
+        float fallbackDegrees
+    )
+    {
+        Vector3 forward =
+            rotation *
+            Vector3.forward;
+
+        Vector2 horizontalForward =
+            new Vector2(
+                forward.x,
+                forward.z
+            );
+
+        if (
+            horizontalForward.sqrMagnitude <=
+                0.00000001f
+        )
+        {
+            return
+                TerrainStampTransformUtility
+                    .NormalizeRotationDegrees(
+                        fallbackDegrees
+                    );
+        }
+
+        float rotationDegrees =
+            Mathf.Atan2(
+                horizontalForward.x,
+                horizontalForward.y
+            )
+            *
+            Mathf.Rad2Deg;
+
+        return
+            TerrainStampTransformUtility
+                .NormalizeRotationDegrees(
+                    rotationDegrees
+                );
+    }
+
+    private static void DrawRotationFeedback(
+        TerrainStampModifier stamp,
+        float planeY
+    )
+    {
+        StampFootprint footprint =
+            GetStampFootprint(
+                stamp
+            );
+
+        Vector3 center =
+            ToWorldPosition(
+                footprint.CenterXZ,
+                planeY
+            );
+
+        float radius =
+            GetRotationHandleRadius(
+                footprint,
+                center
+            );
+
+        float labelOffset =
+            GetHandleSize(
+                center
+            )
+            *
+            RotationLabelOffsetScaleMultiplier;
+
+        Vector3 forward =
+            ToWorldDirection(
+                footprint.ForwardXZ
+            );
+
+        Vector3 labelPosition =
+            center +
+            forward *
+                (
+                    radius +
+                    labelOffset
+                );
+
+        Handles.Label(
+            labelPosition,
+            $"Rotation {stamp.RotationDegrees:0.#}°",
+            EditorStyles.miniBoldLabel
+        );
     }
 
     // =====================================================
@@ -2331,6 +2580,33 @@ public sealed class TerrainStampEditorTool :
             !TerrainAuthoringModifierService
                 .UpdateInteractiveStampFalloff(
                     falloff,
+                    out string updateError
+                )
+        )
+        {
+            toolErrorMessage =
+                updateError;
+
+            CancelActiveHandleEdit();
+
+            return;
+        }
+
+        toolErrorMessage =
+            "";
+
+        TerrainAuthoringModifierSelection
+            .NotifyModifierDataChanged();
+    }
+
+    private void ApplyInteractiveRotation(
+        float rotationDegrees
+    )
+    {
+        if (
+            !TerrainAuthoringModifierService
+                .UpdateInteractiveStampRotation(
+                    rotationDegrees,
                     out string updateError
                 )
         )

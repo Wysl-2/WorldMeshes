@@ -691,6 +691,46 @@ public partial class WorldMeshesEditorWindow :
             }
         }
 
+        float editedRotation =
+            EditorGUILayout.DelayedFloatField(
+                "Rotation",
+                stamp.RotationDegrees
+            );
+
+        float normalizedRotation =
+            TerrainStampTransformUtility
+                .NormalizeRotationDegrees(
+                    editedRotation
+                );
+
+        if (
+            !Mathf.Approximately(
+                normalizedRotation,
+                stamp.RotationDegrees
+            )
+        )
+        {
+            if (
+                TerrainAuthoringModifierService
+                    .SetStampRotationDegrees(
+                        terrainAuthoringData,
+                        worldSettings,
+                        stamp.StableId,
+                        normalizedRotation,
+                        out string rotationError
+                    )
+            )
+            {
+                OnModifierMutationSucceeded();
+            }
+            else
+            {
+                SetModifierAuthoringError(
+                    rotationError
+                );
+            }
+        }
+
         float heightDelta =
             EditorGUILayout.DelayedFloatField(
                 "Height Delta",
