@@ -45,6 +45,14 @@ public sealed class TerrainStampEditorTool :
     private float activeResizeAspectRatio =
         1f;
 
+    /*
+     * Resize calculations are always evaluated from the immutable transform
+     * captured when the handle first becomes hot. Handle drawing still uses
+     * the current live footprint, avoiding cumulative drift while preserving
+     * normal Unity handle feedback.
+     */
+    private StampFootprint activeResizeInitialFootprint;
+
     private Vector2 lastFootprintSelectionClickPosition =
         new Vector2(
             float.NaN,
@@ -618,72 +626,72 @@ public sealed class TerrainStampEditorTool :
                 stamp
             );
 
-        Vector3 minimumMinimum =
-            new Vector3(
-                footprint.MinimumX,
-                planeY,
-                footprint.MinimumZ
+        Vector3 p0 =
+            GetCornerPosition(
+                footprint,
+                StampCorner.MinimumXMinimumZ,
+                planeY
             );
 
-        Vector3 maximumMinimum =
-            new Vector3(
-                footprint.MaximumX,
-                planeY,
-                footprint.MinimumZ
+        Vector3 p1 =
+            GetCornerPosition(
+                footprint,
+                StampCorner.MaximumXMinimumZ,
+                planeY
             );
 
-        Vector3 maximumMaximum =
-            new Vector3(
-                footprint.MaximumX,
-                planeY,
-                footprint.MaximumZ
+        Vector3 p2 =
+            GetCornerPosition(
+                footprint,
+                StampCorner.MaximumXMaximumZ,
+                planeY
             );
 
-        Vector3 minimumMaximum =
-            new Vector3(
-                footprint.MinimumX,
-                planeY,
-                footprint.MaximumZ
+        Vector3 p3 =
+            GetCornerPosition(
+                footprint,
+                StampCorner.MinimumXMaximumZ,
+                planeY
             );
 
         float edgeDistance =
             Mathf.Min(
                 HandleUtility.DistanceToLine(
-                    minimumMinimum,
-                    maximumMinimum
+                    p0,
+                    p1
                 ),
                 HandleUtility.DistanceToLine(
-                    maximumMinimum,
-                    maximumMaximum
+                    p1,
+                    p2
                 ),
                 HandleUtility.DistanceToLine(
-                    maximumMaximum,
-                    minimumMaximum
+                    p2,
+                    p3
                 ),
                 HandleUtility.DistanceToLine(
-                    minimumMaximum,
-                    minimumMinimum
+                    p3,
+                    p0
                 )
             );
 
         Vector3 gui0 =
             HandleUtility.WorldToGUIPointWithDepth(
-                minimumMinimum
+                p0
             );
 
         Vector3 gui1 =
             HandleUtility.WorldToGUIPointWithDepth(
-                maximumMinimum
+                p1
             );
 
         Vector3 gui2 =
             HandleUtility.WorldToGUIPointWithDepth(
-                maximumMaximum
+                p2
             );
 
         Vector3 gui3 =
             HandleUtility.WorldToGUIPointWithDepth(
-                minimumMaximum
+                p3
             );
 
         if (
@@ -795,31 +803,31 @@ public sealed class TerrainStampEditorTool :
             );
 
         Vector3 p0 =
-            new Vector3(
-                footprint.MinimumX,
-                planeY,
-                footprint.MinimumZ
+            GetCornerPosition(
+                footprint,
+                StampCorner.MinimumXMinimumZ,
+                planeY
             );
 
         Vector3 p1 =
-            new Vector3(
-                footprint.MaximumX,
-                planeY,
-                footprint.MinimumZ
+            GetCornerPosition(
+                footprint,
+                StampCorner.MaximumXMinimumZ,
+                planeY
             );
 
         Vector3 p2 =
-            new Vector3(
-                footprint.MaximumX,
-                planeY,
-                footprint.MaximumZ
+            GetCornerPosition(
+                footprint,
+                StampCorner.MaximumXMaximumZ,
+                planeY
             );
 
         Vector3 p3 =
-            new Vector3(
-                footprint.MinimumX,
-                planeY,
-                footprint.MaximumZ
+            GetCornerPosition(
+                footprint,
+                StampCorner.MinimumXMaximumZ,
+                planeY
             );
 
         Color oldColor =
@@ -929,10 +937,9 @@ public sealed class TerrainStampEditorTool :
                 );
 
             Vector3 labelPosition =
-                new Vector3(
-                    footprint.CenterX,
-                    planeY,
-                    footprint.CenterZ
+                ToWorldPosition(
+                    footprint.CenterXZ,
+                    planeY
                 );
 
             Handles.Label(
@@ -977,10 +984,19 @@ public sealed class TerrainStampEditorTool :
         if (collapsed)
         {
             Vector3 center =
-                new Vector3(
-                    outer.CenterX,
-                    planeY,
-                    outer.CenterZ
+                ToWorldPosition(
+                    outer.CenterXZ,
+                    planeY
+                );
+
+            Vector3 right =
+                ToWorldDirection(
+                    outer.RightXZ
+                );
+
+            Vector3 forward =
+                ToWorldDirection(
+                    outer.ForwardXZ
                 );
 
             float markerSize =
@@ -995,19 +1011,19 @@ public sealed class TerrainStampEditorTool :
 
             Handles.DrawLine(
                 center -
-                    Vector3.right *
+                    right *
                     markerSize,
                 center +
-                    Vector3.right *
+                    right *
                     markerSize
             );
 
             Handles.DrawLine(
                 center -
-                    Vector3.forward *
+                    forward *
                     markerSize,
                 center +
-                    Vector3.forward *
+                    forward *
                     markerSize
             );
         }
@@ -1089,12 +1105,19 @@ public sealed class TerrainStampEditorTool :
 
             StampFootprint tileFootprint =
                 new StampFootprint(
-                    minimumX,
-                    minimumX +
+                    new Vector2(
+                        minimumX +
+                            tileWorldSize *
+                            0.5f,
+                        minimumZ +
+                            tileWorldSize *
+                            0.5f
+                    ),
+                    new Vector2(
                         tileWorldSize,
-                    minimumZ,
-                    minimumZ +
                         tileWorldSize
+                    ),
+                    0f
                 );
 
             DrawFootprintOutline(
@@ -1115,31 +1138,31 @@ public sealed class TerrainStampEditorTool :
     )
     {
         Vector3 p0 =
-            new Vector3(
-                footprint.MinimumX,
-                planeY,
-                footprint.MinimumZ
+            GetCornerPosition(
+                footprint,
+                StampCorner.MinimumXMinimumZ,
+                planeY
             );
 
         Vector3 p1 =
-            new Vector3(
-                footprint.MaximumX,
-                planeY,
-                footprint.MinimumZ
+            GetCornerPosition(
+                footprint,
+                StampCorner.MaximumXMinimumZ,
+                planeY
             );
 
         Vector3 p2 =
-            new Vector3(
-                footprint.MaximumX,
-                planeY,
-                footprint.MaximumZ
+            GetCornerPosition(
+                footprint,
+                StampCorner.MaximumXMaximumZ,
+                planeY
             );
 
         Vector3 p3 =
-            new Vector3(
-                footprint.MinimumX,
-                planeY,
-                footprint.MaximumZ
+            GetCornerPosition(
+                footprint,
+                StampCorner.MinimumXMaximumZ,
+                planeY
             );
 
         if (dotted)
@@ -1314,11 +1337,22 @@ public sealed class TerrainStampEditorTool :
                 stamp
             );
 
+        Vector3 right =
+            ToWorldDirection(
+                footprint.RightXZ
+            );
+
+        Vector3 forward =
+            ToWorldDirection(
+                footprint.ForwardXZ
+            );
+
         Vector3 footprintEdge =
-            new Vector3(
-                footprint.MaximumX,
-                planeY,
-                footprint.CenterZ
+            ToWorldPosition(
+                footprint.GetEdgeCenterXZ(
+                    StampEdge.MaximumX
+                ),
+                planeY
             );
 
         float baseHandleSize =
@@ -1328,7 +1362,7 @@ public sealed class TerrainStampEditorTool :
 
         Vector3 handleBase =
             footprintEdge +
-            Vector3.right *
+            right *
                 baseHandleSize *
                 3f;
 
@@ -1369,25 +1403,25 @@ public sealed class TerrainStampEditorTool :
 
         Handles.DrawLine(
             handleBase -
-                Vector3.forward *
+                forward *
                 tickSize,
             handleBase +
-                Vector3.forward *
+                forward *
                 tickSize
         );
 
         Handles.DrawLine(
             handlePosition -
-                Vector3.forward *
+                forward *
                 tickSize,
             handlePosition +
-                Vector3.forward *
+                forward *
                 tickSize
         );
 
         Handles.Label(
             handleBase +
-                Vector3.right *
+                right *
                 baseHandleSize,
             "0 m",
             EditorStyles.miniLabel
@@ -1395,7 +1429,7 @@ public sealed class TerrainStampEditorTool :
 
         Handles.Label(
             handlePosition +
-                Vector3.right *
+                right *
                 handleSize,
             $"ΔH {stamp.HeightDelta:+0.##;-0.##;0} m",
             EditorStyles.miniBoldLabel
@@ -1480,10 +1514,9 @@ public sealed class TerrainStampEditorTool :
             );
 
         Vector3 center =
-            new Vector3(
-                footprint.CenterX,
-                planeY,
-                footprint.CenterZ
+            ToWorldPosition(
+                footprint.CenterXZ,
+                planeY
             );
 
         float handleSize =
@@ -1572,55 +1605,22 @@ public sealed class TerrainStampEditorTool :
                 stamp
             );
 
-        Vector3 handlePosition;
-        Vector3 direction;
+        Vector3 handlePosition =
+            ToWorldPosition(
+                footprint.GetEdgeCenterXZ(
+                    edge
+                ),
+                planeY
+            );
 
-        switch (edge)
-        {
-            case StampEdge.MinimumX:
-                handlePosition =
-                    new Vector3(
-                        footprint.MinimumX,
-                        planeY,
-                        footprint.CenterZ
-                    );
-                direction =
-                    Vector3.right;
-                break;
-
-            case StampEdge.MaximumX:
-                handlePosition =
-                    new Vector3(
-                        footprint.MaximumX,
-                        planeY,
-                        footprint.CenterZ
-                    );
-                direction =
-                    Vector3.right;
-                break;
-
-            case StampEdge.MinimumZ:
-                handlePosition =
-                    new Vector3(
-                        footprint.CenterX,
-                        planeY,
-                        footprint.MinimumZ
-                    );
-                direction =
-                    Vector3.forward;
-                break;
-
-            default:
-                handlePosition =
-                    new Vector3(
-                        footprint.CenterX,
-                        planeY,
-                        footprint.MaximumZ
-                    );
-                direction =
-                    Vector3.forward;
-                break;
-        }
+        Vector3 direction =
+            ToWorldDirection(
+                IsXEdge(
+                    edge
+                )
+                    ? footprint.RightXZ
+                    : footprint.ForwardXZ
+            );
 
         float handleSize =
             GetHandleSize(
@@ -1672,16 +1672,18 @@ public sealed class TerrainStampEditorTool :
             )
         )
         {
-            Vector2 position;
-            Vector2 size;
+            StampFootprint source =
+                GetActiveResizeSourceFootprint(
+                    stamp
+                );
 
             CalculateEdgeFootprint(
-                footprint,
+                source,
                 edge,
                 moved,
                 Event.current.alt,
-                out position,
-                out size
+                out Vector2 position,
+                out Vector2 size
             );
 
             ApplyInteractiveFootprint(
@@ -1730,8 +1732,12 @@ public sealed class TerrainStampEditorTool :
             Handles.Slider2D(
                 handlePosition,
                 Vector3.up,
-                Vector3.right,
-                Vector3.forward,
+                ToWorldDirection(
+                    footprint.RightXZ
+                ),
+                ToWorldDirection(
+                    footprint.ForwardXZ
+                ),
                 handleSize,
                 Handles.CubeHandleCap,
                 Vector2.zero,
@@ -1769,11 +1775,13 @@ public sealed class TerrainStampEditorTool :
             )
         )
         {
-            Vector2 position;
-            Vector2 size;
+            StampFootprint source =
+                GetActiveResizeSourceFootprint(
+                    stamp
+                );
 
             CalculateCornerFootprint(
-                footprint,
+                source,
                 corner,
                 moved,
                 Event.current.alt,
@@ -1781,8 +1789,8 @@ public sealed class TerrainStampEditorTool :
                 GetActiveResizeAspectRatio(
                     stamp
                 ),
-                out position,
-                out size
+                out Vector2 position,
+                out Vector2 size
             );
 
             ApplyInteractiveFootprint(
@@ -1877,13 +1885,13 @@ public sealed class TerrainStampEditorTool :
             );
 
         Vector3 direction =
-            (
-                edge == StampEdge.MinimumX
-                ||
-                edge == StampEdge.MaximumX
-            )
-                ? Vector3.right
-                : Vector3.forward;
+            ToWorldDirection(
+                IsXEdge(
+                    edge
+                )
+                    ? outer.RightXZ
+                    : outer.ForwardXZ
+            );
 
         float handleSize =
             GetHandleSize(
@@ -1969,44 +1977,50 @@ public sealed class TerrainStampEditorTool :
             outer.Depth *
             FalloffHandleTangentOffsetFraction;
 
+        Vector2 localPosition;
+
         switch (edge)
         {
             case StampEdge.MinimumX:
-                return
-                    new Vector3(
-                        inner.MinimumX,
-                        planeY,
-                        inner.CenterZ +
-                            tangentOffsetZ
+                localPosition =
+                    new Vector2(
+                        -inner.HalfWidth,
+                        tangentOffsetZ
                     );
+                break;
 
             case StampEdge.MaximumX:
-                return
-                    new Vector3(
-                        inner.MaximumX,
-                        planeY,
-                        inner.CenterZ -
-                            tangentOffsetZ
+                localPosition =
+                    new Vector2(
+                        inner.HalfWidth,
+                        -tangentOffsetZ
                     );
+                break;
 
             case StampEdge.MinimumZ:
-                return
-                    new Vector3(
-                        inner.CenterX -
-                            tangentOffsetX,
-                        planeY,
-                        inner.MinimumZ
+                localPosition =
+                    new Vector2(
+                        -tangentOffsetX,
+                        -inner.HalfDepth
                     );
+                break;
 
             default:
-                return
-                    new Vector3(
-                        inner.CenterX +
-                            tangentOffsetX,
-                        planeY,
-                        inner.MaximumZ
+                localPosition =
+                    new Vector2(
+                        tangentOffsetX,
+                        inner.HalfDepth
                     );
+                break;
         }
+
+        return
+            ToWorldPosition(
+                outer.LocalToWorldXZ(
+                    localPosition
+                ),
+                planeY
+            );
     }
 
     private static float CalculateFalloffFromHandle(
@@ -2015,6 +2029,14 @@ public sealed class TerrainStampEditorTool :
         Vector3 moved
     )
     {
+        Vector2 local =
+            outer.WorldToLocalXZ(
+                new Vector2(
+                    moved.x,
+                    moved.z
+                )
+            );
+
         float falloff;
 
         switch (edge)
@@ -2022,8 +2044,8 @@ public sealed class TerrainStampEditorTool :
             case StampEdge.MinimumX:
                 falloff =
                     (
-                        moved.x -
-                        outer.MinimumX
+                        local.x +
+                        outer.HalfWidth
                     )
                     *
                     2f
@@ -2037,8 +2059,8 @@ public sealed class TerrainStampEditorTool :
             case StampEdge.MaximumX:
                 falloff =
                     (
-                        outer.MaximumX -
-                        moved.x
+                        outer.HalfWidth -
+                        local.x
                     )
                     *
                     2f
@@ -2052,8 +2074,8 @@ public sealed class TerrainStampEditorTool :
             case StampEdge.MinimumZ:
                 falloff =
                     (
-                        moved.z -
-                        outer.MinimumZ
+                        local.y +
+                        outer.HalfDepth
                     )
                     *
                     2f
@@ -2067,8 +2089,8 @@ public sealed class TerrainStampEditorTool :
             default:
                 falloff =
                     (
-                        outer.MaximumZ -
-                        moved.z
+                        outer.HalfDepth -
+                        local.y
                     )
                     *
                     2f
@@ -2137,17 +2159,21 @@ public sealed class TerrainStampEditorTool :
 
             if (captureResizeState)
             {
-                Vector2 size =
-                    stamp.SizeXZ;
+                activeResizeInitialFootprint =
+                    GetStampFootprint(
+                        stamp
+                    );
 
                 activeResizeAspectRatio =
                     Mathf.Max(
                         0.000001f,
-                        size.x
+                        activeResizeInitialFootprint
+                            .Width
                         /
                         Mathf.Max(
                             0.000001f,
-                            size.y
+                            activeResizeInitialFootprint
+                                .Depth
                         )
                     );
 
@@ -2213,6 +2239,22 @@ public sealed class TerrainStampEditorTool :
             );
     }
 
+    private StampFootprint GetActiveResizeSourceFootprint(
+        TerrainStampModifier stamp
+    )
+    {
+        if (activeResizeStateValid)
+        {
+            return
+                activeResizeInitialFootprint;
+        }
+
+        return
+            GetStampFootprint(
+                stamp
+            );
+    }
+
     private void ResetActiveResizeState()
     {
         activeResizeStateValid =
@@ -2220,6 +2262,9 @@ public sealed class TerrainStampEditorTool :
 
         activeResizeAspectRatio =
             1f;
+
+        activeResizeInitialFootprint =
+            default;
     }
 
     private void ApplyInteractiveFootprint(
@@ -2442,30 +2487,11 @@ public sealed class TerrainStampEditorTool :
         TerrainStampModifier stamp
     )
     {
-        Vector2 position =
-            stamp.PositionXZ;
-
-        Vector2 size =
-            stamp.SizeXZ;
-
-        float halfX =
-            size.x *
-            0.5f;
-
-        float halfZ =
-            size.y *
-            0.5f;
-
         return
             new StampFootprint(
-                position.x -
-                    halfX,
-                position.x +
-                    halfX,
-                position.y -
-                    halfZ,
-                position.y +
-                    halfZ
+                stamp.PositionXZ,
+                stamp.SizeXZ,
+                stamp.RotationDegrees
             );
     }
 
@@ -2483,26 +2509,18 @@ public sealed class TerrainStampEditorTool :
                 stamp.Falloff
             );
 
-        float insetX =
-            outer.Width *
-            falloff *
-            0.5f;
-
-        float insetZ =
-            outer.Depth *
-            falloff *
-            0.5f;
+        Vector2 innerSize =
+            outer.SizeXZ *
+            (
+                1f -
+                falloff
+            );
 
         return
             new StampFootprint(
-                outer.MinimumX +
-                    insetX,
-                outer.MaximumX -
-                    insetX,
-                outer.MinimumZ +
-                    insetZ,
-                outer.MaximumZ -
-                    insetZ
+                outer.CenterXZ,
+                innerSize,
+                outer.RotationDegrees
             );
     }
 
@@ -2515,17 +2533,25 @@ public sealed class TerrainStampEditorTool :
         out Vector2 size
     )
     {
+        Vector2 movedLocal =
+            source.WorldToLocalXZ(
+                new Vector2(
+                    moved.x,
+                    moved.z
+                )
+            );
+
         float minimumX =
-            source.MinimumX;
+            -source.HalfWidth;
 
         float maximumX =
-            source.MaximumX;
+            source.HalfWidth;
 
         float minimumZ =
-            source.MinimumZ;
+            -source.HalfDepth;
 
         float maximumZ =
-            source.MaximumZ;
+            source.HalfDepth;
 
         if (symmetric)
         {
@@ -2540,16 +2566,13 @@ public sealed class TerrainStampEditorTool :
                     float halfSize =
                         Mathf.Max(
                             minimumHalfSize,
-                            source.CenterX -
-                                moved.x
+                            -movedLocal.x
                         );
 
                     minimumX =
-                        source.CenterX -
-                        halfSize;
+                        -halfSize;
 
                     maximumX =
-                        source.CenterX +
                         halfSize;
 
                     break;
@@ -2560,16 +2583,13 @@ public sealed class TerrainStampEditorTool :
                     float halfSize =
                         Mathf.Max(
                             minimumHalfSize,
-                            moved.x -
-                                source.CenterX
+                            movedLocal.x
                         );
 
                     minimumX =
-                        source.CenterX -
-                        halfSize;
+                        -halfSize;
 
                     maximumX =
-                        source.CenterX +
                         halfSize;
 
                     break;
@@ -2580,16 +2600,13 @@ public sealed class TerrainStampEditorTool :
                     float halfSize =
                         Mathf.Max(
                             minimumHalfSize,
-                            source.CenterZ -
-                                moved.z
+                            -movedLocal.y
                         );
 
                     minimumZ =
-                        source.CenterZ -
-                        halfSize;
+                        -halfSize;
 
                     maximumZ =
-                        source.CenterZ +
                         halfSize;
 
                     break;
@@ -2600,16 +2617,13 @@ public sealed class TerrainStampEditorTool :
                     float halfSize =
                         Mathf.Max(
                             minimumHalfSize,
-                            moved.z -
-                                source.CenterZ
+                            movedLocal.y
                         );
 
                     minimumZ =
-                        source.CenterZ -
-                        halfSize;
+                        -halfSize;
 
                     maximumZ =
-                        source.CenterZ +
                         halfSize;
 
                     break;
@@ -2623,7 +2637,7 @@ public sealed class TerrainStampEditorTool :
                 case StampEdge.MinimumX:
                     minimumX =
                         Mathf.Min(
-                            moved.x,
+                            movedLocal.x,
                             maximumX -
                                 MinimumStampSize
                         );
@@ -2632,7 +2646,7 @@ public sealed class TerrainStampEditorTool :
                 case StampEdge.MaximumX:
                     maximumX =
                         Mathf.Max(
-                            moved.x,
+                            movedLocal.x,
                             minimumX +
                                 MinimumStampSize
                         );
@@ -2641,7 +2655,7 @@ public sealed class TerrainStampEditorTool :
                 case StampEdge.MinimumZ:
                     minimumZ =
                         Mathf.Min(
-                            moved.z,
+                            movedLocal.y,
                             maximumZ -
                                 MinimumStampSize
                         );
@@ -2650,7 +2664,7 @@ public sealed class TerrainStampEditorTool :
                 case StampEdge.MaximumZ:
                     maximumZ =
                         Mathf.Max(
-                            moved.z,
+                            movedLocal.y,
                             minimumZ +
                                 MinimumStampSize
                         );
@@ -2658,7 +2672,8 @@ public sealed class TerrainStampEditorTool :
             }
         }
 
-        ConvertBoundsToFootprint(
+        ConvertLocalBoundsToFootprint(
+            source,
             minimumX,
             maximumX,
             minimumZ,
@@ -2694,31 +2709,39 @@ public sealed class TerrainStampEditorTool :
             return;
         }
 
+        Vector2 movedLocal =
+            source.WorldToLocalXZ(
+                new Vector2(
+                    moved.x,
+                    moved.z
+                )
+            );
+
         float minimumX =
-            source.MinimumX;
+            -source.HalfWidth;
 
         float maximumX =
-            source.MaximumX;
+            source.HalfWidth;
 
         float minimumZ =
-            source.MinimumZ;
+            -source.HalfDepth;
 
         float maximumZ =
-            source.MaximumZ;
+            source.HalfDepth;
 
         switch (corner)
         {
             case StampCorner.MinimumXMinimumZ:
                 minimumX =
                     Mathf.Min(
-                        moved.x,
+                        movedLocal.x,
                         maximumX -
                             MinimumStampSize
                     );
 
                 minimumZ =
                     Mathf.Min(
-                        moved.z,
+                        movedLocal.y,
                         maximumZ -
                             MinimumStampSize
                     );
@@ -2727,14 +2750,14 @@ public sealed class TerrainStampEditorTool :
             case StampCorner.MaximumXMinimumZ:
                 maximumX =
                     Mathf.Max(
-                        moved.x,
+                        movedLocal.x,
                         minimumX +
                             MinimumStampSize
                     );
 
                 minimumZ =
                     Mathf.Min(
-                        moved.z,
+                        movedLocal.y,
                         maximumZ -
                             MinimumStampSize
                     );
@@ -2743,14 +2766,14 @@ public sealed class TerrainStampEditorTool :
             case StampCorner.MaximumXMaximumZ:
                 maximumX =
                     Mathf.Max(
-                        moved.x,
+                        movedLocal.x,
                         minimumX +
                             MinimumStampSize
                     );
 
                 maximumZ =
                     Mathf.Max(
-                        moved.z,
+                        movedLocal.y,
                         minimumZ +
                             MinimumStampSize
                     );
@@ -2759,14 +2782,14 @@ public sealed class TerrainStampEditorTool :
             case StampCorner.MinimumXMaximumZ:
                 minimumX =
                     Mathf.Min(
-                        moved.x,
+                        movedLocal.x,
                         maximumX -
                             MinimumStampSize
                     );
 
                 maximumZ =
                     Mathf.Max(
-                        moved.z,
+                        movedLocal.y,
                         minimumZ +
                             MinimumStampSize
                     );
@@ -2835,7 +2858,8 @@ public sealed class TerrainStampEditorTool :
             }
         }
 
-        ConvertBoundsToFootprint(
+        ConvertLocalBoundsToFootprint(
+            source,
             minimumX,
             maximumX,
             minimumZ,
@@ -2855,6 +2879,14 @@ public sealed class TerrainStampEditorTool :
         out Vector2 size
     )
     {
+        Vector2 movedLocal =
+            source.WorldToLocalXZ(
+                new Vector2(
+                    moved.x,
+                    moved.z
+                )
+            );
+
         float minimumHalfSize =
             MinimumStampSize *
             0.5f;
@@ -2868,15 +2900,13 @@ public sealed class TerrainStampEditorTool :
                 halfX =
                     Mathf.Max(
                         minimumHalfSize,
-                        source.CenterX -
-                            moved.x
+                        -movedLocal.x
                     );
 
                 halfZ =
                     Mathf.Max(
                         minimumHalfSize,
-                        source.CenterZ -
-                            moved.z
+                        -movedLocal.y
                     );
                 break;
 
@@ -2884,15 +2914,13 @@ public sealed class TerrainStampEditorTool :
                 halfX =
                     Mathf.Max(
                         minimumHalfSize,
-                        moved.x -
-                            source.CenterX
+                        movedLocal.x
                     );
 
                 halfZ =
                     Mathf.Max(
                         minimumHalfSize,
-                        source.CenterZ -
-                            moved.z
+                        -movedLocal.y
                     );
                 break;
 
@@ -2900,15 +2928,13 @@ public sealed class TerrainStampEditorTool :
                 halfX =
                     Mathf.Max(
                         minimumHalfSize,
-                        moved.x -
-                            source.CenterX
+                        movedLocal.x
                     );
 
                 halfZ =
                     Mathf.Max(
                         minimumHalfSize,
-                        moved.z -
-                            source.CenterZ
+                        movedLocal.y
                     );
                 break;
 
@@ -2916,15 +2942,13 @@ public sealed class TerrainStampEditorTool :
                 halfX =
                     Mathf.Max(
                         minimumHalfSize,
-                        source.CenterX -
-                            moved.x
+                        -movedLocal.x
                     );
 
                 halfZ =
                     Mathf.Max(
                         minimumHalfSize,
-                        moved.z -
-                            source.CenterZ
+                        movedLocal.y
                     );
                 break;
         }
@@ -2948,31 +2972,18 @@ public sealed class TerrainStampEditorTool :
             );
         }
 
-        halfX =
-            width *
-            0.5f;
-
-        halfZ =
-            depth *
-            0.5f;
-
         position =
-            new Vector2(
-                source.CenterX,
-                source.CenterZ
-            );
+            source.CenterXZ;
 
         size =
             new Vector2(
                 Mathf.Max(
                     MinimumStampSize,
-                    halfX *
-                        2f
+                    width
                 ),
                 Mathf.Max(
                     MinimumStampSize,
-                    halfZ *
-                        2f
+                    depth
                 )
             );
     }
@@ -3067,7 +3078,8 @@ public sealed class TerrainStampEditorTool :
             minimumScale;
     }
 
-    private static void ConvertBoundsToFootprint(
+    private static void ConvertLocalBoundsToFootprint(
+        StampFootprint source,
         float minimumX,
         float maximumX,
         float minimumZ,
@@ -3090,7 +3102,7 @@ public sealed class TerrainStampEditorTool :
                     MinimumStampSize
             );
 
-        position =
+        Vector2 localCenter =
             new Vector2(
                 (
                     minimumX +
@@ -3104,6 +3116,11 @@ public sealed class TerrainStampEditorTool :
                 )
                 *
                 0.5f
+            );
+
+        position =
+            source.LocalToWorldXZ(
+                localCenter
             );
 
         size =
@@ -3121,40 +3138,48 @@ public sealed class TerrainStampEditorTool :
         float planeY
     )
     {
-        switch (corner)
-        {
-            case StampCorner.MinimumXMinimumZ:
-                return
-                    new Vector3(
-                        footprint.MinimumX,
-                        planeY,
-                        footprint.MinimumZ
-                    );
+        return
+            ToWorldPosition(
+                footprint.GetCornerXZ(
+                    corner
+                ),
+                planeY
+            );
+    }
 
-            case StampCorner.MaximumXMinimumZ:
-                return
-                    new Vector3(
-                        footprint.MaximumX,
-                        planeY,
-                        footprint.MinimumZ
-                    );
+    private static Vector3 ToWorldPosition(
+        Vector2 positionXZ,
+        float worldY
+    )
+    {
+        return
+            new Vector3(
+                positionXZ.x,
+                worldY,
+                positionXZ.y
+            );
+    }
 
-            case StampCorner.MaximumXMaximumZ:
-                return
-                    new Vector3(
-                        footprint.MaximumX,
-                        planeY,
-                        footprint.MaximumZ
-                    );
+    private static Vector3 ToWorldDirection(
+        Vector2 directionXZ
+    )
+    {
+        return
+            new Vector3(
+                directionXZ.x,
+                0f,
+                directionXZ.y
+            );
+    }
 
-            default:
-                return
-                    new Vector3(
-                        footprint.MinimumX,
-                        planeY,
-                        footprint.MaximumZ
-                    );
-        }
+    private static bool IsXEdge(
+        StampEdge edge
+    )
+    {
+        return
+            edge == StampEdge.MinimumX
+            ||
+            edge == StampEdge.MaximumX;
     }
 
     private static float GetHandleSize(
@@ -3450,61 +3475,192 @@ public sealed class TerrainStampEditorTool :
         }
     }
 
+    /*
+     * Oriented stamp-local footprint used only by Scene tooling.
+     *
+     * Minimum/Maximum X/Z enums throughout the tool refer to the stamp's local
+     * axes, not world-axis-aligned Bounds. The actual rotation convention and
+     * world/local conversion remain owned by TerrainStampTransformUtility.
+     */
     private readonly struct StampFootprint
     {
-        public readonly float MinimumX;
-        public readonly float MaximumX;
-        public readonly float MinimumZ;
-        public readonly float MaximumZ;
+        public readonly Vector2 CenterXZ;
+        public readonly Vector2 SizeXZ;
+
+        public readonly float RotationDegrees;
+
+        public readonly Vector2 RightXZ;
+        public readonly Vector2 ForwardXZ;
+
+        public readonly Vector2 MinimumXMinimumZ;
+        public readonly Vector2 MaximumXMinimumZ;
+        public readonly Vector2 MaximumXMaximumZ;
+        public readonly Vector2 MinimumXMaximumZ;
 
         public float CenterX =>
-            (
-                MinimumX +
-                MaximumX
-            )
-            *
-            0.5f;
+            CenterXZ.x;
 
         public float CenterZ =>
-            (
-                MinimumZ +
-                MaximumZ
-            )
-            *
-            0.5f;
+            CenterXZ.y;
 
         public float Width =>
             Mathf.Max(
                 0f,
-                MaximumX -
-                    MinimumX
+                SizeXZ.x
             );
 
         public float Depth =>
             Mathf.Max(
                 0f,
-                MaximumZ -
-                    MinimumZ
+                SizeXZ.y
             );
 
+        public float HalfWidth =>
+            Width *
+            0.5f;
+
+        public float HalfDepth =>
+            Depth *
+            0.5f;
+
         public StampFootprint(
-            float minimumX,
-            float maximumX,
-            float minimumZ,
-            float maximumZ
+            Vector2 centerXZ,
+            Vector2 sizeXZ,
+            float rotationDegrees
         )
         {
-            MinimumX =
-                minimumX;
+            CenterXZ =
+                centerXZ;
 
-            MaximumX =
-                maximumX;
+            SizeXZ =
+                new Vector2(
+                    Mathf.Max(
+                        0f,
+                        sizeXZ.x
+                    ),
+                    Mathf.Max(
+                        0f,
+                        sizeXZ.y
+                    )
+                );
 
-            MinimumZ =
-                minimumZ;
+            RotationDegrees =
+                TerrainStampTransformUtility
+                    .NormalizeRotationDegrees(
+                        rotationDegrees
+                    );
 
-            MaximumZ =
-                maximumZ;
+            TerrainStampTransformUtility
+                .GetWorldAxes(
+                    RotationDegrees,
+                    out RightXZ,
+                    out ForwardXZ
+                );
+
+            TerrainStampTransformUtility
+                .GetWorldCorners(
+                    CenterXZ,
+                    SizeXZ,
+                    RotationDegrees,
+                    out MinimumXMinimumZ,
+                    out MaximumXMinimumZ,
+                    out MaximumXMaximumZ,
+                    out MinimumXMaximumZ
+                );
+        }
+
+        public Vector2 WorldToLocalXZ(
+            Vector2 worldXZ
+        )
+        {
+            return
+                TerrainStampTransformUtility
+                    .WorldToLocalXZ(
+                        worldXZ,
+                        CenterXZ,
+                        RotationDegrees
+                    );
+        }
+
+        public Vector2 LocalToWorldXZ(
+            Vector2 localXZ
+        )
+        {
+            return
+                TerrainStampTransformUtility
+                    .LocalToWorldXZ(
+                        localXZ,
+                        CenterXZ,
+                        RotationDegrees
+                    );
+        }
+
+        public Vector2 GetEdgeCenterXZ(
+            StampEdge edge
+        )
+        {
+            switch (edge)
+            {
+                case StampEdge.MinimumX:
+                    return
+                        LocalToWorldXZ(
+                            new Vector2(
+                                -HalfWidth,
+                                0f
+                            )
+                        );
+
+                case StampEdge.MaximumX:
+                    return
+                        LocalToWorldXZ(
+                            new Vector2(
+                                HalfWidth,
+                                0f
+                            )
+                        );
+
+                case StampEdge.MinimumZ:
+                    return
+                        LocalToWorldXZ(
+                            new Vector2(
+                                0f,
+                                -HalfDepth
+                            )
+                        );
+
+                default:
+                    return
+                        LocalToWorldXZ(
+                            new Vector2(
+                                0f,
+                                HalfDepth
+                            )
+                        );
+            }
+        }
+
+        public Vector2 GetCornerXZ(
+            StampCorner corner
+        )
+        {
+            switch (corner)
+            {
+                case StampCorner.MinimumXMinimumZ:
+                    return
+                        MinimumXMinimumZ;
+
+                case StampCorner.MaximumXMinimumZ:
+                    return
+                        MaximumXMinimumZ;
+
+                case StampCorner.MaximumXMaximumZ:
+                    return
+                        MaximumXMaximumZ;
+
+                default:
+                    return
+                        MinimumXMaximumZ;
+            }
         }
     }
 }
