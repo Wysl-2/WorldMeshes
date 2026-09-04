@@ -692,6 +692,34 @@ public static partial class TerrainAuthoringVisualizationController
         }
     }
 
+    /*
+     * Interactive stamp dragging may defer background Terrain Analysis only
+     * when the currently visible authoring mode does not depend on it.
+     *
+     * Lit and Height therefore receive the performance optimization while
+     * Slope, Curvature, Scree Suitability, Roughness, and Local Relief retain
+     * their existing live visual feedback.
+     */
+    internal static bool
+        RequiresLiveTerrainAnalysisDuringInteractiveEdit
+    {
+        get
+        {
+            switch (BaseMode)
+            {
+                case TerrainAuthoringVisualizationMode.Slope:
+                case TerrainAuthoringVisualizationMode.Curvature:
+                case TerrainAuthoringVisualizationMode.ScreeSuitability:
+                case TerrainAuthoringVisualizationMode.Roughness:
+                case TerrainAuthoringVisualizationMode.LocalRelief:
+                    return true;
+
+                default:
+                    return false;
+            }
+        }
+    }
+
     public static bool HeightPreviewAvailable
     {
         get

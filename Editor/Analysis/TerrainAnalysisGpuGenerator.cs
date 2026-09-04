@@ -66,6 +66,23 @@ public sealed class TerrainAnalysisGpuGenerator :
      */
     private static int lastObservedHeightCacheInstanceId;
 
+    /*
+     * Interactive authoring may update the Height Preview many times during
+     * one gesture. When the current visualization does not require live
+     * Terrain Analysis, retain only the unique changed source tiles here and
+     * submit them once after the final authoritative preview state.
+     */
+    private static readonly HashSet<Vector2Int>
+        deferredSourceTiles =
+            new HashSet<Vector2Int>();
+
+    private static readonly List<Vector2Int>
+        deferredSourceTileBuffer =
+            new List<Vector2Int>();
+
+    private static bool
+        interactiveAnalysisDeferralPending;
+
     static TerrainAnalysisGpuGenerator()
     {
         TerrainAnalysisService.RegisterGenerator(
@@ -1122,6 +1139,69 @@ public sealed class TerrainAnalysisGpuGenerator :
         IReadOnlyList<Vector2Int> tileCoordinates
     )
     {
+        if (
+            tileCoordinates == null
+            ||
+            tileCoordinates.Count == 0
+        )
+        {
+            return;
+        }
+
+        bool interactiveEditActive =
+            TerrainAuthoringModifierService
+                .HasActiveInteractiveEdit;
+
+        bool requiresLiveAnalysis =
+            TerrainAuthoringVisualizationController
+                .RequiresLiveTerrainAnalysisDuringInteractiveEdit;
+
+        /*
+         * Once a non-analysis interactive gesture starts deferring analysis,
+         * keep that deferral latched until an authoritative PreviewStateChanged
+         * boundary. This also covers a final height transaction that executes
+         * just after MouseUp, when HasActiveInteractiveEdit is already false.
+         */
+        if (interactiveAnalysisDeferralPending)
+        {
+            AccumulateDeferredSourceTiles(
+                tileCoordinates
+            );
+
+            if (
+                interactiveEditActive
+                &&
+                requiresLiveAnalysis
+            )
+            {
+                /*
+                 * The user switched from Lit/Height into an analysis
+                 * visualization while the gesture was still active. Catch the
+                 * visible analysis up immediately, then resume normal live
+                 * analysis updates for later drag samples.
+                 */
+                FlushDeferredSourceTiles();
+            }
+
+            return;
+        }
+
+        if (
+            interactiveEditActive
+            &&
+            !requiresLiveAnalysis
+        )
+        {
+            AccumulateDeferredSourceTiles(
+                tileCoordinates
+            );
+
+            interactiveAnalysisDeferralPending =
+                true;
+
+            return;
+        }
+
         TerrainAnalysisService
             .NotifySourceTilesChanged(
                 tileCoordinates
@@ -1135,6 +1215,8 @@ public sealed class TerrainAnalysisGpuGenerator :
                 .CacheReady
         )
         {
+            ResetDeferredAnalysisState();
+
             lastObservedHeightCacheInstanceId =
                 0;
 
@@ -1149,6 +1231,8 @@ public sealed class TerrainAnalysisGpuGenerator :
 
         if (currentCacheInstanceId == 0)
         {
+            ResetDeferredAnalysisState();
+
             lastObservedHeightCacheInstanceId =
                 0;
 
@@ -1162,6 +1246,8 @@ public sealed class TerrainAnalysisGpuGenerator :
                 0
         )
         {
+            ResetDeferredAnalysisState();
+
             lastObservedHeightCacheInstanceId =
                 currentCacheInstanceId;
 
@@ -1176,18 +1262,113 @@ public sealed class TerrainAnalysisGpuGenerator :
                 lastObservedHeightCacheInstanceId
         )
         {
+            ResetDeferredAnalysisState();
+
             lastObservedHeightCacheInstanceId =
                 currentCacheInstanceId;
 
             TerrainAnalysisService
                 .InvalidateAll();
+
+            return;
         }
 
         /*
          * Same cache object means ordinary composite/metadata updates.
-         * CompositeTilesUpdated already handled the actual changed source
-         * tiles, so do not invalidate every analysis layer here.
+         * While a gesture is still active, a deferred analysis set must remain
+         * stale even though the Height Preview itself has reached a valid
+         * intermediate state.
          */
+        if (
+            TerrainAuthoringModifierService
+                .HasActiveInteractiveEdit
+        )
+        {
+            return;
+        }
+
+        /*
+         * PreviewStateChanged is emitted after the successful height
+         * recomposition/range transaction and after overall authoring identity
+         * acknowledgement. It is therefore the safe release boundary for a
+         * deferred interactive analysis update.
+         */
+        if (interactiveAnalysisDeferralPending)
+        {
+            FlushDeferredSourceTiles();
+        }
+    }
+
+    private static void AccumulateDeferredSourceTiles(
+        IReadOnlyList<Vector2Int> tileCoordinates
+    )
+    {
+        if (tileCoordinates == null)
+        {
+            return;
+        }
+
+        for (
+            int index = 0;
+            index < tileCoordinates.Count;
+            index++
+        )
+        {
+            deferredSourceTiles.Add(
+                tileCoordinates[
+                    index
+                ]
+            );
+        }
+    }
+
+    private static void FlushDeferredSourceTiles()
+    {
+        if (
+            !interactiveAnalysisDeferralPending
+            ||
+            deferredSourceTiles.Count == 0
+        )
+        {
+            ResetDeferredAnalysisState();
+
+            return;
+        }
+
+        deferredSourceTileBuffer.Clear();
+
+        foreach (
+            Vector2Int tile
+            in deferredSourceTiles
+        )
+        {
+            deferredSourceTileBuffer.Add(
+                tile
+            );
+        }
+
+        /*
+         * Submit source height tiles only. TerrainAnalysisService remains
+         * runtime-safe and continues to perform the registered dependency
+         * radius expansion independently for every ready persistent/transient
+         * layer.
+         */
+        TerrainAnalysisService
+            .NotifySourceTilesChanged(
+                deferredSourceTileBuffer
+            );
+
+        ResetDeferredAnalysisState();
+    }
+
+    private static void ResetDeferredAnalysisState()
+    {
+        deferredSourceTiles.Clear();
+
+        deferredSourceTileBuffer.Clear();
+
+        interactiveAnalysisDeferralPending =
+            false;
     }
 
     private static void Shutdown()
@@ -1203,6 +1384,8 @@ public sealed class TerrainAnalysisGpuGenerator :
 
         EditorApplication.quitting -=
             Shutdown;
+
+        ResetDeferredAnalysisState();
 
         TerrainAnalysisService.Clear();
 

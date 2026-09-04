@@ -528,6 +528,29 @@ public static partial class TerrainAuthoringModifierService
                 notifyPreview
             );
 
+            /*
+             * A gesture can produce real intermediate terrain changes yet end
+             * exactly where it started. In Lit/Height mode Terrain Analysis
+             * may still be deferred at this point, while no revision change
+             * exists to produce the normal commit acknowledgement.
+             *
+             * Request a metadata-only preview acknowledgement after the
+             * interactive state has ended so PreviewStateChanged can safely
+             * release any deferred analysis work. Existing pending height
+             * dirty tiles, if any, are processed first by the same refresh.
+             */
+            if (
+                notifyPreview
+                &&
+                state.HasInteractiveChanges
+            )
+            {
+                TerrainAuthoringPreviewService
+                    .NotifyCompositeAuthoringStateChanged(
+                        null
+                    );
+            }
+
             SetNoChangeDiagnostics(
                 operation,
                 authoringData,

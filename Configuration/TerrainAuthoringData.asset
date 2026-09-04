@@ -26,7 +26,8 @@ MonoBehaviour:
   - rid: 3932701354711842888
   - rid: 3932701354711842889
   - rid: 3932701383432863811
-  authoringRevision: 759
+  - rid: 3932701383432863812
+  authoringRevision: 781
   references:
     version: 2
     RefIds:
@@ -115,7 +116,7 @@ MonoBehaviour:
         enabled: 1
         blendMode: 0
         stampAsset: {fileID: 11400000, guid: bc89c1bd317bce95e91c127f3b49c633, type: 2}
-        positionXZ: {x: 3028.0334, y: 1879.4827}
+        positionXZ: {x: 4301.919, y: 1325.8009}
         sizeXZ: {x: 2619.001, y: 2638.389}
         heightDelta: 80
         falloff: 0.6
@@ -128,9 +129,22 @@ MonoBehaviour:
         enabled: 1
         blendMode: 0
         stampAsset: {fileID: 11400000, guid: bc89c1bd317bce95e91c127f3b49c633, type: 2}
-        positionXZ: {x: 5217.532, y: 840.9529}
-        sizeXZ: {x: 1815.2578, y: 1654.1826}
-        heightDelta: 30
+        positionXZ: {x: 5254.245, y: 775.09564}
+        sizeXZ: {x: 1815.2578, y: 1689.7166}
+        heightDelta: 80
+        falloff: 0.25
+        smoothingRadius: 0
+        smoothingStrength: 1
+    - rid: 3932701383432863812
+      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
+      data:
+        stableId: 9488e92fa6304e44a72045ebcb9b4160
+        enabled: 1
+        blendMode: 0
+        stampAsset: {fileID: 11400000, guid: bc89c1bd317bce95e91c127f3b49c633, type: 2}
+        positionXZ: {x: 5284.434, y: 5820.2773}
+        sizeXZ: {x: 1815.2578, y: 1689.7166}
+        heightDelta: 42.27927
         falloff: 0.25
         smoothingRadius: 0
         smoothingStrength: 1
@@ -141,9 +155,9 @@ MonoBehaviour:
         enabled: 1
         blendMode: 0
         stampAsset: {fileID: 11400000, guid: 2c7ac9ef8cd5e71acbbc7220c5d909fb, type: 2}
-        positionXZ: {x: 3931.8564, y: 2958.5994}
+        positionXZ: {x: 4098.107, y: 3343.927}
         sizeXZ: {x: 4096, y: 4096}
-        heightDelta: 120
+        heightDelta: 302.30716
         falloff: 0.5
         smoothingRadius: 6
         smoothingStrength: 1
