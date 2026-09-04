@@ -1509,7 +1509,8 @@ public static class TerrainAuthoringPreviewService
              * Compare the final transaction range against the range that
              * was authoritative before any dirty slice was reset.
              *
-             * UpdateCompositeTiles temporarily restores committed ranges;
+             * ResetCompositeTilesForRecomposition temporarily restores
+             * committed ranges;
              * those intermediate values must not decide whether clipmap
              * bounds need to expand or shrink.
              */
@@ -1535,10 +1536,9 @@ public static class TerrainAuthoringPreviewService
 
             if (
                 !previewCache
-                    .UpdateCompositeTiles(
+                    .ResetCompositeTilesForRecomposition(
                         dirtySnapshot,
                         out updatedCompositeSliceCount,
-                        out _,
                         out string compositeError
                     )
             )
@@ -1554,6 +1554,12 @@ public static class TerrainAuthoringPreviewService
 
                 return;
             }
+
+            List<TerrainAuthoringPreviewCache.CompositeSliceRangeUpdate>
+                finalCompositeRanges =
+                    new List<TerrainAuthoringPreviewCache.CompositeSliceRangeUpdate>(
+                        updatedCompositeSliceCount
+                    );
 
             foreach (
                 Vector2Int dirtyTile
@@ -1572,9 +1578,10 @@ public static class TerrainAuthoringPreviewService
                 }
 
                 /*
-                 * UpdateCompositeTiles has just restored the slice from
-                 * committed data, so its current range is the base range
-                 * to which conservative modifier contributions are added.
+                 * ResetCompositeTilesForRecomposition has just restored the
+                 * slice from committed data, so its current range is the base
+                 * range to which conservative modifier contributions are
+                 * added.
                  */
                 if (
                     !previewCache
@@ -1637,31 +1644,13 @@ public static class TerrainAuthoringPreviewService
                     baseMaximumHeight
                     + maximumContribution;
 
-                if (
-                    !previewCache
-                        .SetCompositeSliceRange(
-                            dirtyTile.x,
-                            dirtyTile.y,
-                            compositeMinimumHeight,
-                            compositeMaximumHeight,
-                            out _,
-                            out string rangeError
-                        )
-                )
-                {
-                    SetStatus(
-                        TerrainAuthoringPreviewStatus.Error,
-                        "The preview GPU composition succeeded, but " +
-                        "safe range metadata could not be stored for " +
-                        $"tile ({dirtyTile.x}, {dirtyTile.y}). The " +
-                        "dirty set has been retained for retry.\n\n" +
-                        rangeError
-                    );
-
-                    RepaintEditorViews();
-
-                    return;
-                }
+                finalCompositeRanges.Add(
+                    new TerrainAuthoringPreviewCache.CompositeSliceRangeUpdate(
+                        dirtyTile,
+                        compositeMinimumHeight,
+                        compositeMaximumHeight
+                    )
+                );
             }
 
             if (
@@ -1679,6 +1668,33 @@ public static class TerrainAuthoringPreviewService
                     $"Committed resets: {updatedCompositeSliceCount}\n" +
                     $"Composited tiles: " +
                     $"{heightCompositor.LastDispatchTileCount}"
+                );
+
+                RepaintEditorViews();
+
+                return;
+            }
+
+            /*
+             * All dirty slices are now fully composed. Commit their final
+             * range metadata as one validated batch so the full-world range
+             * is recalculated exactly once for this transaction.
+             */
+            if (
+                !previewCache
+                    .ApplyCompositeSliceRangeBatch(
+                        finalCompositeRanges,
+                        out _,
+                        out string rangeBatchError
+                    )
+            )
+            {
+                SetStatus(
+                    TerrainAuthoringPreviewStatus.Error,
+                    "The preview GPU composition succeeded, but the final " +
+                    "composite range batch could not be committed. The dirty " +
+                    "set has been retained for retry.\n\n" +
+                    rangeBatchError
                 );
 
                 RepaintEditorViews();

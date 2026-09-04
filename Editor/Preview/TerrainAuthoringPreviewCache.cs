@@ -8,13 +8,13 @@ using UnityEngine.Rendering;
 /*
  * Full-world edit-mode height preview cache.
  *
- * Stage 7 separates the identity of the committed base heightfield
- * from the identity of the overall authoring state.
+ * The committed base range metadata is immutable for the lifetime of one
+ * committed-cache build. Composite range metadata may change repeatedly while
+ * terrain modifiers are edited.
  *
- * The RenderTexture object remains stable during normal incremental
- * composite updates. Individual height-tile slices can be reset from
- * committed Texture2D assets and later passed through a modifier
- * compositor without rebuilding/rebinding the whole cache.
+ * Keeping those concerns separate lets ordinary dirty-slice resets restore
+ * authoritative committed min/max values without rescanning every RFloat
+ * sample in the source Texture2D.
  */
 public sealed class TerrainAuthoringPreviewCache :
     IDisposable
@@ -56,14 +56,22 @@ public sealed class TerrainAuthoringPreviewCache :
     private Vector2 worldSizeXZ;
 
     // =====================================================
-    // COMPOSITE RANGE STATE
+    // COMMITTED RANGE STATE
     // =====================================================
 
     /*
-     * Range metadata is tracked per cache slice so later modifier
-     * edits can update global terrain bounds/Height visualization
-     * without rescanning every height sample in the world.
+     * These arrays describe the immutable committed/base heightfield used to
+     * build this cache. They are populated only by TryBuild() and remain
+     * unchanged until the committed cache is rebuilt or disposed.
      */
+    private float[] committedSliceMinimumHeights;
+
+    private float[] committedSliceMaximumHeights;
+
+    // =====================================================
+    // COMPOSITE RANGE STATE
+    // =====================================================
+
     private float[] sliceMinimumHeights;
 
     private float[] sliceMaximumHeights;
@@ -81,6 +89,33 @@ public sealed class TerrainAuthoringPreviewCache :
     private int lastIncrementalSliceCount;
 
     private long totalIncrementalSliceUpdates;
+
+    // =====================================================
+    // RANGE UPDATE MODEL
+    // =====================================================
+
+    internal readonly struct CompositeSliceRangeUpdate
+    {
+        public readonly Vector2Int TileCoordinate;
+        public readonly float MinimumHeight;
+        public readonly float MaximumHeight;
+
+        public CompositeSliceRangeUpdate(
+            Vector2Int tileCoordinate,
+            float minimumHeight,
+            float maximumHeight
+        )
+        {
+            TileCoordinate =
+                tileCoordinate;
+
+            MinimumHeight =
+                minimumHeight;
+
+            MaximumHeight =
+                maximumHeight;
+        }
+    }
 
     // =====================================================
     // PUBLIC STATE
@@ -110,12 +145,6 @@ public sealed class TerrainAuthoringPreviewCache :
         }
     }
 
-    /*
-     * Compatibility alias for pre-Stage-7 callers.
-     *
-     * The preview cache is now rebuilt from the committed-heightfield
-     * signature, not the overall authoring signature.
-     */
     public string SourceAuthoringSignature
     {
         get
@@ -260,11 +289,21 @@ public sealed class TerrainAuthoringPreviewCache :
                     sourceCommittedHeightfieldSignature
                 )
                 &&
+                committedSliceMinimumHeights != null
+                &&
+                committedSliceMaximumHeights != null
+                &&
                 sliceMinimumHeights != null
                 &&
                 sliceMaximumHeights != null
                 &&
                 sliceRangeValid != null
+                &&
+                committedSliceMinimumHeights.Length ==
+                    SliceCount
+                &&
+                committedSliceMaximumHeights.Length ==
+                    SliceCount
                 &&
                 sliceMinimumHeights.Length ==
                     SliceCount
@@ -305,13 +344,6 @@ public sealed class TerrainAuthoringPreviewCache :
     // FULL COMMITTED CACHE BUILD
     // =====================================================
 
-    /*
-     * Full builds remain intentionally strict and expensive.
-     *
-     * They validate the physical committed tile set and atomically
-     * replace the GPU texture only when the committed base changes
-     * or the cache does not yet exist.
-     */
     public bool TryBuild(
         WorldSettings worldSettings,
         TerrainAuthoringData authoringData,
@@ -336,10 +368,6 @@ public sealed class TerrainAuthoringPreviewCache :
 
             return false;
         }
-
-        // =================================================
-        // VALIDATE PHYSICAL COMMITTED SOURCE
-        // =================================================
 
         if (
             !TerrainAuthoringStateUtility
@@ -398,10 +426,6 @@ public sealed class TerrainAuthoringPreviewCache :
 
             return false;
         }
-
-        // =================================================
-        // GPU SUPPORT
-        // =================================================
 
         if (!SystemInfo.supports2DArrayTextures)
         {
@@ -501,10 +525,6 @@ public sealed class TerrainAuthoringPreviewCache :
             return false;
         }
 
-        // =================================================
-        // CREATE CANDIDATE CACHE
-        // =================================================
-
         RenderTexture candidateCache =
             CreateHeightCache(
                 newSamplesPerSide,
@@ -528,12 +548,17 @@ public sealed class TerrainAuthoringPreviewCache :
             return false;
         }
 
-        float[] candidateMinimums =
+        /*
+         * These ranges are calculated once from the authoritative committed
+         * RFloat textures. The same values seed the initial composite state
+         * and become the immutable reset metadata for this cache generation.
+         */
+        float[] candidateCommittedMinimums =
             new float[
                 newSliceCount
             ];
 
-        float[] candidateMaximums =
+        float[] candidateCommittedMaximums =
             new float[
                 newSliceCount
             ];
@@ -542,10 +567,6 @@ public sealed class TerrainAuthoringPreviewCache :
             new bool[
                 newSliceCount
             ];
-
-        // =================================================
-        // POPULATE CANDIDATE CACHE
-        // =================================================
 
         try
         {
@@ -589,18 +610,17 @@ public sealed class TerrainAuthoringPreviewCache :
                         sourceTexture,
                         0,
                         0,
-
                         candidateCache,
                         slice,
                         0
                     );
 
-                    candidateMinimums[
+                    candidateCommittedMinimums[
                         slice
                     ] =
                         tileMinimumHeight;
 
-                    candidateMaximums[
+                    candidateCommittedMaximums[
                         slice
                     ] =
                         tileMaximumHeight;
@@ -630,8 +650,8 @@ public sealed class TerrainAuthoringPreviewCache :
 
         if (
             !TryCalculateGlobalRange(
-                candidateMinimums,
-                candidateMaximums,
+                candidateCommittedMinimums,
+                candidateCommittedMaximums,
                 candidateRangeValid,
                 out float candidateMinimumHeight,
                 out float candidateMaximumHeight
@@ -649,11 +669,6 @@ public sealed class TerrainAuthoringPreviewCache :
             return false;
         }
 
-        /*
-         * The strict committed validation above already verified the
-         * physical tiles against the manifest. Keep this consistency
-         * check close to the cache transaction as a defensive guard.
-         */
         if (
             !FloatMatches(
                 candidateMinimumHeight,
@@ -680,10 +695,6 @@ public sealed class TerrainAuthoringPreviewCache :
 
             return false;
         }
-
-        // =================================================
-        // ATOMIC COMMIT
-        // =================================================
 
         RenderTexture previousCache =
             heightCache;
@@ -721,11 +732,21 @@ public sealed class TerrainAuthoringPreviewCache :
                     worldSettings
                 );
 
+        committedSliceMinimumHeights =
+            candidateCommittedMinimums;
+
+        committedSliceMaximumHeights =
+            candidateCommittedMaximums;
+
+        /*
+         * Composite ranges are mutable and must never alias the immutable
+         * committed arrays.
+         */
         sliceMinimumHeights =
-            candidateMinimums;
+            (float[])candidateCommittedMinimums.Clone();
 
         sliceMaximumHeights =
-            candidateMaximums;
+            (float[])candidateCommittedMaximums.Clone();
 
         sliceRangeValid =
             candidateRangeValid;
@@ -739,14 +760,6 @@ public sealed class TerrainAuthoringPreviewCache :
         sourceCommittedHeightfieldSignature =
             committedSignature;
 
-        /*
-         * A full cache build establishes committed/base cache state only.
-         *
-         * TerrainAuthoringPreviewService acknowledges the overall
-         * authoring signature only after every enabled modifier-affected
-         * slice has been successfully recomposed and its range metadata
-         * updated.
-         */
         sourceOverallAuthoringSignature =
             "";
 
@@ -770,14 +783,6 @@ public sealed class TerrainAuthoringPreviewCache :
     // SLICE ADDRESSING
     // =====================================================
 
-    /*
-     * Returns the cache-array slice for an absolute authoring tile
-     * coordinate. Returns -1 when the tile is outside this cache.
-     *
-     * cacheOriginTile is currently zero for the full-world cache,
-     * but keeping addressing origin-relative makes the API compatible
-     * with a possible future windowed cache.
-     */
     public int GetSliceIndex(
         int tileX,
         int tileZ
@@ -854,12 +859,6 @@ public sealed class TerrainAuthoringPreviewCache :
     // COMMITTED TILE -> EXISTING SLICE
     // =====================================================
 
-    /*
-     * Reset one existing composite slice to its committed base tile.
-     *
-     * This does NOT recreate the RenderTexture and therefore does not
-     * require the clipmap renderers to be rebound.
-     */
     public bool CopyCommittedTileToSlice(
         int tileX,
         int tileZ,
@@ -941,15 +940,6 @@ public sealed class TerrainAuthoringPreviewCache :
     // COMPOSITE SLICE UPDATE API
     // =====================================================
 
-    /*
-     * Stage 7 establishes the incremental composite update boundary.
-     *
-     * Until the modifier compositor is implemented, recomposing one
-     * slice means resetting it to committed base data. The future
-     * compositor belongs immediately after this reset, without any
-     * change to cache allocation, slice addressing, service
-     * invalidation, or renderer binding.
-     */
     public bool UpdateCompositeSlice(
         int tileX,
         int tileZ,
@@ -998,6 +988,46 @@ public sealed class TerrainAuthoringPreviewCache :
         out string errorMessage
     )
     {
+        return
+            ResetCompositeTilesInternal(
+                tileCoordinates,
+                true,
+                out updatedSliceCount,
+                out heightRangeChanged,
+                out errorMessage
+            );
+    }
+
+    /*
+     * PreviewService uses this during a complete dirty recomposition
+     * transaction. Individual slices are restored to committed/base contents
+     * and range metadata, but the global range is deliberately left untouched
+     * until all final composite ranges can be committed as one batch.
+     */
+    internal bool ResetCompositeTilesForRecomposition(
+        IEnumerable<Vector2Int> tileCoordinates,
+        out int updatedSliceCount,
+        out string errorMessage
+    )
+    {
+        return
+            ResetCompositeTilesInternal(
+                tileCoordinates,
+                false,
+                out updatedSliceCount,
+                out _,
+                out errorMessage
+            );
+    }
+
+    private bool ResetCompositeTilesInternal(
+        IEnumerable<Vector2Int> tileCoordinates,
+        bool recalculateGlobalRange,
+        out int updatedSliceCount,
+        out bool heightRangeChanged,
+        out string errorMessage
+    )
+    {
         updatedSliceCount =
             0;
 
@@ -1040,11 +1070,6 @@ public sealed class TerrainAuthoringPreviewCache :
                     coordinate.y
                 );
 
-            /*
-             * Dirty regions can conservatively extend just outside
-             * the world. Ignore out-of-cache coordinates rather than
-             * converting them into an update failure.
-             */
             if (slice < 0)
             {
                 continue;
@@ -1062,9 +1087,7 @@ public sealed class TerrainAuthoringPreviewCache :
             }
         }
 
-        if (
-            uniqueTiles.Count <= 0
-        )
+        if (uniqueTiles.Count <= 0)
         {
             lastIncrementalSliceCount =
                 0;
@@ -1092,36 +1115,34 @@ public sealed class TerrainAuthoringPreviewCache :
                 )
             )
             {
-                /*
-                 * Some earlier slices may already have been updated.
-                 * Keep the cache object alive and report failure so
-                 * the service retains/retries the dirty set.
-                 */
                 return false;
             }
 
             updatedSliceCount++;
         }
 
-        if (
-            !RecalculateGlobalHeightRange(
-                out errorMessage
-            )
-        )
+        if (recalculateGlobalRange)
         {
-            return false;
-        }
-
-        heightRangeChanged =
-            !FloatMatches(
-                previousMinimum,
-                minimumHeight
+            if (
+                !RecalculateGlobalHeightRange(
+                    out errorMessage
+                )
             )
-            ||
-            !FloatMatches(
-                previousMaximum,
-                maximumHeight
-            );
+            {
+                return false;
+            }
+
+            heightRangeChanged =
+                !FloatMatches(
+                    previousMinimum,
+                    minimumHeight
+                )
+                ||
+                !FloatMatches(
+                    previousMaximum,
+                    maximumHeight
+                );
+        }
 
         lastIncrementalSliceCount =
             updatedSliceCount;
@@ -1133,8 +1154,8 @@ public sealed class TerrainAuthoringPreviewCache :
     }
 
     /*
-     * Future GPU modifier composition can call this after writing a
-     * slice to keep global preview bounds/Height diagnostics accurate.
+     * Compatibility API for callers updating one final composite range.
+     * Internally it uses the same validate-then-commit batch path.
      */
     public bool SetCompositeSliceRange(
         int tileX,
@@ -1145,43 +1166,134 @@ public sealed class TerrainAuthoringPreviewCache :
         out string errorMessage
     )
     {
+        List<CompositeSliceRangeUpdate> update =
+            new List<CompositeSliceRangeUpdate>(
+                1
+            )
+            {
+                new CompositeSliceRangeUpdate(
+                    new Vector2Int(
+                        tileX,
+                        tileZ
+                    ),
+                    sliceMinimumHeight,
+                    sliceMaximumHeight
+                )
+            };
+
+        return
+            ApplyCompositeSliceRangeBatch(
+                update,
+                out globalRangeChanged,
+                out errorMessage
+            );
+    }
+
+    /*
+     * Validate every final range before mutating metadata, then apply the
+     * complete range batch and calculate the full-world range exactly once.
+     */
+    internal bool ApplyCompositeSliceRangeBatch(
+        IReadOnlyList<CompositeSliceRangeUpdate> updates,
+        out bool globalRangeChanged,
+        out string errorMessage
+    )
+    {
         globalRangeChanged =
             false;
 
         errorMessage =
             "";
 
-        int slice =
-            GetSliceIndex(
-                tileX,
-                tileZ
-            );
-
-        if (slice < 0)
+        if (!IsReady)
         {
             errorMessage =
-                $"Tile ({tileX}, {tileZ}) is outside the preview cache.";
+                "The preview cache is not ready.";
 
             return false;
         }
 
-        if (
-            !IsFinite(
-                sliceMinimumHeight
-            )
-            ||
-            !IsFinite(
-                sliceMaximumHeight
-            )
-            ||
-            sliceMaximumHeight <
-                sliceMinimumHeight
-        )
+        if (updates == null)
         {
             errorMessage =
-                "Composite slice height range is invalid.";
+                "The composite slice-range update collection is null.";
 
             return false;
+        }
+
+        if (updates.Count <= 0)
+        {
+            return true;
+        }
+
+        int[] slices =
+            new int[
+                updates.Count
+            ];
+
+        HashSet<int> uniqueSlices =
+            new HashSet<int>();
+
+        for (
+            int index = 0;
+            index < updates.Count;
+            index++
+        )
+        {
+            CompositeSliceRangeUpdate update =
+                updates[
+                    index
+                ];
+
+            int slice =
+                GetSliceIndex(
+                    update.TileCoordinate.x,
+                    update.TileCoordinate.y
+                );
+
+            if (slice < 0)
+            {
+                errorMessage =
+                    $"Tile ({update.TileCoordinate.x}, " +
+                    $"{update.TileCoordinate.y}) is outside the preview cache.";
+
+                return false;
+            }
+
+            if (!uniqueSlices.Add(slice))
+            {
+                errorMessage =
+                    $"Composite slice-range batch contains duplicate tile " +
+                    $"({update.TileCoordinate.x}, {update.TileCoordinate.y}).";
+
+                return false;
+            }
+
+            if (
+                !IsFinite(
+                    update.MinimumHeight
+                )
+                ||
+                !IsFinite(
+                    update.MaximumHeight
+                )
+                ||
+                update.MaximumHeight <
+                    update.MinimumHeight
+            )
+            {
+                errorMessage =
+                    "Composite slice height range is invalid for tile " +
+                    $"({update.TileCoordinate.x}, " +
+                    $"{update.TileCoordinate.y}).";
+
+                return false;
+            }
+
+            slices[
+                index
+            ] =
+                slice;
         }
 
         float previousMinimum =
@@ -1190,20 +1302,37 @@ public sealed class TerrainAuthoringPreviewCache :
         float previousMaximum =
             maximumHeight;
 
-        sliceMinimumHeights[
-            slice
-        ] =
-            sliceMinimumHeight;
+        for (
+            int index = 0;
+            index < updates.Count;
+            index++
+        )
+        {
+            CompositeSliceRangeUpdate update =
+                updates[
+                    index
+                ];
 
-        sliceMaximumHeights[
-            slice
-        ] =
-            sliceMaximumHeight;
+            int slice =
+                slices[
+                    index
+                ];
 
-        sliceRangeValid[
-            slice
-        ] =
-            true;
+            sliceMinimumHeights[
+                slice
+            ] =
+                update.MinimumHeight;
+
+            sliceMaximumHeights[
+                slice
+            ] =
+                update.MaximumHeight;
+
+            sliceRangeValid[
+                slice
+            ] =
+                true;
+        }
 
         if (
             !RecalculateGlobalHeightRange(
@@ -1252,8 +1381,6 @@ public sealed class TerrainAuthoringPreviewCache :
             ||
             sliceRangeValid == null
             ||
-            slice < 0
-            ||
             slice >=
                 sliceRangeValid.Length
             ||
@@ -1278,10 +1405,6 @@ public sealed class TerrainAuthoringPreviewCache :
         return true;
     }
 
-    /*
-     * The service calls this after all dirty slices for one overall
-     * authoring transaction have been updated successfully.
-     */
     public void MarkOverallAuthoringSignature(
         string overallAuthoringSignature
     )
@@ -1328,11 +1451,21 @@ public sealed class TerrainAuthoringPreviewCache :
         }
 
         if (
-            !TryLoadCommittedTile(
+            !TryLoadCommittedTileTexture(
                 tileX,
                 tileZ,
                 samplesPerSide,
                 out Texture2D sourceTexture,
+                out errorMessage
+            )
+        )
+        {
+            return false;
+        }
+
+        if (
+            !TryGetCommittedSliceRange(
+                slice,
                 out float tileMinimumHeight,
                 out float tileMaximumHeight,
                 out errorMessage
@@ -1348,7 +1481,6 @@ public sealed class TerrainAuthoringPreviewCache :
                 sourceTexture,
                 0,
                 0,
-
                 heightCache,
                 slice,
                 0
@@ -1395,6 +1527,76 @@ public sealed class TerrainAuthoringPreviewCache :
         return true;
     }
 
+    private bool TryGetCommittedSliceRange(
+        int slice,
+        out float minimum,
+        out float maximum,
+        out string errorMessage
+    )
+    {
+        minimum =
+            0f;
+
+        maximum =
+            0f;
+
+        errorMessage =
+            "";
+
+        if (
+            committedSliceMinimumHeights == null
+            ||
+            committedSliceMaximumHeights == null
+            ||
+            slice < 0
+            ||
+            slice >=
+                committedSliceMinimumHeights.Length
+            ||
+            slice >=
+                committedSliceMaximumHeights.Length
+        )
+        {
+            errorMessage =
+                "Committed preview range metadata is unavailable for " +
+                $"cache slice {slice}.";
+
+            return false;
+        }
+
+        minimum =
+            committedSliceMinimumHeights[
+                slice
+            ];
+
+        maximum =
+            committedSliceMaximumHeights[
+                slice
+            ];
+
+        if (
+            !IsFinite(
+                minimum
+            )
+            ||
+            !IsFinite(
+                maximum
+            )
+            ||
+            maximum <
+                minimum
+        )
+        {
+            errorMessage =
+                "Committed preview range metadata is invalid for " +
+                $"cache slice {slice}.";
+
+            return false;
+        }
+
+        return true;
+    }
+
     // =====================================================
     // COMMITTED TILE LOAD / RANGE
     // =====================================================
@@ -1409,14 +1611,47 @@ public sealed class TerrainAuthoringPreviewCache :
         out string errorMessage
     )
     {
-        texture =
-            null;
-
         tileMinimumHeight =
             float.PositiveInfinity;
 
         tileMaximumHeight =
             float.NegativeInfinity;
+
+        if (
+            !TryLoadCommittedTileTexture(
+                tileX,
+                tileZ,
+                expectedSamplesPerSide,
+                out texture,
+                out errorMessage
+            )
+        )
+        {
+            return false;
+        }
+
+        return
+            TryReadCommittedTileRange(
+                tileX,
+                tileZ,
+                texture,
+                expectedSamplesPerSide,
+                out tileMinimumHeight,
+                out tileMaximumHeight,
+                out errorMessage
+            );
+    }
+
+    private static bool TryLoadCommittedTileTexture(
+        int tileX,
+        int tileZ,
+        int expectedSamplesPerSide,
+        out Texture2D texture,
+        out string errorMessage
+    )
+    {
+        texture =
+            null;
 
         errorMessage =
             "";
@@ -1476,6 +1711,35 @@ public sealed class TerrainAuthoringPreviewCache :
 
             return false;
         }
+
+        return true;
+    }
+
+    private static bool TryReadCommittedTileRange(
+        int tileX,
+        int tileZ,
+        Texture2D texture,
+        int expectedSamplesPerSide,
+        out float tileMinimumHeight,
+        out float tileMaximumHeight,
+        out string errorMessage
+    )
+    {
+        tileMinimumHeight =
+            float.PositiveInfinity;
+
+        tileMaximumHeight =
+            float.NegativeInfinity;
+
+        errorMessage =
+            "";
+
+        string sourcePath =
+            TerrainAuthoringStateUtility
+                .GetAuthoringHeightTilePath(
+                    tileX,
+                    tileZ
+                );
 
         NativeArray<float> data;
 
@@ -1738,10 +2002,6 @@ public sealed class TerrainAuthoringPreviewCache :
         cache.volumeDepth =
             sliceCount;
 
-        /*
-         * The same texture is intentionally prepared for in-place
-         * compute-shader modifier composition.
-         */
         cache.enableRandomWrite =
             SystemInfo.supportsComputeShaders;
 
@@ -1807,6 +2067,12 @@ public sealed class TerrainAuthoringPreviewCache :
 
         worldSizeXZ =
             Vector2.zero;
+
+        committedSliceMinimumHeights =
+            null;
+
+        committedSliceMaximumHeights =
+            null;
 
         sliceMinimumHeights =
             null;
