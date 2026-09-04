@@ -16,7 +16,19 @@ public static partial class TerrainAuthoringModifierService
         public string CommittedSignatureBefore;
         public string OverallSignatureBefore;
         public List<TerrainHeightModifierSnapshot> InitialStack;
-        public List<TerrainHeightModifierSnapshot> CurrentStack;
+        public Bounds InitialAffectedWorldBounds;
+        public Bounds CurrentAffectedWorldBounds;
+        public bool InitialEnabled;
+        public bool CurrentEnabled;
+        public bool HasInteractiveChanges;
+
+        /*
+         * Reused for every MouseDrag sample so interactive modifier updates do
+         * not allocate a new dirty-tile set on every pointer movement.
+         */
+        public readonly HashSet<Vector2Int>
+            InteractiveDirtyTiles =
+                new HashSet<Vector2Int>();
     }
 
     private static InteractiveModifierEditState
@@ -166,7 +178,7 @@ public static partial class TerrainAuthoringModifierService
             !TryFindModifier(
                 authoringData,
                 stableId,
-                out _,
+                out TerrainHeightModifier activeModifier,
                 out _,
                 out errorMessage
             )
@@ -198,6 +210,19 @@ public static partial class TerrainAuthoringModifierService
         {
             return false;
         }
+
+        /*
+         * Keep the general Undo/Redo tracker anchored to the authoritative
+         * state at MouseDown. Interactive MouseDrag samples deliberately do
+         * not advance this tracker; Commit/Cancel resynchronize it once.
+         */
+        TerrainAuthoringModifierChangeTracker
+            .UpdateTrackedState(
+                authoringData,
+                worldSettings,
+                initialStack,
+                notifyPreview
+            );
 
         string operation =
             string.IsNullOrWhiteSpace(
@@ -241,6 +266,12 @@ public static partial class TerrainAuthoringModifierService
             operation
         );
 
+        Bounds initialBounds =
+            activeModifier.GetAffectedWorldBounds();
+
+        bool initialEnabled =
+            activeModifier.Enabled;
+
         activeInteractiveEdit =
             new InteractiveModifierEditState
             {
@@ -272,14 +303,22 @@ public static partial class TerrainAuthoringModifierService
                     overallBefore,
 
                 InitialStack =
-                    new List<TerrainHeightModifierSnapshot>(
-                        initialStack
-                    ),
+                    initialStack,
 
-                CurrentStack =
-                    new List<TerrainHeightModifierSnapshot>(
-                        initialStack
-                    )
+                InitialAffectedWorldBounds =
+                    initialBounds,
+
+                CurrentAffectedWorldBounds =
+                    initialBounds,
+
+                InitialEnabled =
+                    initialEnabled,
+
+                CurrentEnabled =
+                    initialEnabled,
+
+                HasInteractiveChanges =
+                    false
             };
 
         return true;
@@ -291,46 +330,9 @@ public static partial class TerrainAuthoringModifierService
         out string errorMessage
     )
     {
-        errorMessage = "";
-
-        InteractiveModifierEditState state =
-            activeInteractiveEdit;
-
-        if (state == null)
-        {
-            errorMessage =
-                "No terrain modifier interactive edit is active.";
-
-            return false;
-        }
-
         if (
-            state.AuthoringData == null
-            ||
-            state.WorldSettings == null
-        )
-        {
-            errorMessage =
-                "The active terrain modifier interactive edit lost its context.";
-
-            return false;
-        }
-
-        if (
-            state.AuthoringData.authoringRevision !=
-                state.RevisionBefore
-        )
-        {
-            errorMessage =
-                "Terrain authoring revision changed during the interactive edit.";
-
-            return false;
-        }
-
-        if (
-            !TryFindStampModifier(
-                state.AuthoringData,
-                state.StableId,
+            !TryGetActiveInteractiveStamp(
+                out InteractiveModifierEditState state,
                 out TerrainStampModifier modifier,
                 out errorMessage
             )
@@ -364,116 +366,22 @@ public static partial class TerrainAuthoringModifierService
             return true;
         }
 
-        if (
-            !TerrainAuthoringModifierChangeTracker
-                .TryCaptureStack(
-                    state.AuthoringData,
-                    out List<TerrainHeightModifierSnapshot> current,
-                    out errorMessage
-                )
-        )
-        {
-            return false;
-        }
-
-        if (
-            TerrainHeightModifierSnapshot
-                .StackEquals(
-                    state.CurrentStack,
-                    current
-                )
-        )
-        {
-            state.CurrentStack =
-                current;
-
-            return true;
-        }
-
-        HashSet<Vector2Int> dirtyTiles =
-            new HashSet<Vector2Int>();
-
-        TerrainAuthoringModifierChangeTracker
-            .CollectChangedTiles(
-                state.WorldSettings,
-                state.CurrentStack,
-                current,
-                dirtyTiles
-            );
-
-        EditorUtility.SetDirty(
-            state.AuthoringData
+        NotifyInteractiveModifierChanged(
+            state,
+            modifier
         );
-
-        TerrainAuthoringModifierChangeTracker
-            .UpdateTrackedState(
-                state.AuthoringData,
-                state.WorldSettings,
-                current,
-                state.NotifyPreview
-            );
-
-        if (state.NotifyPreview)
-        {
-            TerrainAuthoringPreviewService
-                .NotifyCompositeAuthoringStateChanged(
-                    dirtyTiles
-                );
-        }
-
-        state.CurrentStack =
-            current;
 
         return true;
     }
-
 
     public static bool UpdateInteractiveStampHeightDelta(
         float heightDelta,
         out string errorMessage
     )
     {
-        errorMessage =
-            "";
-
-        InteractiveModifierEditState state =
-            activeInteractiveEdit;
-
-        if (state == null)
-        {
-            errorMessage =
-                "No terrain modifier interactive edit is active.";
-
-            return false;
-        }
-
         if (
-            state.AuthoringData == null
-            ||
-            state.WorldSettings == null
-        )
-        {
-            errorMessage =
-                "The active terrain modifier interactive edit lost its context.";
-
-            return false;
-        }
-
-        if (
-            state.AuthoringData.authoringRevision !=
-                state.RevisionBefore
-        )
-        {
-            errorMessage =
-                "Terrain authoring revision changed during the interactive edit.";
-
-            return false;
-        }
-
-        if (
-            !TryFindStampModifier(
-                state.AuthoringData,
-                state.StableId,
+            !TryGetActiveInteractiveStamp(
+                out InteractiveModifierEditState state,
                 out TerrainStampModifier modifier,
                 out errorMessage
             )
@@ -499,65 +407,10 @@ public static partial class TerrainAuthoringModifierService
             return true;
         }
 
-        if (
-            !TerrainAuthoringModifierChangeTracker
-                .TryCaptureStack(
-                    state.AuthoringData,
-                    out List<TerrainHeightModifierSnapshot> current,
-                    out errorMessage
-                )
-        )
-        {
-            return false;
-        }
-
-        if (
-            TerrainHeightModifierSnapshot
-                .StackEquals(
-                    state.CurrentStack,
-                    current
-                )
-        )
-        {
-            state.CurrentStack =
-                current;
-
-            return true;
-        }
-
-        HashSet<Vector2Int> dirtyTiles =
-            new HashSet<Vector2Int>();
-
-        TerrainAuthoringModifierChangeTracker
-            .CollectChangedTiles(
-                state.WorldSettings,
-                state.CurrentStack,
-                current,
-                dirtyTiles
-            );
-
-        EditorUtility.SetDirty(
-            state.AuthoringData
+        NotifyInteractiveModifierChanged(
+            state,
+            modifier
         );
-
-        TerrainAuthoringModifierChangeTracker
-            .UpdateTrackedState(
-                state.AuthoringData,
-                state.WorldSettings,
-                current,
-                state.NotifyPreview
-            );
-
-        if (state.NotifyPreview)
-        {
-            TerrainAuthoringPreviewService
-                .NotifyCompositeAuthoringStateChanged(
-                    dirtyTiles
-                );
-        }
-
-        state.CurrentStack =
-            current;
 
         return true;
     }
@@ -609,6 +462,11 @@ public static partial class TerrainAuthoringModifierService
             return false;
         }
 
+        /*
+         * This is intentionally the first complete stack capture since
+         * MouseDown. The hot MouseDrag path tracks only the known active
+         * modifier and its affected bounds.
+         */
         if (
             !TerrainAuthoringModifierChangeTracker
                 .TryCaptureStack(
@@ -655,6 +513,10 @@ public static partial class TerrainAuthoringModifierService
             /*
              * Remove the complete-object snapshot instead of leaving a
              * no-op Undo entry when the handle ends where it started.
+             *
+             * Any pending interactive dirty tiles already represent the
+             * restored final state because the last live sample returned
+             * the modifier to its original values.
              */
             Undo.RevertAllDownToGroup(
                 undoGroup
@@ -687,6 +549,11 @@ public static partial class TerrainAuthoringModifierService
             state.AuthoringData
         );
 
+        /*
+         * The general ChangeTracker was deliberately held at InitialStack
+         * throughout MouseDrag. Synchronize it once to the committed final
+         * state so later Ctrl+Z / Redo comparisons remain unchanged.
+         */
         TerrainAuthoringModifierChangeTracker
             .UpdateTrackedState(
                 state.AuthoringData,
@@ -696,22 +563,25 @@ public static partial class TerrainAuthoringModifierService
             );
 
         /*
-         * The final drag sample has already recomposed the required
-         * slices. Incrementing authoringRevision changes only the
-         * overall authoring identity, so acknowledge it without forcing
-         * another terrain slice update.
+         * The final live sample already recomposed terrain pixels. The
+         * authoringRevision increment changes only overall authoring identity,
+         * so request metadata/signature acknowledgement without extra tiles.
          */
         if (state.NotifyPreview)
         {
             TerrainAuthoringPreviewService
                 .NotifyCompositeAuthoringStateChanged(
-                    new HashSet<Vector2Int>()
+                    null
                 );
         }
 
         HashSet<Vector2Int> logicalDirtyTiles =
             new HashSet<Vector2Int>();
 
+        /*
+         * Full stack comparison remains useful once per completed gesture for
+         * logical diagnostics and transaction verification.
+         */
         TerrainAuthoringModifierChangeTracker
             .CollectChangedTiles(
                 state.WorldSettings,
@@ -819,15 +689,15 @@ public static partial class TerrainAuthoringModifierService
         string operation =
             state.Operation;
 
-        activeInteractiveEdit =
-            null;
-
         if (
             authoringData == null
             ||
             worldSettings == null
         )
         {
+            activeInteractiveEdit =
+                null;
+
             errorMessage =
                 "The active terrain modifier interactive edit lost its context.";
 
@@ -835,13 +705,49 @@ public static partial class TerrainAuthoringModifierService
         }
 
         /*
+         * Interactive MouseDrag no longer advances the general ChangeTracker,
+         * so cancellation must explicitly identify terrain that can contain
+         * either the temporary or restored modifier contribution.
+         */
+        state.InteractiveDirtyTiles.Clear();
+
+        if (
+            state.HasInteractiveChanges
+            &&
+            state.CurrentEnabled
+        )
+        {
+            TerrainAuthoringPreviewDirtyRegionUtility
+                .CollectTilesOverlappingBounds(
+                    worldSettings,
+                    state.CurrentAffectedWorldBounds,
+                    state.InteractiveDirtyTiles,
+                    1
+                );
+        }
+
+        if (
+            state.HasInteractiveChanges
+            &&
+            state.InitialEnabled
+        )
+        {
+            TerrainAuthoringPreviewDirtyRegionUtility
+                .CollectTilesOverlappingBounds(
+                    worldSettings,
+                    state.InitialAffectedWorldBounds,
+                    state.InteractiveDirtyTiles,
+                    1
+                );
+        }
+
+        activeInteractiveEdit =
+            null;
+
+        /*
          * Restore the complete-object snapshot captured at MouseDown.
          * RevertAllDownToGroup intentionally does not create a Redo item,
          * which is the expected behavior for Escape/cancel.
-         *
-         * TerrainAuthoringModifierChangeTracker's existing Undo callback
-         * sees the final-drag snapshot -> restored snapshot transition and
-         * refreshes the correct dirty terrain region.
          */
         Undo.RevertAllDownToGroup(
             undoGroup
@@ -853,6 +759,23 @@ public static partial class TerrainAuthoringModifierService
             notifyPreview
         );
 
+        /*
+         * Notify only after serialized authoring data has been restored so
+         * PreviewService recomposes the final authoritative state. Existing
+         * pending dirty tiles are coalesced with this set.
+         */
+        if (
+            notifyPreview
+            &&
+            state.HasInteractiveChanges
+        )
+        {
+            TerrainAuthoringPreviewService
+                .NotifyCompositeAuthoringStateChanged(
+                    state.InteractiveDirtyTiles
+                );
+        }
+
         SetNoChangeDiagnostics(
             operation + " (Canceled)",
             authoringData,
@@ -860,6 +783,169 @@ public static partial class TerrainAuthoringModifierService
         );
 
         return true;
+    }
+
+    // =====================================================
+    // FAST INTERACTIVE DIRTY TRACKING
+    // =====================================================
+
+    private static bool TryGetActiveInteractiveStamp(
+        out InteractiveModifierEditState state,
+        out TerrainStampModifier modifier,
+        out string errorMessage
+    )
+    {
+        state =
+            activeInteractiveEdit;
+
+        modifier =
+            null;
+
+        errorMessage =
+            "";
+
+        if (state == null)
+        {
+            errorMessage =
+                "No terrain modifier interactive edit is active.";
+
+            return false;
+        }
+
+        if (
+            state.AuthoringData == null
+            ||
+            state.WorldSettings == null
+        )
+        {
+            errorMessage =
+                "The active terrain modifier interactive edit lost its context.";
+
+            return false;
+        }
+
+        if (
+            state.AuthoringData.authoringRevision !=
+                state.RevisionBefore
+        )
+        {
+            errorMessage =
+                "Terrain authoring revision changed during the interactive edit.";
+
+            return false;
+        }
+
+        return
+            TryFindStampModifier(
+                state.AuthoringData,
+                state.StableId,
+                out modifier,
+                out errorMessage
+            );
+    }
+
+    private static void NotifyInteractiveModifierChanged(
+        InteractiveModifierEditState state,
+        TerrainHeightModifier modifier
+    )
+    {
+        if (
+            state == null
+            ||
+            modifier == null
+            ||
+            state.AuthoringData == null
+            ||
+            state.WorldSettings == null
+        )
+        {
+            return;
+        }
+
+        Bounds previousBounds =
+            state.CurrentAffectedWorldBounds;
+
+        bool previousEnabled =
+            state.CurrentEnabled;
+
+        Bounds currentBounds =
+            modifier.GetAffectedWorldBounds();
+
+        bool currentEnabled =
+            modifier.Enabled;
+
+        state.InteractiveDirtyTiles.Clear();
+
+        if (previousEnabled)
+        {
+            TerrainAuthoringPreviewDirtyRegionUtility
+                .CollectTilesOverlappingBounds(
+                    state.WorldSettings,
+                    previousBounds,
+                    state.InteractiveDirtyTiles,
+                    1
+                );
+        }
+
+        /*
+         * A parameter-only edit has identical previous/current bounds, so one
+         * collection is enough. Movement/resizing adds the new footprint too.
+         */
+        if (
+            currentEnabled
+            &&
+            (
+                !previousEnabled
+                ||
+                !AffectedBoundsMatch(
+                    previousBounds,
+                    currentBounds
+                )
+            )
+        )
+        {
+            TerrainAuthoringPreviewDirtyRegionUtility
+                .CollectTilesOverlappingBounds(
+                    state.WorldSettings,
+                    currentBounds,
+                    state.InteractiveDirtyTiles,
+                    1
+                );
+        }
+
+        state.CurrentAffectedWorldBounds =
+            currentBounds;
+
+        state.CurrentEnabled =
+            currentEnabled;
+
+        state.HasInteractiveChanges =
+            true;
+
+        EditorUtility.SetDirty(
+            state.AuthoringData
+        );
+
+        if (state.NotifyPreview)
+        {
+            TerrainAuthoringPreviewService
+                .NotifyCompositeAuthoringStateChanged(
+                    state.InteractiveDirtyTiles
+                );
+        }
+    }
+
+    private static bool AffectedBoundsMatch(
+        Bounds a,
+        Bounds b
+    )
+    {
+        return
+            a.center ==
+                b.center
+            &&
+            a.size ==
+                b.size;
     }
 
     // =====================================================

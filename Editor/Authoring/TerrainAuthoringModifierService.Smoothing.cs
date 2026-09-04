@@ -131,11 +131,10 @@ public static partial class TerrainAuthoringModifierService
     /*
      * Used by the production WorldMeshes smoothing sliders.
      *
-     * BeginInteractiveModifierEdit() owns the original complete-object Undo
-     * snapshot. This method may be called many times during one slider drag.
-     * It updates the current snapshot/dirty region and live preview without
-     * advancing authoringRevision. CommitInteractiveEdit() performs the single
-     * logical revision increment at gesture completion.
+     * BeginInteractiveModifierEdit() owns the complete-object Undo snapshot.
+     * MouseDrag samples mutate only the known active stamp and invalidate its
+     * existing footprint directly. The complete modifier stack is captured
+     * again only when CommitInteractiveEdit() closes the gesture.
      */
     public static bool UpdateInteractiveStampSmoothing(
         float smoothingRadius,
@@ -143,47 +142,9 @@ public static partial class TerrainAuthoringModifierService
         out string errorMessage
     )
     {
-        errorMessage =
-            "";
-
-        InteractiveModifierEditState state =
-            activeInteractiveEdit;
-
-        if (state == null)
-        {
-            errorMessage =
-                "No terrain modifier interactive edit is active.";
-
-            return false;
-        }
-
         if (
-            state.AuthoringData == null
-            ||
-            state.WorldSettings == null
-        )
-        {
-            errorMessage =
-                "The active terrain modifier interactive edit lost its context.";
-
-            return false;
-        }
-
-        if (
-            state.AuthoringData.authoringRevision !=
-                state.RevisionBefore
-        )
-        {
-            errorMessage =
-                "Terrain authoring revision changed during the interactive edit.";
-
-            return false;
-        }
-
-        if (
-            !TryFindStampModifier(
-                state.AuthoringData,
-                state.StableId,
+            !TryGetActiveInteractiveStamp(
+                out InteractiveModifierEditState state,
                 out TerrainStampModifier modifier,
                 out errorMessage
             )
@@ -231,65 +192,10 @@ public static partial class TerrainAuthoringModifierService
             return true;
         }
 
-        if (
-            !TerrainAuthoringModifierChangeTracker
-                .TryCaptureStack(
-                    state.AuthoringData,
-                    out List<TerrainHeightModifierSnapshot> current,
-                    out errorMessage
-                )
-        )
-        {
-            return false;
-        }
-
-        if (
-            TerrainHeightModifierSnapshot
-                .StackEquals(
-                    state.CurrentStack,
-                    current
-                )
-        )
-        {
-            state.CurrentStack =
-                current;
-
-            return true;
-        }
-
-        HashSet<Vector2Int> dirtyTiles =
-            new HashSet<Vector2Int>();
-
-        TerrainAuthoringModifierChangeTracker
-            .CollectChangedTiles(
-                state.WorldSettings,
-                state.CurrentStack,
-                current,
-                dirtyTiles
-            );
-
-        EditorUtility.SetDirty(
-            state.AuthoringData
+        NotifyInteractiveModifierChanged(
+            state,
+            modifier
         );
-
-        TerrainAuthoringModifierChangeTracker
-            .UpdateTrackedState(
-                state.AuthoringData,
-                state.WorldSettings,
-                current,
-                state.NotifyPreview
-            );
-
-        if (state.NotifyPreview)
-        {
-            TerrainAuthoringPreviewService
-                .NotifyCompositeAuthoringStateChanged(
-                    dirtyTiles
-                );
-        }
-
-        state.CurrentStack =
-            current;
 
         return true;
     }
