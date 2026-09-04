@@ -160,12 +160,18 @@ public partial class WorldMeshesEditorWindow :
             GUILayout.Space(4f);
 
             EditorGUILayout.HelpBox(
-                "Click a footprint to select it. Drag the center handle " +
-                "to move in X/Z. Drag edge or corner handles to resize. " +
-                "Use the vertical ΔH handle beside the selected stamp to " +
-                "edit Height Delta. Each complete drag is one Undo " +
-                "operation. Press Escape during a drag to cancel it. " +
-                "Press F to frame the selected modifier.",
+                "Click a footprint to select it; repeated clicks at the same " +
+                "location cycle overlapping stamps. Drag the larger center " +
+                "handle to move in X/Z. Drag edge or corner handles to resize. " +
+                "Hold Alt while resizing to resize symmetrically around the " +
+                "stamp center. Hold Shift while dragging a corner to preserve " +
+                "the stamp's starting aspect ratio; Alt + Shift combines both. " +
+                "When Falloff Visualization is enabled, drag the small handles " +
+                "on the inner full-strength rectangle to edit Falloff. Use the " +
+                "vertical ΔH ruler beside the selected stamp to edit Height " +
+                "Delta. Each complete drag is one Undo operation. Press Escape " +
+                "during a drag to cancel it. Press F to frame the selected " +
+                "modifier.",
                 MessageType.Info
             );
         }
