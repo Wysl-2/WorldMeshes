@@ -41,6 +41,21 @@ public sealed class TerrainStampModifier :
     private float rotationDegrees =
         0f;
 
+    /*
+     * Source-orientation mirrors only.
+     *
+     * These values do not change the stamp footprint, affected Bounds, local
+     * axes, or Scene-tool geometry. Existing serialized stamps naturally
+     * deserialize both fields as false and therefore preserve legacy output.
+     */
+    [SerializeField]
+    private bool flipX =
+        false;
+
+    [SerializeField]
+    private bool flipZ =
+        false;
+
     [SerializeField]
     private float heightDelta =
         10f;
@@ -132,6 +147,22 @@ public sealed class TerrainStampModifier :
         }
     }
 
+    public bool FlipX
+    {
+        get
+        {
+            return flipX;
+        }
+    }
+
+    public bool FlipZ
+    {
+        get
+        {
+            return flipZ;
+        }
+    }
+
     public float HeightDelta
     {
         get
@@ -194,6 +225,9 @@ public sealed class TerrainStampModifier :
          * The compositor clamps Gaussian SOURCE lookup coordinates to the
          * stamp texture boundary while still rejecting terrain samples whose
          * central stamp coordinate lies outside this footprint.
+         *
+         * FlipX / FlipZ only mirror source sampling inside the footprint and
+         * therefore deliberately do not participate in spatial Bounds.
          *
          * Dirty-region and runtime-bake systems consume an axis-aligned Bounds,
          * so rotated stamps report the conservative AABB enclosing their
@@ -289,6 +323,22 @@ public sealed class TerrainStampModifier :
                 );
     }
 
+    internal void SetFlipXInternal(
+        bool value
+    )
+    {
+        flipX =
+            value;
+    }
+
+    internal void SetFlipZInternal(
+        bool value
+    )
+    {
+        flipZ =
+            value;
+    }
+
     internal void SetHeightDeltaInternal(
         float value
     )
@@ -343,7 +393,7 @@ public sealed class TerrainStampModifier :
     protected override string GetSignatureTypeId()
     {
         return
-            "TerrainStampModifierV3";
+            "TerrainStampModifierV4";
     }
 
     protected override void AppendTypeSpecificSignatureData(
@@ -363,6 +413,16 @@ public sealed class TerrainStampModifier :
         AppendFloat(
             builder,
             RotationDegrees
+        );
+
+        AppendBool(
+            builder,
+            FlipX
+        );
+
+        AppendBool(
+            builder,
+            FlipZ
         );
 
         AppendFloat(

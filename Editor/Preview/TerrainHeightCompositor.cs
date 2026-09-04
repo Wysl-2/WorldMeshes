@@ -790,6 +790,20 @@ public sealed class TerrainHeightCompositor
                 )
             );
 
+            computeShader.SetInt(
+                "_StampFlipX",
+                stampModifier.FlipX
+                    ? 1
+                    : 0
+            );
+
+            computeShader.SetInt(
+                "_StampFlipZ",
+                stampModifier.FlipZ
+                    ? 1
+                    : 0
+            );
+
             computeShader.SetFloat(
                 "_StampHeightDelta",
                 stampModifier.HeightDelta

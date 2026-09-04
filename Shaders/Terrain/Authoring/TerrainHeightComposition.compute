@@ -23,6 +23,8 @@ float2 _StampForwardXZ;
 float2 _StampSizeXZ;
 float2 _StampTextureSize;
 int _StampMipCount;
+int _StampFlipX;
+int _StampFlipZ;
 
 float _StampHeightDelta;
 float _StampFalloff;
@@ -190,6 +192,31 @@ float CalculateFootprintFalloff(
             edgeDistance01
         );
 }
+
+float2 CalculateStampSourceUV(
+    float2 stampUV
+)
+{
+    float2 sourceUV =
+        stampUV;
+
+    if (_StampFlipX != 0)
+    {
+        sourceUV.x =
+            1.0 -
+            sourceUV.x;
+    }
+
+    if (_StampFlipZ != 0)
+    {
+        sourceUV.y =
+            1.0 -
+            sourceUV.y;
+    }
+
+    return sourceUV;
+}
+
 
 float SampleStampWeightAtExactLod(
     float2 stampUV,
@@ -606,12 +633,22 @@ void ApplyAdditiveStamp(
     }
 
     /*
+     * stampUV remains the spatial footprint coordinate. Source orientation is
+     * derived separately so mirroring affects texture/smoothing lookup only,
+     * never footprint inclusion, Falloff, Bounds, or Scene geometry.
+     */
+    float2 sourceUV =
+        CalculateStampSourceUV(
+            stampUV
+        );
+
+    /*
      * Smoothing changes only source texture weight. The established footprint
      * Falloff remains afterward, preserving modifier bounds and edge behavior.
      */
     float textureWeight =
         SampleFinalStampTextureWeight(
-            stampUV
+            sourceUV
         );
 
     float footprintFalloff =

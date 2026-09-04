@@ -731,6 +731,83 @@ public partial class WorldMeshesEditorWindow :
             }
         }
 
+        GUILayout.Space(
+            5f
+        );
+
+        GUILayout.Label(
+            "Source Orientation",
+            EditorStyles.miniBoldLabel
+        );
+
+        bool flipX =
+            EditorGUILayout.Toggle(
+                "Flip X",
+                stamp.FlipX
+            );
+
+        if (
+            flipX !=
+                stamp.FlipX
+        )
+        {
+            if (
+                TerrainAuthoringModifierService
+                    .SetStampFlipX(
+                        terrainAuthoringData,
+                        worldSettings,
+                        stamp.StableId,
+                        flipX,
+                        out string flipXError
+                    )
+            )
+            {
+                OnModifierMutationSucceeded();
+            }
+            else
+            {
+                SetModifierAuthoringError(
+                    flipXError
+                );
+            }
+        }
+
+        bool flipZ =
+            EditorGUILayout.Toggle(
+                "Flip Z",
+                stamp.FlipZ
+            );
+
+        if (
+            flipZ !=
+                stamp.FlipZ
+        )
+        {
+            if (
+                TerrainAuthoringModifierService
+                    .SetStampFlipZ(
+                        terrainAuthoringData,
+                        worldSettings,
+                        stamp.StableId,
+                        flipZ,
+                        out string flipZError
+                    )
+            )
+            {
+                OnModifierMutationSucceeded();
+            }
+            else
+            {
+                SetModifierAuthoringError(
+                    flipZError
+                );
+            }
+        }
+
+        GUILayout.Space(
+            5f
+        );
+
         float heightDelta =
             EditorGUILayout.DelayedFloatField(
                 "Height Delta",
