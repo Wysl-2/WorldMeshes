@@ -805,6 +805,21 @@ public sealed class TerrainHeightCompositor
             );
 
             computeShader.SetFloat(
+                "_StampSourceInputMin",
+                stampModifier.SourceInputMin
+            );
+
+            computeShader.SetFloat(
+                "_StampSourceInputMax",
+                stampModifier.SourceInputMax
+            );
+
+            computeShader.SetFloat(
+                "_StampSourceGamma",
+                stampModifier.SourceGamma
+            );
+
+            computeShader.SetFloat(
                 "_StampHeightDelta",
                 stampModifier.HeightDelta
             );
@@ -826,7 +841,7 @@ public sealed class TerrainHeightCompositor
              *         smoothstep(0, Falloff, edgeDistance01)
              *
              * finalWeight =
-             *     textureWeight * footprintFalloff
+             *     remappedWeight * footprintFalloff
              *
              * The compute shader contains the authoritative GPU
              * implementation; this comment documents the same contract

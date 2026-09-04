@@ -27,7 +27,7 @@ MonoBehaviour:
   - rid: 3932701402812383301
   - rid: 3932701383432863811
   - rid: 3932701383432863812
-  authoringRevision: 885
+  authoringRevision: 900
   references:
     version: 2
     RefIds:
@@ -41,8 +41,10 @@ MonoBehaviour:
         positionXZ: {x: 2883.197, y: 1242.9371}
         sizeXZ: {x: 3295.923, y: 3295.923}
         rotationDegrees: 12.870743
+        flipX: 1
+        flipZ: 1
         heightDelta: 460.26907
-        falloff: 0.6
+        falloff: 0.3152609
         smoothingRadius: 6
         smoothingStrength: 1
     - rid: 3932701354711842889
@@ -55,6 +57,8 @@ MonoBehaviour:
         positionXZ: {x: 3053.2832, y: 3084.4827}
         sizeXZ: {x: 6113.16, y: 6023.166}
         rotationDegrees: -0.24359131
+        flipX: 0
+        flipZ: 0
         heightDelta: 5
         falloff: 0.5
         smoothingRadius: 3
@@ -69,6 +73,8 @@ MonoBehaviour:
         positionXZ: {x: 4301.919, y: 1325.8009}
         sizeXZ: {x: 2619.001, y: 2638.389}
         rotationDegrees: 0
+        flipX: 0
+        flipZ: 0
         heightDelta: 80
         falloff: 0.6
         smoothingRadius: 6
@@ -83,6 +89,8 @@ MonoBehaviour:
         positionXZ: {x: 5412.0938, y: 567.037}
         sizeXZ: {x: 3014.9404, y: 2675.5923}
         rotationDegrees: -30.058334
+        flipX: 0
+        flipZ: 0
         heightDelta: 80
         falloff: 0.25
         smoothingRadius: 0
@@ -97,6 +105,8 @@ MonoBehaviour:
         positionXZ: {x: 5248.093, y: 5471.47}
         sizeXZ: {x: 1815.2578, y: 1689.7166}
         rotationDegrees: 0
+        flipX: 0
+        flipZ: 0
         heightDelta: 42.27927
         falloff: 0.25
         smoothingRadius: 0
@@ -111,8 +121,10 @@ MonoBehaviour:
         positionXZ: {x: 3105.1875, y: 4283.001}
         sizeXZ: {x: 3373.8115, y: 3203.641}
         rotationDegrees: -0.24359131
+        flipX: 0
+        flipZ: 0
         heightDelta: 15
-        falloff: 0.5
+        falloff: 0.4151991
         smoothingRadius: 3
         smoothingStrength: 1
     - rid: 3932701402812383299
@@ -125,6 +137,8 @@ MonoBehaviour:
         positionXZ: {x: 3106.3938, y: 1362.3564}
         sizeXZ: {x: 3373.8115, y: 3203.641}
         rotationDegrees: -0.24359131
+        flipX: 0
+        flipZ: 0
         heightDelta: 15
         falloff: 0.5
         smoothingRadius: 3
@@ -139,6 +153,8 @@ MonoBehaviour:
         positionXZ: {x: 5371.6357, y: 1650.4656}
         sizeXZ: {x: 3373.8115, y: 3270.3398}
         rotationDegrees: -0.24359131
+        flipX: 0
+        flipZ: 0
         heightDelta: 5
         falloff: 0.5
         smoothingRadius: 3
@@ -153,6 +169,8 @@ MonoBehaviour:
         positionXZ: {x: 5389.836, y: 4660.1646}
         sizeXZ: {x: 3373.8115, y: 3270.3398}
         rotationDegrees: -10.341797
+        flipX: 0
+        flipZ: 0
         heightDelta: 5
         falloff: 0.5
         smoothingRadius: 3
@@ -167,6 +185,8 @@ MonoBehaviour:
         positionXZ: {x: 4229.952, y: 3706.3682}
         sizeXZ: {x: 4096, y: 4096}
         rotationDegrees: 13.543091
+        flipX: 0
+        flipZ: 0
         heightDelta: 180
         falloff: 0.5
         smoothingRadius: 6
@@ -178,10 +198,12 @@ MonoBehaviour:
         enabled: 1
         blendMode: 0
         stampAsset: {fileID: 11400000, guid: 3294769e2ab8dfe33827d65044b6e4a6, type: 2}
-        positionXZ: {x: 2842.2812, y: 4496.4697}
+        positionXZ: {x: 2901.4436, y: 4709.246}
         sizeXZ: {x: 3772.1252, y: 3566.2126}
         rotationDegrees: 0
+        flipX: 0
+        flipZ: 0
         heightDelta: 439.59436
-        falloff: 0.5
+        falloff: 0.2173241
         smoothingRadius: 40
         smoothingStrength: 1

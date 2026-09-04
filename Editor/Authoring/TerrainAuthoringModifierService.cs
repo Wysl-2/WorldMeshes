@@ -1072,6 +1072,12 @@ public static partial class TerrainAuthoringModifierService
                 stamp.FlipZ
             );
 
+            copy.SetSourceRemapInternal(
+                stamp.SourceInputMin,
+                stamp.SourceInputMax,
+                stamp.SourceGamma
+            );
+
             copy.SetHeightDeltaInternal(
                 stamp.HeightDelta
             );

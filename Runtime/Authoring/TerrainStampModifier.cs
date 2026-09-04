@@ -56,6 +56,29 @@ public sealed class TerrainStampModifier :
     private bool flipZ =
         false;
 
+    /*
+     * Per-instance source-value response.
+     *
+     * The identity response is 0 / 1 / 1. TerrainStampSourceRemapUtility also
+     * interprets invalid stored ranges as identity so legacy managed-reference
+     * data remains safe even if newly added non-zero fields deserialize as
+     * default(float).
+     */
+    [SerializeField]
+    private float sourceInputMin =
+        TerrainStampSourceRemapUtility
+            .IdentityInputMin;
+
+    [SerializeField]
+    private float sourceInputMax =
+        TerrainStampSourceRemapUtility
+            .IdentityInputMax;
+
+    [SerializeField]
+    private float sourceGamma =
+        TerrainStampSourceRemapUtility
+            .IdentityGamma;
+
     [SerializeField]
     private float heightDelta =
         10f;
@@ -163,6 +186,48 @@ public sealed class TerrainStampModifier :
         }
     }
 
+    public float SourceInputMin
+    {
+        get
+        {
+            GetCanonicalSourceRemap(
+                out float inputMin,
+                out _,
+                out _
+            );
+
+            return inputMin;
+        }
+    }
+
+    public float SourceInputMax
+    {
+        get
+        {
+            GetCanonicalSourceRemap(
+                out _,
+                out float inputMax,
+                out _
+            );
+
+            return inputMax;
+        }
+    }
+
+    public float SourceGamma
+    {
+        get
+        {
+            GetCanonicalSourceRemap(
+                out _,
+                out _,
+                out float gamma
+            );
+
+            return gamma;
+        }
+    }
+
     public float HeightDelta
     {
         get
@@ -226,8 +291,9 @@ public sealed class TerrainStampModifier :
          * stamp texture boundary while still rejecting terrain samples whose
          * central stamp coordinate lies outside this footprint.
          *
-         * FlipX / FlipZ only mirror source sampling inside the footprint and
-         * therefore deliberately do not participate in spatial Bounds.
+         * FlipX / FlipZ and source remapping only change source interpretation
+         * inside the footprint and therefore deliberately do not participate
+         * in spatial Bounds.
          *
          * Dirty-region and runtime-bake systems consume an axis-aligned Bounds,
          * so rotated stamps report the conservative AABB enclosing their
@@ -339,6 +405,73 @@ public sealed class TerrainStampModifier :
             value;
     }
 
+    internal void SetSourceInputMinInternal(
+        float value
+    )
+    {
+        float safeInputMin =
+            TerrainStampSourceRemapUtility
+                .SanitizeInputMin(
+                    value,
+                    SourceInputMax
+                );
+
+        SetSourceRemapInternal(
+            safeInputMin,
+            SourceInputMax,
+            SourceGamma
+        );
+    }
+
+    internal void SetSourceInputMaxInternal(
+        float value
+    )
+    {
+        float safeInputMax =
+            TerrainStampSourceRemapUtility
+                .SanitizeInputMax(
+                    value,
+                    SourceInputMin
+                );
+
+        SetSourceRemapInternal(
+            SourceInputMin,
+            safeInputMax,
+            SourceGamma
+        );
+    }
+
+    internal void SetSourceGammaInternal(
+        float value
+    )
+    {
+        SetSourceRemapInternal(
+            SourceInputMin,
+            SourceInputMax,
+            TerrainStampSourceRemapUtility
+                .SanitizeGamma(
+                    value
+                )
+        );
+    }
+
+    internal void SetSourceRemapInternal(
+        float inputMin,
+        float inputMax,
+        float gamma
+    )
+    {
+        TerrainStampSourceRemapUtility
+            .SanitizeRequestedValues(
+                inputMin,
+                inputMax,
+                gamma,
+                out sourceInputMin,
+                out sourceInputMax,
+                out sourceGamma
+            );
+    }
+
     internal void SetHeightDeltaInternal(
         float value
     )
@@ -393,7 +526,7 @@ public sealed class TerrainStampModifier :
     protected override string GetSignatureTypeId()
     {
         return
-            "TerrainStampModifierV4";
+            "TerrainStampModifierV5";
     }
 
     protected override void AppendTypeSpecificSignatureData(
@@ -427,6 +560,21 @@ public sealed class TerrainStampModifier :
 
         AppendFloat(
             builder,
+            SourceInputMin
+        );
+
+        AppendFloat(
+            builder,
+            SourceInputMax
+        );
+
+        AppendFloat(
+            builder,
+            SourceGamma
+        );
+
+        AppendFloat(
+            builder,
             HeightDelta
         );
 
@@ -444,6 +592,23 @@ public sealed class TerrainStampModifier :
             builder,
             SmoothingStrength
         );
+    }
+
+    private void GetCanonicalSourceRemap(
+        out float inputMin,
+        out float inputMax,
+        out float gamma
+    )
+    {
+        TerrainStampSourceRemapUtility
+            .SanitizeStoredValues(
+                sourceInputMin,
+                sourceInputMax,
+                sourceGamma,
+                out inputMin,
+                out inputMax,
+                out gamma
+            );
     }
 
     private static float SanitizeFinite(

@@ -26,6 +26,10 @@ int _StampMipCount;
 int _StampFlipX;
 int _StampFlipZ;
 
+float _StampSourceInputMin;
+float _StampSourceInputMax;
+float _StampSourceGamma;
+
 float _StampHeightDelta;
 float _StampFalloff;
 float _StampSmoothingRadius;
@@ -567,6 +571,72 @@ float SampleFinalStampTextureWeight(
         );
 }
 
+/*
+ * Source response is deliberately AFTER SampleFinalStampTextureWeight().
+ * Smoothing owns spatial/source filtering; this function owns only the
+ * interpretation of the resulting normalized source value.
+ */
+float RemapStampSourceWeight(
+    float sourceWeight
+)
+{
+    float safeSourceWeight =
+        saturate(
+            sourceWeight
+        );
+
+    /*
+     * Identity is the overwhelmingly common compatibility path for existing
+     * stamps and avoids pow() when no remapping is authored.
+     */
+    if (
+        abs(
+            _StampSourceInputMin
+        ) <= 0.000001
+        &&
+        abs(
+            _StampSourceInputMax -
+            1.0
+        ) <= 0.000001
+        &&
+        abs(
+            _StampSourceGamma -
+            1.0
+        ) <= 0.000001
+    )
+    {
+        return safeSourceWeight;
+    }
+
+    float safeRange =
+        max(
+            _StampSourceInputMax -
+                _StampSourceInputMin,
+            0.000001
+        );
+
+    float normalizedWeight =
+        saturate(
+            (
+                safeSourceWeight -
+                    _StampSourceInputMin
+            )
+            /
+            safeRange
+        );
+
+    return
+        saturate(
+            pow(
+                normalizedWeight,
+                max(
+                    _StampSourceGamma,
+                    0.000001
+                )
+            )
+        );
+}
+
 [numthreads(8, 8, 1)]
 void ApplyAdditiveStamp(
     uint3 dispatchThreadId : SV_DispatchThreadID
@@ -643,12 +713,18 @@ void ApplyAdditiveStamp(
         );
 
     /*
-     * Smoothing changes only source texture weight. The established footprint
-     * Falloff remains afterward, preserving modifier bounds and edge behavior.
+     * Smoothing changes only source texture weight. Source remapping then
+     * interprets that final filtered source value. The established footprint
+     * Falloff remains spatial and continues to use stampUV.
      */
-    float textureWeight =
+    float sourceWeight =
         SampleFinalStampTextureWeight(
             sourceUV
+        );
+
+    float remappedWeight =
+        RemapStampSourceWeight(
+            sourceWeight
         );
 
     float footprintFalloff =
@@ -658,7 +734,7 @@ void ApplyAdditiveStamp(
 
     float finalWeight =
         saturate(
-            textureWeight
+            remappedWeight
         )
         *
         footprintFalloff;
