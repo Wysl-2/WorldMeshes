@@ -292,6 +292,10 @@ public partial class WorldMeshesEditorWindow :
 
         DrawWorkspaceSectionGap();
 
+        DrawStampRotationFoundationValidationSettings();
+
+        DrawWorkspaceSectionGap();
+
         DrawLiveStampValidationSettings();
 
         DrawWorkspaceSectionGap();

@@ -31,6 +31,16 @@ public sealed class TerrainStampModifier :
             128f
         );
 
+    /*
+     * Positive Unity world-Y rotation around PositionXZ.
+     *
+     * Existing serialized stamps do not contain this field and therefore
+     * naturally deserialize to 0 degrees.
+     */
+    [SerializeField]
+    private float rotationDegrees =
+        0f;
+
     [SerializeField]
     private float heightDelta =
         10f;
@@ -110,6 +120,18 @@ public sealed class TerrainStampModifier :
         }
     }
 
+    public float RotationDegrees
+    {
+        get
+        {
+            return
+                TerrainStampTransformUtility
+                    .NormalizeRotationDegrees(
+                        rotationDegrees
+                    );
+        }
+    }
+
     public float HeightDelta
     {
         get
@@ -167,31 +189,23 @@ public sealed class TerrainStampModifier :
 
     public override Bounds GetAffectedWorldBounds()
     {
-        Vector2 safePosition =
-            PositionXZ;
-
-        Vector2 safeSize =
-            SizeXZ;
-
         /*
          * Smoothing stays inside the existing mathematical stamp footprint.
          * The compositor clamps Gaussian SOURCE lookup coordinates to the
          * stamp texture boundary while still rejecting terrain samples whose
          * central stamp coordinate lies outside this footprint.
+         *
+         * Dirty-region and runtime-bake systems consume an axis-aligned Bounds,
+         * so rotated stamps report the conservative AABB enclosing their
+         * oriented local SizeXZ rectangle.
          */
         return
-            new Bounds(
-                new Vector3(
-                    safePosition.x,
-                    0f,
-                    safePosition.y
-                ),
-                new Vector3(
-                    safeSize.x,
-                    0f,
-                    safeSize.y
-                )
-            );
+            TerrainStampTransformUtility
+                .CalculateWorldAabb(
+                    PositionXZ,
+                    SizeXZ,
+                    RotationDegrees
+                );
     }
 
     internal override void CollectSignatureDependencies(
@@ -264,6 +278,17 @@ public sealed class TerrainStampModifier :
             );
     }
 
+    internal void SetRotationDegreesInternal(
+        float value
+    )
+    {
+        rotationDegrees =
+            TerrainStampTransformUtility
+                .NormalizeRotationDegrees(
+                    value
+                );
+    }
+
     internal void SetHeightDeltaInternal(
         float value
     )
@@ -318,7 +343,7 @@ public sealed class TerrainStampModifier :
     protected override string GetSignatureTypeId()
     {
         return
-            "TerrainStampModifierV2";
+            "TerrainStampModifierV3";
     }
 
     protected override void AppendTypeSpecificSignatureData(
@@ -333,6 +358,11 @@ public sealed class TerrainStampModifier :
         AppendVector2(
             builder,
             SizeXZ
+        );
+
+        AppendFloat(
+            builder,
+            RotationDegrees
         );
 
         AppendFloat(

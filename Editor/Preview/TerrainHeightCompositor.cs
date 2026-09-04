@@ -678,9 +678,12 @@ public sealed class TerrainHeightCompositor
         Vector2 stampPosition =
             stampModifier.PositionXZ;
 
-        Vector2 stampMinXZ =
-            stampPosition
-            - stampSize * 0.5f;
+        TerrainStampTransformUtility
+            .GetWorldAxes(
+                stampModifier.RotationDegrees,
+                out Vector2 stampRightXZ,
+                out Vector2 stampForwardXZ
+            );
 
         int groupsX =
             DivideRoundUp(
@@ -748,10 +751,30 @@ public sealed class TerrainHeightCompositor
             );
 
             computeShader.SetVector(
-                "_StampMinXZ",
+                "_StampCenterXZ",
                 new Vector4(
-                    stampMinXZ.x,
-                    stampMinXZ.y,
+                    stampPosition.x,
+                    stampPosition.y,
+                    0f,
+                    0f
+                )
+            );
+
+            computeShader.SetVector(
+                "_StampRightXZ",
+                new Vector4(
+                    stampRightXZ.x,
+                    stampRightXZ.y,
+                    0f,
+                    0f
+                )
+            );
+
+            computeShader.SetVector(
+                "_StampForwardXZ",
+                new Vector4(
+                    stampForwardXZ.x,
+                    stampForwardXZ.y,
                     0f,
                     0f
                 )

@@ -17,7 +17,9 @@ int2 _TileCoordinate;
 float2 _TileWorldOriginXZ;
 float2 _WorldSizeXZ;
 
-float2 _StampMinXZ;
+float2 _StampCenterXZ;
+float2 _StampRightXZ;
+float2 _StampForwardXZ;
 float2 _StampSizeXZ;
 float2 _StampTextureSize;
 int _StampMipCount;
@@ -565,12 +567,33 @@ void ApplyAdditiveStamp(
         return;
     }
 
+    float2 stampDelta =
+        sampleWorldXZ -
+        _StampCenterXZ;
+
+    /*
+     * Convert the absolute world sample into the stamp's oriented local XZ
+     * frame. Right/Forward are calculated once on the CPU from the shared
+     * TerrainStampTransformUtility convention and supplied as an orthonormal
+     * basis.
+     */
+    float2 stampLocalXZ =
+        float2(
+            dot(
+                stampDelta,
+                _StampRightXZ
+            ),
+            dot(
+                stampDelta,
+                _StampForwardXZ
+            )
+        );
+
     float2 stampUV =
-        (
-            sampleWorldXZ -
-            _StampMinXZ
-        ) /
-        _StampSizeXZ;
+        stampLocalXZ /
+        _StampSizeXZ
+        +
+        0.5;
 
     if (
         stampUV.x < 0.0

@@ -1060,6 +1060,10 @@ public static partial class TerrainAuthoringModifierService
                 stamp.SizeXZ
             );
 
+            copy.SetRotationDegreesInternal(
+                stamp.RotationDegrees
+            );
+
             copy.SetHeightDeltaInternal(
                 stamp.HeightDelta
             );
