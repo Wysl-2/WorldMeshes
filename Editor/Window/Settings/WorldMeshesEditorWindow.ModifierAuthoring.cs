@@ -9,12 +9,6 @@ public partial class WorldMeshesEditorWindow :
     private const float ModifierStackMaximumHeight =
         220f;
 
-    private const float DefaultStampHeightDelta =
-        10f;
-
-    private const float DefaultStampFalloff =
-        0.25f;
-
     [SerializeField]
     private Vector2 modifierStackScrollPosition =
         Vector2.zero;
@@ -1033,46 +1027,7 @@ public partial class WorldMeshesEditorWindow :
 
     private void AddStampModifier()
     {
-        Vector2 positionXZ =
-            GetDefaultNewStampPositionXZ();
-
-        float defaultSize =
-            Mathf.Max(
-                0.01f,
-                worldSettings.chunkSize
-            );
-
-        if (
-            !TerrainAuthoringModifierService
-                .AddStampModifier(
-                    terrainAuthoringData,
-                    worldSettings,
-                    null,
-                    positionXZ,
-                    new Vector2(
-                        defaultSize,
-                        defaultSize
-                    ),
-                    DefaultStampHeightDelta,
-                    DefaultStampFalloff,
-                    out string stableId,
-                    out string errorMessage
-                )
-        )
-        {
-            SetModifierAuthoringError(
-                errorMessage
-            );
-
-            return;
-        }
-
-        TerrainAuthoringModifierSelection
-            .Select(
-                stableId
-            );
-
-        OnModifierMutationSucceeded();
+        ShowAddStampModifierMenu();
     }
 
     private void DuplicateSelectedModifier()
