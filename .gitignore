@@ -19,6 +19,15 @@ Authoring/Height/Tiles/
 
 
 # ============================================================
+# WorldMeshes - stamp source heightmaps
+# ============================================================
+
+# High-resolution source heightmaps are local authoring data and
+# should not be stored in Git.
+Authoring/Stamps/Heightmaps/
+
+
+# ============================================================
 # Unity temporary/editor artifacts
 # ============================================================
 
