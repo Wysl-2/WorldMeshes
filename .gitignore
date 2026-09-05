@@ -19,12 +19,16 @@ Authoring/Height/Tiles/
 
 
 # ============================================================
-# WorldMeshes - stamp source heightmaps
+# WorldMeshes - local stamp library
 # ============================================================
 
-# High-resolution source heightmaps are local authoring data and
-# should not be stored in Git.
+# Imported source heightmaps and their generated stamp-library
+# assets are local authoring content and should not be stored in Git.
+#
+# The folder .meta files remain outside these directories and can
+# stay tracked so Unity preserves the canonical folder structure.
 Authoring/Stamps/Heightmaps/
+Authoring/Stamps/Assets/
 
 
 # ============================================================
