@@ -63,6 +63,8 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         {
             LoadTerrainAuthoringDataIntoEditor();
         }
+
+        InitializeStampLibraryBrowser();
     }
 
     private void OnGUI()

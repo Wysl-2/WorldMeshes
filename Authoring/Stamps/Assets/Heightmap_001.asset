@@ -14,3 +14,14 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::TerrainHeightStampAsset
   libraryId: 1
   heightTexture: {fileID: 2800000, guid: 5279afb66ee6c4f3b97d5118ac8c03cd, type: 3}
+  creationDefaultsVersion: 1
+  defaultSizeXZ: {x: 1024, y: 1024}
+  defaultHeightDelta: 80
+  defaultSourceInputMin: 0
+  defaultSourceInputMax: 1
+  defaultSourceGamma: 1
+  defaultFalloffShape: 0
+  defaultFalloffProfile: 0
+  defaultFalloff: 0.25
+  defaultSmoothingRadius: 0
+  defaultSmoothingStrength: 1
