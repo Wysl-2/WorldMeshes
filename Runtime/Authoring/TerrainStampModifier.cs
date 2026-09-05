@@ -3,13 +3,6 @@ using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 
-/*
- * Concrete non-destructive additive height-stamp modifier.
- *
- * Persistent values stored here describe terrain output only. Editor-only
- * selection, handles, diagnostics, and visualization preferences live outside
- * this runtime data type.
- */
 [Serializable]
 public sealed class TerrainStampModifier :
     TerrainHeightModifier
@@ -31,23 +24,10 @@ public sealed class TerrainStampModifier :
             128f
         );
 
-    /*
-     * Positive Unity world-Y rotation around PositionXZ.
-     *
-     * Existing serialized stamps do not contain this field and therefore
-     * naturally deserialize to 0 degrees.
-     */
     [SerializeField]
     private float rotationDegrees =
         0f;
 
-    /*
-     * Source-orientation mirrors only.
-     *
-     * These values do not change the stamp footprint, affected Bounds, local
-     * axes, or Scene-tool geometry. Existing serialized stamps naturally
-     * deserialize both fields as false and therefore preserve legacy output.
-     */
     [SerializeField]
     private bool flipX =
         false;
@@ -56,40 +36,34 @@ public sealed class TerrainStampModifier :
     private bool flipZ =
         false;
 
-    /*
-     * Per-instance source-value response.
-     *
-     * The identity response is 0 / 1 / 1. TerrainStampSourceRemapUtility also
-     * interprets invalid stored ranges as identity so legacy managed-reference
-     * data remains safe even if newly added non-zero fields deserialize as
-     * default(float).
-     */
     [SerializeField]
     private float sourceInputMin =
-        TerrainStampSourceRemapUtility
-            .IdentityInputMin;
+        TerrainStampSourceRemapUtility.IdentityInputMin;
 
     [SerializeField]
     private float sourceInputMax =
-        TerrainStampSourceRemapUtility
-            .IdentityInputMax;
+        TerrainStampSourceRemapUtility.IdentityInputMax;
 
     [SerializeField]
     private float sourceGamma =
-        TerrainStampSourceRemapUtility
-            .IdentityGamma;
+        TerrainStampSourceRemapUtility.IdentityGamma;
 
     [SerializeField]
     private float heightDelta =
         10f;
 
     [SerializeField]
-    [Range(
-        0f,
-        1f
-    )]
+    [Range(0f, 1f)]
     private float falloff =
         0.25f;
+
+    [SerializeField]
+    private TerrainStampFalloffShape falloffShape =
+        TerrainStampFalloffShape.Rectangle;
+
+    [SerializeField]
+    private TerrainStampFalloffProfile falloffProfile =
+        TerrainStampFalloffProfile.Smooth;
 
     [SerializeField]
     [Min(0f)]
@@ -97,36 +71,23 @@ public sealed class TerrainStampModifier :
         0f;
 
     [SerializeField]
-    [Range(
-        0f,
-        1f
-    )]
+    [Range(0f, 1f)]
     private float smoothingStrength =
         1f;
 
     public TerrainHeightStampAsset StampAsset
     {
-        get
-        {
-            return stampAsset;
-        }
+        get { return stampAsset; }
     }
 
     public Vector2 PositionXZ
     {
         get
         {
-            return
-                new Vector2(
-                    SanitizeFinite(
-                        positionXZ.x,
-                        0f
-                    ),
-                    SanitizeFinite(
-                        positionXZ.y,
-                        0f
-                    )
-                );
+            return new Vector2(
+                SanitizeFinite(positionXZ.x, 0f),
+                SanitizeFinite(positionXZ.y, 0f)
+            );
         }
     }
 
@@ -134,27 +95,26 @@ public sealed class TerrainStampModifier :
     {
         get
         {
-            return
-                new Vector2(
-                    Mathf.Max(
-                        MinimumSize,
-                        Mathf.Abs(
-                            SanitizeFinite(
-                                sizeXZ.x,
-                                MinimumSize
-                            )
-                        )
-                    ),
-                    Mathf.Max(
-                        MinimumSize,
-                        Mathf.Abs(
-                            SanitizeFinite(
-                                sizeXZ.y,
-                                MinimumSize
-                            )
+            return new Vector2(
+                Mathf.Max(
+                    MinimumSize,
+                    Mathf.Abs(
+                        SanitizeFinite(
+                            sizeXZ.x,
+                            MinimumSize
                         )
                     )
-                );
+                ),
+                Mathf.Max(
+                    MinimumSize,
+                    Mathf.Abs(
+                        SanitizeFinite(
+                            sizeXZ.y,
+                            MinimumSize
+                        )
+                    )
+                )
+            );
         }
     }
 
@@ -162,28 +122,21 @@ public sealed class TerrainStampModifier :
     {
         get
         {
-            return
-                TerrainStampTransformUtility
-                    .NormalizeRotationDegrees(
-                        rotationDegrees
-                    );
+            return TerrainStampTransformUtility
+                .NormalizeRotationDegrees(
+                    rotationDegrees
+                );
         }
     }
 
     public bool FlipX
     {
-        get
-        {
-            return flipX;
-        }
+        get { return flipX; }
     }
 
     public bool FlipZ
     {
-        get
-        {
-            return flipZ;
-        }
+        get { return flipZ; }
     }
 
     public float SourceInputMin
@@ -232,11 +185,10 @@ public sealed class TerrainStampModifier :
     {
         get
         {
-            return
-                SanitizeFinite(
-                    heightDelta,
-                    0f
-                );
+            return SanitizeFinite(
+                heightDelta,
+                0f
+            );
         }
     }
 
@@ -244,12 +196,31 @@ public sealed class TerrainStampModifier :
     {
         get
         {
-            return
-                Mathf.Clamp01(
-                    SanitizeFinite(
-                        falloff,
-                        0f
-                    )
+            return TerrainStampFalloffUtility
+                .SanitizeAmount(
+                    falloff
+                );
+        }
+    }
+
+    public TerrainStampFalloffShape FalloffShape
+    {
+        get
+        {
+            return TerrainStampFalloffUtility
+                .SanitizeShape(
+                    falloffShape
+                );
+        }
+    }
+
+    public TerrainStampFalloffProfile FalloffProfile
+    {
+        get
+        {
+            return TerrainStampFalloffUtility
+                .SanitizeProfile(
+                    falloffProfile
                 );
         }
     }
@@ -258,14 +229,13 @@ public sealed class TerrainStampModifier :
     {
         get
         {
-            return
-                Mathf.Max(
-                    0f,
-                    SanitizeFinite(
-                        smoothingRadius,
-                        0f
-                    )
-                );
+            return Mathf.Max(
+                0f,
+                SanitizeFinite(
+                    smoothingRadius,
+                    0f
+                )
+            );
         }
     }
 
@@ -273,39 +243,23 @@ public sealed class TerrainStampModifier :
     {
         get
         {
-            return
-                Mathf.Clamp01(
-                    SanitizeFinite(
-                        smoothingStrength,
-                        1f
-                    )
-                );
+            return Mathf.Clamp01(
+                SanitizeFinite(
+                    smoothingStrength,
+                    1f
+                )
+            );
         }
     }
 
     public override Bounds GetAffectedWorldBounds()
     {
-        /*
-         * Smoothing stays inside the existing mathematical stamp footprint.
-         * The compositor clamps Gaussian SOURCE lookup coordinates to the
-         * stamp texture boundary while still rejecting terrain samples whose
-         * central stamp coordinate lies outside this footprint.
-         *
-         * FlipX / FlipZ and source remapping only change source interpretation
-         * inside the footprint and therefore deliberately do not participate
-         * in spatial Bounds.
-         *
-         * Dirty-region and runtime-bake systems consume an axis-aligned Bounds,
-         * so rotated stamps report the conservative AABB enclosing their
-         * oriented local SizeXZ rectangle.
-         */
-        return
-            TerrainStampTransformUtility
-                .CalculateWorldAabb(
-                    PositionXZ,
-                    SizeXZ,
-                    RotationDegrees
-                );
+        return TerrainStampTransformUtility
+            .CalculateWorldAabb(
+                PositionXZ,
+                SizeXZ,
+                RotationDegrees
+            );
     }
 
     internal override void CollectSignatureDependencies(
@@ -321,61 +275,50 @@ public sealed class TerrainStampModifier :
             return;
         }
 
-        dependencies.Add(
-            stampAsset
-        );
+        dependencies.Add(stampAsset);
     }
 
     internal void SetStampAssetInternal(
         TerrainHeightStampAsset value
     )
     {
-        stampAsset =
-            value;
+        stampAsset = value;
     }
 
     internal void SetPositionXZInternal(
         Vector2 value
     )
     {
-        positionXZ =
-            new Vector2(
-                SanitizeFinite(
-                    value.x,
-                    0f
-                ),
-                SanitizeFinite(
-                    value.y,
-                    0f
-                )
-            );
+        positionXZ = new Vector2(
+            SanitizeFinite(value.x, 0f),
+            SanitizeFinite(value.y, 0f)
+        );
     }
 
     internal void SetSizeXZInternal(
         Vector2 value
     )
     {
-        sizeXZ =
-            new Vector2(
-                Mathf.Max(
-                    MinimumSize,
-                    Mathf.Abs(
-                        SanitizeFinite(
-                            value.x,
-                            MinimumSize
-                        )
-                    )
-                ),
-                Mathf.Max(
-                    MinimumSize,
-                    Mathf.Abs(
-                        SanitizeFinite(
-                            value.y,
-                            MinimumSize
-                        )
+        sizeXZ = new Vector2(
+            Mathf.Max(
+                MinimumSize,
+                Mathf.Abs(
+                    SanitizeFinite(
+                        value.x,
+                        MinimumSize
                     )
                 )
-            );
+            ),
+            Mathf.Max(
+                MinimumSize,
+                Mathf.Abs(
+                    SanitizeFinite(
+                        value.y,
+                        MinimumSize
+                    )
+                )
+            )
+        );
     }
 
     internal void SetRotationDegreesInternal(
@@ -384,25 +327,21 @@ public sealed class TerrainStampModifier :
     {
         rotationDegrees =
             TerrainStampTransformUtility
-                .NormalizeRotationDegrees(
-                    value
-                );
+                .NormalizeRotationDegrees(value);
     }
 
     internal void SetFlipXInternal(
         bool value
     )
     {
-        flipX =
-            value;
+        flipX = value;
     }
 
     internal void SetFlipZInternal(
         bool value
     )
     {
-        flipZ =
-            value;
+        flipZ = value;
     }
 
     internal void SetSourceInputMinInternal(
@@ -449,9 +388,7 @@ public sealed class TerrainStampModifier :
             SourceInputMin,
             SourceInputMax,
             TerrainStampSourceRemapUtility
-                .SanitizeGamma(
-                    value
-                )
+                .SanitizeGamma(value)
         );
     }
 
@@ -488,12 +425,28 @@ public sealed class TerrainStampModifier :
     )
     {
         falloff =
-            Mathf.Clamp01(
-                SanitizeFinite(
-                    value,
-                    0f
-                )
-            );
+            TerrainStampFalloffUtility
+                .SanitizeAmount(
+                    value
+                );
+    }
+
+    internal void SetFalloffShapeInternal(
+        TerrainStampFalloffShape value
+    )
+    {
+        falloffShape =
+            TerrainStampFalloffUtility
+                .SanitizeShape(value);
+    }
+
+    internal void SetFalloffProfileInternal(
+        TerrainStampFalloffProfile value
+    )
+    {
+        falloffProfile =
+            TerrainStampFalloffUtility
+                .SanitizeProfile(value);
     }
 
     internal void SetSmoothingRadiusInternal(
@@ -525,73 +478,27 @@ public sealed class TerrainStampModifier :
 
     protected override string GetSignatureTypeId()
     {
-        return
-            "TerrainStampModifierV5";
+        return "TerrainStampModifierV6";
     }
 
     protected override void AppendTypeSpecificSignatureData(
         StringBuilder builder
     )
     {
-        AppendVector2(
-            builder,
-            PositionXZ
-        );
-
-        AppendVector2(
-            builder,
-            SizeXZ
-        );
-
-        AppendFloat(
-            builder,
-            RotationDegrees
-        );
-
-        AppendBool(
-            builder,
-            FlipX
-        );
-
-        AppendBool(
-            builder,
-            FlipZ
-        );
-
-        AppendFloat(
-            builder,
-            SourceInputMin
-        );
-
-        AppendFloat(
-            builder,
-            SourceInputMax
-        );
-
-        AppendFloat(
-            builder,
-            SourceGamma
-        );
-
-        AppendFloat(
-            builder,
-            HeightDelta
-        );
-
-        AppendFloat(
-            builder,
-            Falloff
-        );
-
-        AppendFloat(
-            builder,
-            SmoothingRadius
-        );
-
-        AppendFloat(
-            builder,
-            SmoothingStrength
-        );
+        AppendVector2(builder, PositionXZ);
+        AppendVector2(builder, SizeXZ);
+        AppendFloat(builder, RotationDegrees);
+        AppendBool(builder, FlipX);
+        AppendBool(builder, FlipZ);
+        AppendFloat(builder, SourceInputMin);
+        AppendFloat(builder, SourceInputMax);
+        AppendFloat(builder, SourceGamma);
+        AppendFloat(builder, HeightDelta);
+        AppendFloat(builder, Falloff);
+        AppendInt(builder, (int)FalloffShape);
+        AppendInt(builder, (int)FalloffProfile);
+        AppendFloat(builder, SmoothingRadius);
+        AppendFloat(builder, SmoothingStrength);
     }
 
     private void GetCanonicalSourceRemap(
@@ -617,13 +524,9 @@ public sealed class TerrainStampModifier :
     )
     {
         if (
-            float.IsNaN(
-                value
-            )
+            float.IsNaN(value)
             ||
-            float.IsInfinity(
-                value
-            )
+            float.IsInfinity(value)
         )
         {
             return fallback;

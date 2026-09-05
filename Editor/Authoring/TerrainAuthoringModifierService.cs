@@ -1086,6 +1086,14 @@ public static partial class TerrainAuthoringModifierService
                 stamp.Falloff
             );
 
+            copy.SetFalloffShapeInternal(
+                stamp.FalloffShape
+            );
+
+            copy.SetFalloffProfileInternal(
+                stamp.FalloffProfile
+            );
+
             copy.SetSmoothingRadiusInternal(
                 stamp.SmoothingRadius
             );

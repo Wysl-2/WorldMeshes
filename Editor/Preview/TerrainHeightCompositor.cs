@@ -825,31 +825,30 @@ public sealed class TerrainHeightCompositor
             );
 
             /*
-             * Exact footprint-falloff contract:
+             * Spatial falloff contract:
              *
-             * nearestEdge =
-             *     min(uv.x, 1-uv.x, uv.y, 1-uv.y)
+             * Shape selects Rectangle or an Ellipse inscribed inside the
+             * existing stampUV rectangle. Falloff remains the normalized
+             * edge-transition amount. Profile selects Smooth, Linear, or
+             * Sharp response through that transition.
              *
-             * edgeDistance01 =
-             *     saturate(nearestEdge * 2)
-             *
-             * Falloff == 0:
-             *     footprintFalloff = 1
-             *
-             * Falloff > 0:
-             *     footprintFalloff =
-             *         smoothstep(0, Falloff, edgeDistance01)
-             *
-             * finalWeight =
-             *     remappedWeight * footprintFalloff
-             *
-             * The compute shader contains the authoritative GPU
-             * implementation; this comment documents the same contract
-             * for the later runtime compositor.
+             * Rectangle + Smooth preserves the established nearest-edge
+             * smoothstep behavior. Shape/Profile do not expand SizeXZ or
+             * affected Bounds, and footprintFalloff remains in [0,1].
              */
             computeShader.SetFloat(
                 "_StampFalloff",
                 stampModifier.Falloff
+            );
+
+            computeShader.SetInt(
+                "_StampFalloffShape",
+                (int)stampModifier.FalloffShape
+            );
+
+            computeShader.SetInt(
+                "_StampFalloffProfile",
+                (int)stampModifier.FalloffProfile
             );
 
             computeShader.SetFloat(

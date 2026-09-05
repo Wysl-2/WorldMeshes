@@ -27,7 +27,7 @@ MonoBehaviour:
   - rid: 3932701402812383301
   - rid: 3932701383432863811
   - rid: 3932701383432863812
-  authoringRevision: 937
+  authoringRevision: 949
   references:
     version: 2
     RefIds:
@@ -45,7 +45,7 @@ MonoBehaviour:
         flipZ: 1
         sourceInputMin: 0
         sourceInputMax: 1
-        sourceGamma: 1
+        sourceGamma: 2.3229904
         heightDelta: 460.26907
         falloff: 0.3152609
         smoothingRadius: 6

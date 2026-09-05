@@ -32,6 +32,8 @@ float _StampSourceGamma;
 
 float _StampHeightDelta;
 float _StampFalloff;
+int _StampFalloffShape;
+int _StampFalloffProfile;
 float _StampSmoothingRadius;
 float _StampSmoothingStrength;
 
@@ -163,15 +165,10 @@ void IdentityComposite(
 // ADDITIVE HEIGHT STAMP
 // =====================================================
 
-float CalculateFootprintFalloff(
+float CalculateRectangleFalloffEdgeDistance01(
     float2 stampUV
 )
 {
-    if (_StampFalloff <= 0.0)
-    {
-        return 1.0;
-    }
-
     float nearestEdge =
         min(
             min(
@@ -184,16 +181,144 @@ float CalculateFootprintFalloff(
             )
         );
 
-    float edgeDistance01 =
+    return
         saturate(
             nearestEdge * 2.0
         );
+}
+
+bool TryCalculateEllipseFalloffEdgeDistance01(
+    float2 stampUV,
+    out float edgeDistance01
+)
+{
+    float2 centered =
+        (
+            stampUV -
+            0.5
+        )
+        *
+        2.0;
+
+    float ellipseRadius =
+        length(
+            centered
+        );
+
+    if (ellipseRadius > 1.0)
+    {
+        edgeDistance01 =
+            0.0;
+
+        return false;
+    }
+
+    edgeDistance01 =
+        saturate(
+            1.0 -
+            ellipseRadius
+        );
+
+    return true;
+}
+
+float EvaluateFalloffProfile(
+    float transition
+)
+{
+    float t =
+        saturate(
+            transition
+        );
+
+    /*
+     * Linear = 1, Sharp = 2. Unknown values fall back to Smooth = 0.
+     */
+    if (_StampFalloffProfile == 1)
+    {
+        return t;
+    }
+
+    if (_StampFalloffProfile == 2)
+    {
+        float inverse =
+            1.0 -
+            t;
+
+        return
+            saturate(
+                1.0 -
+                inverse *
+                inverse
+            );
+    }
 
     return
-        smoothstep(
-            0.0,
-            saturate(_StampFalloff),
-            edgeDistance01
+        saturate(
+            t *
+            t *
+            (
+                3.0 -
+                2.0 *
+                t
+            )
+        );
+}
+
+float CalculateFootprintFalloff(
+    float2 stampUV
+)
+{
+    float edgeDistance01;
+
+    /*
+     * Ellipse = 1. Unknown Shape values fall back to Rectangle = 0.
+     */
+    if (_StampFalloffShape == 1)
+    {
+        if (
+            !TryCalculateEllipseFalloffEdgeDistance01(
+                stampUV,
+                edgeDistance01
+            )
+        )
+        {
+            return 0.0;
+        }
+    }
+    else
+    {
+        edgeDistance01 =
+            CalculateRectangleFalloffEdgeDistance01(
+                stampUV
+            );
+    }
+
+    /*
+     * Shape membership is already known here. Falloff=0 therefore produces
+     * a hard Rectangle or hard Ellipse without filling Ellipse corners.
+     */
+    float safeFalloff =
+        saturate(
+            _StampFalloff
+        );
+
+    if (safeFalloff <= 0.0)
+    {
+        return 1.0;
+    }
+
+    float transition =
+        saturate(
+            edgeDistance01 /
+            safeFalloff
+        );
+
+    return
+        saturate(
+            EvaluateFalloffProfile(
+                transition
+            )
         );
 }
 
