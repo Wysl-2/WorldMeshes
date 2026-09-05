@@ -56,9 +56,6 @@ public sealed class TerrainLiveStampValidationReport
 [InitializeOnLoad]
 public static class TerrainLiveStampValidationUtility
 {
-    private const string DefaultStampAssetPath =
-        "Assets/WorldMeshes/Authoring/Stamps/TestStamp_Radial_512.asset";
-
     private const int MaximumPreviewWaitCycles =
         120;
 
@@ -123,13 +120,13 @@ public static class TerrainLiveStampValidationUtility
 
         LoadPersistentState();
 
-        if (pendingStampAsset == null)
-        {
-            pendingStampAsset =
-                AssetDatabase.LoadAssetAtPath<TerrainHeightStampAsset>(
-                    DefaultStampAssetPath
-                );
-        }
+        /*
+         * Do not create or modify AssetDatabase content from this
+         * [InitializeOnLoad] static constructor. Unity can invoke it while the
+         * import pipeline is still processing scripts/assets. The generated
+         * default fixture is created lazily by validation prerequisites once
+         * the editor is idle.
+         */
 
         if (
             !EditorPrefs.HasKey(Key("PositionX"))
@@ -1546,6 +1543,29 @@ public static class TerrainLiveStampValidationUtility
             errorMessage =
                 "Wait for Unity to finish compiling/importing.";
             return false;
+        }
+
+        if (pendingStampAsset == null)
+        {
+            if (
+                !TerrainLiveStampValidationFixtureUtility
+                    .TryGetOrCreateStampAsset(
+                        out pendingStampAsset,
+                        out string fixtureError
+                    )
+            )
+            {
+                errorMessage =
+                    "The generated live-stamp validation fixture could not "
+                    +
+                    "be prepared. "
+                    +
+                    fixtureError;
+
+                return false;
+            }
+
+            SavePersistentState();
         }
 
         if (

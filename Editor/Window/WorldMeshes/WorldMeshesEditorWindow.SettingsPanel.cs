@@ -308,6 +308,10 @@ public partial class WorldMeshesEditorWindow :
 
         DrawWorkspaceSectionGap();
 
+        DrawStampLibraryFoundationValidationSettings();
+
+        DrawWorkspaceSectionGap();
+
         DrawLiveStampValidationSettings();
 
         DrawWorkspaceSectionGap();

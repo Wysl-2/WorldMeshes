@@ -63,6 +63,15 @@ public static class WorldMeshesPaths
     public const string Authoring =
         Root + "/Authoring";
 
+    public const string AuthoringStamps =
+        Authoring + "/Stamps";
+
+    public const string AuthoringStampHeightmaps =
+        AuthoringStamps + "/Heightmaps";
+
+    public const string AuthoringStampAssets =
+        AuthoringStamps + "/Assets";
+
     public const string AuthoringHeight =
         Authoring + "/Height";
 
@@ -79,6 +88,12 @@ public static class WorldMeshesPaths
 
     public const string Generated =
         Root + "/Generated";
+
+    public const string GeneratedValidation =
+        Generated + "/Validation";
+
+    public const string GeneratedLiveStampValidation =
+        GeneratedValidation + "/LiveStamp";
 
     public const string GeneratedMeshes =
         Generated + "/Meshes";

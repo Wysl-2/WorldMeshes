@@ -3,8 +3,19 @@ using UnityEngine;
 /*
  * Reusable height-stamp source data.
  *
- * Stage 13 will sample the red channel as normalized 0..1 stamp weight.
- * Stage 11 only establishes the persistent asset/reference contract.
+ * Library identity is deliberately independent from the source Texture2D
+ * filename. A texture such as:
+ *
+ *     heightmap_20260905222247_64S6.png
+ *
+ * can therefore be represented to authors as:
+ *
+ *     Heightmap_001
+ *
+ * without renaming or deriving identity from the source file.
+ *
+ * LibraryId == 0 is reserved for non-library/transient/generated validation
+ * fixtures. User-facing library assets require a positive stable ID.
  */
 [CreateAssetMenu(
     fileName = "TerrainHeightStamp",
@@ -14,7 +25,58 @@ public sealed class TerrainHeightStampAsset :
     ScriptableObject
 {
     [SerializeField]
+    private int libraryId =
+        TerrainHeightStampIdentityUtility
+            .UnassignedLibraryId;
+
+    [SerializeField]
     private Texture2D heightTexture;
+
+    public int LibraryId
+    {
+        get
+        {
+            return libraryId;
+        }
+    }
+
+    public bool HasLibraryId
+    {
+        get
+        {
+            return
+                TerrainHeightStampIdentityUtility
+                    .IsValidLibraryId(
+                        libraryId
+                    );
+        }
+    }
+
+    public string DisplayName
+    {
+        get
+        {
+            if (HasLibraryId)
+            {
+                return
+                    TerrainHeightStampIdentityUtility
+                        .FormatDisplayName(
+                            libraryId
+                        );
+            }
+
+            return
+                !string.IsNullOrEmpty(
+                    name
+                )
+                    ? name
+                    : TerrainHeightStampIdentityUtility
+                        .FormatDisplayName(
+                            TerrainHeightStampIdentityUtility
+                                .UnassignedLibraryId
+                        );
+        }
+    }
 
     public Texture2D HeightTexture
     {
@@ -34,10 +96,18 @@ public sealed class TerrainHeightStampAsset :
         }
     }
 
-    /*
-     * Reserved for editor authoring/validation infrastructure.
-     * Stage 12/15 tooling should own user-facing mutation.
-     */
+    internal void SetLibraryIdInternal(
+        int value
+    )
+    {
+        libraryId =
+            Mathf.Max(
+                TerrainHeightStampIdentityUtility
+                    .UnassignedLibraryId,
+                value
+            );
+    }
+
     internal void SetHeightTextureInternal(
         Texture2D texture
     )
