@@ -11,7 +11,11 @@ public partial class WorldMeshesEditorWindow : EditorWindow
     private float columnGap = 10f;
     private float settingsMinWidth = 300f;
 
-    [MenuItem("Tools/WorldMeshes")]
+    [MenuItem(
+        "Tools/WorldMeshes/Open Editor Window",
+        false,
+        0
+    )]
     public static void ShowWindow()
     {
         GetWindow<WorldMeshesEditorWindow>(
