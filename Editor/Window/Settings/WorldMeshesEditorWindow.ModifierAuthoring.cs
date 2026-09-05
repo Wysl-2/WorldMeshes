@@ -846,39 +846,9 @@ public partial class WorldMeshesEditorWindow :
             }
         }
 
-        float falloff =
-            EditorGUILayout.DelayedFloatField(
-                "Falloff (0-1)",
-                stamp.Falloff
-            );
-
-        if (
-            !Mathf.Approximately(
-                falloff,
-                stamp.Falloff
-            )
-        )
-        {
-            if (
-                TerrainAuthoringModifierService
-                    .SetStampFalloff(
-                        terrainAuthoringData,
-                        worldSettings,
-                        stamp.StableId,
-                        falloff,
-                        out string falloffError
-                    )
-            )
-            {
-                OnModifierMutationSucceeded();
-            }
-            else
-            {
-                SetModifierAuthoringError(
-                    falloffError
-                );
-            }
-        }
+        DrawStampFalloffSettings(
+            stamp
+        );
 
         DrawStampSmoothingSettings(
             stamp

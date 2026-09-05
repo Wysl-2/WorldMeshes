@@ -969,16 +969,46 @@ public sealed class TerrainStampEditorTool :
                 stamp
             );
 
-        StampFootprint inner =
-            GetFalloffFootprint(
-                stamp
-            );
-
         Color oldColor =
             Handles.color;
 
         Handles.color =
             Handles.preselectionColor;
+
+        if (
+            stamp.FalloffShape ==
+                TerrainStampFalloffShape.Ellipse
+        )
+        {
+            DrawEllipseFalloffVisualization(
+                outer,
+                stamp.Falloff,
+                planeY
+            );
+        }
+        else
+        {
+            DrawRectangleFalloffVisualization(
+                stamp,
+                outer,
+                planeY
+            );
+        }
+
+        Handles.color =
+            oldColor;
+    }
+
+    private static void DrawRectangleFalloffVisualization(
+        TerrainStampModifier stamp,
+        StampFootprint outer,
+        float planeY
+    )
+    {
+        StampFootprint inner =
+            GetFalloffFootprint(
+                stamp
+            );
 
         const float minimumRegionSize =
             0.0001f;
@@ -992,61 +1022,192 @@ public sealed class TerrainStampEditorTool :
 
         if (collapsed)
         {
-            Vector3 center =
-                ToWorldPosition(
-                    outer.CenterXZ,
-                    planeY
-                );
-
-            Vector3 right =
-                ToWorldDirection(
-                    outer.RightXZ
-                );
-
-            Vector3 forward =
-                ToWorldDirection(
-                    outer.ForwardXZ
-                );
-
-            float markerSize =
-                Mathf.Max(
-                    0.01f,
-                    GetHandleSize(
-                        center
-                    )
-                    *
-                    0.75f
-                );
-
-            Handles.DrawLine(
-                center -
-                    right *
-                    markerSize,
-                center +
-                    right *
-                    markerSize
+            DrawCollapsedFalloffMarker(
+                outer,
+                planeY
             );
 
-            Handles.DrawLine(
-                center -
-                    forward *
-                    markerSize,
-                center +
-                    forward *
-                    markerSize
-            );
+            return;
         }
-        else
+
+        /*
+         * Preserve the established Rectangle visualization exactly: the source
+         * footprint is already the outer contribution boundary, so this draws
+         * only the inner full-weight rectangle.
+         */
+        DrawFootprintOutline(
+            inner,
+            planeY,
+            false
+        );
+    }
+
+    private static void DrawEllipseFalloffVisualization(
+        StampFootprint outer,
+        float falloff,
+        float planeY
+    )
+    {
+        /*
+         * The rectangular source footprint is drawn independently by
+         * DrawStampFootprint. Ellipse adds the contribution-shape boundary
+         * without replacing source SizeXZ / picking / resize geometry.
+         */
+        DrawEllipseOutline(
+            outer,
+            1f,
+            planeY
+        );
+
+        float safeFalloff =
+            Mathf.Clamp01(
+                falloff
+            );
+
+        if (safeFalloff <= 0f)
         {
-            DrawFootprintOutline(
-                inner,
-                planeY,
-                false
-            );
+            /*
+             * Inner and outer ellipses coincide at Falloff=0. Avoid drawing the
+             * same line twice.
+             */
+            return;
         }
 
-        Handles.color =
-            oldColor;
+        float innerScale =
+            1f -
+            safeFalloff;
+
+        const float minimumScale =
+            0.0001f;
+
+        if (innerScale <= minimumScale)
+        {
+            DrawCollapsedFalloffMarker(
+                outer,
+                planeY
+            );
+
+            return;
+        }
+
+        DrawEllipseOutline(
+            outer,
+            innerScale,
+            planeY
+        );
+    }
+
+    private static void DrawEllipseOutline(
+        StampFootprint footprint,
+        float scale,
+        float planeY
+    )
+    {
+        float safeScale =
+            Mathf.Max(
+                0f,
+                scale
+            );
+
+        float radiusX =
+            footprint.HalfWidth *
+            safeScale;
+
+        float radiusZ =
+            footprint.HalfDepth *
+            safeScale;
+
+        if (
+            radiusX <= 0f
+            ||
+            radiusZ <= 0f
+        )
+        {
+            return;
+        }
+
+        Matrix4x4 oldMatrix =
+            Handles.matrix;
+
+        Vector3 center =
+            ToWorldPosition(
+                footprint.CenterXZ,
+                planeY
+            );
+
+        Handles.matrix =
+            Matrix4x4.TRS(
+                center,
+                Quaternion.Euler(
+                    0f,
+                    footprint.RotationDegrees,
+                    0f
+                ),
+                new Vector3(
+                    radiusX,
+                    1f,
+                    radiusZ
+                )
+            );
+
+        Handles.DrawWireDisc(
+            Vector3.zero,
+            Vector3.up,
+            1f
+        );
+
+        Handles.matrix =
+            oldMatrix;
+    }
+
+    private static void DrawCollapsedFalloffMarker(
+        StampFootprint footprint,
+        float planeY
+    )
+    {
+        Vector3 center =
+            ToWorldPosition(
+                footprint.CenterXZ,
+                planeY
+            );
+
+        Vector3 right =
+            ToWorldDirection(
+                footprint.RightXZ
+            );
+
+        Vector3 forward =
+            ToWorldDirection(
+                footprint.ForwardXZ
+            );
+
+        float markerSize =
+            Mathf.Max(
+                0.01f,
+                GetHandleSize(
+                    center
+                )
+                *
+                0.75f
+            );
+
+        Handles.DrawLine(
+            center -
+                right *
+                markerSize,
+            center +
+                right *
+                markerSize
+        );
+
+        Handles.DrawLine(
+            center -
+                forward *
+                markerSize,
+            center +
+                forward *
+                markerSize
+        );
     }
 
     private static void DrawAffectedTileOverlay(
@@ -2071,6 +2232,28 @@ public sealed class TerrainStampEditorTool :
         Handles.color =
             Handles.preselectionColor;
 
+        if (
+            stamp.FalloffShape ==
+                TerrainStampFalloffShape.Ellipse
+        )
+        {
+            DrawEllipseFalloffHandle(
+                authoringData,
+                worldSettings,
+                stamp,
+                planeY
+            );
+
+            Handles.color =
+                oldColor;
+
+            return;
+        }
+
+        /*
+         * Preserve the established Rectangle authoring path: four equivalent
+         * edge handles continue to edit the same scalar Falloff amount.
+         */
         DrawFalloffHandle(
             authoringData,
             worldSettings,
@@ -2197,6 +2380,144 @@ public sealed class TerrainStampEditorTool :
                 CalculateFalloffFromHandle(
                     outer,
                     edge,
+                    moved
+                );
+
+            ApplyInteractiveFalloff(
+                falloff
+            );
+        }
+
+        CommitIfHandleReleased(
+            hotBefore,
+            hotAfter
+        );
+    }
+
+    private void DrawEllipseFalloffHandle(
+        TerrainAuthoringData authoringData,
+        WorldSettings worldSettings,
+        TerrainStampModifier stamp,
+        float planeY
+    )
+    {
+        StampFootprint outer =
+            GetStampFootprint(
+                stamp
+            );
+
+        float safeFalloff =
+            Mathf.Clamp01(
+                stamp.Falloff
+            );
+
+        float innerRadiusX =
+            outer.HalfWidth *
+            (
+                1f -
+                safeFalloff
+            );
+
+        /*
+         * The logical anchor stays exactly on local +X of the inner ellipse.
+         * A display-only local -Z tangent offset prevents the dot from
+         * overlapping the +X resize handle at Falloff=0 and the center move
+         * handle at Falloff=1.
+         */
+        Vector2 anchorLocal =
+            new Vector2(
+                innerRadiusX,
+                0f
+            );
+
+        Vector2 handleLocal =
+            new Vector2(
+                innerRadiusX,
+                -outer.Depth *
+                    FalloffHandleTangentOffsetFraction
+            );
+
+        Vector3 anchorPosition =
+            ToWorldPosition(
+                outer.LocalToWorldXZ(
+                    anchorLocal
+                ),
+                planeY
+            );
+
+        Vector3 handlePosition =
+            ToWorldPosition(
+                outer.LocalToWorldXZ(
+                    handleLocal
+                ),
+                planeY
+            );
+
+        Handles.DrawDottedLine(
+            anchorPosition,
+            handlePosition,
+            4f
+        );
+
+        Vector3 direction =
+            ToWorldDirection(
+                outer.RightXZ
+            );
+
+        float handleSize =
+            GetHandleSize(
+                handlePosition
+            )
+            *
+            FalloffHandleScaleMultiplier;
+
+        int hotBefore =
+            GUIUtility.hotControl;
+
+        EditorGUI.BeginChangeCheck();
+
+        Vector3 moved =
+            Handles.Slider(
+                handlePosition,
+                direction,
+                handleSize,
+                Handles.DotHandleCap,
+                0f
+            );
+
+        bool changed =
+            EditorGUI.EndChangeCheck();
+
+        int hotAfter =
+            GUIUtility.hotControl;
+
+        if (
+            !UpdateHandleTransactionState(
+                hotBefore,
+                hotAfter,
+                planeY,
+                authoringData,
+                worldSettings,
+                stamp,
+                "Set Terrain Stamp Falloff"
+            )
+        )
+        {
+            return;
+        }
+
+        if (
+            changed
+            &&
+            IsActiveHandleControl(
+                hotBefore,
+                hotAfter
+            )
+        )
+        {
+            float falloff =
+                CalculateEllipseFalloffFromHandle(
+                    outer,
                     moved
                 );
 
@@ -2354,6 +2675,41 @@ public sealed class TerrainStampEditorTool :
         return
             Mathf.Clamp01(
                 falloff
+            );
+    }
+
+    private static float CalculateEllipseFalloffFromHandle(
+        StampFootprint outer,
+        Vector3 moved
+    )
+    {
+        Vector2 local =
+            outer.WorldToLocalXZ(
+                new Vector2(
+                    moved.x,
+                    moved.z
+                )
+            );
+
+        float safeOuterRadius =
+            Mathf.Max(
+                MinimumStampSize *
+                    0.5f,
+                outer.HalfWidth
+            );
+
+        float innerRadius =
+            Mathf.Clamp(
+                local.x,
+                0f,
+                safeOuterRadius
+            );
+
+        return
+            Mathf.Clamp01(
+                1f -
+                innerRadius /
+                safeOuterRadius
             );
     }
 
