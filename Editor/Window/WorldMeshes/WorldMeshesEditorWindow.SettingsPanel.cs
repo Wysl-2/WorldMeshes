@@ -218,15 +218,15 @@ public partial class WorldMeshesEditorWindow :
             "edit-mode terrain preview and authoring visualization."
         );
 
+        DrawStampAuthoringToolbarSettings();
+
+        DrawWorkspaceSectionGap();
+
         DrawStampLibraryBrowserSettings();
 
         DrawWorkspaceSectionGap();
 
         DrawModifierAuthoringSettings();
-
-        DrawWorkspaceSectionGap();
-
-        DrawTerrainStampSceneToolSettings();
 
         DrawWorkspaceSectionGap();
 

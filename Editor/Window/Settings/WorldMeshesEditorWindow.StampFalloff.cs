@@ -20,18 +20,12 @@ public partial class WorldMeshesEditorWindow :
         }
 
         GUILayout.Space(
-            8f
+            4f
         );
 
         GUILayout.Label(
             "Falloff",
             EditorStyles.miniBoldLabel
-        );
-
-        EditorGUILayout.HelpBox(
-            "Shape chooses the spatial falloff mask. " +
-            "Profile controls how influence changes through the falloff region.",
-            MessageType.None
         );
 
         /*

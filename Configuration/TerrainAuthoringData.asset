@@ -17,7 +17,8 @@ MonoBehaviour:
   importedHeightmap: {fileID: 0}
   heightModifiers:
   - rid: 3932701429643083843
-  authoringRevision: 1204
+  - rid: 3932701429643083847
+  authoringRevision: 1214
   references:
     version: 2
     RefIds:
@@ -37,6 +38,27 @@ MonoBehaviour:
         sourceInputMax: 1
         sourceGamma: 1
         heightDelta: 120
+        falloff: 0.25
+        falloffShape: 0
+        falloffProfile: 0
+        smoothingRadius: 1
+        smoothingStrength: 1
+    - rid: 3932701429643083847
+      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
+      data:
+        stableId: b3e5761808ef42d7afb1f714a75e630e
+        enabled: 1
+        blendMode: 0
+        stampAsset: {fileID: 11400000, guid: 7043998699ccf21f3a1f44690a771848, type: 2}
+        positionXZ: {x: 4320.1475, y: 1993.3612}
+        sizeXZ: {x: 1918.4166, y: 1918.4166}
+        rotationDegrees: 0
+        flipX: 0
+        flipZ: 0
+        sourceInputMin: 0
+        sourceInputMax: 1
+        sourceGamma: 1
+        heightDelta: 140
         falloff: 0.25
         falloffShape: 0
         falloffProfile: 0

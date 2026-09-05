@@ -53,19 +53,20 @@ public partial class WorldMeshesEditorWindow :
         HandleStampSourceRemapEscape();
 
         GUILayout.Space(
-            8f
+            4f
         );
 
-        GUILayout.Label(
-            "Source Remapping",
-            EditorStyles.miniBoldLabel
-        );
+        showStampSourceRemapping =
+            EditorGUILayout.Foldout(
+                showStampSourceRemapping,
+                "Source Remapping",
+                true
+            );
 
-        EditorGUILayout.HelpBox(
-            "Input Min/Max choose which source-height range maps to 0..1. " +
-            "Gamma reshapes the response inside that range; 1 is linear.",
-            MessageType.None
-        );
+        if (!showStampSourceRemapping)
+        {
+            return;
+        }
 
         float inputMinMaximum =
             Mathf.Max(

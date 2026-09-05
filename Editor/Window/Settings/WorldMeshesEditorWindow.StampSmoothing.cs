@@ -68,19 +68,21 @@ public partial class WorldMeshesEditorWindow :
 
         HandleStampSmoothingEscape();
 
-        GUILayout.Space(8f);
-
-        GUILayout.Label(
-            "Smoothing",
-            EditorStyles.miniBoldLabel
+        GUILayout.Space(
+            4f
         );
 
-        EditorGUILayout.HelpBox(
-            "Smoothing is an artistic filter applied only to this stamp's " +
-            "source contribution. Radius is measured in world metres; " +
-            "Strength blends between the raw and Gaussian-smoothed source.",
-            MessageType.None
-        );
+        showStampSmoothing =
+            EditorGUILayout.Foldout(
+                showStampSmoothing,
+                "Smoothing",
+                true
+            );
+
+        if (!showStampSmoothing)
+        {
+            return;
+        }
 
         Vector2 size =
             stamp.SizeXZ;
@@ -122,9 +124,23 @@ public partial class WorldMeshesEditorWindow :
             1f
         );
 
-        DrawStampSamplingDiagnostics(
-            stamp
+        GUILayout.Space(
+            4f
         );
+
+        showStampSamplingDiagnostics =
+            EditorGUILayout.Foldout(
+                showStampSamplingDiagnostics,
+                "Sampling Diagnostics",
+                true
+            );
+
+        if (showStampSamplingDiagnostics)
+        {
+            DrawStampSamplingDiagnostics(
+                stamp
+            );
+        }
     }
 
     private void DrawSmoothingParameterRow(

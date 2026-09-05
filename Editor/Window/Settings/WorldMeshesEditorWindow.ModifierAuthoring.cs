@@ -30,11 +30,11 @@ public partial class WorldMeshesEditorWindow :
                 terrainAuthoringData
             );
 
-        DrawModifierStackPanel();
+        DrawCompactModifierStackPanel();
 
         GUILayout.Space(6f);
 
-        DrawSelectedModifierPanel();
+        DrawCompactSelectedModifierPanel();
 
         DrawModifierAuthoringError();
     }
@@ -1233,7 +1233,7 @@ public partial class WorldMeshesEditorWindow :
             if (stamp.StampAsset != null)
             {
                 return
-                    stamp.StampAsset.name;
+                    stamp.StampAsset.DisplayName;
             }
 
             return
@@ -1282,7 +1282,7 @@ public partial class WorldMeshesEditorWindow :
             return
                 stamp.StampAsset != null
                     ? "Height stamp modifier using " +
-                        stamp.StampAsset.name +
+                        stamp.StampAsset.DisplayName +
                         "."
                     : "Height stamp modifier with no stamp asset assigned.";
         }
