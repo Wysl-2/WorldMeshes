@@ -15,7 +15,7 @@ public static partial class TerrainGenerationStateUtility
      * composite rather than copying committed base tiles directly.
      */
     public const int RuntimeHeightCompilerVersion =
-        7;
+        8;
 
     public const int CollisionGeneratorVersion =
         1;
@@ -148,6 +148,8 @@ public static partial class TerrainGenerationStateUtility
             ||
             runtimeManifest.compilerVersion !=
                 RuntimeHeightCompilerVersion
+            ||
+            !runtimeManifest.HasCompleteTileHeightRanges
             ||
             !runtimeManifest.HasValidHeightRange
         )

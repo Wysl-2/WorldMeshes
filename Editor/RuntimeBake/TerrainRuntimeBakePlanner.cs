@@ -188,6 +188,8 @@ public static class TerrainRuntimeBakePlanner
             &&
             heightManifest.isComplete
             &&
+            heightManifest.HasCompleteTileHeightRanges
+            &&
             heightManifest.HasValidHeightRange
             &&
             heightCompilerCompatible
@@ -1067,6 +1069,15 @@ public static class TerrainRuntimeBakePlanner
             reasons.Add(
                 "Runtime heightmap layout does not match current WorldSettings; " +
                 "a full height rebuild is required."
+            );
+            return;
+        }
+
+        if (!manifest.HasCompleteTileHeightRanges)
+        {
+            reasons.Add(
+                "Runtime per-tile height range metadata is incomplete; a " +
+                "full height rebuild is required."
             );
             return;
         }

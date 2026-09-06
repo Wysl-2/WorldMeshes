@@ -5,13 +5,17 @@ using UnityEngine;
  * Storage-only description of one logical persistent bake-state mutation.
  *
  * This type deliberately contains no dependency propagation policy. The
- * invalidation service decides which primitives are required; the state
+ * invalidation/compiler layer decides which primitives are required; the state
  * service merely applies those primitives atomically.
  */
 public sealed class TerrainRuntimeBakeStateMutation
 {
     private readonly HashSet<Vector2Int>
         heightTilesToAdd =
+            new HashSet<Vector2Int>();
+
+    private readonly HashSet<Vector2Int>
+        heightTilesToRemove =
             new HashSet<Vector2Int>();
 
     private readonly HashSet<Vector2Int>
@@ -25,13 +29,28 @@ public sealed class TerrainRuntimeBakeStateMutation
     internal IEnumerable<Vector2Int> HeightTilesToAdd =>
         heightTilesToAdd;
 
+    internal IEnumerable<Vector2Int> HeightTilesToRemove =>
+        heightTilesToRemove;
+
     internal IEnumerable<Vector2Int> SurfaceTilesToAdd =>
         surfaceTilesToAdd;
 
     internal IEnumerable<Vector2Int> CollisionChunksToAdd =>
         collisionChunksToAdd;
 
+    internal bool ClearAllHeightTilesRequested
+    {
+        get;
+        private set;
+    }
+
     internal bool RequireFullHeightRebuild
+    {
+        get;
+        private set;
+    }
+
+    internal bool ClearFullHeightRebuildRequired
     {
         get;
         private set;
@@ -91,6 +110,26 @@ public sealed class TerrainRuntimeBakeStateMutation
         return this;
     }
 
+    public TerrainRuntimeBakeStateMutation RemoveHeightTiles(
+        IEnumerable<Vector2Int> coordinates
+    )
+    {
+        AddCoordinates(
+            heightTilesToRemove,
+            coordinates
+        );
+
+        return this;
+    }
+
+    public TerrainRuntimeBakeStateMutation ClearAllHeightTiles()
+    {
+        ClearAllHeightTilesRequested =
+            true;
+
+        return this;
+    }
+
     public TerrainRuntimeBakeStateMutation AddSurfaceTiles(
         IEnumerable<Vector2Int> coordinates
     )
@@ -118,6 +157,14 @@ public sealed class TerrainRuntimeBakeStateMutation
     public TerrainRuntimeBakeStateMutation RequireFullHeight()
     {
         RequireFullHeightRebuild =
+            true;
+
+        return this;
+    }
+
+    public TerrainRuntimeBakeStateMutation ClearFullHeight()
+    {
+        ClearFullHeightRebuildRequired =
             true;
 
         return this;

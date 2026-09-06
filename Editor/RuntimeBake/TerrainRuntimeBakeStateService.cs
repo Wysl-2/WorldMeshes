@@ -87,6 +87,24 @@ public static class TerrainRuntimeBakeStateService
                 mutation.CollisionChunksToAdd
             );
 
+        changed |=
+            RemoveCoordinates(
+                state.PendingHeightTiles,
+                mutation.HeightTilesToRemove
+            );
+
+        if (
+            mutation.ClearAllHeightTilesRequested
+            &&
+            state.PendingHeightTiles.Count > 0
+        )
+        {
+            state.PendingHeightTiles.Clear();
+
+            changed =
+                true;
+        }
+
         if (
             mutation.RequireFullHeightRebuild
             &&
@@ -95,6 +113,19 @@ public static class TerrainRuntimeBakeStateService
         {
             state.FullHeightRebuildRequired =
                 true;
+
+            changed =
+                true;
+        }
+
+        if (
+            mutation.ClearFullHeightRebuildRequired
+            &&
+            state.FullHeightRebuildRequired
+        )
+        {
+            state.FullHeightRebuildRequired =
+                false;
 
             changed =
                 true;
