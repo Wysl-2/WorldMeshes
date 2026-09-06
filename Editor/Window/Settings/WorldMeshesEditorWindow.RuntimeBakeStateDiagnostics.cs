@@ -43,6 +43,15 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.LabelField(
+            "Observed Authoring Signature",
+            string.IsNullOrEmpty(
+                snapshot.LastObservedAuthoringSignature
+            )
+                ? "Not Recorded"
+                : snapshot.LastObservedAuthoringSignature
+        );
+
+        EditorGUILayout.LabelField(
             "Has Pending Work",
             snapshot.HasPendingWork
                 ? "Yes"
@@ -202,11 +211,11 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.HelpBox(
-            "Package 01 persistence foundation only. This state is " +
-            "independent from transient terrain preview dirtiness and " +
-            "from the existing successful-generation revision/signature " +
-            "state. Terrain edits do not populate it yet, and existing " +
-            "runtime bake commands do not consume or clear it yet.",
+            "Persistent runtime bake state is independent from transient " +
+            "terrain preview dirtiness and from the existing successful-" +
+            "generation revision/signature state. Package 02 authoring and " +
+            "settings invalidation now populate this queue. Existing legacy " +
+            "bake commands still do not consume or clear it.",
             MessageType.Info
         );
 
@@ -258,6 +267,17 @@ public partial class WorldMeshesEditorWindow :
         builder.AppendLine(
             "State Revision: " +
             snapshot.StateRevision
+        );
+
+        builder.AppendLine(
+            "Observed Authoring Signature: " +
+            (
+                string.IsNullOrEmpty(
+                    snapshot.LastObservedAuthoringSignature
+                )
+                    ? "Not Recorded"
+                    : snapshot.LastObservedAuthoringSignature
+            )
         );
 
         builder.AppendLine(

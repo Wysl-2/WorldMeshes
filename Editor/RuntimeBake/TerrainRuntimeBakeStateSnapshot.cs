@@ -103,6 +103,12 @@ public sealed class TerrainRuntimeBakeStateSnapshot
         private set;
     }
 
+    public string LastObservedAuthoringSignature
+    {
+        get;
+        private set;
+    }
+
     public int SerializedVersion
     {
         get;
@@ -150,6 +156,7 @@ public sealed class TerrainRuntimeBakeStateSnapshot
         bool addressablesConfigurationDirty,
         bool addressablesContentDirty,
         bool runtimeSceneMetadataDirty,
+        string lastObservedAuthoringSignature,
         int serializedVersion,
         long stateRevision
     )
@@ -189,6 +196,10 @@ public sealed class TerrainRuntimeBakeStateSnapshot
 
         RuntimeSceneMetadataDirty =
             runtimeSceneMetadataDirty;
+
+        LastObservedAuthoringSignature =
+            lastObservedAuthoringSignature ??
+            "";
 
         SerializedVersion =
             serializedVersion;

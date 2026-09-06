@@ -517,6 +517,9 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             return;
         }
 
+        int previousCollisionResolution =
+            worldSettings.collisionResolution;
+
         int collisionResolution =
             Mathf.Max(
                 1,
@@ -584,6 +587,12 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         AssetDatabase.SaveAssetIfDirty(
             worldSettings
         );
+
+        TerrainRuntimeInvalidationService
+            .InvalidateCollisionSettingsChanged(
+                worldSettings,
+                previousCollisionResolution
+            );
 
         Repaint();
 

@@ -483,6 +483,18 @@ public partial class WorldMeshesEditorWindow :
             return;
         }
 
+        int previousGridWidth =
+            worldSettings.gridWidth;
+
+        int previousGridHeight =
+            worldSettings.gridHeight;
+
+        float previousChunkSize =
+            worldSettings.chunkSize;
+
+        int previousHeightfieldResolutionPerChunk =
+            worldSettings.heightfieldResolutionPerChunk;
+
         Undo.RecordObject(
             worldSettings,
             "Update World Settings"
@@ -519,6 +531,15 @@ public partial class WorldMeshesEditorWindow :
         AssetDatabase.SaveAssetIfDirty(
             worldSettings
         );
+
+        TerrainRuntimeInvalidationService
+            .InvalidateWorldSettingsChanged(
+                worldSettings,
+                previousGridWidth,
+                previousGridHeight,
+                previousChunkSize,
+                previousHeightfieldResolutionPerChunk
+            );
 
         TerrainAuthoringPreviewService
             .RequestRefresh();

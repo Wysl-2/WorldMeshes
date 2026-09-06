@@ -836,6 +836,9 @@ public partial class WorldMeshesEditorWindow :
                 surfaceSettings
             );
 
+            TerrainRuntimeInvalidationService
+                .InvalidateSurfaceSettingsChanged();
+
             TerrainAuthoringVisualizationController
                 .RequestReapply();
         }

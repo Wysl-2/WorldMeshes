@@ -914,6 +914,13 @@ public static partial class TerrainAuthoringModifierService
         LastMutationDiagnostics =
             diagnostics;
 
+        TerrainRuntimeInvalidationService
+            .InvalidateAuthoringHeightTiles(
+                worldSettings,
+                authoringData,
+                dirtyTiles
+            );
+
         /*
          * RecordObject changes are normally flushed by Unity at
          * conventional editor-event boundaries. Stage 12 deliberately

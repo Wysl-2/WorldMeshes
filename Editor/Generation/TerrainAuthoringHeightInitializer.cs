@@ -535,6 +535,12 @@ public static class TerrainAuthoringHeightInitializer
 
         AssetDatabase.SaveAssets();
 
+        TerrainRuntimeInvalidationService
+            .InvalidateCommittedAuthoringHeightfield(
+                worldSettings,
+                authoringData
+            );
+
         /*
          * The committed authoring source has changed.
          * Rebuild the transient edit-mode height cache directly

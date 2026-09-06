@@ -31,7 +31,7 @@ internal sealed class TerrainRuntimeBakeState :
     ScriptableSingleton<TerrainRuntimeBakeState>
 {
     internal const int CurrentSerializedVersion =
-        1;
+        2;
 
     [SerializeField]
     private int serializedVersion =
@@ -70,6 +70,15 @@ internal sealed class TerrainRuntimeBakeState :
 
     [SerializeField]
     private bool runtimeSceneMetadataDirty;
+
+    /*
+     * Most recent overall authoring signature observed by the
+     * authoritative runtime invalidation pipeline. The bake planner uses
+     * this as a completeness guard for local dirty-tile sets.
+     */
+    [SerializeField]
+    private string lastObservedAuthoringSignature =
+        "";
 
     internal int SerializedVersion
     {
@@ -207,6 +216,23 @@ internal sealed class TerrainRuntimeBakeState :
         }
     }
 
+    internal string LastObservedAuthoringSignature
+    {
+        get
+        {
+            return
+                lastObservedAuthoringSignature ??
+                "";
+        }
+
+        set
+        {
+            lastObservedAuthoringSignature =
+                value ??
+                "";
+        }
+    }
+
     /*
      * Unity does not create arbitrary parent folders for every custom
      * ScriptableSingleton path on all editor versions. Ensure the
@@ -300,6 +326,15 @@ internal sealed class TerrainRuntimeBakeState :
         {
             pendingCollisionChunks =
                 new List<Vector2Int>();
+
+            changed =
+                true;
+        }
+
+        if (lastObservedAuthoringSignature == null)
+        {
+            lastObservedAuthoringSignature =
+                "";
 
             changed =
                 true;

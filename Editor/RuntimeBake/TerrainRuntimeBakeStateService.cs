@@ -37,8 +37,182 @@ public static class TerrainRuntimeBakeStateService
                 state.AddressablesConfigurationDirty,
                 state.AddressablesContentDirty,
                 state.RuntimeSceneMetadataDirty,
+                state.LastObservedAuthoringSignature,
                 state.SerializedVersion,
                 state.StateRevision
+            );
+    }
+
+    // =====================================================
+    // ATOMIC BATCH MUTATION
+    // =====================================================
+
+    /*
+     * Package 02 invalidation often touches several independent storage
+     * primitives at once. Apply the complete logical invalidation with one
+     * revision increment, one persistence write, and one StateChanged event.
+     *
+     * Dependency policy intentionally remains outside this service.
+     */
+    public static bool ApplyMutation(
+        TerrainRuntimeBakeStateMutation mutation
+    )
+    {
+        if (mutation == null)
+        {
+            return false;
+        }
+
+        TerrainRuntimeBakeState state =
+            GetState();
+
+        bool changed =
+            false;
+
+        changed |=
+            AddCoordinates(
+                state.PendingHeightTiles,
+                mutation.HeightTilesToAdd
+            );
+
+        changed |=
+            AddCoordinates(
+                state.PendingSurfaceTiles,
+                mutation.SurfaceTilesToAdd
+            );
+
+        changed |=
+            AddCoordinates(
+                state.PendingCollisionChunks,
+                mutation.CollisionChunksToAdd
+            );
+
+        if (
+            mutation.RequireFullHeightRebuild
+            &&
+            !state.FullHeightRebuildRequired
+        )
+        {
+            state.FullHeightRebuildRequired =
+                true;
+
+            changed =
+                true;
+        }
+
+        if (
+            mutation.RequireFullSurfaceRebuild
+            &&
+            !state.FullSurfaceRebuildRequired
+        )
+        {
+            state.FullSurfaceRebuildRequired =
+                true;
+
+            changed =
+                true;
+        }
+
+        if (
+            mutation.RequireFullCollisionRebuild
+            &&
+            !state.FullCollisionRebuildRequired
+        )
+        {
+            state.FullCollisionRebuildRequired =
+                true;
+
+            changed =
+                true;
+        }
+
+        if (
+            mutation.MarkAddressablesConfigurationDirty
+            &&
+            !state.AddressablesConfigurationDirty
+        )
+        {
+            state.AddressablesConfigurationDirty =
+                true;
+
+            changed =
+                true;
+        }
+
+        if (
+            mutation.MarkAddressablesContentDirty
+            &&
+            !state.AddressablesContentDirty
+        )
+        {
+            state.AddressablesContentDirty =
+                true;
+
+            changed =
+                true;
+        }
+
+        if (
+            mutation.MarkRuntimeSceneMetadataDirty
+            &&
+            !state.RuntimeSceneMetadataDirty
+        )
+        {
+            state.RuntimeSceneMetadataDirty =
+                true;
+
+            changed =
+                true;
+        }
+
+        if (mutation.HasObservedAuthoringSignatureUpdate)
+        {
+            string signature =
+                mutation.ObservedAuthoringSignature ??
+                "";
+
+            if (
+                !string.Equals(
+                    state.LastObservedAuthoringSignature,
+                    signature,
+                    StringComparison.Ordinal
+                )
+            )
+            {
+                state.LastObservedAuthoringSignature =
+                    signature;
+
+                changed =
+                    true;
+            }
+        }
+
+        if (!changed)
+        {
+            return false;
+        }
+
+        CommitMutation(
+            state
+        );
+
+        return true;
+    }
+
+    public static bool SetLastObservedAuthoringSignature(
+        string signature
+    )
+    {
+        TerrainRuntimeBakeStateMutation mutation =
+            new TerrainRuntimeBakeStateMutation();
+
+        mutation.SetObservedAuthoringSignature(
+            signature
+        );
+
+        return
+            ApplyMutation(
+                mutation
             );
     }
 

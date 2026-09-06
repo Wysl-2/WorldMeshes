@@ -642,6 +642,9 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             return;
         }
 
+        int previousHeightTileChunkSpan =
+            worldSettings.heightTileChunkSpan;
+
         Undo.RecordObjects(
             new Object[]
             {
@@ -741,6 +744,12 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         AssetDatabase.SaveAssetIfDirty(
             terrainAuthoringData
         );
+
+        TerrainRuntimeInvalidationService
+            .InvalidateHeightTileChunkSpanChanged(
+                worldSettings,
+                previousHeightTileChunkSpan
+            );
 
         TerrainAuthoringPreviewService
             .RequestRefresh();

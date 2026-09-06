@@ -670,6 +670,13 @@ public static partial class TerrainAuthoringModifierService
         LastMutationDiagnostics =
             diagnostics;
 
+        TerrainRuntimeInvalidationService
+            .InvalidateAuthoringHeightTiles(
+                state.WorldSettings,
+                state.AuthoringData,
+                logicalDirtyTiles
+            );
+
         int committedUndoGroup =
             state.UndoGroup;
 

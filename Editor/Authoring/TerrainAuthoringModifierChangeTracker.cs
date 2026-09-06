@@ -323,6 +323,13 @@ public static class TerrainAuthoringModifierChangeTracker
 
             lastUndoRedoDirtyTiles.AddRange(dirtyTiles);
 
+            TerrainRuntimeInvalidationService
+                .InvalidateAuthoringHeightTiles(
+                    worldSettings,
+                    authoringData,
+                    dirtyTiles
+                );
+
             // authoringRevision is restored by Unity Undo itself.
             if (tracked.NotifyPreview)
             {
