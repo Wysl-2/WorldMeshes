@@ -4,18 +4,14 @@ using UnityEngine;
 
 public static class TerrainCollisionBakeMarkerUtility
 {
-    // =====================================================
-    // SETTINGS
-    // =====================================================
-
-    private const string BakeMarkerFolder =
+    public const string BakeMarkerFolder =
         WorldMeshesPaths.GeneratedCollisionBakeMarkers;
 
     private const string BakeMarkerAddressPrefix =
         "WorldMeshes_CollisionBakeMarker";
 
     // =====================================================
-    // GENERATE / UPDATE
+    // LEGACY / RECONCILE
     // =====================================================
 
     public static bool GenerateOrUpdateBakeMarkers(
@@ -23,59 +19,73 @@ public static class TerrainCollisionBakeMarkerUtility
         out List<BakeMarkerRecord> markerRecords
     )
     {
+        bool success =
+            ReconcileBakeMarkers(
+                worldSettings,
+                out markerRecords,
+                out int regeneratedCount,
+                out int reusedCount,
+                out int removedCount,
+                out bool cancelled,
+                out string errorMessage
+            );
+
+        if (!success)
+        {
+            if (cancelled)
+            {
+                Debug.LogWarning(
+                    "Collision bake marker reconciliation was cancelled."
+                );
+            }
+            else
+            {
+                Debug.LogError(
+                    errorMessage
+                );
+            }
+
+            return false;
+        }
+
+        Debug.Log(
+            "Collision bake marker reconciliation complete.\n\n" +
+            "Regenerated: " +
+            regeneratedCount +
+            "\n" +
+            "Reused: " +
+            reusedCount +
+            "\n" +
+            "Removed: " +
+            removedCount
+        );
+
+        return true;
+    }
+
+    internal static bool ReconcileBakeMarkers(
+        WorldSettings worldSettings,
+        out List<BakeMarkerRecord> markerRecords,
+        out int regeneratedCount,
+        out int reusedCount,
+        out int removedCount,
+        out bool cancelled,
+        out string errorMessage
+    )
+    {
         markerRecords =
             new List<BakeMarkerRecord>();
 
-        // -------------------------------------------------
-        // Validate
-        // -------------------------------------------------
+        regeneratedCount = 0;
+        reusedCount = 0;
+        removedCount = 0;
+        cancelled = false;
+        errorMessage = "";
 
-        if (worldSettings == null)
+        if (!ValidateBaseRequirements(worldSettings, out errorMessage))
         {
-            Debug.LogError(
-                "Cannot generate collision bake markers: " +
-                "WorldSettings is null."
-            );
-
             return false;
         }
-
-        if (
-            EditorApplication
-                .isPlayingOrWillChangePlaymode
-        )
-        {
-            Debug.LogError(
-                "Collision bake markers must be generated " +
-                "outside Play Mode."
-            );
-
-            return false;
-        }
-
-        if (
-            !AssetDatabase.IsValidFolder(
-                WorldMeshesPaths
-                    .GeneratedCollisionMeshes
-            )
-        )
-        {
-            Debug.LogError(
-                "Cannot generate collision bake markers.\n\n" +
-
-                "The generated collision mesh folder " +
-                "does not exist:\n" +
-
-                WorldMeshesPaths
-                    .GeneratedCollisionMeshes
-            );
-
-            return false;
-        }
-
-        // -------------------------------------------------
-        // Ensure marker folder
-        // -------------------------------------------------
 
         if (
             !AssetDatabase.IsValidFolder(
@@ -85,166 +95,173 @@ public static class TerrainCollisionBakeMarkerUtility
         {
             string folderGuid =
                 AssetDatabase.CreateFolder(
-                    WorldMeshesPaths
-                        .GeneratedCollisionMeshes,
-
+                    WorldMeshesPaths.GeneratedCollisionMeshes,
                     "BakeMarkers"
                 );
 
             if (
-                string.IsNullOrEmpty(
-                    folderGuid
-                )
+                string.IsNullOrEmpty(folderGuid)
                 ||
                 !AssetDatabase.IsValidFolder(
                     BakeMarkerFolder
                 )
             )
             {
-                Debug.LogError(
-                    "Could not create collision bake " +
-                    "marker folder:\n" +
-                    BakeMarkerFolder
-                );
+                errorMessage =
+                    "Could not create collision bake marker folder:\n" +
+                    BakeMarkerFolder;
 
                 return false;
             }
         }
 
-        // -------------------------------------------------
-        // Layout
-        // -------------------------------------------------
+        GetRegionLayout(
+            worldSettings,
+            out int gridWidth,
+            out int gridHeight,
+            out int regionSpan,
+            out int regionGridWidth,
+            out int regionGridHeight
+        );
 
-        int gridWidth =
-            Mathf.Max(
-                1,
-                worldSettings.gridWidth
-            );
+        int expectedRegionCount =
+            regionGridWidth *
+            regionGridHeight;
 
-        int gridHeight =
-            Mathf.Max(
-                1,
-                worldSettings.gridHeight
-            );
-
-        int regionSpan =
-            Mathf.Max(
-                1,
-                TerrainCollisionAddressablesUtility
-                    .CollisionRegionChunkSpan
-            );
-
-        int regionGridWidth =
-            (
-                gridWidth +
-                regionSpan -
-                1
-            )
-            /
-            regionSpan;
-
-        int regionGridHeight =
-            (
-                gridHeight +
-                regionSpan -
-                1
-            )
-            /
-            regionSpan;
+        int currentRegion = 0;
 
         HashSet<string> expectedMarkerPaths =
             new HashSet<string>();
 
-        // =====================================================
-        // BUILD ONE PREFAB PER COLLISION REGION
-        // =====================================================
-
-        for (
-            int regionZ = 0;
-            regionZ < regionGridHeight;
-            regionZ++
-        )
+        try
         {
-            for (
-                int regionX = 0;
-                regionX < regionGridWidth;
-                regionX++
-            )
+            for (int regionZ = 0; regionZ < regionGridHeight; regionZ++)
             {
-                string markerPath =
-                    GetBakeMarkerAssetPath(
-                        regionX,
-                        regionZ
-                    );
-
-                expectedMarkerPaths.Add(
-                    markerPath
-                );
-
-                if (
-                    !GenerateOrUpdateOneMarker(
-                        regionX,
-                        regionZ,
-
-                        regionSpan,
-
-                        gridWidth,
-                        gridHeight,
-
-                        markerPath
-                    )
-                )
+                for (int regionX = 0; regionX < regionGridWidth; regionX++)
                 {
-                    return false;
-                }
-
-                string markerGuid =
-                    AssetDatabase
-                        .AssetPathToGUID(
-                            markerPath
+                    cancelled =
+                        EditorUtility.DisplayCancelableProgressBar(
+                            "Preparing Collision Bake Markers",
+                            "Region (" +
+                            regionX +
+                            ", " +
+                            regionZ +
+                            ")\n\n" +
+                            (currentRegion + 1) +
+                            " / " +
+                            expectedRegionCount,
+                            expectedRegionCount > 0
+                                ? (float)currentRegion / expectedRegionCount
+                                : 1f
                         );
 
-                if (
-                    string.IsNullOrEmpty(
-                        markerGuid
-                    )
-                )
-                {
-                    Debug.LogError(
-                        "Could not obtain GUID for collision " +
-                        "bake marker:\n" +
+                    if (cancelled)
+                    {
+                        break;
+                    }
+
+                    string markerPath =
+                        GetBakeMarkerAssetPath(
+                            regionX,
+                            regionZ
+                        );
+
+                    expectedMarkerPaths.Add(
                         markerPath
                     );
 
-                    return false;
-                }
-
-                markerRecords.Add(
-                    new BakeMarkerRecord(
-                        regionX,
-                        regionZ,
-
-                        markerPath,
-                        markerGuid,
-
-                        GetBakeMarkerAddress(
+                    if (
+                        ValidateOneMarker(
                             regionX,
-                            regionZ
-                        ),
-
-                        GetRegionLabel(
-                            regionX,
-                            regionZ
+                            regionZ,
+                            regionSpan,
+                            gridWidth,
+                            gridHeight,
+                            markerPath,
+                            out BakeMarkerRecord existingRecord,
+                            out _
                         )
                     )
-                );
+                    {
+                        markerRecords.Add(
+                            existingRecord
+                        );
+
+                        reusedCount++;
+                    }
+                    else
+                    {
+                        if (
+                            !GenerateOrUpdateOneMarker(
+                                regionX,
+                                regionZ,
+                                regionSpan,
+                                gridWidth,
+                                gridHeight,
+                                markerPath
+                            )
+                        )
+                        {
+                            errorMessage =
+                                "Could not regenerate collision bake marker:\n" +
+                                markerPath;
+
+                            return false;
+                        }
+
+                        if (
+                            !ValidateOneMarker(
+                                regionX,
+                                regionZ,
+                                regionSpan,
+                                gridWidth,
+                                gridHeight,
+                                markerPath,
+                                out BakeMarkerRecord regeneratedRecord,
+                                out string markerError
+                            )
+                        )
+                        {
+                            errorMessage =
+                                "Regenerated collision bake marker is invalid:\n" +
+                                markerPath +
+                                "\n\n" +
+                                markerError;
+
+                            return false;
+                        }
+
+                        markerRecords.Add(
+                            regeneratedRecord
+                        );
+
+                        regeneratedCount++;
+                    }
+
+                    currentRegion++;
+                }
+
+                if (cancelled)
+                {
+                    break;
+                }
             }
         }
+        finally
+        {
+            EditorUtility.ClearProgressBar();
+        }
 
-        // =====================================================
-        // DELETE OBSOLETE MARKERS
-        // =====================================================
+        if (cancelled)
+        {
+            AssetDatabase.SaveAssets();
+            return false;
+        }
 
+        /*
+         * Obsolete marker discovery is structural reconciliation work only.
+         * ContentOnly validation never scans/deletes this folder.
+         */
         string[] existingMarkerGuids =
             AssetDatabase.FindAssets(
                 "t:Prefab",
@@ -254,10 +271,7 @@ public static class TerrainCollisionBakeMarkerUtility
                 }
             );
 
-        foreach (
-            string existingMarkerGuid
-            in existingMarkerGuids
-        )
+        foreach (string existingMarkerGuid in existingMarkerGuids)
         {
             string existingPath =
                 AssetDatabase.GUIDToAssetPath(
@@ -279,15 +293,354 @@ public static class TerrainCollisionBakeMarkerUtility
                 )
             )
             {
-                Debug.LogWarning(
-                    "Could not remove obsolete collision " +
-                    "bake marker:\n" +
-                    existingPath
+                errorMessage =
+                    "Could not remove obsolete collision bake marker:\n" +
+                    existingPath;
+
+                return false;
+            }
+
+            removedCount++;
+        }
+
+        AssetDatabase.SaveAssets();
+
+        return true;
+    }
+
+    // =====================================================
+    // READ-ONLY VALIDATION
+    // =====================================================
+
+    public static bool ValidateExistingBakeMarkers(
+        WorldSettings worldSettings,
+        out List<BakeMarkerRecord> markerRecords,
+        out string errorMessage
+    )
+    {
+        markerRecords =
+            new List<BakeMarkerRecord>();
+
+        errorMessage = "";
+
+        if (!ValidateBaseRequirements(worldSettings, out errorMessage))
+        {
+            return false;
+        }
+
+        if (
+            !AssetDatabase.IsValidFolder(
+                BakeMarkerFolder
+            )
+        )
+        {
+            errorMessage =
+                "Collision bake marker folder is missing:\n" +
+                BakeMarkerFolder;
+
+            return false;
+        }
+
+        GetRegionLayout(
+            worldSettings,
+            out int gridWidth,
+            out int gridHeight,
+            out int regionSpan,
+            out int regionGridWidth,
+            out int regionGridHeight
+        );
+
+        for (int regionZ = 0; regionZ < regionGridHeight; regionZ++)
+        {
+            for (int regionX = 0; regionX < regionGridWidth; regionX++)
+            {
+                string markerPath =
+                    GetBakeMarkerAssetPath(
+                        regionX,
+                        regionZ
+                    );
+
+                if (
+                    !ValidateOneMarker(
+                        regionX,
+                        regionZ,
+                        regionSpan,
+                        gridWidth,
+                        gridHeight,
+                        markerPath,
+                        out BakeMarkerRecord record,
+                        out string markerError
+                    )
+                )
+                {
+                    errorMessage =
+                        "Collision bake marker structure needs repair.\n\n" +
+                        markerError;
+
+                    return false;
+                }
+
+                markerRecords.Add(
+                    record
                 );
             }
         }
 
-        AssetDatabase.SaveAssets();
+        return true;
+    }
+
+    private static bool ValidateOneMarker(
+        int regionX,
+        int regionZ,
+        int regionSpan,
+        int gridWidth,
+        int gridHeight,
+        string markerPath,
+        out BakeMarkerRecord record,
+        out string errorMessage
+    )
+    {
+        record = default;
+        errorMessage = "";
+
+        GameObject prefab =
+            AssetDatabase.LoadAssetAtPath<GameObject>(
+                markerPath
+            );
+
+        if (prefab == null)
+        {
+            errorMessage =
+                "Missing marker prefab:\n" +
+                markerPath;
+
+            return false;
+        }
+
+        string markerGuid =
+            AssetDatabase.AssetPathToGUID(
+                markerPath
+            );
+
+        if (string.IsNullOrEmpty(markerGuid))
+        {
+            errorMessage =
+                "Could not resolve marker GUID:\n" +
+                markerPath;
+
+            return false;
+        }
+
+        string expectedName =
+            GetBakeMarkerName(
+                regionX,
+                regionZ
+            );
+
+        if (prefab.name != expectedName)
+        {
+            errorMessage =
+                "Marker root has unexpected name:\n" +
+                markerPath;
+
+            return false;
+        }
+
+        int startChunkX =
+            regionX *
+            regionSpan;
+
+        int startChunkZ =
+            regionZ *
+            regionSpan;
+
+        int endChunkX =
+            Mathf.Min(
+                startChunkX + regionSpan,
+                gridWidth
+            );
+
+        int endChunkZ =
+            Mathf.Min(
+                startChunkZ + regionSpan,
+                gridHeight
+            );
+
+        int expectedColliderCount =
+            (endChunkX - startChunkX)
+            *
+            (endChunkZ - startChunkZ);
+
+        MeshCollider[] allColliders =
+            prefab.GetComponentsInChildren<MeshCollider>(
+                true
+            );
+
+        if (
+            allColliders.Length !=
+            expectedColliderCount
+        )
+        {
+            errorMessage =
+                "Marker has unexpected MeshCollider count:\n" +
+                markerPath +
+                "\nExpected: " +
+                expectedColliderCount +
+                "\nActual: " +
+                allColliders.Length;
+
+            return false;
+        }
+
+        if (
+            prefab.transform.childCount !=
+            expectedColliderCount
+        )
+        {
+            errorMessage =
+                "Marker has unexpected child count:\n" +
+                markerPath;
+
+            return false;
+        }
+
+        for (int chunkZ = startChunkZ; chunkZ < endChunkZ; chunkZ++)
+        {
+            for (int chunkX = startChunkX; chunkX < endChunkX; chunkX++)
+            {
+                string childName =
+                    "Chunk_" +
+                    chunkX +
+                    "_" +
+                    chunkZ;
+
+                Transform child =
+                    prefab.transform.Find(
+                        childName
+                    );
+
+                if (
+                    child == null
+                    ||
+                    child.parent != prefab.transform
+                )
+                {
+                    errorMessage =
+                        "Marker is missing expected chunk child " +
+                        childName +
+                        ":\n" +
+                        markerPath;
+
+                    return false;
+                }
+
+                MeshCollider[] childColliders =
+                    child.GetComponents<MeshCollider>();
+
+                if (childColliders.Length != 1)
+                {
+                    errorMessage =
+                        "Marker chunk child must contain exactly one MeshCollider:\n" +
+                        markerPath +
+                        "\nChild: " +
+                        childName;
+
+                    return false;
+                }
+
+                MeshCollider meshCollider =
+                    childColliders[0];
+
+                if (
+                    !meshCollider.enabled
+                    ||
+                    meshCollider.isTrigger
+                    ||
+                    meshCollider.convex
+                        != TerrainCollisionPhysicsSettings.Convex
+                    ||
+                    meshCollider.cookingOptions
+                        != TerrainCollisionPhysicsSettings.CookingOptions
+                )
+                {
+                    errorMessage =
+                        "Marker MeshCollider configuration is incorrect:\n" +
+                        markerPath +
+                        "\nChild: " +
+                        childName;
+
+                    return false;
+                }
+
+                Mesh referencedMesh =
+                    meshCollider.sharedMesh;
+
+                if (referencedMesh == null)
+                {
+                    errorMessage =
+                        "Marker MeshCollider has no sharedMesh:\n" +
+                        markerPath +
+                        "\nChild: " +
+                        childName;
+
+                    return false;
+                }
+
+                string expectedMeshPath =
+                    TerrainCollisionMeshGenerator.GetCollisionMeshPath(
+                        chunkX,
+                        chunkZ
+                    );
+
+                string expectedMeshGuid =
+                    AssetDatabase.AssetPathToGUID(
+                        expectedMeshPath
+                    );
+
+                string referencedMeshPath =
+                    AssetDatabase.GetAssetPath(
+                        referencedMesh
+                    );
+
+                string referencedMeshGuid =
+                    AssetDatabase.AssetPathToGUID(
+                        referencedMeshPath
+                    );
+
+                if (
+                    string.IsNullOrEmpty(expectedMeshGuid)
+                    ||
+                    string.IsNullOrEmpty(referencedMeshGuid)
+                    ||
+                    expectedMeshGuid != referencedMeshGuid
+                )
+                {
+                    errorMessage =
+                        "Marker MeshCollider references the wrong collision Mesh GUID:\n" +
+                        markerPath +
+                        "\nChild: " +
+                        childName;
+
+                    return false;
+                }
+            }
+        }
+
+        record =
+            new BakeMarkerRecord(
+                regionX,
+                regionZ,
+                markerPath,
+                markerGuid,
+                GetBakeMarkerAddress(
+                    regionX,
+                    regionZ
+                ),
+                GetRegionLabel(
+                    regionX,
+                    regionZ
+                )
+            );
 
         return true;
     }
@@ -299,17 +652,13 @@ public static class TerrainCollisionBakeMarkerUtility
     private static bool GenerateOrUpdateOneMarker(
         int regionX,
         int regionZ,
-
         int regionSpan,
-
         int gridWidth,
         int gridHeight,
-
         string markerPath
     )
     {
-        GameObject root =
-            null;
+        GameObject root = null;
 
         try
         {
@@ -321,14 +670,9 @@ public static class TerrainCollisionBakeMarkerUtility
                     )
                 );
 
-            root.transform.position =
-                Vector3.zero;
-
-            root.transform.rotation =
-                Quaternion.identity;
-
-            root.transform.localScale =
-                Vector3.one;
+            root.transform.position = Vector3.zero;
+            root.transform.rotation = Quaternion.identity;
+            root.transform.localScale = Vector3.one;
 
             int startChunkX =
                 regionX *
@@ -340,66 +684,48 @@ public static class TerrainCollisionBakeMarkerUtility
 
             int endChunkX =
                 Mathf.Min(
-                    startChunkX +
-                    regionSpan,
-
+                    startChunkX + regionSpan,
                     gridWidth
                 );
 
             int endChunkZ =
                 Mathf.Min(
-                    startChunkZ +
-                    regionSpan,
-
+                    startChunkZ + regionSpan,
                     gridHeight
                 );
 
-            int colliderCount =
-                0;
+            int colliderCount = 0;
 
-            // =================================================
-            // ONE CHILD MESHCOLLIDER PER COLLISION MESH
-            // =================================================
-
-            for (
-                int chunkZ = startChunkZ;
-                chunkZ < endChunkZ;
-                chunkZ++
-            )
+            for (int chunkZ = startChunkZ; chunkZ < endChunkZ; chunkZ++)
             {
-                for (
-                    int chunkX = startChunkX;
-                    chunkX < endChunkX;
-                    chunkX++
-                )
+                for (int chunkX = startChunkX; chunkX < endChunkX; chunkX++)
                 {
                     string meshPath =
-                        TerrainCollisionMeshGenerator
-                            .GetCollisionMeshPath(
-                                chunkX,
-                                chunkZ
-                            );
+                        TerrainCollisionMeshGenerator.GetCollisionMeshPath(
+                            chunkX,
+                            chunkZ
+                        );
 
                     Mesh mesh =
-                        AssetDatabase
-                            .LoadAssetAtPath<Mesh>(
-                                meshPath
-                            );
+                        AssetDatabase.LoadAssetAtPath<Mesh>(
+                            meshPath
+                        );
 
                     if (mesh == null)
                     {
                         Debug.LogError(
-                            "Cannot create collision bake " +
-                            "marker.\n\n" +
-
-                            $"Region: " +
-                            $"({regionX}, {regionZ})\n" +
-
-                            $"Chunk: " +
-                            $"({chunkX}, {chunkZ})\n\n" +
-
-                            "Collision Mesh could not be " +
-                            "loaded:\n" +
+                            "Cannot create collision bake marker.\n\n" +
+                            "Region: (" +
+                            regionX +
+                            ", " +
+                            regionZ +
+                            ")\n" +
+                            "Chunk: (" +
+                            chunkX +
+                            ", " +
+                            chunkZ +
+                            ")\n\n" +
+                            "Collision Mesh could not be loaded:\n" +
                             meshPath
                         );
 
@@ -408,7 +734,10 @@ public static class TerrainCollisionBakeMarkerUtility
 
                     GameObject child =
                         new GameObject(
-                            $"Chunk_{chunkX}_{chunkZ}"
+                            "Chunk_" +
+                            chunkX +
+                            "_" +
+                            chunkZ
                         );
 
                     child.transform.SetParent(
@@ -416,60 +745,28 @@ public static class TerrainCollisionBakeMarkerUtility
                         false
                     );
 
-                    child.transform.localPosition =
-                        Vector3.zero;
-
-                    child.transform.localRotation =
-                        Quaternion.identity;
-
-                    child.transform.localScale =
-                        Vector3.one;
+                    child.transform.localPosition = Vector3.zero;
+                    child.transform.localRotation = Quaternion.identity;
+                    child.transform.localScale = Vector3.one;
 
                     MeshCollider meshCollider =
                         child.AddComponent<MeshCollider>();
 
-                    /*
-                     * IMPORTANT:
-                     *
-                     * These settings must exactly match both:
-                     *
-                     * - Physics.BakeMesh()
-                     * - runtime MeshCollider configuration
-                     */
                     meshCollider.convex =
-                        TerrainCollisionPhysicsSettings
-                            .Convex;
+                        TerrainCollisionPhysicsSettings.Convex;
 
-                    meshCollider.isTrigger =
-                        false;
+                    meshCollider.isTrigger = false;
 
                     meshCollider.cookingOptions =
-                        TerrainCollisionPhysicsSettings
-                            .CookingOptions;
+                        TerrainCollisionPhysicsSettings.CookingOptions;
 
                     /*
-                     * Assign sharedMesh LAST, after all cooking
-                     * configuration is already correct.
-                     *
-                     * This serialized MeshCollider -> Mesh
-                     * relationship is the entire purpose of the
-                     * marker prefab.
+                     * Assign the Mesh last. This serialized GUID reference is
+                     * structural and remains valid when the Mesh asset is later
+                     * updated in place.
                      */
-                    meshCollider.sharedMesh =
-                        mesh;
-
-                    /*
-                     * Leave the component enabled in the prefab.
-                     *
-                     * The prefab is never instantiated at runtime,
-                     * so this has no runtime physics cost. Leaving
-                     * the MeshCollider in its normal enabled state
-                     * gives Unity's build-time collision prebaking
-                     * pipeline the clearest possible representation
-                     * of its intended use.
-                     */
-                    meshCollider.enabled =
-                        true;
+                    meshCollider.sharedMesh = mesh;
+                    meshCollider.enabled = true;
 
                     colliderCount++;
                 }
@@ -478,19 +775,11 @@ public static class TerrainCollisionBakeMarkerUtility
             if (colliderCount <= 0)
             {
                 Debug.LogError(
-                    "Collision bake marker contains no " +
-                    "MeshColliders.\n\n" +
-
-                    $"Region: " +
-                    $"({regionX}, {regionZ})"
+                    "Collision bake marker contains no MeshColliders."
                 );
 
                 return false;
             }
-
-            // =================================================
-            // SAVE PREFAB
-            // =================================================
 
             GameObject savedPrefab =
                 PrefabUtility.SaveAsPrefabAsset(
@@ -506,8 +795,7 @@ public static class TerrainCollisionBakeMarkerUtility
             )
             {
                 Debug.LogError(
-                    "Could not save collision bake " +
-                    "marker prefab:\n" +
+                    "Could not save collision bake marker prefab:\n" +
                     markerPath
                 );
 
@@ -524,100 +812,91 @@ public static class TerrainCollisionBakeMarkerUtility
             }
         }
 
-        // =====================================================
-        // VERIFY SERIALIZED PREFAB
-        // =====================================================
+        return true;
+    }
 
-        GameObject loadedPrefab =
-            AssetDatabase
-                .LoadAssetAtPath<GameObject>(
-                    markerPath
-                );
+    // =====================================================
+    // HELPERS
+    // =====================================================
 
-        if (loadedPrefab == null)
+    private static bool ValidateBaseRequirements(
+        WorldSettings worldSettings,
+        out string errorMessage
+    )
+    {
+        errorMessage = "";
+
+        if (worldSettings == null)
         {
-            Debug.LogError(
-                "Collision bake marker was saved but " +
-                "could not be reloaded:\n" +
-                markerPath
-            );
+            errorMessage =
+                "WorldSettings is null.";
 
             return false;
         }
 
-        MeshCollider[] colliders =
-            loadedPrefab
-                .GetComponentsInChildren<MeshCollider>(
-                    true
-                );
-
-        if (colliders.Length == 0)
-        {
-            Debug.LogError(
-                "Collision bake marker contains no " +
-                "serialized MeshColliders:\n" +
-                markerPath
-            );
-
-            return false;
-        }
-
-        foreach (
-            MeshCollider meshCollider
-            in colliders
+        if (
+            EditorApplication.isPlayingOrWillChangePlaymode
         )
         {
-            if (
-                meshCollider.sharedMesh ==
-                    null
+            errorMessage =
+                "Collision bake marker operations must run outside Play Mode.";
+
+            return false;
+        }
+
+        if (
+            !AssetDatabase.IsValidFolder(
+                WorldMeshesPaths.GeneratedCollisionMeshes
             )
-            {
-                Debug.LogError(
-                    "Collision bake marker contains a " +
-                    "MeshCollider without a Mesh:\n" +
-                    markerPath
-                );
+        )
+        {
+            errorMessage =
+                "Generated collision mesh folder does not exist:\n" +
+                WorldMeshesPaths.GeneratedCollisionMeshes;
 
-                return false;
-            }
-
-            if (
-                meshCollider.convex !=
-                    TerrainCollisionPhysicsSettings
-                        .Convex
-            )
-            {
-                Debug.LogError(
-                    "Collision bake marker has incorrect " +
-                    "Convex configuration:\n" +
-                    markerPath
-                );
-
-                return false;
-            }
-
-            if (
-                meshCollider.cookingOptions !=
-                    TerrainCollisionPhysicsSettings
-                        .CookingOptions
-            )
-            {
-                Debug.LogError(
-                    "Collision bake marker has incorrect " +
-                    "cooking options:\n" +
-                    markerPath
-                );
-
-                return false;
-            }
+            return false;
         }
 
         return true;
     }
 
-    // =====================================================
-    // NAME
-    // =====================================================
+    private static void GetRegionLayout(
+        WorldSettings worldSettings,
+        out int gridWidth,
+        out int gridHeight,
+        out int regionSpan,
+        out int regionGridWidth,
+        out int regionGridHeight
+    )
+    {
+        gridWidth =
+            Mathf.Max(
+                1,
+                worldSettings.gridWidth
+            );
+
+        gridHeight =
+            Mathf.Max(
+                1,
+                worldSettings.gridHeight
+            );
+
+        regionSpan =
+            Mathf.Max(
+                1,
+                TerrainCollisionAddressablesUtility.CollisionRegionChunkSpan
+            );
+
+        regionGridWidth =
+            (gridWidth + regionSpan - 1)
+            /
+            regionSpan;
+
+        regionGridHeight =
+            (gridHeight + regionSpan - 1)
+            /
+            regionSpan;
+    }
 
     private static string GetBakeMarkerName(
         int regionX,
@@ -625,28 +904,26 @@ public static class TerrainCollisionBakeMarkerUtility
     )
     {
         return
-            $"CollisionBakeMarker_" +
-            $"{regionX}_{regionZ}";
+            "CollisionBakeMarker_" +
+            regionX +
+            "_" +
+            regionZ;
     }
 
-    // =====================================================
-    // PATH
-    // =====================================================
-
-    private static string GetBakeMarkerAssetPath(
+    public static string GetBakeMarkerAssetPath(
         int regionX,
         int regionZ
     )
     {
         return
-            $"{BakeMarkerFolder}/" +
-            $"{GetBakeMarkerName(regionX, regionZ)}" +
+            BakeMarkerFolder +
+            "/" +
+            GetBakeMarkerName(
+                regionX,
+                regionZ
+            ) +
             ".prefab";
     }
-
-    // =====================================================
-    // ADDRESS
-    // =====================================================
 
     private static string GetBakeMarkerAddress(
         int regionX,
@@ -654,13 +931,12 @@ public static class TerrainCollisionBakeMarkerUtility
     )
     {
         return
-            $"{BakeMarkerAddressPrefix}_" +
-            $"{regionX}_{regionZ}";
+            BakeMarkerAddressPrefix +
+            "_" +
+            regionX +
+            "_" +
+            regionZ;
     }
-
-    // =====================================================
-    // REGION LABEL
-    // =====================================================
 
     private static string GetRegionLabel(
         int regionX,
@@ -668,56 +944,37 @@ public static class TerrainCollisionBakeMarkerUtility
     )
     {
         return
-            $"{TerrainCollisionManifest.CollisionRegionLabelPrefix}_" +
-            $"{regionX}_{regionZ}";
+            TerrainCollisionManifest.CollisionRegionLabelPrefix +
+            "_" +
+            regionX +
+            "_" +
+            regionZ;
     }
-
-    // =====================================================
-    // RECORD
-    // =====================================================
 
     public readonly struct BakeMarkerRecord
     {
         public readonly int regionX;
-
         public readonly int regionZ;
-
         public readonly string assetPath;
-
         public readonly string guid;
-
         public readonly string address;
-
         public readonly string regionLabel;
 
         public BakeMarkerRecord(
             int regionX,
             int regionZ,
-
             string assetPath,
             string guid,
-
             string address,
             string regionLabel
         )
         {
-            this.regionX =
-                regionX;
-
-            this.regionZ =
-                regionZ;
-
-            this.assetPath =
-                assetPath;
-
-            this.guid =
-                guid;
-
-            this.address =
-                address;
-
-            this.regionLabel =
-                regionLabel;
+            this.regionX = regionX;
+            this.regionZ = regionZ;
+            this.assetPath = assetPath;
+            this.guid = guid;
+            this.address = address;
+            this.regionLabel = regionLabel;
         }
     }
 }

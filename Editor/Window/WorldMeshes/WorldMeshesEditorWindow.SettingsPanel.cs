@@ -360,6 +360,10 @@ public partial class WorldMeshesEditorWindow :
 
         DrawWorkspaceSectionGap();
 
+        DrawRuntimeAddressablesDiagnostics();
+
+        DrawWorkspaceSectionGap();
+
         DrawRuntimeValidationSettings();
     }
 

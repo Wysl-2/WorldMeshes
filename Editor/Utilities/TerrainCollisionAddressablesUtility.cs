@@ -7,10 +7,6 @@ using UnityEngine;
 
 public static class TerrainCollisionAddressablesUtility
 {
-    // =====================================================
-    // SETTINGS
-    // =====================================================
-
     public const string CollisionAddressablesGroupName =
         "Terrain Collision Meshes";
 
@@ -21,23 +17,20 @@ public static class TerrainCollisionAddressablesUtility
         WorldMeshesPaths.CollisionManifestAssetPath;
 
     // =====================================================
-    // PREPARE FROM DEFAULT WORLD SETTINGS
+    // LEGACY PREPARE
     // =====================================================
 
     public static void PrepareCollisionMeshesForRuntime()
     {
         WorldSettings worldSettings =
-            AssetDatabase
-                .LoadAssetAtPath<WorldSettings>(
-                    WorldMeshesPaths
-                        .WorldSettingsAssetPath
-                );
+            AssetDatabase.LoadAssetAtPath<WorldSettings>(
+                WorldMeshesPaths.WorldSettingsAssetPath
+            );
 
         if (worldSettings == null)
         {
             Debug.LogError(
                 "Cannot prepare collision meshes for runtime.\n\n" +
-
                 "WorldSettings could not be found:\n" +
                 WorldMeshesPaths.WorldSettingsAssetPath
             );
@@ -50,72 +43,998 @@ public static class TerrainCollisionAddressablesUtility
         );
     }
 
-    // =====================================================
-    // PREPARE
-    // =====================================================
-
     public static bool PrepareCollisionMeshesForRuntime(
         WorldSettings worldSettings
     )
     {
-        // -------------------------------------------------
-        // Editor state
-        // -------------------------------------------------
+        TerrainAddressablesOperationStats stats =
+            new TerrainAddressablesOperationStats();
 
         if (
-            EditorApplication
-                .isPlayingOrWillChangePlaymode
+            !ReconcileConfiguration(
+                worldSettings,
+                stats,
+                out bool cancelled,
+                out string reconcileError
+            )
+        )
+        {
+            if (cancelled)
+            {
+                Debug.LogWarning(
+                    "Preparing collision meshes for runtime was cancelled."
+                );
+            }
+            else
+            {
+                Debug.LogError(
+                    reconcileError
+                );
+            }
+
+            return false;
+        }
+
+        if (
+            !RefreshRuntimeMetadata(
+                worldSettings,
+                out bool metadataChanged,
+                out _,
+                out string metadataError
+            )
         )
         {
             Debug.LogError(
-                "Collision Addressables preparation must be " +
-                "performed outside Play Mode."
+                metadataError
             );
 
             return false;
         }
 
-        // -------------------------------------------------
-        // World settings
-        // -------------------------------------------------
+        stats.collisionRuntimeMetadataUpdated |=
+            metadataChanged;
+
+        Debug.Log(
+            "Collision meshes prepared for runtime streaming.\n\n" +
+            "Addressables Group: " +
+            CollisionAddressablesGroupName +
+            "\n\n" +
+            "Markers Regenerated: " +
+            stats.collisionMarkersRegenerated +
+            "\n" +
+            "Markers Reused: " +
+            stats.collisionMarkersReused +
+            "\n" +
+            "Markers Removed: " +
+            stats.collisionMarkersRemoved +
+            "\n\n" +
+            "Created Entries: " +
+            stats.entriesCreated +
+            "\n" +
+            "Moved Entries: " +
+            stats.entriesMoved +
+            "\n" +
+            "Addresses Updated: " +
+            stats.addressesUpdated +
+            "\n" +
+            "Labels Updated: " +
+            stats.labelsUpdated +
+            "\n" +
+            "Obsolete Entries Removed: " +
+            stats.entriesRemoved +
+            "\n\n" +
+            "Manifest:\n" +
+            CollisionManifestPath
+        );
+
+        return true;
+    }
+
+    // =====================================================
+    // READ-ONLY VALIDATION
+    // =====================================================
+
+    internal static bool ValidateExistingConfiguration(
+        WorldSettings worldSettings,
+        IReadOnlyList<TerrainCollisionBakeMarkerUtility.BakeMarkerRecord>
+            markerRecords,
+        out string errorMessage
+    )
+    {
+        errorMessage = "";
+
+        if (
+            !TryCollectCollisionAssetRecords(
+                worldSettings,
+                false,
+                out List<CollisionAssetRecord> records,
+                out _,
+                out HashSet<string> expectedRegionLabels,
+                out _,
+                out errorMessage
+            )
+        )
+        {
+            return false;
+        }
+
+        AddressableAssetSettings settings =
+            AddressableAssetSettingsDefaultObject.GetSettings(
+                false
+            );
+
+        if (settings == null)
+        {
+            errorMessage =
+                "AddressableAssetSettings is missing.";
+
+            return false;
+        }
+
+        AddressableAssetGroup group =
+            settings.FindGroup(
+                CollisionAddressablesGroupName
+            );
+
+        if (group == null)
+        {
+            errorMessage =
+                "Collision Addressables group is missing: " +
+                CollisionAddressablesGroupName;
+
+            return false;
+        }
+
+        BundledAssetGroupSchema schema =
+            group.GetSchema<BundledAssetGroupSchema>();
+
+        if (
+            schema == null
+            ||
+            schema.BundleMode
+                != BundledAssetGroupSchema.BundlePackingMode.PackTogetherByLabel
+            ||
+            !schema.IncludeAddressInCatalog
+        )
+        {
+            errorMessage =
+                "Collision Addressables group schema is missing or incompatible.";
+
+            return false;
+        }
+
+        HashSet<string> expectedGuids =
+            new HashSet<string>();
+
+        foreach (CollisionAssetRecord record in records)
+        {
+            if (
+                !ValidateEntry(
+                    settings,
+                    group,
+                    record.guid,
+                    record.address,
+                    record.regionLabel,
+                    record.assetPath,
+                    out errorMessage
+                )
+            )
+            {
+                return false;
+            }
+
+            expectedGuids.Add(
+                record.guid
+            );
+        }
+
+        if (markerRecords == null)
+        {
+            errorMessage =
+                "Collision bake marker records are unavailable.";
+
+            return false;
+        }
+
+        for (int index = 0; index < markerRecords.Count; index++)
+        {
+            TerrainCollisionBakeMarkerUtility.BakeMarkerRecord marker =
+                markerRecords[index];
+
+            if (
+                !ValidateEntry(
+                    settings,
+                    group,
+                    marker.guid,
+                    marker.address,
+                    marker.regionLabel,
+                    marker.assetPath,
+                    out errorMessage
+                )
+            )
+            {
+                return false;
+            }
+
+            expectedGuids.Add(
+                marker.guid
+            );
+
+            expectedRegionLabels.Add(
+                marker.regionLabel
+            );
+        }
+
+        foreach (AddressableAssetEntry entry in group.entries)
+        {
+            if (!expectedGuids.Contains(entry.guid))
+            {
+                errorMessage =
+                    "Collision Addressables group contains an obsolete/unexpected entry:\n" +
+                    entry.address;
+
+                return false;
+            }
+        }
+
+        HashSet<string> registeredLabels =
+            new HashSet<string>(
+                settings.GetLabels()
+            );
+
+        foreach (string expectedLabel in expectedRegionLabels)
+        {
+            if (!registeredLabels.Contains(expectedLabel))
+            {
+                errorMessage =
+                    "Collision Addressables region label is missing:\n" +
+                    expectedLabel;
+
+                return false;
+            }
+        }
+
+        foreach (string label in registeredLabels)
+        {
+            if (
+                label.StartsWith(
+                    TerrainCollisionManifest.CollisionRegionLabelPrefix +
+                    "_"
+                )
+                &&
+                !expectedRegionLabels.Contains(
+                    label
+                )
+            )
+            {
+                errorMessage =
+                    "Collision Addressables contains a stale tool-owned region label:\n" +
+                    label;
+
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    public static bool ValidatePreparedManifestStructure(
+        WorldSettings worldSettings,
+        out string errorMessage
+    )
+    {
+        errorMessage = "";
 
         if (worldSettings == null)
         {
-            Debug.LogError(
-                "Cannot prepare collision meshes for runtime: " +
-                "WorldSettings is null."
-            );
+            errorMessage =
+                "WorldSettings is unavailable.";
 
             return false;
         }
 
-        // -------------------------------------------------
-        // Generation state
-        // -------------------------------------------------
+        TerrainCollisionManifest manifest =
+            AssetDatabase.LoadAssetAtPath<TerrainCollisionManifest>(
+                CollisionManifestPath
+            );
 
-        TerrainGenerationStateUtility.GenerationStatus
-            collisionStatus =
-                TerrainGenerationStateUtility
-                    .GetCollisionMeshStatus(
-                        worldSettings
-                    );
+        if (manifest == null)
+        {
+            errorMessage =
+                "Collision prepared manifest is missing.";
+
+            return false;
+        }
+
+        if (!manifest.isComplete)
+        {
+            errorMessage =
+                "Collision prepared manifest is incomplete.";
+
+            return false;
+        }
 
         if (
-            collisionStatus !=
-            TerrainGenerationStateUtility
-                .GenerationStatus.Current
+            manifest.manifestVersion != 1
+            ||
+            manifest.collisionGeneratorVersion
+                != TerrainGenerationStateUtility.CollisionGeneratorVersion
+            ||
+            manifest.gridWidth != Mathf.Max(1, worldSettings.gridWidth)
+            ||
+            manifest.gridHeight != Mathf.Max(1, worldSettings.gridHeight)
+            ||
+            !Mathf.Approximately(
+                manifest.chunkSize,
+                Mathf.Max(0.01f, worldSettings.chunkSize)
+            )
+            ||
+            manifest.heightfieldResolutionPerChunk
+                != Mathf.Max(
+                    1,
+                    worldSettings.heightfieldResolutionPerChunk
+                )
+            ||
+            manifest.collisionResolution
+                != Mathf.Max(
+                    1,
+                    worldSettings.collisionResolution
+                )
+            ||
+            manifest.regionChunkSpan
+                != Mathf.Max(
+                    1,
+                    CollisionRegionChunkSpan
+                )
         )
         {
-            Debug.LogError(
-                "Cannot prepare collision meshes for runtime.\n\n" +
+            errorMessage =
+                "Collision prepared manifest structure does not match the current world/collision layout.";
 
-                "The generated collision meshes are not current.\n\n" +
+            return false;
+        }
 
-                $"Collision State: " +
-                $"{TerrainGenerationStateUtility.GetStatusLabel(collisionStatus)}\n\n" +
+        /*
+         * Generation revisions are intentionally excluded here. A complete
+         * structurally valid manifest may lag the newly generated collision
+         * Mesh contents and be refreshed without Addressables reconfiguration.
+         */
+        return true;
+    }
 
-                "Generate or regenerate the collision meshes first."
+    // =====================================================
+    // STRUCTURAL RECONCILIATION
+    // =====================================================
+
+    internal static bool ReconcileConfiguration(
+        WorldSettings worldSettings,
+        TerrainAddressablesOperationStats stats,
+        out bool cancelled,
+        out string errorMessage
+    )
+    {
+        cancelled = false;
+        errorMessage = "";
+
+        if (stats == null)
+        {
+            stats =
+                new TerrainAddressablesOperationStats();
+        }
+
+        if (
+            TerrainGenerationStateUtility.GetCollisionMeshStatus(
+                worldSettings
+            )
+            != TerrainGenerationStateUtility.GenerationStatus.Current
+        )
+        {
+            errorMessage =
+                "Generated collision meshes are not current.";
+
+            return false;
+        }
+
+        if (
+            !TryCollectCollisionAssetRecords(
+                worldSettings,
+                true,
+                out List<CollisionAssetRecord> records,
+                out HashSet<string> meshGuids,
+                out HashSet<string> expectedRegionLabels,
+                out cancelled,
+                out errorMessage
+            )
+        )
+        {
+            return false;
+        }
+
+        if (
+            !TerrainCollisionBakeMarkerUtility.ReconcileBakeMarkers(
+                worldSettings,
+                out List<
+                    TerrainCollisionBakeMarkerUtility.BakeMarkerRecord
+                > markerRecords,
+                out int regeneratedMarkers,
+                out int reusedMarkers,
+                out int removedMarkers,
+                out cancelled,
+                out errorMessage
+            )
+        )
+        {
+            return false;
+        }
+
+        stats.collisionMarkersRegenerated +=
+            regeneratedMarkers;
+
+        stats.collisionMarkersReused +=
+            reusedMarkers;
+
+        stats.collisionMarkersRemoved +=
+            removedMarkers;
+
+        bool configurationChanged =
+            regeneratedMarkers > 0
+            ||
+            removedMarkers > 0;
+
+        bool settingsChanged =
+            false;
+
+        bool manifestCreated;
+
+        TerrainCollisionManifest manifest =
+            GetOrCreateManifest(
+                out manifestCreated
             );
+
+        if (manifest == null)
+        {
+            errorMessage =
+                "Could not create/load collision runtime manifest.";
+
+            return false;
+        }
+
+        if (manifestCreated)
+        {
+            stats.collisionManifestCreated = true;
+            configurationChanged = true;
+        }
+
+        if (manifest.isComplete)
+        {
+            manifest.isComplete = false;
+            EditorUtility.SetDirty(manifest);
+            AssetDatabase.SaveAssetIfDirty(manifest);
+        }
+
+        AddressableAssetSettings settings =
+            AddressableAssetSettingsDefaultObject.GetSettings(
+                true
+            );
+
+        if (settings == null)
+        {
+            errorMessage =
+                "Could not load or create Addressables settings.";
+
+            return false;
+        }
+
+        AddressableAssetGroup group =
+            settings.FindGroup(
+                CollisionAddressablesGroupName
+            );
+
+        if (group == null)
+        {
+            List<AddressableAssetGroupSchema> schemasToCopy =
+                settings.DefaultGroup != null
+                    ? settings.DefaultGroup.Schemas
+                    : null;
+
+            group =
+                settings.CreateGroup(
+                    CollisionAddressablesGroupName,
+                    false,
+                    false,
+                    true,
+                    schemasToCopy
+                );
+
+            if (group == null)
+            {
+                errorMessage =
+                    "Could not create Addressables group:\n" +
+                    CollisionAddressablesGroupName;
+
+                return false;
+            }
+
+            stats.groupsCreated++;
+            configurationChanged = true;
+            settingsChanged = true;
+        }
+
+        BundledAssetGroupSchema schema =
+            group.GetSchema<BundledAssetGroupSchema>();
+
+        if (schema == null)
+        {
+            schema =
+                group.AddSchema<BundledAssetGroupSchema>(
+                    true
+                );
+
+            if (schema == null)
+            {
+                errorMessage =
+                    "Could not configure collision Addressables Content Packing & Loading schema.";
+
+                return false;
+            }
+
+            stats.schemasCreatedOrChanged++;
+            configurationChanged = true;
+            settingsChanged = true;
+        }
+
+        bool schemaChanged = false;
+
+        if (
+            schema.BundleMode
+            != BundledAssetGroupSchema.BundlePackingMode.PackTogetherByLabel
+        )
+        {
+            schema.BundleMode =
+                BundledAssetGroupSchema.BundlePackingMode.PackTogetherByLabel;
+
+            schemaChanged = true;
+        }
+
+        if (!schema.IncludeAddressInCatalog)
+        {
+            schema.IncludeAddressInCatalog = true;
+            schemaChanged = true;
+        }
+
+        if (schemaChanged)
+        {
+            EditorUtility.SetDirty(
+                schema
+            );
+
+            stats.schemasCreatedOrChanged++;
+            configurationChanged = true;
+            settingsChanged = true;
+        }
+
+        foreach (
+            TerrainCollisionBakeMarkerUtility.BakeMarkerRecord marker
+            in markerRecords
+        )
+        {
+            if (!meshGuids.Add(marker.guid))
+            {
+                errorMessage =
+                    "Collision bake marker GUID collides with another managed collision asset:\n" +
+                    marker.assetPath;
+
+                return false;
+            }
+
+            expectedRegionLabels.Add(
+                marker.regionLabel
+            );
+        }
+
+        HashSet<string> registeredLabels =
+            new HashSet<string>(
+                settings.GetLabels()
+            );
+
+        foreach (string regionLabel in expectedRegionLabels)
+        {
+            if (registeredLabels.Contains(regionLabel))
+            {
+                continue;
+            }
+
+            settings.AddLabel(
+                regionLabel,
+                true
+            );
+
+            registeredLabels.Add(
+                regionLabel
+            );
+
+            stats.labelsUpdated++;
+            configurationChanged = true;
+            settingsChanged = true;
+        }
+
+        int totalEntries =
+            records.Count +
+            markerRecords.Count;
+
+        int currentEntry = 0;
+
+        try
+        {
+            foreach (CollisionAssetRecord record in records)
+            {
+                cancelled =
+                    EditorUtility.DisplayCancelableProgressBar(
+                        "Preparing Collision Addressables",
+                        "Collision Mesh (" +
+                        record.chunkX +
+                        ", " +
+                        record.chunkZ +
+                        ")\n\n" +
+                        (currentEntry + 1) +
+                        " / " +
+                        totalEntries,
+                        totalEntries > 0
+                            ? (float)currentEntry / totalEntries
+                            : 1f
+                    );
+
+                if (cancelled)
+                {
+                    break;
+                }
+
+                if (
+                    !ReconcileEntry(
+                        settings,
+                        group,
+                        record.guid,
+                        record.address,
+                        record.regionLabel,
+                        record.assetPath,
+                        stats,
+                        ref configurationChanged,
+                        ref settingsChanged,
+                        out errorMessage
+                    )
+                )
+                {
+                    return false;
+                }
+
+                currentEntry++;
+            }
+
+            if (!cancelled)
+            {
+                foreach (
+                    TerrainCollisionBakeMarkerUtility.BakeMarkerRecord marker
+                    in markerRecords
+                )
+                {
+                    cancelled =
+                        EditorUtility.DisplayCancelableProgressBar(
+                            "Preparing Collision Addressables",
+                            "Collision Bake Marker Region (" +
+                            marker.regionX +
+                            ", " +
+                            marker.regionZ +
+                            ")\n\n" +
+                            (currentEntry + 1) +
+                            " / " +
+                            totalEntries,
+                            totalEntries > 0
+                                ? (float)currentEntry / totalEntries
+                                : 1f
+                        );
+
+                    if (cancelled)
+                    {
+                        break;
+                    }
+
+                    if (
+                        !ReconcileEntry(
+                            settings,
+                            group,
+                            marker.guid,
+                            marker.address,
+                            marker.regionLabel,
+                            marker.assetPath,
+                            stats,
+                            ref configurationChanged,
+                            ref settingsChanged,
+                            out errorMessage
+                        )
+                    )
+                    {
+                        return false;
+                    }
+
+                    currentEntry++;
+                }
+            }
+        }
+        finally
+        {
+            EditorUtility.ClearProgressBar();
+        }
+
+        if (cancelled)
+        {
+            if (configurationChanged)
+            {
+                stats.collisionConfigurationChanged = true;
+            }
+
+            if (settingsChanged)
+            {
+                EditorUtility.SetDirty(settings);
+                AssetDatabase.SaveAssets();
+            }
+
+            return false;
+        }
+
+        List<AddressableAssetEntry> obsoleteEntries =
+            new List<AddressableAssetEntry>();
+
+        foreach (AddressableAssetEntry entry in group.entries)
+        {
+            if (!meshGuids.Contains(entry.guid))
+            {
+                obsoleteEntries.Add(
+                    entry
+                );
+            }
+        }
+
+        foreach (AddressableAssetEntry obsoleteEntry in obsoleteEntries)
+        {
+            group.RemoveAssetEntry(
+                obsoleteEntry,
+                true
+            );
+
+            stats.entriesRemoved++;
+            configurationChanged = true;
+            settingsChanged = true;
+        }
+
+        List<string> staleRegionLabels =
+            new List<string>();
+
+        foreach (string label in settings.GetLabels())
+        {
+            if (
+                label.StartsWith(
+                    TerrainCollisionManifest.CollisionRegionLabelPrefix +
+                    "_"
+                )
+                &&
+                !expectedRegionLabels.Contains(
+                    label
+                )
+            )
+            {
+                staleRegionLabels.Add(
+                    label
+                );
+            }
+        }
+
+        foreach (string staleRegionLabel in staleRegionLabels)
+        {
+            settings.RemoveLabel(
+                staleRegionLabel,
+                true
+            );
+
+            stats.labelsUpdated++;
+            configurationChanged = true;
+            settingsChanged = true;
+        }
+
+        if (configurationChanged)
+        {
+            stats.collisionConfigurationChanged = true;
+        }
+
+        if (settingsChanged)
+        {
+            EditorUtility.SetDirty(
+                settings
+            );
+
+            AssetDatabase.SaveAssets();
+        }
+
+        return true;
+    }
+
+    // =====================================================
+    // METADATA-ONLY COLLISION PREPARATION
+    // =====================================================
+
+    public static bool RefreshRuntimeMetadata(
+        WorldSettings worldSettings,
+        out bool metadataChanged,
+        out bool manifestCreated,
+        out string errorMessage
+    )
+    {
+        metadataChanged = false;
+        manifestCreated = false;
+        errorMessage = "";
+
+        if (worldSettings == null)
+        {
+            errorMessage =
+                "Cannot refresh collision runtime metadata because WorldSettings is null.";
+
+            return false;
+        }
+
+        if (
+            TerrainGenerationStateUtility.GetCollisionMeshStatus(
+                worldSettings
+            )
+            != TerrainGenerationStateUtility.GenerationStatus.Current
+        )
+        {
+            errorMessage =
+                "Cannot refresh collision runtime metadata because generated collision meshes are not current.";
+
+            return false;
+        }
+
+        TerrainCollisionManifest manifest =
+            GetOrCreateManifest(
+                out manifestCreated
+            );
+
+        if (manifest == null)
+        {
+            errorMessage =
+                "Could not create/load collision runtime manifest.";
+
+            return false;
+        }
+
+        bool changed = false;
+
+        changed |= SetIfDifferent(
+            ref manifest.manifestVersion,
+            1
+        );
+
+        changed |= SetIfDifferent(
+            ref manifest.collisionGeneratorVersion,
+            TerrainGenerationStateUtility.CollisionGeneratorVersion
+        );
+
+        changed |= SetIfDifferent(
+            ref manifest.gridWidth,
+            Mathf.Max(1, worldSettings.gridWidth)
+        );
+
+        changed |= SetIfDifferent(
+            ref manifest.gridHeight,
+            Mathf.Max(1, worldSettings.gridHeight)
+        );
+
+        changed |= SetIfDifferent(
+            ref manifest.chunkSize,
+            Mathf.Max(0.01f, worldSettings.chunkSize)
+        );
+
+        changed |= SetIfDifferent(
+            ref manifest.heightfieldResolutionPerChunk,
+            Mathf.Max(
+                1,
+                worldSettings.heightfieldResolutionPerChunk
+            )
+        );
+
+        changed |= SetIfDifferent(
+            ref manifest.collisionResolution,
+            Mathf.Max(
+                1,
+                worldSettings.collisionResolution
+            )
+        );
+
+        changed |= SetIfDifferent(
+            ref manifest.collisionMeshGenerationRevision,
+            worldSettings.collisionMeshGenerationRevision
+        );
+
+        changed |= SetIfDifferent(
+            ref manifest.collisionSourceHeightmapGenerationRevision,
+            worldSettings.collisionSourceHeightmapGenerationRevision
+        );
+
+        changed |= SetIfDifferent(
+            ref manifest.regionChunkSpan,
+            Mathf.Max(
+                1,
+                CollisionRegionChunkSpan
+            )
+        );
+
+        if (!manifest.isComplete)
+        {
+            manifest.isComplete = true;
+            changed = true;
+        }
+
+        metadataChanged =
+            changed
+            ||
+            manifestCreated;
+
+        if (metadataChanged)
+        {
+            EditorUtility.SetDirty(
+                manifest
+            );
+
+            AssetDatabase.SaveAssetIfDirty(
+                manifest
+            );
+        }
+
+        return true;
+    }
+
+    // =====================================================
+    // EXPECTED ASSETS
+    // =====================================================
+
+    private static bool TryCollectCollisionAssetRecords(
+        WorldSettings worldSettings,
+        bool showProgress,
+        out List<CollisionAssetRecord> records,
+        out HashSet<string> expectedGuids,
+        out HashSet<string> expectedRegionLabels,
+        out bool cancelled,
+        out string errorMessage
+    )
+    {
+        records =
+            new List<CollisionAssetRecord>();
+
+        expectedGuids =
+            new HashSet<string>();
+
+        expectedRegionLabels =
+            new HashSet<string>();
+
+        cancelled = false;
+        errorMessage = "";
+
+        if (worldSettings == null)
+        {
+            errorMessage =
+                "WorldSettings is null.";
+
+            return false;
+        }
+
+        if (
+            TerrainGenerationStateUtility.GetCollisionMeshStatus(
+                worldSettings
+            )
+            != TerrainGenerationStateUtility.GenerationStatus.Current
+        )
+        {
+            errorMessage =
+                "Generated collision meshes are not current.";
 
             return false;
         }
@@ -136,122 +1055,86 @@ public static class TerrainCollisionAddressablesUtility
             gridWidth *
             gridHeight;
 
-        // =====================================================
-        // PREFLIGHT ALL GENERATED COLLISION ASSETS
-        // =====================================================
-
-        List<CollisionAssetRecord> records =
+        records =
             new List<CollisionAssetRecord>(
                 expectedMeshCount
             );
 
-        HashSet<string> expectedGuids =
-            new HashSet<string>();
-
-        HashSet<string> expectedRegionLabels =
-            new HashSet<string>();
-
-        bool cancelled =
-            false;
-
-        int currentMesh =
-            0;
+        int currentMesh = 0;
 
         try
         {
-            for (
-                int chunkZ = 0;
-                chunkZ < gridHeight;
-                chunkZ++
-            )
+            for (int chunkZ = 0; chunkZ < gridHeight; chunkZ++)
             {
-                for (
-                    int chunkX = 0;
-                    chunkX < gridWidth;
-                    chunkX++
-                )
+                for (int chunkX = 0; chunkX < gridWidth; chunkX++)
                 {
-                    cancelled =
-                        EditorUtility
-                            .DisplayCancelableProgressBar(
+                    if (showProgress)
+                    {
+                        cancelled =
+                            EditorUtility.DisplayCancelableProgressBar(
                                 "Preparing Collision Addressables",
-
-                                "Validating generated collision meshes\n\n" +
-                                $"Chunk ({chunkX}, {chunkZ})\n" +
-                                $"{currentMesh + 1} / {expectedMeshCount}",
-
+                                "Validating generated collision mesh (" +
+                                chunkX +
+                                ", " +
+                                chunkZ +
+                                ")\n\n" +
+                                (currentMesh + 1) +
+                                " / " +
+                                expectedMeshCount,
                                 expectedMeshCount > 0
-                                    ? (float)currentMesh /
-                                      expectedMeshCount
+                                    ? (float)currentMesh / expectedMeshCount
                                     : 1f
                             );
 
-                    if (cancelled)
-                    {
-                        break;
+                        if (cancelled)
+                        {
+                            break;
+                        }
                     }
 
                     string assetPath =
-                        TerrainCollisionMeshGenerator
-                            .GetCollisionMeshPath(
-                                chunkX,
-                                chunkZ
-                            );
+                        TerrainCollisionMeshGenerator.GetCollisionMeshPath(
+                            chunkX,
+                            chunkZ
+                        );
 
                     Mesh mesh =
-                        AssetDatabase
-                            .LoadAssetAtPath<Mesh>(
-                                assetPath
-                            );
+                        AssetDatabase.LoadAssetAtPath<Mesh>(
+                            assetPath
+                        );
 
                     if (mesh == null)
                     {
-                        Debug.LogError(
-                            "Cannot prepare collision meshes " +
-                            "for runtime.\n\n" +
-
-                            $"Missing collision mesh: " +
-                            $"({chunkX}, {chunkZ})\n\n" +
-
-                            $"Asset:\n{assetPath}"
-                        );
+                        errorMessage =
+                            "Missing collision Mesh (" +
+                            chunkX +
+                            ", " +
+                            chunkZ +
+                            "):\n" +
+                            assetPath;
 
                         return false;
                     }
 
                     string guid =
-                        AssetDatabase
-                            .AssetPathToGUID(
-                                assetPath
-                            );
-
-                    if (
-                        string.IsNullOrEmpty(
-                            guid
-                        )
-                    )
-                    {
-                        Debug.LogError(
-                            "Could not resolve collision mesh GUID:\n" +
+                        AssetDatabase.AssetPathToGUID(
                             assetPath
                         );
+
+                    if (string.IsNullOrEmpty(guid))
+                    {
+                        errorMessage =
+                            "Could not resolve collision Mesh GUID:\n" +
+                            assetPath;
 
                         return false;
                     }
 
-                    if (
-                        !expectedGuids.Add(
-                            guid
-                        )
-                    )
+                    if (!expectedGuids.Add(guid))
                     {
-                        Debug.LogError(
-                            "Multiple collision coordinates resolved " +
-                            "to the same asset GUID.\n\n" +
-
-                            $"Chunk: ({chunkX}, {chunkZ})\n" +
-                            $"GUID: {guid}"
-                        );
+                        errorMessage =
+                            "Multiple collision coordinates resolved to the same GUID:\n" +
+                            guid;
 
                         return false;
                     }
@@ -294,804 +1177,224 @@ public static class TerrainCollisionAddressablesUtility
         }
         finally
         {
-            EditorUtility.ClearProgressBar();
+            if (showProgress)
+            {
+                EditorUtility.ClearProgressBar();
+            }
         }
 
         if (cancelled)
         {
-            Debug.LogWarning(
-                "Preparing collision meshes for runtime was " +
-                "cancelled during preflight.\n\n" +
+            return false;
+        }
 
-                "No Addressables or manifest changes were made."
+        return
+            records.Count ==
+            expectedMeshCount;
+    }
+
+    // =====================================================
+    // ENTRY VALIDATE / RECONCILE
+    // =====================================================
+
+    private static bool ValidateEntry(
+        AddressableAssetSettings settings,
+        AddressableAssetGroup group,
+        string guid,
+        string expectedAddress,
+        string expectedRegionLabel,
+        string assetPath,
+        out string errorMessage
+    )
+    {
+        errorMessage = "";
+
+        AddressableAssetEntry entry =
+            settings.FindAssetEntry(
+                guid
             );
+
+        if (entry == null)
+        {
+            errorMessage =
+                "Collision Addressables entry is missing:\n" +
+                assetPath;
 
             return false;
         }
 
-        if (
-            records.Count !=
-            expectedMeshCount
-        )
+        if (entry.parentGroup != group)
         {
-            Debug.LogError(
-                "Collision Addressables preflight produced an " +
-                "unexpected asset count.\n\n" +
-
-                $"Expected: {expectedMeshCount:N0}\n" +
-                $"Found: {records.Count:N0}"
-            );
-
-            return false;
-        }
-        
-        // =====================================================
-        // COLLISION BAKE MARKER PREFABS
-        // =====================================================
-
-        if (
-            !TerrainCollisionBakeMarkerUtility
-                .GenerateOrUpdateBakeMarkers(
-                    worldSettings,
-
-                    out List<
-                        TerrainCollisionBakeMarkerUtility
-                        .BakeMarkerRecord
-                    > bakeMarkerRecords
-                )
-        )
-        {
-            Debug.LogError(
-                "Could not generate collision bake " +
-                "marker prefabs."
-            );
+            errorMessage =
+                "Collision Addressables entry is in the wrong group:\n" +
+                assetPath;
 
             return false;
         }
 
-        /*
-         * Marker prefabs are also managed entries in the same
-         * Addressables group.
-         *
-         * Their MeshCollider -> Mesh references make the intended
-         * collision usage visible to Unity's build pipeline.
-         */
-        foreach (
-            TerrainCollisionBakeMarkerUtility
-                .BakeMarkerRecord markerRecord
-            in bakeMarkerRecords
-        )
+        if (entry.address != expectedAddress)
         {
-            if (
-                !expectedGuids.Add(
-                    markerRecord.guid
-                )
-            )
-            {
-                Debug.LogError(
-                    "Collision bake marker GUID collides with " +
-                    "another managed Addressables asset.\n\n" +
+            errorMessage =
+                "Collision Addressables entry has an incorrect address:\n" +
+                assetPath;
 
-                    $"Marker:\n{markerRecord.assetPath}\n\n" +
+            return false;
+        }
 
-                    $"GUID: {markerRecord.guid}"
+        bool labelsCorrect =
+            entry.labels.Count == 1
+            &&
+            entry.labels.Contains(
+                expectedRegionLabel
+            );
+
+        if (!labelsCorrect)
+        {
+            errorMessage =
+                "Collision Addressables entry has incorrect region labels:\n" +
+                assetPath;
+
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool ReconcileEntry(
+        AddressableAssetSettings settings,
+        AddressableAssetGroup group,
+        string guid,
+        string expectedAddress,
+        string expectedRegionLabel,
+        string assetPath,
+        TerrainAddressablesOperationStats stats,
+        ref bool configurationChanged,
+        ref bool settingsChanged,
+        out string errorMessage
+    )
+    {
+        errorMessage = "";
+
+        AddressableAssetEntry existingEntry =
+            settings.FindAssetEntry(
+                guid
+            );
+
+        AddressableAssetEntry entry =
+            existingEntry;
+
+        if (existingEntry == null)
+        {
+            entry =
+                settings.CreateOrMoveEntry(
+                    guid,
+                    group,
+                    false,
+                    true
                 );
+
+            if (entry == null)
+            {
+                errorMessage =
+                    "Could not create collision Addressables entry for:\n" +
+                    assetPath;
 
                 return false;
             }
 
-            expectedRegionLabels.Add(
-                markerRecord.regionLabel
-            );
+            stats.entriesCreated++;
+            configurationChanged = true;
+            settingsChanged = true;
         }
-
-        // =====================================================
-        // MANIFEST — MARK INCOMPLETE BEFORE MUTATION
-        // =====================================================
-
-        TerrainCollisionManifest manifest =
-            GetOrCreateManifest();
-
-        if (manifest == null)
+        else if (existingEntry.parentGroup != group)
         {
-            return false;
-        }
-
-        manifest.isComplete =
-            false;
-
-        EditorUtility.SetDirty(
-            manifest
-        );
-
-        AssetDatabase.SaveAssetIfDirty(
-            manifest
-        );
-
-        // =====================================================
-        // ADDRESSABLE SETTINGS
-        // =====================================================
-
-        AddressableAssetSettings settings =
-            AddressableAssetSettingsDefaultObject
-                .GetSettings(
+            entry =
+                settings.CreateOrMoveEntry(
+                    guid,
+                    group,
+                    false,
                     true
                 );
 
-        if (settings == null)
-        {
-            Debug.LogError(
-                "Could not load or create Addressables settings."
-            );
+            if (entry == null)
+            {
+                errorMessage =
+                    "Could not move collision Addressables entry for:\n" +
+                    assetPath;
 
-            return false;
+                return false;
+            }
+
+            stats.entriesMoved++;
+            configurationChanged = true;
+            settingsChanged = true;
         }
 
-        // =====================================================
-        // GROUP
-        // =====================================================
-
-        AddressableAssetGroup group =
-            settings.FindGroup(
-                CollisionAddressablesGroupName
+        if (entry.address != expectedAddress)
+        {
+            entry.SetAddress(
+                expectedAddress,
+                true
             );
 
-        if (group == null)
+            stats.addressesUpdated++;
+            configurationChanged = true;
+            settingsChanged = true;
+        }
+
+        bool labelsCorrect =
+            entry.labels.Count == 1
+            &&
+            entry.labels.Contains(
+                expectedRegionLabel
+            );
+
+        if (!labelsCorrect)
         {
-            List<AddressableAssetGroupSchema>
-                schemasToCopy =
-                    settings.DefaultGroup != null
-                        ? settings
-                            .DefaultGroup
-                            .Schemas
-                        : null;
+            List<string> existingLabels =
+                new List<string>(
+                    entry.labels
+                );
 
-            group =
-                settings.CreateGroup(
-                    CollisionAddressablesGroupName,
-
+            foreach (string existingLabel in existingLabels)
+            {
+                entry.SetLabel(
+                    existingLabel,
                     false,
                     false,
-                    true,
-
-                    schemasToCopy
+                    true
                 );
-        }
-
-        if (group == null)
-        {
-            Debug.LogError(
-                "Could not create Addressables group:\n" +
-                CollisionAddressablesGroupName
-            );
-
-            return false;
-        }
-
-        // =====================================================
-        // BUNDLED-ASSET SCHEMA
-        // =====================================================
-
-        BundledAssetGroupSchema bundledSchema =
-            group
-                .GetSchema<BundledAssetGroupSchema>();
-
-        if (bundledSchema == null)
-        {
-            bundledSchema =
-                group
-                    .AddSchema<BundledAssetGroupSchema>(
-                        true
-                    );
-        }
-
-        if (bundledSchema == null)
-        {
-            Debug.LogError(
-                "Could not configure the collision Addressables " +
-                "Content Packing & Loading schema."
-            );
-
-            return false;
-        }
-
-        /*
-         * Every collision mesh has exactly one tool-owned region
-         * label. PackTogetherByLabel therefore creates one bundle
-         * for each unique collision region instead of one bundle
-         * per mesh.
-         */
-        bundledSchema.BundleMode =
-            BundledAssetGroupSchema
-                .BundlePackingMode
-                .PackTogetherByLabel;
-
-        bundledSchema.IncludeAddressInCatalog =
-            true;
-
-        EditorUtility.SetDirty(
-            bundledSchema
-        );
-
-        // =====================================================
-        // ENSURE REGION LABELS EXIST
-        // =====================================================
-
-        HashSet<string> registeredLabels =
-            new HashSet<string>(
-                settings.GetLabels()
-            );
-
-        foreach (
-            string regionLabel
-            in expectedRegionLabels
-        )
-        {
-            if (
-                registeredLabels.Contains(
-                    regionLabel
-                )
-            )
-            {
-                continue;
             }
 
-            settings.AddLabel(
-                regionLabel,
+            entry.SetLabel(
+                expectedRegionLabel,
+                true,
+                false,
                 true
             );
 
-            registeredLabels.Add(
-                regionLabel
-            );
+            stats.labelsUpdated++;
+            configurationChanged = true;
+            settingsChanged = true;
         }
-
-        // =====================================================
-        // CREATE / UPDATE ENTRIES
-        // =====================================================
-
-        int createdOrMovedCount =
-            0;
-
-        int addressUpdatedCount =
-            0;
-
-        int labelUpdatedCount =
-            0;
-
-        currentMesh =
-            0;
-
-        cancelled =
-            false;
-
-        try
-        {
-            foreach (
-                CollisionAssetRecord record
-                in records
-            )
-            {
-                cancelled =
-                    EditorUtility
-                        .DisplayCancelableProgressBar(
-                            "Preparing Collision Addressables",
-
-                            "Registering collision meshes\n\n" +
-                            $"Chunk ({record.chunkX}, {record.chunkZ})\n" +
-                            $"{currentMesh + 1} / {expectedMeshCount}",
-
-                            expectedMeshCount > 0
-                                ? (float)currentMesh /
-                                  expectedMeshCount
-                                : 1f
-                        );
-
-                if (cancelled)
-                {
-                    break;
-                }
-
-                AddressableAssetEntry existingEntry =
-                    settings.FindAssetEntry(
-                        record.guid
-                    );
-
-                bool needsMove =
-                    existingEntry == null
-                    ||
-                    existingEntry.parentGroup !=
-                        group;
-
-                AddressableAssetEntry entry =
-                    settings.CreateOrMoveEntry(
-                        record.guid,
-                        group,
-                        false,
-                        true
-                    );
-
-                if (entry == null)
-                {
-                    Debug.LogError(
-                        "Could not create Addressables entry for:\n" +
-                        record.assetPath
-                    );
-
-                    return false;
-                }
-
-                if (needsMove)
-                {
-                    createdOrMovedCount++;
-                }
-
-                // -----------------------------------------
-                // Deterministic address
-                // -----------------------------------------
-
-                if (
-                    entry.address !=
-                    record.address
-                )
-                {
-                    entry.SetAddress(
-                        record.address,
-                        true
-                    );
-
-                    addressUpdatedCount++;
-                }
-
-                // -----------------------------------------
-                // Exactly one region label per entry
-                // -----------------------------------------
-
-                bool labelsAlreadyCorrect =
-                    entry.labels.Count == 1
-                    &&
-                    entry.labels.Contains(
-                        record.regionLabel
-                    );
-
-                if (!labelsAlreadyCorrect)
-                {
-                    List<string> existingLabels =
-                        new List<string>(
-                            entry.labels
-                        );
-
-                    foreach (
-                        string existingLabel
-                        in existingLabels
-                    )
-                    {
-                        entry.SetLabel(
-                            existingLabel,
-                            false,
-                            false,
-                            true
-                        );
-                    }
-
-                    entry.SetLabel(
-                        record.regionLabel,
-                        true,
-                        false,
-                        true
-                    );
-
-                    labelUpdatedCount++;
-                }
-
-                currentMesh++;
-            }
-        }
-        finally
-        {
-            EditorUtility.ClearProgressBar();
-        }
-
-        if (cancelled)
-        {
-            EditorUtility.SetDirty(
-                settings
-            );
-
-            AssetDatabase.SaveAssets();
-
-            Debug.LogWarning(
-                "Preparing collision meshes for runtime was " +
-                "cancelled.\n\n" +
-
-                "Addressables entries processed before " +
-                "cancellation were preserved.\n\n" +
-
-                "CollisionManifest remains incomplete. Run " +
-                "Prepare Collision Meshes For Runtime again " +
-                "to finish."
-            );
-
-            return false;
-        }
-        
-        // =====================================================
-        // CREATE / UPDATE BAKE MARKER ENTRIES
-        // =====================================================
-
-        int currentMarker =
-            0;
-
-        cancelled =
-            false;
-
-        try
-        {
-            foreach (
-                TerrainCollisionBakeMarkerUtility
-                    .BakeMarkerRecord markerRecord
-                in bakeMarkerRecords
-            )
-            {
-                cancelled =
-                    EditorUtility
-                        .DisplayCancelableProgressBar(
-                            "Preparing Collision Addressables",
-
-                            "Registering collision bake markers\n\n" +
-
-                            $"Region " +
-                            $"({markerRecord.regionX}, " +
-                            $"{markerRecord.regionZ})\n" +
-
-                            $"{currentMarker + 1} / " +
-                            $"{bakeMarkerRecords.Count}",
-
-                            bakeMarkerRecords.Count > 0
-                                ?
-                                (float)currentMarker /
-                                bakeMarkerRecords.Count
-                                :
-                                1f
-                        );
-
-                if (cancelled)
-                {
-                    break;
-                }
-
-                // -----------------------------------------
-                // Entry
-                // -----------------------------------------
-
-                AddressableAssetEntry existingEntry =
-                    settings.FindAssetEntry(
-                        markerRecord.guid
-                    );
-
-                bool needsMove =
-                    existingEntry == null
-                    ||
-                    existingEntry.parentGroup !=
-                        group;
-
-                AddressableAssetEntry entry =
-                    settings.CreateOrMoveEntry(
-                        markerRecord.guid,
-                        group,
-                        false,
-                        true
-                    );
-
-                if (entry == null)
-                {
-                    Debug.LogError(
-                        "Could not create Addressables entry " +
-                        "for collision bake marker:\n" +
-                        markerRecord.assetPath
-                    );
-
-                    return false;
-                }
-
-                if (needsMove)
-                {
-                    createdOrMovedCount++;
-                }
-
-                // -----------------------------------------
-                // Deterministic address
-                // -----------------------------------------
-
-                if (
-                    entry.address !=
-                    markerRecord.address
-                )
-                {
-                    entry.SetAddress(
-                        markerRecord.address,
-                        true
-                    );
-
-                    addressUpdatedCount++;
-                }
-
-                // -----------------------------------------
-                // Exactly one region label
-                // -----------------------------------------
-
-                bool labelsAlreadyCorrect =
-                    entry.labels.Count == 1
-                    &&
-                    entry.labels.Contains(
-                        markerRecord.regionLabel
-                    );
-
-                if (!labelsAlreadyCorrect)
-                {
-                    List<string> existingLabels =
-                        new List<string>(
-                            entry.labels
-                        );
-
-                    foreach (
-                        string existingLabel
-                        in existingLabels
-                    )
-                    {
-                        entry.SetLabel(
-                            existingLabel,
-                            false,
-                            false,
-                            true
-                        );
-                    }
-
-                    entry.SetLabel(
-                        markerRecord.regionLabel,
-                        true,
-                        false,
-                        true
-                    );
-
-                    labelUpdatedCount++;
-                }
-
-                currentMarker++;
-            }
-        }
-        finally
-        {
-            EditorUtility.ClearProgressBar();
-        }
-
-        if (cancelled)
-        {
-            EditorUtility.SetDirty(
-                settings
-            );
-
-            AssetDatabase.SaveAssets();
-
-            Debug.LogWarning(
-                "Preparing collision meshes for runtime was " +
-                "cancelled while registering collision bake " +
-                "markers.\n\n" +
-
-                "CollisionManifest remains incomplete."
-            );
-
-            return false;
-        }
-
-        // =====================================================
-        // REMOVE OBSOLETE ENTRIES FROM MANAGED GROUP
-        // =====================================================
-
-        List<AddressableAssetEntry> obsoleteEntries =
-            new List<AddressableAssetEntry>();
-
-        foreach (
-            AddressableAssetEntry entry
-            in group.entries
-        )
-        {
-            if (
-                !expectedGuids.Contains(
-                    entry.guid
-                )
-            )
-            {
-                obsoleteEntries.Add(
-                    entry
-                );
-            }
-        }
-
-        foreach (
-            AddressableAssetEntry obsoleteEntry
-            in obsoleteEntries
-        )
-        {
-            group.RemoveAssetEntry(
-                obsoleteEntry,
-                true
-            );
-        }
-
-        // =====================================================
-        // REMOVE STALE TOOL-OWNED REGION LABELS
-        // =====================================================
-
-        List<string> staleRegionLabels =
-            new List<string>();
-
-        foreach (
-            string label
-            in settings.GetLabels()
-        )
-        {
-            if (
-                label.StartsWith(
-                    TerrainCollisionManifest
-                        .CollisionRegionLabelPrefix
-                    +
-                    "_"
-                )
-                &&
-                !expectedRegionLabels.Contains(
-                    label
-                )
-            )
-            {
-                staleRegionLabels.Add(
-                    label
-                );
-            }
-        }
-
-        foreach (
-            string staleRegionLabel
-            in staleRegionLabels
-        )
-        {
-            settings.RemoveLabel(
-                staleRegionLabel,
-                true
-            );
-        }
-
-        // =====================================================
-        // COMPLETE MANIFEST
-        // =====================================================
-
-        manifest.manifestVersion =
-            1;
-
-        manifest.collisionGeneratorVersion =
-            TerrainGenerationStateUtility
-                .CollisionGeneratorVersion;
-
-        manifest.gridWidth =
-            gridWidth;
-
-        manifest.gridHeight =
-            gridHeight;
-
-        manifest.chunkSize =
-            Mathf.Max(
-                0.01f,
-                worldSettings.chunkSize
-            );
-
-        manifest.heightfieldResolutionPerChunk =
-            Mathf.Max(
-                1,
-                worldSettings.heightfieldResolutionPerChunk
-            );
-
-        manifest.collisionResolution =
-            Mathf.Max(
-                1,
-                worldSettings.collisionResolution
-            );
-
-        manifest.collisionMeshGenerationRevision =
-            worldSettings
-                .collisionMeshGenerationRevision;
-
-        manifest.collisionSourceHeightmapGenerationRevision =
-            worldSettings
-                .collisionSourceHeightmapGenerationRevision;
-
-        manifest.regionChunkSpan =
-            CollisionRegionChunkSpan;
-
-        manifest.isComplete =
-            true;
-
-        // =====================================================
-        // SAVE
-        // =====================================================
-
-        EditorUtility.SetDirty(
-            manifest
-        );
-
-        EditorUtility.SetDirty(
-            settings
-        );
-
-        AssetDatabase.SaveAssets();
-        AssetDatabase.Refresh();
-
-        // =====================================================
-        // COMPLETE
-        // =====================================================
-
-        Debug.Log(
-            "Collision meshes prepared for runtime streaming.\n\n" +
-
-            $"Addressables Group: " +
-            $"{CollisionAddressablesGroupName}\n\n" +
-
-            $"World Grid: " +
-            $"{gridWidth} x {gridHeight}\n" +
-
-            $"Collision Meshes: " +
-            $"{expectedMeshCount:N0}\n\n" +
-            
-            $"Collision Bake Marker Prefabs: " +
-            $"{bakeMarkerRecords.Count:N0}\n\n" +
-
-            $"Region Chunk Span: " +
-            $"{CollisionRegionChunkSpan} x " +
-            $"{CollisionRegionChunkSpan}\n" +
-
-            $"Region Grid: " +
-            $"{manifest.RegionGridWidth} x " +
-            $"{manifest.RegionGridHeight}\n" +
-
-            $"Regions: " +
-            $"{manifest.RegionCount:N0}\n\n" +
-
-            $"Created / Moved Entries: " +
-            $"{createdOrMovedCount:N0}\n" +
-
-            $"Addresses Updated: " +
-            $"{addressUpdatedCount:N0}\n" +
-
-            $"Region Labels Updated: " +
-            $"{labelUpdatedCount:N0}\n" +
-
-            $"Obsolete Entries Removed: " +
-            $"{obsoleteEntries.Count:N0}\n" +
-
-            $"Stale Region Labels Removed: " +
-            $"{staleRegionLabels.Count:N0}\n\n" +
-
-            $"Address Pattern:\n" +
-            $"{TerrainCollisionManifest.CollisionMeshAddressPrefix}_X_Z\n\n" +
-
-            $"Manifest:\n" +
-            $"{CollisionManifestPath}"
-        );
 
         return true;
     }
 
     // =====================================================
-    // GET / CREATE MANIFEST
+    // MANIFEST
     // =====================================================
 
-    private static TerrainCollisionManifest
-        GetOrCreateManifest()
+    private static TerrainCollisionManifest GetOrCreateManifest(
+        out bool created
+    )
     {
+        created = false;
+
         TerrainCollisionManifest manifest =
-            AssetDatabase
-                .LoadAssetAtPath<TerrainCollisionManifest>(
-                    CollisionManifestPath
-                );
+            AssetDatabase.LoadAssetAtPath<TerrainCollisionManifest>(
+                CollisionManifestPath
+            );
 
         if (manifest != null)
         {
@@ -1100,24 +1403,20 @@ public static class TerrainCollisionAddressablesUtility
 
         if (
             !AssetDatabase.IsValidFolder(
-                WorldMeshesPaths
-                    .GeneratedCollisionMeshes
+                WorldMeshesPaths.GeneratedCollisionMeshes
             )
         )
         {
-            Debug.LogError(
-                "Cannot create collision runtime manifest.\n\n" +
-
-                "Generated collision mesh folder does not exist:\n" +
-                WorldMeshesPaths.GeneratedCollisionMeshes
-            );
-
             return null;
         }
 
         manifest =
-            ScriptableObject
-                .CreateInstance<TerrainCollisionManifest>();
+            ScriptableObject.CreateInstance<TerrainCollisionManifest>();
+
+        if (manifest == null)
+        {
+            return null;
+        }
 
         manifest.name =
             "CollisionManifest";
@@ -1134,11 +1433,41 @@ public static class TerrainCollisionAddressablesUtility
             manifest
         );
 
+        created = true;
+
         return manifest;
     }
 
+    private static bool SetIfDifferent(
+        ref int target,
+        int value
+    )
+    {
+        if (target == value)
+        {
+            return false;
+        }
+
+        target = value;
+        return true;
+    }
+
+    private static bool SetIfDifferent(
+        ref float target,
+        float value
+    )
+    {
+        if (Mathf.Approximately(target, value))
+        {
+            return false;
+        }
+
+        target = value;
+        return true;
+    }
+
     // =====================================================
-    // ADDRESS
+    // ADDRESS / REGION
     // =====================================================
 
     private static string GetCollisionMeshAddress(
@@ -1147,13 +1476,12 @@ public static class TerrainCollisionAddressablesUtility
     )
     {
         return
-            $"{TerrainCollisionManifest.CollisionMeshAddressPrefix}_" +
-            $"{chunkX}_{chunkZ}";
+            TerrainCollisionManifest.CollisionMeshAddressPrefix +
+            "_" +
+            chunkX +
+            "_" +
+            chunkZ;
     }
-
-    // =====================================================
-    // REGION LABEL
-    // =====================================================
 
     private static string GetCollisionRegionLabel(
         int chunkX,
@@ -1175,26 +1503,24 @@ public static class TerrainCollisionAddressablesUtility
             safeSpan;
 
         return
-            $"{TerrainCollisionManifest.CollisionRegionLabelPrefix}_" +
-            $"{regionX}_{regionZ}";
+            TerrainCollisionManifest.CollisionRegionLabelPrefix +
+            "_" +
+            regionX +
+            "_" +
+            regionZ;
     }
 
     // =====================================================
-    // ASSET RECORD
+    // RECORD
     // =====================================================
 
     private readonly struct CollisionAssetRecord
     {
         public readonly int chunkX;
-
         public readonly int chunkZ;
-
         public readonly string assetPath;
-
         public readonly string guid;
-
         public readonly string address;
-
         public readonly string regionLabel;
 
         public CollisionAssetRecord(
@@ -1206,23 +1532,12 @@ public static class TerrainCollisionAddressablesUtility
             string regionLabel
         )
         {
-            this.chunkX =
-                chunkX;
-
-            this.chunkZ =
-                chunkZ;
-
-            this.assetPath =
-                assetPath;
-
-            this.guid =
-                guid;
-
-            this.address =
-                address;
-
-            this.regionLabel =
-                regionLabel;
+            this.chunkX = chunkX;
+            this.chunkZ = chunkZ;
+            this.assetPath = assetPath;
+            this.guid = guid;
+            this.address = address;
+            this.regionLabel = regionLabel;
         }
     }
 }
