@@ -77,6 +77,10 @@ public partial class WorldMeshesEditorWindow :
 
         GUILayout.Space(5f);
 
+        EditorGUI.BeginDisabledGroup(
+            TerrainRuntimeBakePipeline.IsRunning
+        );
+
         if (
             GUILayout.Button(
                 "Compile Planned Height Work",
@@ -140,6 +144,8 @@ public partial class WorldMeshesEditorWindow :
 
             Repaint();
         }
+
+        EditorGUI.EndDisabledGroup();
 
         if (
             GUILayout.Button(

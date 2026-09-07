@@ -147,6 +147,8 @@ public partial class WorldMeshesEditorWindow :
 
         EditorGUI.BeginDisabledGroup(
             TerrainSurfaceMaskCompiler.IsGenerating
+            ||
+            TerrainRuntimeBakePipeline.IsRunning
         );
 
         if (

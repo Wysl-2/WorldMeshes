@@ -105,6 +105,10 @@ public partial class WorldMeshesEditorWindow :
 
         GUILayout.Space(5f);
 
+        EditorGUI.BeginDisabledGroup(
+            TerrainRuntimeBakePipeline.IsRunning
+        );
+
         if (
             GUILayout.Button(
                 "Synchronize Runtime Scene Metadata",
@@ -125,6 +129,8 @@ public partial class WorldMeshesEditorWindow :
 
             Repaint();
         }
+
+        EditorGUI.EndDisabledGroup();
 
         if (
             lastRuntimeSceneSynchronizationResult !=
