@@ -340,6 +340,10 @@ public partial class WorldMeshesEditorWindow :
 
         DrawWorkspaceSectionGap();
 
+        DrawRuntimePipelineValidationDiagnostics();
+
+        DrawWorkspaceSectionGap();
+
         DrawRuntimeHeightIncrementalDiagnostics();
 
         DrawWorkspaceSectionGap();

@@ -21,6 +21,14 @@ public static class TerrainRuntimeBakePipeline
 
         public TerrainRuntimeBakePlan initialPlan;
         public TerrainRuntimeBakePlan currentPlan;
+
+        // Package 10.1 preserves the exact fresh plan used at each stage.
+        public TerrainRuntimeBakePlan heightPlan;
+        public TerrainRuntimeBakePlan surfacePlan;
+        public TerrainRuntimeBakePlan collisionPlan;
+        public TerrainRuntimeBakePlan addressablesPlan;
+        public TerrainRuntimeBakePlan sceneSyncPlan;
+
         public TerrainRuntimeBakePlan finalPlan;
 
         public TerrainRuntimeHeightCompileResult heightResult;
@@ -34,6 +42,13 @@ public static class TerrainRuntimeBakePipeline
         public bool collisionStageExecuted;
         public bool addressablesStageExecuted;
         public bool sceneSyncStageExecuted;
+
+        public double heightDurationSeconds;
+        public double surfaceDurationSeconds;
+        public double collisionDurationSeconds;
+        public double addressablesDurationSeconds;
+        public double sceneSyncDurationSeconds;
+        public double surfaceStageStartedAtEditorTime;
 
         public bool cancelRequested;
         public bool terminal;
@@ -427,6 +442,9 @@ public static class TerrainRuntimeBakePipeline
                 run
             );
 
+        run.heightPlan =
+            plan;
+
         if (!ValidateStagePlan(run, plan))
         {
             return;
@@ -451,26 +469,41 @@ public static class TerrainRuntimeBakePipeline
         run.heightStageExecuted =
             true;
 
+        double stageStartedAt =
+            EditorApplication.timeSinceStartup;
+
         TerrainRuntimeHeightCompileResult result;
 
-        if (
-            run.mode ==
-                TerrainRuntimeBakePipelineMode.RebuildAll
-        )
+        try
         {
-            result =
-                TerrainRuntimeHeightCompiler.RebuildAllRuntimeHeightmaps(
-                    run.worldSettings,
-                    run.authoringData
-                );
+            if (
+                run.mode ==
+                    TerrainRuntimeBakePipelineMode.RebuildAll
+            )
+            {
+                result =
+                    TerrainRuntimeHeightCompiler.RebuildAllRuntimeHeightmaps(
+                        run.worldSettings,
+                        run.authoringData
+                    );
+            }
+            else
+            {
+                result =
+                    TerrainRuntimeHeightCompiler.CompilePlannedHeightWork(
+                        run.worldSettings,
+                        run.authoringData,
+                        plan
+                    );
+            }
         }
-        else
+        finally
         {
-            result =
-                TerrainRuntimeHeightCompiler.CompilePlannedHeightWork(
-                    run.worldSettings,
-                    run.authoringData,
-                    plan
+            run.heightDurationSeconds =
+                Math.Max(
+                    0d,
+                    EditorApplication.timeSinceStartup -
+                    stageStartedAt
                 );
         }
 
@@ -561,6 +594,9 @@ public static class TerrainRuntimeBakePipeline
                 run
             );
 
+        run.surfacePlan =
+            plan;
+
         if (!ValidateStagePlan(run, plan))
         {
             return;
@@ -588,35 +624,52 @@ public static class TerrainRuntimeBakePipeline
         run.surfaceCallbackConsumed =
             false;
 
+        run.surfaceStageStartedAtEditorTime =
+            EditorApplication.timeSinceStartup;
+
         bool started;
 
-        if (
-            run.mode ==
-                TerrainRuntimeBakePipelineMode.RebuildAll
-        )
+        try
         {
-            started =
-                TerrainSurfaceMaskCompiler.RebuildAllSurfaceMasks(
-                    run.worldSettings,
-                    result =>
-                        OnSurfaceStageCompleted(
-                            run,
-                            result
-                        )
-                );
+            if (
+                run.mode ==
+                    TerrainRuntimeBakePipelineMode.RebuildAll
+            )
+            {
+                started =
+                    TerrainSurfaceMaskCompiler.RebuildAllSurfaceMasks(
+                        run.worldSettings,
+                        result =>
+                            OnSurfaceStageCompleted(
+                                run,
+                                result
+                            )
+                    );
+            }
+            else
+            {
+                started =
+                    TerrainSurfaceMaskCompiler.GeneratePlannedSurfaceMasks(
+                        run.worldSettings,
+                        plan,
+                        result =>
+                            OnSurfaceStageCompleted(
+                                run,
+                                result
+                            )
+                    );
+            }
         }
-        else
+        catch
         {
-            started =
-                TerrainSurfaceMaskCompiler.GeneratePlannedSurfaceMasks(
-                    run.worldSettings,
-                    plan,
-                    result =>
-                        OnSurfaceStageCompleted(
-                            run,
-                            result
-                        )
+            run.surfaceDurationSeconds =
+                Math.Max(
+                    0d,
+                    EditorApplication.timeSinceStartup -
+                    run.surfaceStageStartedAtEditorTime
                 );
+
+            throw;
         }
 
         /*
@@ -632,6 +685,13 @@ public static class TerrainRuntimeBakePipeline
             IsActive(run)
         )
         {
+            run.surfaceDurationSeconds =
+                Math.Max(
+                    0d,
+                    EditorApplication.timeSinceStartup -
+                    run.surfaceStageStartedAtEditorTime
+                );
+
             FinishFailed(
                 run,
                 TerrainRuntimeBakePipelineState.SurfaceMasks,
@@ -656,6 +716,13 @@ public static class TerrainRuntimeBakePipeline
 
         run.surfaceCallbackConsumed =
             true;
+
+        run.surfaceDurationSeconds =
+            Math.Max(
+                0d,
+                EditorApplication.timeSinceStartup -
+                run.surfaceStageStartedAtEditorTime
+            );
 
         run.surfaceResult =
             result;
@@ -744,6 +811,9 @@ public static class TerrainRuntimeBakePipeline
                 run
             );
 
+        run.collisionPlan =
+            plan;
+
         if (!ValidateStagePlan(run, plan))
         {
             return;
@@ -768,24 +838,39 @@ public static class TerrainRuntimeBakePipeline
         run.collisionStageExecuted =
             true;
 
+        double stageStartedAt =
+            EditorApplication.timeSinceStartup;
+
         TerrainCollisionGenerationResult result;
 
-        if (
-            run.mode ==
-                TerrainRuntimeBakePipelineMode.RebuildAll
-        )
+        try
         {
-            result =
-                TerrainCollisionMeshGenerator.RebuildAllCollisionMeshes(
-                    run.worldSettings
-                );
+            if (
+                run.mode ==
+                    TerrainRuntimeBakePipelineMode.RebuildAll
+            )
+            {
+                result =
+                    TerrainCollisionMeshGenerator.RebuildAllCollisionMeshes(
+                        run.worldSettings
+                    );
+            }
+            else
+            {
+                result =
+                    TerrainCollisionMeshGenerator.GeneratePlannedCollisionMeshes(
+                        run.worldSettings,
+                        plan
+                    );
+            }
         }
-        else
+        finally
         {
-            result =
-                TerrainCollisionMeshGenerator.GeneratePlannedCollisionMeshes(
-                    run.worldSettings,
-                    plan
+            run.collisionDurationSeconds =
+                Math.Max(
+                    0d,
+                    EditorApplication.timeSinceStartup -
+                    stageStartedAt
                 );
         }
 
@@ -876,6 +961,9 @@ public static class TerrainRuntimeBakePipeline
                 run
             );
 
+        run.addressablesPlan =
+            plan;
+
         if (!ValidateStagePlan(run, plan))
         {
             return;
@@ -898,11 +986,28 @@ public static class TerrainRuntimeBakePipeline
         run.addressablesStageExecuted =
             true;
 
-        TerrainRuntimeAddressablesResult result =
-            TerrainRuntimeAddressablesUtility.ProcessPlannedRuntimeContent(
-                run.worldSettings,
-                plan
-            );
+        double stageStartedAt =
+            EditorApplication.timeSinceStartup;
+
+        TerrainRuntimeAddressablesResult result;
+
+        try
+        {
+            result =
+                TerrainRuntimeAddressablesUtility.ProcessPlannedRuntimeContent(
+                    run.worldSettings,
+                    plan
+                );
+        }
+        finally
+        {
+            run.addressablesDurationSeconds =
+                Math.Max(
+                    0d,
+                    EditorApplication.timeSinceStartup -
+                    stageStartedAt
+                );
+        }
 
         run.addressablesResult =
             result;
@@ -991,6 +1096,9 @@ public static class TerrainRuntimeBakePipeline
                 run
             );
 
+        run.sceneSyncPlan =
+            plan;
+
         if (!ValidateStagePlan(run, plan))
         {
             return;
@@ -1014,14 +1122,31 @@ public static class TerrainRuntimeBakePipeline
         run.sceneSyncStageExecuted =
             true;
 
-        TerrainRuntimeSceneSynchronizationResult result =
-            run.mode == TerrainRuntimeBakePipelineMode.RebuildAll
-                ? TerrainRuntimeSceneSynchronizer.SynchronizeExistingHierarchy(
-                    run.worldSettings
-                )
-                : TerrainRuntimeSceneSynchronizer.SynchronizePending(
-                    run.worldSettings
+        double stageStartedAt =
+            EditorApplication.timeSinceStartup;
+
+        TerrainRuntimeSceneSynchronizationResult result;
+
+        try
+        {
+            result =
+                run.mode == TerrainRuntimeBakePipelineMode.RebuildAll
+                    ? TerrainRuntimeSceneSynchronizer.SynchronizeExistingHierarchy(
+                        run.worldSettings
+                    )
+                    : TerrainRuntimeSceneSynchronizer.SynchronizePending(
+                        run.worldSettings
+                    );
+        }
+        finally
+        {
+            run.sceneSyncDurationSeconds =
+                Math.Max(
+                    0d,
+                    EditorApplication.timeSinceStartup -
+                    stageStartedAt
                 );
+        }
 
         run.sceneSyncResult =
             result;
@@ -1466,6 +1591,11 @@ public static class TerrainRuntimeBakePipeline
                 run.lastStage,
                 failedStage,
                 run.initialPlan,
+                run.heightPlan,
+                run.surfacePlan,
+                run.collisionPlan,
+                run.addressablesPlan,
+                run.sceneSyncPlan,
                 run.finalPlan,
                 run.heightStageExecuted,
                 run.surfaceStageExecuted,
@@ -1478,6 +1608,11 @@ public static class TerrainRuntimeBakePipeline
                 run.addressablesResult,
                 run.sceneSyncResult,
                 run.startedAtUtc,
+                run.heightDurationSeconds,
+                run.surfaceDurationSeconds,
+                run.collisionDurationSeconds,
+                run.addressablesDurationSeconds,
+                run.sceneSyncDurationSeconds,
                 duration,
                 run.warnings,
                 errorMessage,
@@ -1598,6 +1733,11 @@ public static class TerrainRuntimeBakePipeline
                 TerrainRuntimeBakePipelineState.Preflight,
                 null,
                 null,
+                null,
+                null,
+                null,
+                null,
+                null,
                 false,
                 false,
                 false,
@@ -1609,6 +1749,11 @@ public static class TerrainRuntimeBakePipeline
                 null,
                 null,
                 DateTime.UtcNow,
+                0d,
+                0d,
+                0d,
+                0d,
+                0d,
                 0d,
                 null,
                 errorMessage,

@@ -47,6 +47,18 @@ public sealed class TerrainRuntimeBakePipelineResult
     public TerrainRuntimeBakePipelineState FailedStage { get; private set; }
 
     public TerrainRuntimeBakePlan InitialPlan { get; private set; }
+
+    /*
+     * Package 10.1 preserves the exact fresh plan Package 08 used immediately
+     * before each planner-driven stage. These references are immutable planner
+     * outputs and are never reconstructed after the run for validation.
+     */
+    public TerrainRuntimeBakePlan HeightPlan { get; private set; }
+    public TerrainRuntimeBakePlan SurfacePlan { get; private set; }
+    public TerrainRuntimeBakePlan CollisionPlan { get; private set; }
+    public TerrainRuntimeBakePlan AddressablesPlan { get; private set; }
+    public TerrainRuntimeBakePlan SceneSyncPlan { get; private set; }
+
     public TerrainRuntimeBakePlan FinalPlan { get; private set; }
 
     public bool HeightStageExecuted { get; private set; }
@@ -62,6 +74,12 @@ public sealed class TerrainRuntimeBakePipelineResult
     public TerrainRuntimeSceneSynchronizationResult SceneSyncResult { get; private set; }
 
     public DateTime StartedAtUtc { get; private set; }
+
+    public double HeightDurationSeconds { get; private set; }
+    public double SurfaceDurationSeconds { get; private set; }
+    public double CollisionDurationSeconds { get; private set; }
+    public double AddressablesDurationSeconds { get; private set; }
+    public double SceneSyncDurationSeconds { get; private set; }
     public double DurationSeconds { get; private set; }
 
     public IReadOnlyList<string> WarningMessages => warningMessages;
@@ -76,6 +94,11 @@ public sealed class TerrainRuntimeBakePipelineResult
         TerrainRuntimeBakePipelineState lastStage,
         TerrainRuntimeBakePipelineState failedStage,
         TerrainRuntimeBakePlan initialPlan,
+        TerrainRuntimeBakePlan heightPlan,
+        TerrainRuntimeBakePlan surfacePlan,
+        TerrainRuntimeBakePlan collisionPlan,
+        TerrainRuntimeBakePlan addressablesPlan,
+        TerrainRuntimeBakePlan sceneSyncPlan,
         TerrainRuntimeBakePlan finalPlan,
         bool heightStageExecuted,
         bool surfaceStageExecuted,
@@ -88,6 +111,11 @@ public sealed class TerrainRuntimeBakePipelineResult
         TerrainRuntimeAddressablesResult addressablesResult,
         TerrainRuntimeSceneSynchronizationResult sceneSyncResult,
         DateTime startedAtUtc,
+        double heightDurationSeconds,
+        double surfaceDurationSeconds,
+        double collisionDurationSeconds,
+        double addressablesDurationSeconds,
+        double sceneSyncDurationSeconds,
         double durationSeconds,
         IEnumerable<string> warningMessages,
         string errorMessage,
@@ -99,7 +127,13 @@ public sealed class TerrainRuntimeBakePipelineResult
         FinalState = finalState;
         LastStage = lastStage;
         FailedStage = failedStage;
+
         InitialPlan = initialPlan;
+        HeightPlan = heightPlan;
+        SurfacePlan = surfacePlan;
+        CollisionPlan = collisionPlan;
+        AddressablesPlan = addressablesPlan;
+        SceneSyncPlan = sceneSyncPlan;
         FinalPlan = finalPlan;
 
         HeightStageExecuted = heightStageExecuted;
@@ -115,6 +149,12 @@ public sealed class TerrainRuntimeBakePipelineResult
         SceneSyncResult = sceneSyncResult;
 
         StartedAtUtc = startedAtUtc;
+
+        HeightDurationSeconds = Math.Max(0d, heightDurationSeconds);
+        SurfaceDurationSeconds = Math.Max(0d, surfaceDurationSeconds);
+        CollisionDurationSeconds = Math.Max(0d, collisionDurationSeconds);
+        AddressablesDurationSeconds = Math.Max(0d, addressablesDurationSeconds);
+        SceneSyncDurationSeconds = Math.Max(0d, sceneSyncDurationSeconds);
         DurationSeconds = Math.Max(0d, durationSeconds);
 
         List<string> warnings = warningMessages != null
@@ -159,8 +199,16 @@ public sealed class TerrainRuntimeBakePipelineResult
         AppendSceneSummary(builder);
 
         builder.AppendLine();
+        builder.AppendLine("Stage Timings:");
+        builder.AppendLine("  Heightmaps: " + HeightDurationSeconds.ToString("0.00") + " seconds");
+        builder.AppendLine("  Surface Masks: " + SurfaceDurationSeconds.ToString("0.00") + " seconds");
+        builder.AppendLine("  Collision: " + CollisionDurationSeconds.ToString("0.00") + " seconds");
+        builder.AppendLine("  Addressables: " + AddressablesDurationSeconds.ToString("0.00") + " seconds");
+        builder.AppendLine("  Scene Sync: " + SceneSyncDurationSeconds.ToString("0.00") + " seconds");
+        builder.AppendLine("  Total: " + DurationSeconds.ToString("0.00") + " seconds");
+
+        builder.AppendLine();
         builder.AppendLine("Remaining Runtime Bake Work: " + GetRemainingWorkLabel(FinalPlan));
-        builder.AppendLine("Duration: " + DurationSeconds.ToString("0.00") + " seconds");
 
         if (warningMessages.Count > 0)
         {
