@@ -18,7 +18,7 @@ MonoBehaviour:
   heightModifiers:
   - rid: 3932701429643083843
   - rid: 3932701429643083847
-  authoringRevision: 1219
+  authoringRevision: 1220
   references:
     version: 2
     RefIds:
@@ -29,7 +29,7 @@ MonoBehaviour:
         enabled: 1
         blendMode: 0
         stampAsset: {fileID: 11400000, guid: 4cfb28d6666ef15f0b00180fa40ee648, type: 2}
-        positionXZ: {x: 2663.72, y: 1902.4834}
+        positionXZ: {x: 2646.6987, y: 1722.2655}
         sizeXZ: {x: 2048, y: 2048}
         rotationDegrees: 0
         flipX: 0

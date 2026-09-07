@@ -6,12 +6,8 @@ using UnityEngine.SceneManagement;
  * scene hierarchy.
  *
  * This utility deliberately does not create, move, or mutate scene
- * objects. It only resolves the authoritative WorldRoot / Clipmap
- * hierarchy and reports ambiguous scene state.
- *
- * The current height-preview service uses it now. The upcoming
- * TerrainAuthoringSceneViewController can use the same lookup path
- * without duplicating hierarchy traversal logic.
+ * objects. It only resolves the authoritative WorldRoot / Clipmap /
+ * Collision hierarchy and reports ambiguous scene state.
  */
 public static class TerrainWorldSceneUtility
 {
@@ -24,6 +20,9 @@ public static class TerrainWorldSceneUtility
 
     public const string ClipmapRootName =
         "Clipmap";
+
+    public const string CollisionRootName =
+        "Collision";
 
     // =====================================================
     // ACTIVE SCENE
@@ -89,19 +88,6 @@ public static class TerrainWorldSceneUtility
     // FIND WORLD ROOT
     // =====================================================
 
-    /*
-     * Returns true when the scene lookup itself is valid.
-     *
-     * A missing WorldRoot is not an error:
-     *
-     *     true + worldRoot == null
-     *
-     * means the hierarchy simply has not been generated yet.
-     *
-     * Duplicate WorldRoot objects are treated as an error because
-     * editor services must never guess which generated world owns
-     * terrain authoring state.
-     */
     public static bool TryFindWorldRoot(
         Scene scene,
         out Transform worldRoot,
@@ -204,22 +190,82 @@ public static class TerrainWorldSceneUtility
     // FIND CLIPMAP ROOT
     // =====================================================
 
-    /*
-     * Returns true when the hierarchy lookup is unambiguous.
-     *
-     * Missing WorldRoot / Clipmap is represented by:
-     *
-     *     true + clipmapRoot == null
-     *
-     * Duplicate generated roots are an error.
-     */
     public static bool TryFindClipmapRoot(
         Scene scene,
         out Transform clipmapRoot,
         out string errorMessage
     )
     {
-        clipmapRoot =
+        return
+            TryFindUniqueWorldChild(
+                scene,
+                ClipmapRootName,
+                out clipmapRoot,
+                out errorMessage
+            );
+    }
+
+    // =====================================================
+    // FIND ACTIVE COLLISION ROOT
+    // =====================================================
+
+    public static bool TryFindActiveCollisionRoot(
+        out Transform collisionRoot,
+        out string errorMessage
+    )
+    {
+        collisionRoot =
+            null;
+
+        if (
+            !TryGetActiveScene(
+                out Scene scene,
+                out errorMessage
+            )
+        )
+        {
+            return false;
+        }
+
+        return
+            TryFindCollisionRoot(
+                scene,
+                out collisionRoot,
+                out errorMessage
+            );
+    }
+
+    // =====================================================
+    // FIND COLLISION ROOT
+    // =====================================================
+
+    public static bool TryFindCollisionRoot(
+        Scene scene,
+        out Transform collisionRoot,
+        out string errorMessage
+    )
+    {
+        return
+            TryFindUniqueWorldChild(
+                scene,
+                CollisionRootName,
+                out collisionRoot,
+                out errorMessage
+            );
+    }
+
+    // =====================================================
+    // SHARED DIRECT CHILD LOOKUP
+    // =====================================================
+
+    private static bool TryFindUniqueWorldChild(
+        Scene scene,
+        string childName,
+        out Transform child,
+        out string errorMessage
+    )
+    {
+        child =
             null;
 
         errorMessage =
@@ -241,46 +287,46 @@ public static class TerrainWorldSceneUtility
             return true;
         }
 
-        int matchingClipmapCount =
+        int matchingChildCount =
             0;
 
         foreach (
-            Transform child
+            Transform candidate
             in worldRoot
         )
         {
             if (
-                child == null
+                candidate == null
                 ||
-                child.name !=
-                    ClipmapRootName
+                candidate.name !=
+                    childName
             )
             {
                 continue;
             }
 
-            matchingClipmapCount++;
+            matchingChildCount++;
 
-            if (clipmapRoot == null)
+            if (child == null)
             {
-                clipmapRoot =
-                    child;
+                child =
+                    candidate;
             }
         }
 
-        if (matchingClipmapCount <= 1)
+        if (matchingChildCount <= 1)
         {
             return true;
         }
 
-        clipmapRoot =
+        child =
             null;
 
         errorMessage =
-            $"Multiple '{ClipmapRootName}' objects exist directly " +
+            $"Multiple '{childName}' objects exist directly " +
             $"under '{WorldRootName}'.\n\n" +
-            "Run Sync World Hierarchy after removing or renaming " +
-            "duplicate generated clipmap roots.";
+            "Run Setup / Repair World Hierarchy after removing or " +
+            "renaming duplicate generated roots.";
 
         return false;
     }
