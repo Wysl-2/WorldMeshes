@@ -26,6 +26,10 @@ public sealed class TerrainRuntimeBakeStateMutation
         collisionChunksToAdd =
             new HashSet<Vector2Int>();
 
+    private readonly HashSet<Vector2Int>
+        collisionChunksToRemove =
+            new HashSet<Vector2Int>();
+
     internal IEnumerable<Vector2Int> HeightTilesToAdd =>
         heightTilesToAdd;
 
@@ -38,7 +42,16 @@ public sealed class TerrainRuntimeBakeStateMutation
     internal IEnumerable<Vector2Int> CollisionChunksToAdd =>
         collisionChunksToAdd;
 
+    internal IEnumerable<Vector2Int> CollisionChunksToRemove =>
+        collisionChunksToRemove;
+
     internal bool ClearAllHeightTilesRequested
+    {
+        get;
+        private set;
+    }
+
+    internal bool ClearAllCollisionChunksRequested
     {
         get;
         private set;
@@ -63,6 +76,12 @@ public sealed class TerrainRuntimeBakeStateMutation
     }
 
     internal bool RequireFullCollisionRebuild
+    {
+        get;
+        private set;
+    }
+
+    internal bool ClearFullCollisionRebuildRequired
     {
         get;
         private set;
@@ -154,6 +173,26 @@ public sealed class TerrainRuntimeBakeStateMutation
         return this;
     }
 
+    public TerrainRuntimeBakeStateMutation RemoveCollisionChunks(
+        IEnumerable<Vector2Int> coordinates
+    )
+    {
+        AddCoordinates(
+            collisionChunksToRemove,
+            coordinates
+        );
+
+        return this;
+    }
+
+    public TerrainRuntimeBakeStateMutation ClearAllCollisionChunks()
+    {
+        ClearAllCollisionChunksRequested =
+            true;
+
+        return this;
+    }
+
     public TerrainRuntimeBakeStateMutation RequireFullHeight()
     {
         RequireFullHeightRebuild =
@@ -181,6 +220,14 @@ public sealed class TerrainRuntimeBakeStateMutation
     public TerrainRuntimeBakeStateMutation RequireFullCollision()
     {
         RequireFullCollisionRebuild =
+            true;
+
+        return this;
+    }
+
+    public TerrainRuntimeBakeStateMutation ClearFullCollision()
+    {
+        ClearFullCollisionRebuildRequired =
             true;
 
         return this;
