@@ -901,6 +901,25 @@ public static class TerrainRuntimeHeightCompiler
                 }
 
                 currentOperation++;
+
+                if (
+                    TerrainRuntimeBakeValidationHooks.ShouldCancelCoordinateStage(
+                        TerrainRuntimeBakePipelineState.Heightmaps,
+                        succeededTiles.Count,
+                        requestedTiles.Count
+                    )
+                )
+                {
+                    cancelled = true;
+
+                    AddRemainingCoordinates(
+                        requestedTiles,
+                        requestIndex + 1,
+                        unprocessedTiles
+                    );
+
+                    break;
+                }
             }
 
             if (

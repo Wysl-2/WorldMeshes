@@ -1789,6 +1789,22 @@ public static class TerrainSurfaceMaskCompiler
 
             TerrainAnalysisReadbackService.Clear();
 
+            if (
+                TerrainRuntimeBakeValidationHooks.ShouldCancelCoordinateStage(
+                    TerrainRuntimeBakePipelineState.SurfaceMasks,
+                    succeeded.Count,
+                    coordinates.Count
+                )
+            )
+            {
+                FinishTerminal(
+                    TerrainSurfaceMaskGenerationOutcome.Cancelled,
+                    "Package 10.2 validation intentionally cancelled Surface generation at a completed batch boundary."
+                );
+
+                return;
+            }
+
             EditorApplication.delayCall += ProcessNextBatch;
         }
 

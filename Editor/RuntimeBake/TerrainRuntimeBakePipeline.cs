@@ -603,6 +603,21 @@ public static class TerrainRuntimeBakePipeline
         }
 
         if (
+            TerrainRuntimeBakeValidationHooks.TryConsumeFailureBeforeStage(
+                TerrainRuntimeBakePipelineState.SurfaceMasks,
+                out string validationFailureMessage
+            )
+        )
+        {
+            FinishFailed(
+                run,
+                TerrainRuntimeBakePipelineState.SurfaceMasks,
+                validationFailureMessage
+            );
+            return;
+        }
+
+        if (
             run.mode ==
                 TerrainRuntimeBakePipelineMode.PendingChanges
             &&
@@ -820,6 +835,21 @@ public static class TerrainRuntimeBakePipeline
         }
 
         if (
+            TerrainRuntimeBakeValidationHooks.TryConsumeFailureBeforeStage(
+                TerrainRuntimeBakePipelineState.Collision,
+                out string validationFailureMessage
+            )
+        )
+        {
+            FinishFailed(
+                run,
+                TerrainRuntimeBakePipelineState.Collision,
+                validationFailureMessage
+            );
+            return;
+        }
+
+        if (
             run.mode ==
                 TerrainRuntimeBakePipelineMode.PendingChanges
             &&
@@ -970,6 +1000,21 @@ public static class TerrainRuntimeBakePipeline
         }
 
         if (
+            TerrainRuntimeBakeValidationHooks.TryConsumeFailureBeforeStage(
+                TerrainRuntimeBakePipelineState.Addressables,
+                out string validationFailureMessage
+            )
+        )
+        {
+            FinishFailed(
+                run,
+                TerrainRuntimeBakePipelineState.Addressables,
+                validationFailureMessage
+            );
+            return;
+        }
+
+        if (
             !plan.AddressablesConfigurationRequired
             &&
             !plan.AddressablesContentBuildRequired
@@ -985,6 +1030,20 @@ public static class TerrainRuntimeBakePipeline
 
         run.addressablesStageExecuted =
             true;
+
+        if (
+            TerrainRuntimeBakeValidationHooks
+                .ShouldRequestCancelDuringAddressables()
+        )
+        {
+            /*
+             * Package 10.2 validation models a cancellation request while the
+             * synchronous Addressables operation is active. The current safe
+             * operation still completes; Package 08 consumes cancellation at
+             * the next stage boundary rather than aborting BuildPlayerContent.
+             */
+            run.cancelRequested = true;
+        }
 
         double stageStartedAt =
             EditorApplication.timeSinceStartup;
@@ -1086,6 +1145,14 @@ public static class TerrainRuntimeBakePipeline
             true
         );
 
+        if (
+            TerrainRuntimeBakeValidationHooks
+                .ShouldRequestCancelBeforeSceneSync()
+        )
+        {
+            run.cancelRequested = true;
+        }
+
         if (!PrepareStageBoundary(run))
         {
             return;
@@ -1101,6 +1168,21 @@ public static class TerrainRuntimeBakePipeline
 
         if (!ValidateStagePlan(run, plan))
         {
+            return;
+        }
+
+        if (
+            TerrainRuntimeBakeValidationHooks.TryConsumeFailureBeforeStage(
+                TerrainRuntimeBakePipelineState.SceneSync,
+                out string validationFailureMessage
+            )
+        )
+        {
+            FinishFailed(
+                run,
+                TerrainRuntimeBakePipelineState.SceneSync,
+                validationFailureMessage
+            );
             return;
         }
 

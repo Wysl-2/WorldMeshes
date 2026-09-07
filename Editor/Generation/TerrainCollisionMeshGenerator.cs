@@ -871,6 +871,18 @@ public static class TerrainCollisionMeshGenerator
                         }
 
                         completedChunkOperations++;
+
+                        if (
+                            TerrainRuntimeBakeValidationHooks.ShouldCancelCoordinateStage(
+                                TerrainRuntimeBakePipelineState.Collision,
+                                succeeded.Count,
+                                requestedChunks.Count
+                            )
+                        )
+                        {
+                            cancelled = true;
+                            break;
+                        }
                     }
 
                     if (
