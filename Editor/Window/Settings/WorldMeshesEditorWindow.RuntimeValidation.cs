@@ -64,7 +64,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             EditorGUILayout.HelpBox(
                 "TerrainHeightmapCacheValidator was not found on " +
                 "WorldRoot/Clipmap.\n\n" +
-                "Exit Play Mode and run Sync World Hierarchy.",
+                "Exit Play Mode and run Setup / Repair World Hierarchy.",
                 MessageType.Warning
             );
 

@@ -253,19 +253,11 @@ public partial class WorldMeshesEditorWindow :
     {
         DrawWorkspaceHeader(
             "Runtime",
-            "Compile derived runtime terrain data, inspect generation " +
-            "state, and prepare collision/runtime streaming assets."
+            "Prepare generated terrain data for runtime streaming with a " +
+            "single dependency-aware bake workflow."
         );
 
-        DrawGenerationStateSettings();
-
-        DrawWorkspaceSectionGap();
-
-        DrawCurrentRuntimeHeightmapPipeline();
-
-        DrawWorkspaceSectionGap();
-
-        DrawCollisionGenerationSettings();
+        DrawRuntimeBakeWorkspace();
     }
 
     // =====================================================

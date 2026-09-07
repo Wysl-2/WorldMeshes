@@ -133,7 +133,7 @@ public static class TerrainCollisionPhysicsValidator
                 $"'{TerrainWorldHierarchyGenerator.WorldRootName}' " +
                 "does not exist.\n\n" +
 
-                "Run Sync World Hierarchy first."
+                "Run Setup / Repair World Hierarchy first."
             );
 
             return false;
@@ -180,7 +180,7 @@ public static class TerrainCollisionPhysicsValidator
                 "Could not find exactly one Collision root beneath " +
                 "WorldRoot.\n\n" +
 
-                "Run Sync World Hierarchy first."
+                "Run Setup / Repair World Hierarchy first."
             );
 
             return false;
@@ -232,7 +232,7 @@ public static class TerrainCollisionPhysicsValidator
 
                 $"Found: {streamers.Length}\n\n" +
 
-                "Run Sync World Hierarchy first."
+                "Run Setup / Repair World Hierarchy first."
             );
 
             return false;
@@ -252,7 +252,7 @@ public static class TerrainCollisionPhysicsValidator
 
                 $"Found: {pools.Length}\n\n" +
 
-                "Run Sync World Hierarchy first."
+                "Run Setup / Repair World Hierarchy first."
             );
 
             return false;

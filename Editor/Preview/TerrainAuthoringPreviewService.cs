@@ -1252,7 +1252,7 @@ public static class TerrainAuthoringPreviewService
                 TerrainAuthoringPreviewStatus.ClipmapUnavailable,
                 "WorldRoot/Clipmap was not found in the active " +
                 "scene. Generate clipmap meshes and run " +
-                "Sync World Hierarchy."
+                "Setup / Repair World Hierarchy."
             );
 
             RepaintEditorViews();
@@ -1924,7 +1924,7 @@ public static class TerrainAuthoringPreviewService
         {
             errorMessage =
                 "TerrainClipmapBoundsController is missing from " +
-                "WorldRoot/Clipmap. Run Sync World Hierarchy.";
+                "WorldRoot/Clipmap. Run Setup / Repair World Hierarchy.";
 
             return false;
         }

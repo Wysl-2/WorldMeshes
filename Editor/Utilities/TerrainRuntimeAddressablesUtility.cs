@@ -159,6 +159,487 @@ public static class TerrainRuntimeAddressablesUtility
     }
 
     // =====================================================
+    // PACKAGE 09 ADVANCED MAINTENANCE
+    // =====================================================
+
+    /*
+     * Explicit structural reconciliation for the Package 09 Advanced Runtime
+     * Tools UI. This performs the same lower-level reconciliation used by
+     * Package 07 without forcing an Addressables content build.
+     *
+     * Persistent state acknowledgement remains owned here rather than by UI
+     * code. Any structural mutation marks player content dirty. Collision
+     * preparation metadata changes mark runtime scene metadata dirty.
+     */
+    public static bool ReconfigureAllRuntimeAddressables(
+        WorldSettings worldSettings
+    )
+    {
+        if (worldSettings == null)
+        {
+            Debug.LogError(
+                "Cannot reconfigure runtime Addressables because WorldSettings is unavailable."
+            );
+
+            return false;
+        }
+
+        if (
+            EditorApplication.isPlayingOrWillChangePlaymode
+        )
+        {
+            Debug.LogError(
+                "Runtime Addressables configuration cannot be changed while entering or running Play Mode."
+            );
+
+            return false;
+        }
+
+        if (
+            !GeneratedDatasetsAreCurrent(
+                worldSettings,
+                out string generationError
+            )
+        )
+        {
+            Debug.LogError(
+                "Cannot reconfigure runtime Addressables.\n\n" +
+                generationError
+            );
+
+            return false;
+        }
+
+        TerrainHeightmapManifest heightManifest =
+            AssetDatabase.LoadAssetAtPath<TerrainHeightmapManifest>(
+                TerrainRuntimeHeightAssetUtility.HeightmapManifestPath
+            );
+
+        TerrainSurfaceMaskManifest surfaceManifest =
+            AssetDatabase.LoadAssetAtPath<TerrainSurfaceMaskManifest>(
+                TerrainRuntimeSurfaceMaskAssetUtility.SurfaceMaskManifestPath
+            );
+
+        if (
+            heightManifest == null
+            ||
+            !heightManifest.isComplete
+            ||
+            surfaceManifest == null
+            ||
+            !surfaceManifest.isComplete
+        )
+        {
+            Debug.LogError(
+                "Cannot reconfigure runtime Addressables because current runtime height/surface manifests are missing or incomplete."
+            );
+
+            return false;
+        }
+
+        TerrainRuntimeBakeStateSnapshot startSnapshot =
+            TerrainRuntimeBakeStateService.GetSnapshot();
+
+        GeneratedTargetIdentity target =
+            CaptureGeneratedTarget(
+                worldSettings
+            );
+
+        TerrainAddressablesOperationStats stats =
+            new TerrainAddressablesOperationStats();
+
+        if (
+            !TerrainHeightmapAddressablesUtility.ReconcileConfiguration(
+                heightManifest,
+                stats,
+                out bool heightCancelled,
+                out string heightError
+            )
+        )
+        {
+            MarkConfigurationRepairRequired();
+
+            Debug.LogError(
+                heightCancelled
+                    ? "Runtime Addressables reconfiguration was cancelled during height configuration."
+                    : heightError
+            );
+
+            return false;
+        }
+
+        if (
+            !TerrainSurfaceMaskAddressablesUtility.ReconcileConfiguration(
+                surfaceManifest,
+                stats,
+                out bool surfaceCancelled,
+                out string surfaceError
+            )
+        )
+        {
+            MarkConfigurationRepairRequired();
+
+            Debug.LogError(
+                surfaceCancelled
+                    ? "Runtime Addressables reconfiguration was cancelled during surface configuration."
+                    : surfaceError
+            );
+
+            return false;
+        }
+
+        if (
+            !TerrainCollisionAddressablesUtility.ReconcileConfiguration(
+                worldSettings,
+                stats,
+                out bool collisionCancelled,
+                out string collisionError
+            )
+        )
+        {
+            MarkConfigurationRepairRequired();
+
+            Debug.LogError(
+                collisionCancelled
+                    ? "Runtime Addressables reconfiguration was cancelled during collision configuration."
+                    : collisionError
+            );
+
+            return false;
+        }
+
+        if (
+            !TerrainCollisionAddressablesUtility.RefreshRuntimeMetadata(
+                worldSettings,
+                out bool metadataChanged,
+                out bool manifestCreated,
+                out string metadataError
+            )
+        )
+        {
+            MarkConfigurationRepairRequired();
+
+            Debug.LogError(
+                metadataError
+            );
+
+            return false;
+        }
+
+        stats.collisionRuntimeMetadataUpdated |=
+            metadataChanged;
+
+        stats.collisionManifestCreated |=
+            manifestCreated;
+
+        if (
+            !TargetStillCurrent(
+                worldSettings,
+                target
+            )
+            ||
+            TerrainRuntimeBakeStateService
+                .GetSnapshot()
+                .StateRevision !=
+                startSnapshot.StateRevision
+        )
+        {
+            MarkConfigurationRepairRequired();
+
+            Debug.LogError(
+                "Runtime generated data or persistent bake state changed while Addressables structure was being reconciled. Configuration changes were preserved, but Configuration and Content remain dirty."
+            );
+
+            return false;
+        }
+
+        TerrainRuntimeBakeStateMutation mutation =
+            new TerrainRuntimeBakeStateMutation();
+
+        bool hasMutation =
+            false;
+
+        if (stats.AnyConfigurationChanged)
+        {
+            mutation.DirtyAddressablesContent();
+            hasMutation = true;
+        }
+
+        if (
+            metadataChanged
+            ||
+            manifestCreated
+        )
+        {
+            mutation.DirtyRuntimeSceneMetadata();
+            hasMutation = true;
+        }
+
+        if (hasMutation)
+        {
+            TerrainRuntimeBakeStateService.ApplyMutation(
+                mutation
+            );
+        }
+
+        TerrainRuntimeBakeStateSnapshot beforeClear =
+            TerrainRuntimeBakeStateService.GetSnapshot();
+
+        if (beforeClear.AddressablesConfigurationDirty)
+        {
+            TerrainRuntimeBakeStateService
+                .ClearAddressablesConfigurationDirty();
+        }
+
+        Debug.Log(
+            "Runtime Addressables structural reconfiguration complete.\n\n" +
+            "Height Configuration Changed: " +
+            stats.heightConfigurationChanged +
+            "\n" +
+            "Surface Configuration Changed: " +
+            stats.surfaceConfigurationChanged +
+            "\n" +
+            "Collision Configuration Changed: " +
+            stats.collisionConfigurationChanged +
+            "\n" +
+            "Collision Markers Regenerated: " +
+            stats.collisionMarkersRegenerated +
+            "\n" +
+            "Collision Markers Reused: " +
+            stats.collisionMarkersReused +
+            "\n" +
+            "Entries Created: " +
+            stats.entriesCreated +
+            "\n" +
+            "Entries Moved: " +
+            stats.entriesMoved +
+            "\n" +
+            "Entries Removed: " +
+            stats.entriesRemoved +
+            "\n" +
+            "Addressables Content Dirty: " +
+            TerrainRuntimeBakeStateService
+                .GetSnapshot()
+                .AddressablesContentDirty
+        );
+
+        return true;
+    }
+
+    /*
+     * Explicit player-content rebuild for Advanced Runtime Tools. Unlike the
+     * legacy raw BuildAddressablesContent wrapper, this validates structural
+     * readiness, preserves target identity, refreshes collision preparation
+     * metadata, and acknowledges Addressables Content dirty only when the
+     * completed build still matches the generated target.
+     */
+    public static bool RebuildAddressablesContentAndAcknowledge(
+        WorldSettings worldSettings
+    )
+    {
+        if (worldSettings == null)
+        {
+            Debug.LogError(
+                "Cannot rebuild Addressables content because WorldSettings is unavailable."
+            );
+
+            return false;
+        }
+
+        if (
+            EditorApplication.isPlayingOrWillChangePlaymode
+        )
+        {
+            Debug.LogError(
+                "Addressables content cannot be rebuilt while entering or running Play Mode."
+            );
+
+            return false;
+        }
+
+        if (
+            !GeneratedDatasetsAreCurrent(
+                worldSettings,
+                out string generationError
+            )
+        )
+        {
+            Debug.LogError(
+                "Cannot rebuild Addressables content.\n\n" +
+                generationError
+            );
+
+            return false;
+        }
+
+        TerrainRuntimeBakeStateSnapshot startSnapshot =
+            TerrainRuntimeBakeStateService.GetSnapshot();
+
+        if (startSnapshot.AddressablesConfigurationDirty)
+        {
+            Debug.LogError(
+                "Addressables structural configuration is dirty. Run Reconfigure Addressables before rebuilding player content."
+            );
+
+            return false;
+        }
+
+        TerrainRuntimeAddressablesValidationResult validation =
+            ValidateExistingRuntimeConfiguration(
+                worldSettings
+            );
+
+        if (!validation.IsValid)
+        {
+            MarkConfigurationRepairRequired();
+
+            Debug.LogError(
+                validation.BuildDiagnosticReport()
+            );
+
+            return false;
+        }
+
+        GeneratedTargetIdentity target =
+            CaptureGeneratedTarget(
+                worldSettings
+            );
+
+        long expectedStateRevision =
+            startSnapshot.StateRevision;
+
+        if (
+            !TerrainCollisionAddressablesUtility.RefreshRuntimeMetadata(
+                worldSettings,
+                out bool metadataChanged,
+                out bool manifestCreated,
+                out string metadataError
+            )
+        )
+        {
+            Debug.LogError(
+                metadataError
+            );
+
+            TerrainRuntimeBakeStateService
+                .MarkAddressablesContentDirty();
+
+            return false;
+        }
+
+        if (manifestCreated)
+        {
+            MarkConfigurationRepairRequired();
+
+            Debug.LogError(
+                "Collision runtime metadata unexpectedly created a new prepared manifest while rebuilding Addressables content. Run Reconfigure Addressables before rebuilding player content."
+            );
+
+            return false;
+        }
+
+        if (metadataChanged)
+        {
+            TerrainRuntimeBakeStateMutation mutation =
+                new TerrainRuntimeBakeStateMutation();
+
+            mutation.DirtyRuntimeSceneMetadata();
+
+            TerrainRuntimeBakeStateService.ApplyMutation(
+                mutation
+            );
+
+            expectedStateRevision =
+                TerrainRuntimeBakeStateService
+                    .GetSnapshot()
+                    .StateRevision;
+        }
+
+        if (
+            !TargetStillCurrent(
+                worldSettings,
+                target
+            )
+            ||
+            TerrainRuntimeBakeStateService
+                .GetSnapshot()
+                .StateRevision !=
+                expectedStateRevision
+        )
+        {
+            TerrainRuntimeBakeStateService
+                .MarkAddressablesContentDirty();
+
+            Debug.LogError(
+                "Runtime generated data or bake state changed before the Addressables content rebuild could start. Content remains dirty."
+            );
+
+            return false;
+        }
+
+        if (
+            !TryBuildAddressablesContent(
+                out string outputPath,
+                out double duration,
+                out string buildError
+            )
+        )
+        {
+            TerrainRuntimeBakeStateService
+                .MarkAddressablesContentDirty();
+
+            Debug.LogError(
+                buildError
+            );
+
+            return false;
+        }
+
+        if (
+            !TargetStillCurrent(
+                worldSettings,
+                target
+            )
+            ||
+            TerrainRuntimeBakeStateService
+                .GetSnapshot()
+                .StateRevision !=
+                expectedStateRevision
+        )
+        {
+            TerrainRuntimeBakeStateService
+                .MarkAddressablesContentDirty();
+
+            Debug.LogError(
+                "Runtime generated data or bake state changed while Addressables player content was building. The completed build was not acknowledged and Content remains dirty."
+            );
+
+            return false;
+        }
+
+        TerrainRuntimeBakeStateSnapshot beforeClear =
+            TerrainRuntimeBakeStateService.GetSnapshot();
+
+        if (beforeClear.AddressablesContentDirty)
+        {
+            TerrainRuntimeBakeStateService
+                .ClearAddressablesContentDirty();
+        }
+
+        Debug.Log(
+            "Addressables player content rebuild complete.\n\n" +
+            "Output Path:\n" +
+            outputPath +
+            "\n\n" +
+            "Build Duration: " +
+            duration.ToString("0.00") +
+            " seconds"
+        );
+
+        return true;
+    }
+
+    // =====================================================
     // PLANNED PACKAGE 07 OPERATION
     // =====================================================
 

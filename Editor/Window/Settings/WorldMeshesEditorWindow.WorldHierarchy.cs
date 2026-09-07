@@ -89,9 +89,14 @@ public partial class WorldMeshesEditorWindow :
 
         GUILayout.Space(5f);
 
+        EditorGUILayout.HelpBox(
+            "Setup / Repair World Hierarchy creates or repairs the generated WorldRoot structure. Normal terrain edits should use Runtime > Bake Runtime Changes instead.",
+            MessageType.None
+        );
+
         if (
             GUILayout.Button(
-                "Sync World Hierarchy",
+                "Setup / Repair World Hierarchy",
                 GUILayout.ExpandWidth(true)
             )
         )

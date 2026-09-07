@@ -967,7 +967,7 @@ public static class TerrainAuthoringSceneViewController
             SetStatus(
                 TerrainAuthoringSceneViewStatus.ClipmapUnavailable,
                 "WorldRoot/Clipmap was not found in the active scene. " +
-                "Generate clipmap meshes and run Sync World Hierarchy."
+                "Generate clipmap meshes and run Setup / Repair World Hierarchy."
             );
 
             errorMessage =

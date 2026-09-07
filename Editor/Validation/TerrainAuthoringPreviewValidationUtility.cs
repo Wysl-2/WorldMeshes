@@ -259,8 +259,8 @@ public static class TerrainAuthoringPreviewValidationUtility
         {
             errorMessage =
                 "The Height Preview cache is not Ready. Initialize " +
-                "the committed authoring heightfield, Sync World " +
-                "Hierarchy if needed, and wait for Height Preview " +
+                "the committed authoring heightfield, run Setup / Repair " +
+                "World Hierarchy if needed, and wait for Height Preview " +
                 "status to become Ready.";
 
             return false;

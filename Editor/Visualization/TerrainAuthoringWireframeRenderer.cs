@@ -655,7 +655,7 @@ public static class TerrainAuthoringWireframeRenderer
 
                 SetStatus(
                     TerrainAuthoringWireframeStatus.ClipmapUnavailable,
-                    "WorldRoot/Clipmap was not found in the active scene. Run Sync World Hierarchy."
+                    "WorldRoot/Clipmap was not found in the active scene. Run Setup / Repair World Hierarchy."
                 );
 
                 RepaintEditorViews();

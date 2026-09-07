@@ -334,7 +334,7 @@ public static class TerrainWorldHierarchyGenerator
             .RequestReapply();
 
         Debug.Log(
-            "World hierarchy synchronization complete.\n\n" +
+            "World hierarchy setup / repair complete.\n\n" +
             $"World Grid: {gridWidth} x {gridHeight}\n" +
             $"Chunk Size: {chunkSize}\n" +
             $"World Size: {worldSizeX} x {worldSizeZ}\n\n" +
@@ -973,7 +973,7 @@ public static class TerrainWorldHierarchyGenerator
         {
             Debug.LogWarning(
                 "TerrainHeightmapStreamer could not be fully configured because the baked runtime surface-mask manifest does not exist.\n\n" +
-                "Bake Runtime Surface Masks and then run Sync World Hierarchy again."
+                "Bake Runtime Surface Masks and then run Setup / Repair World Hierarchy again."
             );
         }
         else if (!surfaceManifest.isComplete)
