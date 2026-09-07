@@ -23,6 +23,10 @@ public sealed class TerrainRuntimeBakeStateMutation
             new HashSet<Vector2Int>();
 
     private readonly HashSet<Vector2Int>
+        surfaceTilesToRemove =
+            new HashSet<Vector2Int>();
+
+    private readonly HashSet<Vector2Int>
         collisionChunksToAdd =
             new HashSet<Vector2Int>();
 
@@ -39,6 +43,9 @@ public sealed class TerrainRuntimeBakeStateMutation
     internal IEnumerable<Vector2Int> SurfaceTilesToAdd =>
         surfaceTilesToAdd;
 
+    internal IEnumerable<Vector2Int> SurfaceTilesToRemove =>
+        surfaceTilesToRemove;
+
     internal IEnumerable<Vector2Int> CollisionChunksToAdd =>
         collisionChunksToAdd;
 
@@ -46,6 +53,12 @@ public sealed class TerrainRuntimeBakeStateMutation
         collisionChunksToRemove;
 
     internal bool ClearAllHeightTilesRequested
+    {
+        get;
+        private set;
+    }
+
+    internal bool ClearAllSurfaceTilesRequested
     {
         get;
         private set;
@@ -70,6 +83,12 @@ public sealed class TerrainRuntimeBakeStateMutation
     }
 
     internal bool RequireFullSurfaceRebuild
+    {
+        get;
+        private set;
+    }
+
+    internal bool ClearFullSurfaceRebuildRequired
     {
         get;
         private set;
@@ -161,6 +180,26 @@ public sealed class TerrainRuntimeBakeStateMutation
         return this;
     }
 
+    public TerrainRuntimeBakeStateMutation RemoveSurfaceTiles(
+        IEnumerable<Vector2Int> coordinates
+    )
+    {
+        AddCoordinates(
+            surfaceTilesToRemove,
+            coordinates
+        );
+
+        return this;
+    }
+
+    public TerrainRuntimeBakeStateMutation ClearAllSurfaceTiles()
+    {
+        ClearAllSurfaceTilesRequested =
+            true;
+
+        return this;
+    }
+
     public TerrainRuntimeBakeStateMutation AddCollisionChunks(
         IEnumerable<Vector2Int> coordinates
     )
@@ -212,6 +251,14 @@ public sealed class TerrainRuntimeBakeStateMutation
     public TerrainRuntimeBakeStateMutation RequireFullSurface()
     {
         RequireFullSurfaceRebuild =
+            true;
+
+        return this;
+    }
+
+    public TerrainRuntimeBakeStateMutation ClearFullSurface()
+    {
+        ClearFullSurfaceRebuildRequired =
             true;
 
         return this;
