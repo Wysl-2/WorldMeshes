@@ -26,6 +26,7 @@ public class TerrainClipmapController :
      * Target Y is intentionally ignored.
      */
     [SerializeField]
+    [HideInInspector]
     private Transform target;
 
     // =====================================================
@@ -193,8 +194,8 @@ public class TerrainClipmapController :
     /*
      * Called by TerrainWorldHierarchyGenerator.
      *
-     * The movement target is deliberately not changed here so a
-     * manually assigned Player reference survives hierarchy sync.
+     * The movement target is synchronized separately from the
+     * authoritative TerrainWorldRuntime streaming source.
      */
     public bool Configure(
         WorldSettings settings
@@ -668,8 +669,9 @@ public class TerrainClipmapController :
 
         Debug.LogWarning(
             "TerrainClipmapController has no target.\n\n" +
-            "Assign the Player Transform to the Target " +
-            "field on the Clipmap GameObject.",
+            "Assign a Streaming Source in World > World Hierarchy, " +
+            "then run Apply Streaming Source or Setup / Repair " +
+            "World Hierarchy.",
             this
         );
 

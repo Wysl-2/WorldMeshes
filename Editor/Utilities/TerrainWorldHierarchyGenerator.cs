@@ -184,6 +184,18 @@ public static class TerrainWorldHierarchyGenerator
             );
 
         // =================================================
+        // WORLD RUNTIME
+        // =================================================
+
+        TerrainWorldRuntime worldRuntime;
+
+        hierarchyChanged |=
+            SynchronizeWorldRuntime(
+                worldRoot,
+                out worldRuntime
+            );
+
+        // =================================================
         // COLLISION ROOT
         // =================================================
 
@@ -251,7 +263,6 @@ public static class TerrainWorldHierarchyGenerator
         hierarchyChanged |=
             SynchronizeCollisionStreamer(
                 collisionRoot.gameObject,
-                clipmapRoot.gameObject,
                 worldSettings
             );
 
@@ -259,6 +270,17 @@ public static class TerrainWorldHierarchyGenerator
             SynchronizeCollisionColliderPool(
                 collisionRoot.gameObject,
                 worldSettings
+            );
+
+        // =================================================
+        // STREAMING SOURCE
+        // =================================================
+
+        hierarchyChanged |=
+            SynchronizeStreamingSource(
+                worldRuntime,
+                clipmapRoot.gameObject,
+                collisionRoot.gameObject
             );
 
         // =================================================
@@ -328,6 +350,291 @@ public static class TerrainWorldHierarchyGenerator
             "[TerrainCollisionStreamer, TerrainCollisionColliderPool]\n" +
             $"└── {ClipmapRootName}"
         );
+    }
+
+    // =====================================================
+    // APPLY STREAMING SOURCE
+    // =====================================================
+
+    public static void ApplyStreamingSource()
+    {
+        if (
+            EditorApplication
+                .isPlayingOrWillChangePlaymode
+        )
+        {
+            Debug.LogError(
+                "Runtime streaming-source synchronization must be " +
+                "performed outside Play Mode."
+            );
+
+            return;
+        }
+
+        if (
+            !TerrainWorldSceneUtility
+                .TryGetActiveScene(
+                    out Scene scene,
+                    out string sceneError
+                )
+        )
+        {
+            Debug.LogError(
+                sceneError
+            );
+
+            return;
+        }
+
+        if (
+            !TerrainWorldSceneUtility
+                .TryFindWorldRoot(
+                    scene,
+                    out Transform worldRoot,
+                    out string worldRootError
+                )
+        )
+        {
+            Debug.LogError(
+                worldRootError
+            );
+
+            return;
+        }
+
+        if (worldRoot == null)
+        {
+            Debug.LogWarning(
+                "Cannot apply the runtime streaming source because " +
+                "WorldRoot does not exist.\n\n" +
+                "Run Setup / Repair World Hierarchy first."
+            );
+
+            return;
+        }
+
+        TerrainWorldRuntime worldRuntime =
+            worldRoot
+                .GetComponent<TerrainWorldRuntime>();
+
+        if (worldRuntime == null)
+        {
+            Debug.LogWarning(
+                "Cannot apply the runtime streaming source because " +
+                "TerrainWorldRuntime is missing from WorldRoot.\n\n" +
+                "Run Setup / Repair World Hierarchy first."
+            );
+
+            return;
+        }
+
+        if (
+            !TerrainWorldSceneUtility
+                .TryFindClipmapRoot(
+                    scene,
+                    out Transform clipmapRoot,
+                    out string clipmapError
+                )
+        )
+        {
+            Debug.LogError(
+                clipmapError
+            );
+
+            return;
+        }
+
+        if (
+            !TerrainWorldSceneUtility
+                .TryFindCollisionRoot(
+                    scene,
+                    out Transform collisionRoot,
+                    out string collisionError
+                )
+        )
+        {
+            Debug.LogError(
+                collisionError
+            );
+
+            return;
+        }
+
+        if (
+            clipmapRoot == null
+            ||
+            collisionRoot == null
+        )
+        {
+            Debug.LogWarning(
+                "Cannot apply the runtime streaming source because " +
+                "the generated Clipmap or Collision root is " +
+                "missing.\n\n" +
+                "Run Setup / Repair World Hierarchy first."
+            );
+
+            return;
+        }
+
+        TerrainClipmapController clipmapController =
+            clipmapRoot
+                .GetComponent<TerrainClipmapController>();
+
+        TerrainCollisionStreamer collisionStreamer =
+            collisionRoot
+                .GetComponent<TerrainCollisionStreamer>();
+
+        if (
+            clipmapController == null
+            ||
+            collisionStreamer == null
+        )
+        {
+            Debug.LogWarning(
+                "Cannot apply the runtime streaming source because " +
+                "the generated Clipmap or Collision runtime " +
+                "component is missing.\n\n" +
+                "Run Setup / Repair World Hierarchy first."
+            );
+
+            return;
+        }
+
+        bool changed =
+            SynchronizeStreamingSource(
+                worldRuntime,
+                clipmapRoot.gameObject,
+                collisionRoot.gameObject
+            );
+
+        MarkSceneDirtyIfNeeded(
+            scene,
+            changed
+        );
+
+        string sourceName =
+            worldRuntime.StreamingSource != null
+                ? worldRuntime.StreamingSource.name
+                : "None";
+
+        Debug.Log(
+            "Runtime streaming source applied.\n\n" +
+            $"Streaming Source: {sourceName}"
+        );
+    }
+
+    // =====================================================
+    // WORLD RUNTIME
+    // =====================================================
+
+    private static bool SynchronizeWorldRuntime(
+        GameObject worldRoot,
+        out TerrainWorldRuntime worldRuntime
+    )
+    {
+        bool changed =
+            false;
+
+        TerrainWorldRuntime[] runtimes =
+            worldRoot
+                .GetComponents<TerrainWorldRuntime>();
+
+        if (runtimes.Length == 0)
+        {
+            worldRuntime =
+                worldRoot
+                    .AddComponent<TerrainWorldRuntime>();
+
+            changed =
+                true;
+        }
+        else
+        {
+            worldRuntime =
+                runtimes[0];
+
+            for (
+                int index = 1;
+                index < runtimes.Length;
+                index++
+            )
+            {
+                Object.DestroyImmediate(
+                    runtimes[index]
+                );
+
+                changed =
+                    true;
+            }
+        }
+
+        if (!worldRuntime.enabled)
+        {
+            worldRuntime.enabled =
+                true;
+
+            changed =
+                true;
+        }
+
+        return
+            changed;
+    }
+
+    // =====================================================
+    // STREAMING SOURCE
+    // =====================================================
+
+    private static bool SynchronizeStreamingSource(
+        TerrainWorldRuntime worldRuntime,
+        GameObject clipmapObject,
+        GameObject collisionObject
+    )
+    {
+        bool changed =
+            false;
+
+        Transform streamingSource =
+            worldRuntime != null
+                ? worldRuntime.StreamingSource
+                : null;
+
+        TerrainClipmapController clipmapController =
+            clipmapObject != null
+                ? clipmapObject
+                    .GetComponent<TerrainClipmapController>()
+                : null;
+
+        if (
+            clipmapController != null
+            &&
+            clipmapController.Target !=
+                streamingSource
+        )
+        {
+            clipmapController.Target =
+                streamingSource;
+
+            changed =
+                true;
+        }
+
+        TerrainCollisionStreamer collisionStreamer =
+            collisionObject != null
+                ? collisionObject
+                    .GetComponent<TerrainCollisionStreamer>()
+                : null;
+
+        if (collisionStreamer != null)
+        {
+            changed |=
+                collisionStreamer.SetStreamingTarget(
+                    streamingSource
+                );
+        }
+
+        return
+            changed;
     }
 
     // =====================================================
@@ -1163,7 +1470,6 @@ public static class TerrainWorldHierarchyGenerator
 
     private static bool SynchronizeCollisionStreamer(
         GameObject collisionObject,
-        GameObject clipmapObject,
         WorldSettings worldSettings
     )
     {
@@ -1244,43 +1550,6 @@ public static class TerrainWorldHierarchyGenerator
             streamer.Configure(
                 worldSettings,
                 manifest
-            );
-
-        TerrainClipmapController clipmapController =
-            clipmapObject != null
-                ? clipmapObject
-                    .GetComponent<TerrainClipmapController>()
-                : null;
-
-        Transform streamingTarget =
-            clipmapController != null
-                ? clipmapController.Target
-                : null;
-
-        if (clipmapController == null)
-        {
-            Debug.LogWarning(
-                "TerrainCollisionStreamer could not resolve the " +
-                "terrain movement target because " +
-                "TerrainClipmapController is missing from the " +
-                "Clipmap root."
-            );
-        }
-        else if (streamingTarget == null)
-        {
-            Debug.LogWarning(
-                "TerrainCollisionStreamer could not resolve its " +
-                "Streaming Target because TerrainClipmapController " +
-                "does not have a Target assigned.\n\n" +
-                "Assign the Player Transform to the Clipmap " +
-                "controller Target field, then run Sync World " +
-                "Hierarchy again."
-            );
-        }
-
-        changed |=
-            streamer.SetStreamingTarget(
-                streamingTarget
             );
 
         return

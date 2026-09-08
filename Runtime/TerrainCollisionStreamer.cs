@@ -36,6 +36,7 @@ public class TerrainCollisionStreamer :
      * part of the world if the target were forgotten.
      */
     [SerializeField]
+    [HideInInspector]
     private Transform streamingTarget;
 
     /*
@@ -272,9 +273,9 @@ public class TerrainCollisionStreamer :
  * the generated terrain hierarchy and are synchronized
  * automatically.
  *
- * The streaming target is synchronized separately from the
- * TerrainClipmapController target so the Player reference has one
- * source of truth.
+ * The streaming target is derived from the authoritative
+ * TerrainWorldRuntime streaming source during hierarchy
+ * synchronization.
  */
     public bool Configure(
         WorldSettings settings,
@@ -540,7 +541,9 @@ public class TerrainCollisionStreamer :
 
                 "Streaming Target is not assigned.\n\n" +
 
-                "Assign the Player transform.",
+                "Assign a Streaming Source in World > World " +
+                "Hierarchy, then run Apply Streaming Source or " +
+                "Setup / Repair World Hierarchy.",
                 this
             );
 
