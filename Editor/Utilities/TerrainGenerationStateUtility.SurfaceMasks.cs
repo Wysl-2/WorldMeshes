@@ -177,6 +177,23 @@ public static partial class TerrainGenerationStateUtility
                 GenerationStatus.OutOfDate;
         }
 
+        TerrainRuntimeGeneratedDataIntegrityResult surfaceIntegrity =
+            TerrainRuntimeIntegrityAuditUtility
+                .GetCachedGeneratedDataAudit(
+                    worldSettings
+                )
+                .Surface;
+
+        if (
+            surfaceIntegrity == null
+            ||
+            !surfaceIntegrity.IsValid
+        )
+        {
+            return
+                GenerationStatus.OutOfDate;
+        }
+
         return
             GenerationStatus.Current;
     }

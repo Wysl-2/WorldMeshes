@@ -207,6 +207,23 @@ public static partial class TerrainGenerationStateUtility
                 GenerationStatus.OutOfDate;
         }
 
+        TerrainRuntimeGeneratedDataIntegrityResult heightIntegrity =
+            TerrainRuntimeIntegrityAuditUtility
+                .GetCachedGeneratedDataAudit(
+                    worldSettings
+                )
+                .Height;
+
+        if (
+            heightIntegrity == null
+            ||
+            !heightIntegrity.IsValid
+        )
+        {
+            return
+                GenerationStatus.OutOfDate;
+        }
+
         return
             GenerationStatus.Current;
     }
@@ -286,6 +303,23 @@ public static partial class TerrainGenerationStateUtility
                 .lastGeneratedCollisionSignature
             !=
             currentSignature
+        )
+        {
+            return
+                GenerationStatus.OutOfDate;
+        }
+
+        TerrainRuntimeGeneratedDataIntegrityResult collisionIntegrity =
+            TerrainRuntimeIntegrityAuditUtility
+                .GetCachedGeneratedDataAudit(
+                    worldSettings
+                )
+                .Collision;
+
+        if (
+            collisionIntegrity == null
+            ||
+            !collisionIntegrity.IsValid
         )
         {
             return

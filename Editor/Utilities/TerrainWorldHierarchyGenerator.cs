@@ -167,40 +167,14 @@ public static class TerrainWorldHierarchyGenerator
         // WORLD ROOT
         // =================================================
 
-        if (
-            !TerrainWorldSceneUtility
-                .TryFindWorldRoot(
-                    scene,
-                    out Transform worldRootTransform,
-                    out string worldRootError
-                )
-        )
-        {
-            Debug.LogError(
-                worldRootError
+        GameObject worldRoot =
+            GetOrCreateUniqueWorldRoot(
+                scene,
+                out bool worldRootChanged
             );
 
-            return;
-        }
-
-        GameObject worldRoot =
-            worldRootTransform != null
-                ? worldRootTransform.gameObject
-                : null;
-
         bool hierarchyChanged =
-            false;
-
-        if (worldRoot == null)
-        {
-            worldRoot =
-                new GameObject(
-                    WorldRootName
-                );
-
-            hierarchyChanged =
-                true;
-        }
+            worldRootChanged;
 
         hierarchyChanged |=
             SynchronizeTransform(
@@ -1864,6 +1838,115 @@ public static class TerrainWorldHierarchyGenerator
     // =====================================================
     // WORLD ROOT / CHILD HELPERS
     // =====================================================
+
+    private static GameObject GetOrCreateUniqueWorldRoot(
+        Scene scene,
+        out bool changed
+    )
+    {
+        changed =
+            false;
+
+        GameObject result =
+            null;
+
+        int bestGeneratedRootScore =
+            -1;
+
+        List<GameObject> duplicates =
+            new List<GameObject>();
+
+        foreach (
+            GameObject root
+            in scene.GetRootGameObjects()
+        )
+        {
+            if (
+                root == null
+                ||
+                root.name !=
+                    WorldRootName
+            )
+            {
+                continue;
+            }
+
+            int generatedRootScore =
+                0;
+
+            foreach (
+                Transform child
+                in root.transform
+            )
+            {
+                if (
+                    child != null
+                    &&
+                    (
+                        child.name == ClipmapRootName
+                        ||
+                        child.name == CollisionRootName
+                    )
+                )
+                {
+                    generatedRootScore++;
+                }
+            }
+
+            if (
+                result == null
+                ||
+                generatedRootScore > bestGeneratedRootScore
+            )
+            {
+                if (result != null)
+                {
+                    duplicates.Add(
+                        result
+                    );
+                }
+
+                result =
+                    root;
+
+                bestGeneratedRootScore =
+                    generatedRootScore;
+            }
+            else
+            {
+                duplicates.Add(
+                    root
+                );
+            }
+        }
+
+        foreach (
+            GameObject duplicate
+            in duplicates
+        )
+        {
+            Object.DestroyImmediate(
+                duplicate
+            );
+
+            changed =
+                true;
+        }
+
+        if (result == null)
+        {
+            result =
+                new GameObject(
+                    WorldRootName
+                );
+
+            changed =
+                true;
+        }
+
+        return
+            result;
+    }
 
     private static Transform GetOrCreateUniqueDirectChild(
         Transform parent,

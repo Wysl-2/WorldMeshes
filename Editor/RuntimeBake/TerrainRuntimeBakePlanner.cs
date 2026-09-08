@@ -733,11 +733,6 @@ public static class TerrainRuntimeBakePlanner
                 !collisionGenerated
             );
 
-        bool addressablesConfigurationRequired =
-            snapshot.AddressablesConfigurationDirty
-            ||
-            topologyRequiresAddressablesConfiguration;
-
         bool generatedDataWork =
             heightMode !=
                 TerrainRuntimeBakeWorkMode.None
@@ -747,6 +742,59 @@ public static class TerrainRuntimeBakePlanner
             ||
             collisionMode !=
                 TerrainRuntimeBakeWorkMode.None;
+
+        /*
+         * Persistent dirty state records changes WorldMeshes observed.
+         * Package 10.4 must also detect external Addressables damage. Only
+         * perform the structural audit when generated datasets themselves are
+         * current and no generator work is pending.
+         */
+        bool externalAddressablesRepairRequired =
+            false;
+
+        if (
+            !generatedDataWork
+            &&
+            authoringReady
+            &&
+            heightStatus ==
+                TerrainGenerationStateUtility
+                    .GenerationStatus.Current
+            &&
+            surfaceStatus ==
+                TerrainGenerationStateUtility
+                    .GenerationStatus.Current
+            &&
+            collisionStatus ==
+                TerrainGenerationStateUtility
+                    .GenerationStatus.Current
+        )
+        {
+            TerrainRuntimeAddressablesValidationResult addressablesValidation =
+                TerrainRuntimeIntegrityAuditUtility
+                    .GetCachedAddressablesValidation(
+                        worldSettings
+                    );
+
+            externalAddressablesRepairRequired =
+                addressablesValidation == null
+                ||
+                !addressablesValidation.IsValid;
+
+            if (externalAddressablesRepairRequired)
+            {
+                safetyReasons.Add(
+                    "Runtime Addressables structure is damaged or incomplete; Configuration and Content require reconciliation."
+                );
+            }
+        }
+
+        bool addressablesConfigurationRequired =
+            snapshot.AddressablesConfigurationDirty
+            ||
+            topologyRequiresAddressablesConfiguration
+            ||
+            externalAddressablesRepairRequired;
 
         bool addressablesContentRequired =
             snapshot.AddressablesContentDirty

@@ -391,6 +391,22 @@ public static class TerrainRuntimeSceneSynchronizer
                     );
             }
 
+            TerrainCollisionColliderPool[] collisionColliderPools =
+                collisionRoot
+                    .GetComponents<
+                        TerrainCollisionColliderPool
+                    >();
+
+            if (collisionColliderPools.Length != 1)
+            {
+                return
+                    RepairResult(
+                        startSnapshot.StateRevision,
+                        warnings,
+                        "Current runtime collision data exists but the Collision root does not contain exactly one TerrainCollisionColliderPool. Run Setup / Repair World Hierarchy."
+                    );
+            }
+
             collisionStreamer =
                 collisionStreamers[0];
         }

@@ -1281,6 +1281,9 @@ public static class TerrainRuntimeAddressablesUtility
             }
         }
 
+        TerrainRuntimeIntegrityAuditUtility
+            .InvalidateCachedAudit();
+
         return CreateResult(
             TerrainRuntimeAddressablesOutcome.Completed,
             mode,
