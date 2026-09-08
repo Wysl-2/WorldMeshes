@@ -17,7 +17,9 @@ MonoBehaviour:
   importedHeightmap: {fileID: 0}
   heightModifiers:
   - rid: 3932701473065402434
-  authoringRevision: 1366
+  - rid: 3932701490487492675
+  - rid: 3932701490487492674
+  authoringRevision: 1426
   references:
     version: 2
     RefIds:
@@ -28,17 +30,59 @@ MonoBehaviour:
         enabled: 1
         blendMode: 0
         stampAsset: {fileID: 11400000, guid: 1491abb90d27d36868594cecf1b0fade, type: 2}
-        positionXZ: {x: 3097.5498, y: 2867.641}
-        sizeXZ: {x: 1534.9258, y: 1747.0543}
-        rotationDegrees: 0
+        positionXZ: {x: 3662.4385, y: 2043.7781}
+        sizeXZ: {x: 968.6094, y: 1065.2222}
+        rotationDegrees: -6.262192
         flipX: 0
         flipZ: 0
         sourceInputMin: 0
         sourceInputMax: 1
         sourceGamma: 1
-        heightDelta: 166.14851
-        falloff: 0.67268693
+        heightDelta: 109.18041
+        falloff: 0.8347076
         falloffShape: 1
-        falloffProfile: 2
-        smoothingRadius: 3.5
+        falloffProfile: 0
+        smoothingRadius: 1
+        smoothingStrength: 1
+    - rid: 3932701490487492674
+      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
+      data:
+        stableId: 20255845587b4c26a04a4304e4a3d5a1
+        enabled: 1
+        blendMode: 0
+        stampAsset: {fileID: 11400000, guid: 4cfb28d6666ef15f0b00180fa40ee648, type: 2}
+        positionXZ: {x: 4287.3193, y: 2971.4114}
+        sizeXZ: {x: 2398.2617, y: 2398.2617}
+        rotationDegrees: -0.000015258789
+        flipX: 0
+        flipZ: 0
+        sourceInputMin: 0
+        sourceInputMax: 1
+        sourceGamma: 1
+        heightDelta: 145.8194
+        falloff: 0.25
+        falloffShape: 0
+        falloffProfile: 0
+        smoothingRadius: 1.5
+        smoothingStrength: 1
+    - rid: 3932701490487492675
+      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
+      data:
+        stableId: 0cb628dc2f724253b934d422d0ff839e
+        enabled: 1
+        blendMode: 0
+        stampAsset: {fileID: 11400000, guid: 1491abb90d27d36868594cecf1b0fade, type: 2}
+        positionXZ: {x: 3307.1003, y: 2717.1316}
+        sizeXZ: {x: 812.4138, y: 893.447}
+        rotationDegrees: 141.59485
+        flipX: 0
+        flipZ: 0
+        sourceInputMin: 0
+        sourceInputMax: 1
+        sourceGamma: 1
+        heightDelta: 112.7153
+        falloff: 0.6560139
+        falloffShape: 1
+        falloffProfile: 0
+        smoothingRadius: 1
         smoothingStrength: 1
