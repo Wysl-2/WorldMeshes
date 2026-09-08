@@ -41,7 +41,7 @@ public static class TerrainHeightmapValidator
             Debug.LogError(
                 "Cannot validate runtime heightmaps.\n\n" +
                 "Runtime heightmap manifest does not exist.\n\n" +
-                "Compile the runtime heightmaps first."
+                "Open Runtime and run Bake Runtime Changes first."
             );
 
             return false;

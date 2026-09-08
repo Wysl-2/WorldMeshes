@@ -737,7 +737,7 @@ public class TerrainCollisionColliderPool :
                     $"Multiple collider slots use index " +
                     $"{slotIndex}.\n\n" +
 
-                    "Run Sync World Hierarchy again.",
+                    "Run Setup / Repair World Hierarchy.",
                     this
                 );
 

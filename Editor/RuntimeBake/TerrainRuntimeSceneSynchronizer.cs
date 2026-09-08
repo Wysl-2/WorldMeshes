@@ -745,7 +745,7 @@ public static class TerrainRuntimeSceneSynchronizer
         )
         {
             errorMessage =
-                "The runtime heightmap manifest was produced by an incompatible compiler version. Rebuild runtime heightmaps first.";
+                "The runtime heightmap manifest was produced by an incompatible compiler version. Use Runtime > Advanced Runtime Tools > Rebuild All Runtime Data.";
 
             return false;
         }

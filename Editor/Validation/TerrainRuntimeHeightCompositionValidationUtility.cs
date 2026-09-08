@@ -6,8 +6,8 @@ using UnityEngine;
 /*
  * Read-only integration validation for generated runtime height tiles.
  *
- * Validation does not compile heightmaps and does not mutate authoring
- * state. Compile Runtime Heightmaps first, then run this validation.
+ * Validation does not generate runtime data and does not mutate authoring
+ * state. Use Runtime > Bake Runtime Changes first when work is pending.
  */
 public static class TerrainRuntimeHeightCompositionValidationUtility
 {

@@ -48,18 +48,8 @@ public static class TerrainSurfaceMaskCompiler
     }
 
     // =====================================================
-    // LEGACY FULL API
+    // EXPLICIT FULL REBUILD
     // =====================================================
-
-    public static void GenerateSurfaceMasks(
-        WorldSettings worldSettings
-    )
-    {
-        RebuildAllSurfaceMasks(
-            worldSettings,
-            LogResult
-        );
-    }
 
     public static bool RebuildAllSurfaceMasks(
         WorldSettings worldSettings,

@@ -98,78 +98,6 @@ public partial class WorldMeshesEditorWindow :
 
         GUILayout.Space(5f);
 
-        EditorGUI.BeginDisabledGroup(
-            TerrainRuntimeBakePipeline.IsRunning
-        );
-
-        if (
-            GUILayout.Button(
-                "Generate Planned Collision Work",
-                GUILayout.ExpandWidth(true)
-            )
-        )
-        {
-            TerrainRuntimeBakePlan currentPlan =
-                TerrainRuntimeBakePlanner
-                    .BuildPlan(
-                        worldSettings,
-                        terrainAuthoringData
-                    );
-
-            TerrainCollisionGenerationResult result =
-                TerrainCollisionMeshGenerator
-                    .GeneratePlannedCollisionMeshes(
-                        worldSettings,
-                        currentPlan
-                    );
-
-            string report =
-                result != null
-                    ? result.BuildDiagnosticReport()
-                    : "Collision generation returned no result.";
-
-            if (
-                result != null
-                &&
-                (
-                    result.Outcome ==
-                        TerrainCollisionGenerationOutcome
-                            .Completed
-                    ||
-                    result.Outcome ==
-                        TerrainCollisionGenerationOutcome
-                            .NoWork
-                )
-            )
-            {
-                Debug.Log(
-                    report
-                );
-            }
-            else if (
-                result != null
-                &&
-                result.Outcome ==
-                    TerrainCollisionGenerationOutcome
-                        .Cancelled
-            )
-            {
-                Debug.LogWarning(
-                    report
-                );
-            }
-            else
-            {
-                Debug.LogError(
-                    report
-                );
-            }
-
-            Repaint();
-        }
-
-        EditorGUI.EndDisabledGroup();
-
         if (
             GUILayout.Button(
                 "Log Planned Collision Chunks",
@@ -185,7 +113,8 @@ public partial class WorldMeshesEditorWindow :
         }
 
         EditorGUILayout.HelpBox(
-            "Package 05 diagnostics execute only the collision-mesh stage of the current bake plan. Collision Addressables preparation, bake-marker generation, surface masks, runtime scene synchronization, and the unified bake pipeline are intentionally not executed.",
+            "Read-only Package 05 diagnostics for planned Collision work. " +
+            "Use Runtime > Bake Runtime Changes for production generation.",
             MessageType.None
         );
 

@@ -920,10 +920,9 @@ public static class TerrainWorldHierarchyGenerator
         {
             Debug.LogWarning(
                 "TerrainHeightmapStreamer could not be fully " +
-                "configured because the compiled runtime heightmap " +
-                "manifest does not exist.\n\n" +
-                "Compile Runtime Heightmaps and then run " +
-                "Sync World Hierarchy again."
+                "configured because the runtime heightmap manifest " +
+                "does not exist.\n\n" +
+                "Open Runtime and run Bake Runtime Changes."
             );
         }
         else if (!manifest.isComplete)

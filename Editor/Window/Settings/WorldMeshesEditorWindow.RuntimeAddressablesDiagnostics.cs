@@ -4,9 +4,6 @@ using UnityEngine;
 public partial class WorldMeshesEditorWindow :
     EditorWindow
 {
-    private TerrainRuntimeAddressablesResult
-        lastRuntimeAddressablesResult;
-
     private TerrainRuntimeAddressablesValidationResult
         lastRuntimeAddressablesValidationResult;
 
@@ -32,7 +29,7 @@ public partial class WorldMeshesEditorWindow :
         );
 
         GUILayout.Label(
-            "Addressables Pipeline Optimization",
+            "Addressables Pipeline",
             EditorStyles.boldLabel
         );
 
@@ -122,45 +119,6 @@ public partial class WorldMeshesEditorWindow :
 
         GUILayout.Space(5f);
 
-        EditorGUI.BeginDisabledGroup(
-            TerrainRuntimeBakePipeline.IsRunning
-        );
-
-        if (
-            GUILayout.Button(
-                "Process Planned Addressables Work",
-                GUILayout.ExpandWidth(true)
-            )
-        )
-        {
-            TerrainRuntimeBakePlan currentPlan =
-                TerrainRuntimeBakePlanner.BuildPlan(
-                    worldSettings,
-                    terrainAuthoringData
-                );
-
-            TerrainRuntimeAddressablesResult result =
-                TerrainRuntimeAddressablesUtility
-                    .ProcessPlannedRuntimeContent(
-                        worldSettings,
-                        currentPlan
-                    );
-
-            lastRuntimeAddressablesResult =
-                result;
-
-            LogRuntimeAddressablesResult(
-                result
-            );
-
-            lastRuntimeAddressablesValidationResult =
-                null;
-
-            Repaint();
-        }
-
-        EditorGUI.EndDisabledGroup();
-
         if (
             GUILayout.Button(
                 "Validate Existing Addressables Configuration",
@@ -197,28 +155,10 @@ public partial class WorldMeshesEditorWindow :
             Repaint();
         }
 
-        if (lastRuntimeAddressablesResult != null)
-        {
-            GUILayout.Space(5f);
-
-            EditorGUILayout.HelpBox(
-                lastRuntimeAddressablesResult.Outcome +
-                "\n" +
-                (
-                    !string.IsNullOrEmpty(
-                        lastRuntimeAddressablesResult.ErrorMessage
-                    )
-                        ? lastRuntimeAddressablesResult.ErrorMessage
-                        : lastRuntimeAddressablesResult.SummaryMessage
-                ),
-                GetRuntimeAddressablesMessageType(
-                    lastRuntimeAddressablesResult.Outcome
-                )
-            );
-        }
-
         EditorGUILayout.HelpBox(
-            "Package 07 diagnostics execute only the Addressables stage. Content Only validation is read-only: it does not create/move entries or regenerate collision markers. Configure + Build performs structural reconciliation before Unity's normal BuildPlayerContent.",
+            "Read-only Package 07 structural diagnostics. " +
+            "Use Runtime > Bake Runtime Changes for normal Addressables work. " +
+            "Use Advanced Runtime Tools for explicit Addressables maintenance.",
             MessageType.None
         );
 
@@ -325,76 +265,5 @@ public partial class WorldMeshesEditorWindow :
         }
 
         return "Out Of Date";
-    }
-
-    private static void LogRuntimeAddressablesResult(
-        TerrainRuntimeAddressablesResult result
-    )
-    {
-        if (result == null)
-        {
-            Debug.LogError(
-                "Runtime Addressables processing returned no result."
-            );
-
-            return;
-        }
-
-        string report =
-            result.BuildDiagnosticReport();
-
-        if (
-            result.Outcome ==
-                TerrainRuntimeAddressablesOutcome.Completed
-            ||
-            result.Outcome ==
-                TerrainRuntimeAddressablesOutcome.NoWork
-        )
-        {
-            Debug.Log(
-                report
-            );
-        }
-        else if (
-            result.Outcome ==
-                TerrainRuntimeAddressablesOutcome.Cancelled
-            ||
-            result.Outcome ==
-                TerrainRuntimeAddressablesOutcome.StalePlan
-            ||
-            result.Outcome ==
-                TerrainRuntimeAddressablesOutcome.Blocked
-        )
-        {
-            Debug.LogWarning(
-                report
-            );
-        }
-        else
-        {
-            Debug.LogError(
-                report
-            );
-        }
-    }
-
-    private static MessageType GetRuntimeAddressablesMessageType(
-        TerrainRuntimeAddressablesOutcome outcome
-    )
-    {
-        switch (outcome)
-        {
-            case TerrainRuntimeAddressablesOutcome.Completed:
-            case TerrainRuntimeAddressablesOutcome.NoWork:
-                return MessageType.Info;
-
-            case TerrainRuntimeAddressablesOutcome.Cancelled:
-            case TerrainRuntimeAddressablesOutcome.StalePlan:
-            case TerrainRuntimeAddressablesOutcome.Blocked:
-                return MessageType.Warning;
-
-            default:
-                return MessageType.Error;
-        }
     }
 }

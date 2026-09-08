@@ -77,76 +77,6 @@ public partial class WorldMeshesEditorWindow :
 
         GUILayout.Space(5f);
 
-        EditorGUI.BeginDisabledGroup(
-            TerrainRuntimeBakePipeline.IsRunning
-        );
-
-        if (
-            GUILayout.Button(
-                "Compile Planned Height Work",
-                GUILayout.ExpandWidth(true)
-            )
-        )
-        {
-            TerrainRuntimeBakePlan plan =
-                TerrainRuntimeBakePlanner
-                    .BuildPlan(
-                        worldSettings,
-                        terrainAuthoringData
-                    );
-
-            TerrainRuntimeHeightCompileResult result =
-                TerrainRuntimeHeightCompiler
-                    .CompilePlannedHeightWork(
-                        worldSettings,
-                        terrainAuthoringData,
-                        plan
-                    );
-
-            string report =
-                result != null
-                    ? result.BuildDiagnosticReport()
-                    : "Runtime height compilation returned no result.";
-
-            if (
-                result != null
-                &&
-                (
-                    result.Outcome ==
-                        TerrainRuntimeHeightCompileOutcome.Completed
-                    ||
-                    result.Outcome ==
-                        TerrainRuntimeHeightCompileOutcome.NoWork
-                )
-            )
-            {
-                Debug.Log(
-                    report
-                );
-            }
-            else if (
-                result != null
-                &&
-                result.Outcome ==
-                    TerrainRuntimeHeightCompileOutcome.Cancelled
-            )
-            {
-                Debug.LogWarning(
-                    report
-                );
-            }
-            else
-            {
-                Debug.LogError(
-                    report
-                );
-            }
-
-            Repaint();
-        }
-
-        EditorGUI.EndDisabledGroup();
-
         if (
             GUILayout.Button(
                 "Validate Runtime Height Range Metadata",
@@ -162,9 +92,9 @@ public partial class WorldMeshesEditorWindow :
         }
 
         EditorGUILayout.HelpBox(
-            "Package 03 diagnostics can execute only the height stage of the " +
-            "current bake plan. Surface masks, collision, Addressables build, " +
-            "and runtime scene synchronization are intentionally not executed.",
+            "Read-only Package 03 diagnostics for runtime Height generation. " +
+            "Use Runtime > Bake Runtime Changes for production generation, " +
+            "or Package 10 pipeline validation when execution certification is required.",
             MessageType.None
         );
 

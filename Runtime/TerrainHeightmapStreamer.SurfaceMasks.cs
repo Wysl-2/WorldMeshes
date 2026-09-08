@@ -75,7 +75,8 @@ public partial class TerrainHeightmapStreamer
             Debug.LogError(
                 "TerrainHeightmapStreamer cannot initialize.\n\n" +
                 "TerrainSurfaceMaskManifest is not assigned.\n\n" +
-                "Bake Runtime Surface Masks and run Sync World Hierarchy again.",
+                "Open Runtime and run Bake Runtime Changes. If Runtime reports " +
+                "a structural hierarchy problem, run Setup / Repair World Hierarchy.",
                 this
             );
 
@@ -106,7 +107,7 @@ public partial class TerrainHeightmapStreamer
             Debug.LogError(
                 "TerrainHeightmapStreamer cannot initialize.\n\n" +
                 "The generated surface-mask format is out of date.\n\n" +
-                "Bake Runtime Surface Masks again.",
+                "Open Runtime and run Bake Runtime Changes.",
                 this
             );
 
@@ -144,7 +145,7 @@ public partial class TerrainHeightmapStreamer
             Debug.LogError(
                 "TerrainHeightmapStreamer cannot initialize.\n\n" +
                 "The baked surface masks were generated from an older runtime heightmap revision.\n\n" +
-                "Bake Runtime Surface Masks again.",
+                "Open Runtime and run Bake Runtime Changes.",
                 this
             );
 
@@ -205,7 +206,7 @@ public partial class TerrainHeightmapStreamer
             Debug.LogError(
                 "TerrainHeightmapStreamer cannot initialize.\n\n" +
                 "TerrainSurfaceSettings changed after the runtime surface masks were baked.\n\n" +
-                "Bake Runtime Surface Masks again.",
+                "Open Runtime and run Bake Runtime Changes.",
                 this
             );
 

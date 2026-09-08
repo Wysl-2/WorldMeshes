@@ -5,9 +5,6 @@ using UnityEngine;
 public partial class WorldMeshesEditorWindow :
     EditorWindow
 {
-    private TerrainSurfaceMaskGenerationResult
-        lastRuntimeSurfaceGenerationResult;
-
     private void DrawRuntimeSurfaceIncrementalDiagnostics()
     {
         TerrainRuntimeBakePlan plan =
@@ -145,46 +142,6 @@ public partial class WorldMeshesEditorWindow :
 
         GUILayout.Space(5f);
 
-        EditorGUI.BeginDisabledGroup(
-            TerrainSurfaceMaskCompiler.IsGenerating
-            ||
-            TerrainRuntimeBakePipeline.IsRunning
-        );
-
-        if (
-            GUILayout.Button(
-                "Generate Planned Surface Work",
-                GUILayout.ExpandWidth(true)
-            )
-        )
-        {
-            TerrainRuntimeBakePlan currentPlan =
-                TerrainRuntimeBakePlanner.BuildPlan(
-                    worldSettings,
-                    terrainAuthoringData
-                );
-
-            TerrainSurfaceMaskCompiler.GeneratePlannedSurfaceMasks(
-                worldSettings,
-                currentPlan,
-                result =>
-                {
-                    lastRuntimeSurfaceGenerationResult =
-                        result;
-
-                    LogRuntimeSurfaceGenerationResult(
-                        result
-                    );
-
-                    Repaint();
-                }
-            );
-
-            Repaint();
-        }
-
-        EditorGUI.EndDisabledGroup();
-
         if (
             GUILayout.Button(
                 "Log Planned Surface Tiles",
@@ -199,28 +156,9 @@ public partial class WorldMeshesEditorWindow :
             );
         }
 
-        if (lastRuntimeSurfaceGenerationResult != null)
-        {
-            GUILayout.Space(5f);
-
-            EditorGUILayout.HelpBox(
-                lastRuntimeSurfaceGenerationResult.Outcome +
-                "\n" +
-                (
-                    !string.IsNullOrEmpty(
-                        lastRuntimeSurfaceGenerationResult.ErrorMessage
-                    )
-                        ? lastRuntimeSurfaceGenerationResult.ErrorMessage
-                        : lastRuntimeSurfaceGenerationResult.SummaryMessage
-                ),
-                GetRuntimeSurfaceGenerationMessageType(
-                    lastRuntimeSurfaceGenerationResult.Outcome
-                )
-            );
-        }
-
         EditorGUILayout.HelpBox(
-            "Package 06 diagnostics execute only the surface-mask stage of the current bake plan. Terrain Analysis is reused, and only planned surface tiles are read back/written for Incremental work. Addressables build, runtime scene synchronization, and unified bake orchestration are intentionally not executed.",
+            "Read-only Package 06 diagnostics for planned Surface work. " +
+            "Use Runtime > Bake Runtime Changes for production generation.",
             MessageType.None
         );
 
@@ -246,62 +184,6 @@ public partial class WorldMeshesEditorWindow :
             status == TerrainGenerationStateUtility.GenerationStatus.Current
                 ? "Current"
                 : "Out Of Date";
-    }
-
-    private static void LogRuntimeSurfaceGenerationResult(
-        TerrainSurfaceMaskGenerationResult result
-    )
-    {
-        if (result == null)
-        {
-            Debug.LogError(
-                "Runtime surface-mask generation returned no result."
-            );
-
-            return;
-        }
-
-        string report =
-            result.BuildDiagnosticReport();
-
-        if (
-            result.Outcome == TerrainSurfaceMaskGenerationOutcome.Completed
-            ||
-            result.Outcome == TerrainSurfaceMaskGenerationOutcome.NoWork
-        )
-        {
-            Debug.Log(report);
-        }
-        else if (
-            result.Outcome == TerrainSurfaceMaskGenerationOutcome.Cancelled
-        )
-        {
-            Debug.LogWarning(report);
-        }
-        else
-        {
-            Debug.LogError(report);
-        }
-    }
-
-    private static MessageType GetRuntimeSurfaceGenerationMessageType(
-        TerrainSurfaceMaskGenerationOutcome outcome
-    )
-    {
-        switch (outcome)
-        {
-            case TerrainSurfaceMaskGenerationOutcome.Completed:
-            case TerrainSurfaceMaskGenerationOutcome.NoWork:
-                return MessageType.Info;
-
-            case TerrainSurfaceMaskGenerationOutcome.Cancelled:
-            case TerrainSurfaceMaskGenerationOutcome.Blocked:
-            case TerrainSurfaceMaskGenerationOutcome.StalePlan:
-                return MessageType.Warning;
-
-            default:
-                return MessageType.Error;
-        }
     }
 
     private static string BuildPlannedSurfaceTileReport(

@@ -694,8 +694,7 @@ public class TerrainClipmapController :
             "TerrainClipmapController could not apply " +
             "independent LOD placement.\n\n" +
             detail +
-            "\n\nRun Sync World Hierarchy after generating " +
-            "the clipmap meshes.",
+            "\n\nRun Setup / Repair World Hierarchy.",
             this
         );
 

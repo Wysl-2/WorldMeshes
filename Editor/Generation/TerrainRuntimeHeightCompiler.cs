@@ -29,31 +29,6 @@ public static class TerrainRuntimeHeightCompiler
     }
 
     // =====================================================
-    // LEGACY FULL-COMPILE API
-    // =====================================================
-
-    /*
-     * Preserve the existing manual workflow: this API always performs a full
-     * runtime height rebuild. Package 08 will later make planned baking the
-     * normal user-facing path.
-     */
-    public static void CompileRuntimeHeightmaps(
-        WorldSettings worldSettings,
-        TerrainAuthoringData authoringData
-    )
-    {
-        TerrainRuntimeHeightCompileResult result =
-            RebuildAllRuntimeHeightmaps(
-                worldSettings,
-                authoringData
-            );
-
-        LogResult(
-            result
-        );
-    }
-
-    // =====================================================
     // PLANNED HEIGHT WORK
     // =====================================================
 

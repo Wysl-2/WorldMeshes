@@ -39,26 +39,8 @@ public static class TerrainCollisionMeshGenerator
     }
 
     // =====================================================
-    // LEGACY FULL API
+    // EXPLICIT FULL REBUILD
     // =====================================================
-
-    /*
-     * Preserve the historical manual button behavior: this public entry point
-     * still rebuilds every current collision chunk.
-     */
-    public static void GenerateCollisionMeshes(
-        WorldSettings worldSettings
-    )
-    {
-        TerrainCollisionGenerationResult result =
-            RebuildAllCollisionMeshes(
-                worldSettings
-            );
-
-        LogResult(
-            result
-        );
-    }
 
     public static TerrainCollisionGenerationResult
         RebuildAllCollisionMeshes(

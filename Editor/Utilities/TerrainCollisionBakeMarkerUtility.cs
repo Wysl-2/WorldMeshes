@@ -10,59 +10,6 @@ public static class TerrainCollisionBakeMarkerUtility
     private const string BakeMarkerAddressPrefix =
         "WorldMeshes_CollisionBakeMarker";
 
-    // =====================================================
-    // LEGACY / RECONCILE
-    // =====================================================
-
-    public static bool GenerateOrUpdateBakeMarkers(
-        WorldSettings worldSettings,
-        out List<BakeMarkerRecord> markerRecords
-    )
-    {
-        bool success =
-            ReconcileBakeMarkers(
-                worldSettings,
-                out markerRecords,
-                out int regeneratedCount,
-                out int reusedCount,
-                out int removedCount,
-                out bool cancelled,
-                out string errorMessage
-            );
-
-        if (!success)
-        {
-            if (cancelled)
-            {
-                Debug.LogWarning(
-                    "Collision bake marker reconciliation was cancelled."
-                );
-            }
-            else
-            {
-                Debug.LogError(
-                    errorMessage
-                );
-            }
-
-            return false;
-        }
-
-        Debug.Log(
-            "Collision bake marker reconciliation complete.\n\n" +
-            "Regenerated: " +
-            regeneratedCount +
-            "\n" +
-            "Reused: " +
-            reusedCount +
-            "\n" +
-            "Removed: " +
-            removedCount
-        );
-
-        return true;
-    }
-
     internal static bool ReconcileBakeMarkers(
         WorldSettings worldSettings,
         out List<BakeMarkerRecord> markerRecords,

@@ -106,15 +106,16 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.HelpBox(
-            "Compile Runtime Heightmaps with at least one enabled " +
-            "in-world height modifier before running this validation.\n\n" +
+            "Start from Runtime Ready with at least one enabled in-world " +
+            "height modifier. If runtime data is pending, open Runtime and " +
+            "run Bake Runtime Changes before this validation.\n\n" +
             "Validation compares modifier-affected generated tiles " +
             "against the live editor composite, verifies unaffected " +
             "generated tiles against committed base data, checks the " +
             "exact manifest height range, and checks generated shared " +
             "tile borders.\n\n" +
             "Play Mode appearance and collision shape should still be " +
-            "confirmed visually after compilation.",
+            "confirmed visually after baking.",
             MessageType.Info
         );
 

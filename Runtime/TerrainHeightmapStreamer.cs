@@ -795,8 +795,8 @@ public partial class TerrainHeightmapStreamer :
 
                 "TerrainHeightmapManifest is not assigned.\n\n" +
 
-                "Run Sync World Hierarchy after generating " +
-                "the heightmaps.",
+                "Open Runtime and run Bake Runtime Changes. If Runtime reports " +
+                "a structural hierarchy problem, run Setup / Repair World Hierarchy.",
                 this
             );
 
