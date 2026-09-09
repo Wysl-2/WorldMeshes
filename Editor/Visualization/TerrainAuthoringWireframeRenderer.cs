@@ -24,10 +24,11 @@ public enum TerrainAuthoringWireframeStatus
 /*
  * Editor-only displaced clipmap wireframe renderer.
  *
- * Package 3 keeps Package 2 spatial/lazy ownership but changes each built
- * section to a barycentric triangle representation. One cached triangle
- * mesh is reused for the Wireframe Only depth pass and the visible wire
- * pass, eliminating explicit line topology and unique-edge construction.
+ * Package 4 restores the Package 1/2 explicit-edge representation and
+ * removes all runtime/lazy topology construction. Spatial section meshes
+ * are generated persistently with the clipmap mesh assets. Enabling this
+ * visualization only synchronizes lightweight asset descriptors and
+ * submits already-generated meshes to the current Scene View.
  */
 [InitializeOnLoad]
 public static class TerrainAuthoringWireframeRenderer
@@ -59,9 +60,6 @@ public static class TerrainAuthoringWireframeRenderer
 
     private const float DefaultOpacity =
         0.8f;
-
-    private const float DefaultWireframeThickness =
-        1.25f;
 
     private static readonly Color DefaultColor =
         Color.white;
@@ -127,16 +125,6 @@ public static class TerrainAuthoringWireframeRenderer
     private static readonly int WireframeDepthBiasPropertyId =
         Shader.PropertyToID(
             "_WireframeDepthBias"
-        );
-
-    private static readonly int WireframeDepthOnlyPropertyId =
-        Shader.PropertyToID(
-            "_WireframeDepthOnly"
-        );
-
-    private static readonly int WireframeThicknessPropertyId =
-        Shader.PropertyToID(
-            "_WireframeThickness"
         );
 
     // =====================================================
@@ -224,17 +212,6 @@ public static class TerrainAuthoringWireframeRenderer
                 EnabledEditorPrefsKey,
                 value
             );
-
-            if (value)
-            {
-                TerrainAuthoringWireframeSectionCache
-                    .BeginEnableMeasurement();
-            }
-            else
-            {
-                TerrainAuthoringWireframeSectionCache
-                    .CancelEnableMeasurement();
-            }
 
             RequestReapply();
         }
@@ -468,10 +445,6 @@ public static class TerrainAuthoringWireframeRenderer
         }
     }
 
-    /*
-     * Backwards-compatible Package 1 names. A cached proxy mesh is now
-     * one built spatial section rather than one complete source renderer.
-     */
     public static int CachedProxyMeshCount
     {
         get
@@ -511,20 +484,6 @@ public static class TerrainAuthoringWireframeRenderer
 
     internal static void RequestRepaint()
     {
-        RepaintEditorViews();
-    }
-
-    internal static void ReportLazyBuildError(
-        string message
-    )
-    {
-        SetStatus(
-            TerrainAuthoringWireframeStatus.Error,
-            string.IsNullOrEmpty(message)
-                ? "Could not build a lazy true-wireframe section."
-                : message
-        );
-
         RepaintEditorViews();
     }
 
@@ -605,14 +564,9 @@ public static class TerrainAuthoringWireframeRenderer
                     false
                 );
 
-                ReleaseTransientResources();
-
-                sourceRendererCount =
-                    0;
-
                 SetStatus(
                     TerrainAuthoringWireframeStatus.Disabled,
-                    "True displaced wireframe is disabled."
+                    "True displaced wireframe is disabled. Generated preview assets remain available for immediate reuse."
                 );
 
                 RepaintEditorViews();
@@ -722,8 +676,8 @@ public static class TerrainAuthoringWireframeRenderer
             SetStatus(
                 TerrainAuthoringWireframeStatus.Ready,
                 wireframeOnly
-                    ? "Wireframe Only is active. Visible spatial sections use one cached barycentric triangle mesh for depth occlusion and wire rendering."
-                    : "Overlay mode is active. Visible spatial sections render as barycentric displaced triangle wire over the normal terrain."
+                    ? "Wireframe Only is active. Generated explicit-edge sections render an invisible displaced triangle depth pass before visible line topology."
+                    : "Overlay mode is active. Generated explicit-edge wireframe sections render over the normal displaced terrain."
             );
 
             RepaintEditorViews();
@@ -840,6 +794,9 @@ public static class TerrainAuthoringWireframeRenderer
         int compatibleRendererCount =
             0;
 
+        string firstPreviewError =
+            "";
+
         foreach (
             MeshRenderer renderer
             in renderers
@@ -864,12 +821,23 @@ public static class TerrainAuthoringWireframeRenderer
                 rendererId
             );
 
-            TerrainAuthoringWireframeSectionCache
-                .RegisterSource(
-                    renderer,
-                    sourceMesh,
-                    clipmapRoot
-                );
+            if (
+                !TerrainAuthoringWireframeSectionCache
+                    .TryRegisterSource(
+                        renderer,
+                        sourceMesh,
+                        clipmapRoot,
+                        out string previewError
+                    )
+                &&
+                string.IsNullOrEmpty(
+                    firstPreviewError
+                )
+            )
+            {
+                firstPreviewError =
+                    previewError;
+            }
         }
 
         TerrainAuthoringWireframeSectionCache
@@ -880,14 +848,34 @@ public static class TerrainAuthoringWireframeRenderer
         sourceRendererCount =
             compatibleRendererCount;
 
-        if (
-            compatibleRendererCount <= 0
-            ||
-            TerrainAuthoringWireframeSectionCache.SourceRendererCount <= 0
-        )
+        if (compatibleRendererCount <= 0)
         {
             errorMessage =
                 "No compatible ClipmapTerrain renderers were found. The terrain material must expose the Stage 6 _AuthoringWireframeOnly property.";
+
+            return false;
+        }
+
+        if (
+            !string.IsNullOrEmpty(
+                firstPreviewError
+            )
+        )
+        {
+            errorMessage =
+                firstPreviewError;
+
+            return false;
+        }
+
+        if (
+            TerrainAuthoringWireframeSectionCache.SourceRendererCount <= 0
+            ||
+            TerrainAuthoringWireframeSectionCache.BuiltSectionCount <= 0
+        )
+        {
+            errorMessage =
+                "Wireframe preview assets are missing or out of date. Regenerate Clipmap Meshes.";
 
             return false;
         }
@@ -1051,7 +1039,7 @@ public static class TerrainAuthoringWireframeRenderer
             );
 
         lineMaterial.name =
-            "WorldMeshes Authoring Barycentric Wireframe";
+            "WorldMeshes Authoring Wireframe Lines";
 
         lineMaterial.hideFlags =
             HideFlags.HideAndDontSave;
@@ -1083,16 +1071,6 @@ public static class TerrainAuthoringWireframeRenderer
         lineMaterial.SetFloat(
             WireframeDepthBiasPropertyId,
             0.00001f
-        );
-
-        lineMaterial.SetFloat(
-            WireframeDepthOnlyPropertyId,
-            0f
-        );
-
-        lineMaterial.SetFloat(
-            WireframeThicknessPropertyId,
-            DefaultWireframeThickness
         );
 
         depthMaterial =
@@ -1133,16 +1111,6 @@ public static class TerrainAuthoringWireframeRenderer
         depthMaterial.SetFloat(
             WireframeDepthBiasPropertyId,
             0f
-        );
-
-        depthMaterial.SetFloat(
-            WireframeDepthOnlyPropertyId,
-            1f
-        );
-
-        depthMaterial.SetFloat(
-            WireframeThicknessPropertyId,
-            DefaultWireframeThickness
         );
 
         return true;
@@ -1199,11 +1167,6 @@ public static class TerrainAuthoringWireframeRenderer
 
     private static void OnProjectChanged()
     {
-        /*
-         * Generated clipmap mesh assets are updated in place. Their Unity
-         * object identity can remain unchanged while topology changes, so
-         * discard all section descriptors/proxies on project changes.
-         */
         TerrainAuthoringWireframeSectionCache
             .DestroyAll();
 

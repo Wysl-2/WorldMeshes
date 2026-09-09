@@ -76,12 +76,6 @@ Shader "Hidden/WorldMeshes/ClipmapTerrainWireframe"
             Range(0, 1)
         ) = 0.8
 
-        [HideInInspector]
-        _WireframeThickness(
-            "Wireframe Thickness",
-            Float
-        ) = 1.25
-
         // =================================================
         // TRANSIENT MATERIAL RENDER STATE
         // =================================================
@@ -115,12 +109,6 @@ Shader "Hidden/WorldMeshes/ClipmapTerrainWireframe"
             "Wireframe Clip Depth Bias",
             Float
         ) = 0.00001
-
-        [HideInInspector]
-        _WireframeDepthOnly(
-            "Wireframe Depth Only",
-            Float
-        ) = 0
     }
 
     SubShader
@@ -132,7 +120,7 @@ Shader "Hidden/WorldMeshes/ClipmapTerrainWireframe"
             "RenderPipeline" = "UniversalPipeline"
         }
 
-        Cull Back
+        Cull Off
 
         ZTest LEqual
         ZWrite [_WireframeZWrite]
@@ -170,18 +158,6 @@ Shader "Hidden/WorldMeshes/ClipmapTerrainWireframe"
                     POSITION;
 
                 /*
-                 * Package 3 proxy-only barycentric coordinates.
-                 *
-                 * Each source triangle is expanded to three independent
-                 * vertices carrying (1,0,0), (0,1,0), and (0,0,1).
-                 * Fragment interpolation reconstructs the exact three
-                 * source triangle boundaries without an explicit line
-                 * index buffer.
-                 */
-                float3 barycentric :
-                    TEXCOORD2;
-
-                /*
                  * Copied directly from the generated source mesh.
                  *
                  * TEXCOORD3.x:
@@ -200,9 +176,6 @@ Shader "Hidden/WorldMeshes/ClipmapTerrainWireframe"
 
                 float3 positionWS :
                     TEXCOORD0;
-
-                float3 barycentric :
-                    TEXCOORD1;
             };
 
             // =================================================
@@ -227,14 +200,12 @@ Shader "Hidden/WorldMeshes/ClipmapTerrainWireframe"
 
                 float4 _WireframeColor;
                 float _WireframeOpacity;
-                float _WireframeThickness;
 
                 float _WireframeZWrite;
                 float _WireframeColorMask;
                 float _WireframeSrcBlend;
                 float _WireframeDstBlend;
                 float _WireframeDepthBias;
-                float _WireframeDepthOnly;
 
             CBUFFER_END
 
@@ -268,18 +239,15 @@ Shader "Hidden/WorldMeshes/ClipmapTerrainWireframe"
                 OUT.positionWS =
                     positionWS;
 
-                OUT.barycentric =
-                    IN.barycentric;
-
                 OUT.positionHCS =
                     TransformWorldToHClip(
                         positionWS
                     );
 
                 /*
-                 * Only the visible wire material uses this small
-                 * clip-space depth bias. The depth-only material sets the
-                 * property to zero and writes the exact displaced surface.
+                 * Only the visible line material uses this small
+                 * clip-space depth bias. The invisible depth material
+                 * sets the property to zero.
                  */
                 if (
                     _WireframeDepthBias >
@@ -317,96 +285,12 @@ Shader "Hidden/WorldMeshes/ClipmapTerrainWireframe"
                     IN.positionWS.xz
                 );
 
-                /*
-                 * Wireframe Only reuses this same barycentric proxy Mesh
-                 * for its invisible solid depth prepass. ColorMask is zero
-                 * for that material, so skip derivative/edge work and let
-                 * the complete displaced triangle surface write depth.
-                 */
-                if (
-                    _WireframeDepthOnly >
-                    0.5
-                )
-                {
-                    return
-                        half4(
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0
-                        );
-                }
-
-                float3 derivativeWidth =
-                    max(
-                        fwidth(
-                            IN.barycentric
-                        ),
-                        float3(
-                            0.000001,
-                            0.000001,
-                            0.000001
-                        )
-                    );
-
-                float thickness =
-                    max(
-                        _WireframeThickness,
-                        0.5
-                    );
-
-                float3 innerThreshold =
-                    derivativeWidth *
-                    max(
-                        thickness -
-                        0.5,
-                        0.0
-                    );
-
-                float3 outerThreshold =
-                    derivativeWidth *
-                    (
-                        thickness +
-                        0.5
-                    );
-
-                float3 interiorFactor =
-                    smoothstep(
-                        innerThreshold,
-                        outerThreshold,
-                        IN.barycentric
-                    );
-
-                float lineCoverage =
-                    saturate(
-                        1.0 -
-                        min(
-                            interiorFactor.x,
-                            min(
-                                interiorFactor.y,
-                                interiorFactor.z
-                            )
-                        )
-                    );
-
-                /*
-                 * Do not shade the triangle interior after edge coverage
-                 * falls effectively to zero. This keeps the barycentric
-                 * representation focused on edge fragments even though the
-                 * GPU rasterizes normal triangle primitives.
-                 */
-                clip(
-                    lineCoverage -
-                    0.001
-                );
-
                 return
                     half4(
                         _WireframeColor.rgb,
                         saturate(
                             _WireframeColor.a *
-                            _WireframeOpacity *
-                            lineCoverage
+                            _WireframeOpacity
                         )
                     );
             }

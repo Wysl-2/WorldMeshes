@@ -108,6 +108,9 @@ public static class TerrainClipmapMeshGenerator
         HashSet<string> expectedAssetPaths =
             new HashSet<string>();
 
+        HashSet<string> expectedWireframePreviewAssetPaths =
+            new HashSet<string>();
+
         int totalAssets =
             1 +
             Mathf.Max(
@@ -127,6 +130,12 @@ public static class TerrainClipmapMeshGenerator
             0;
 
         int removedCount =
+            0;
+
+        int wireframePreviewSectionCount =
+            0;
+
+        int removedWireframePreviewAssetCount =
             0;
 
         bool cancelled =
@@ -172,6 +181,16 @@ public static class TerrainClipmapMeshGenerator
                     GetCenterMeshName(),
                     centerData
                 );
+
+            wireframePreviewSectionCount +=
+                TerrainClipmapWireframePreviewGenerator
+                    .GeneratePreview(
+                        GetCenterMeshName(),
+                        centerData.vertices,
+                        centerData.triangles,
+                        centerData.clipmapData,
+                        expectedWireframePreviewAssetPaths
+                    );
 
             if (
                 centerSaveResult ==
@@ -267,6 +286,18 @@ public static class TerrainClipmapMeshGenerator
                         ringData
                     );
 
+                wireframePreviewSectionCount +=
+                    TerrainClipmapWireframePreviewGenerator
+                        .GeneratePreview(
+                            GetRingMeshName(
+                                level
+                            ),
+                            ringData.vertices,
+                            ringData.triangles,
+                            ringData.clipmapData,
+                            expectedWireframePreviewAssetPaths
+                        );
+
                 if (
                     ringSaveResult ==
                     SaveResult.Created
@@ -333,6 +364,19 @@ public static class TerrainClipmapMeshGenerator
                         stitchData
                     );
 
+                wireframePreviewSectionCount +=
+                    TerrainClipmapWireframePreviewGenerator
+                        .GeneratePreview(
+                            GetStitchMeshName(
+                                level - 1,
+                                level
+                            ),
+                            stitchData.vertices,
+                            stitchData.triangles,
+                            stitchData.clipmapData,
+                            expectedWireframePreviewAssetPaths
+                        );
+
                 if (
                     stitchSaveResult ==
                     SaveResult.Created
@@ -389,12 +433,21 @@ public static class TerrainClipmapMeshGenerator
                 expectedAssetPaths
             );
 
+        removedWireframePreviewAssetCount =
+            TerrainClipmapWireframePreviewGenerator
+                .RemoveObsoletePreviewAssets(
+                    expectedWireframePreviewAssetPaths
+                );
+
         // -------------------------------------------------
         // Save
         // -------------------------------------------------
 
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
+
+        TerrainAuthoringWireframeRenderer
+            .RequestRebuild();
 
         // -------------------------------------------------
         // Select center
@@ -456,8 +509,17 @@ public static class TerrainClipmapMeshGenerator
             $"Removed Obsolete: " +
             $"{removedCount}\n\n" +
 
+            $"Wireframe Preview Sections: " +
+            $"{wireframePreviewSectionCount}\n" +
+
+            $"Removed Obsolete Wireframe Preview Assets: " +
+            $"{removedWireframePreviewAssetCount}\n\n" +
+
             $"Output Folder:\n" +
-            $"{ClipmapMeshFolder}"
+            $"{ClipmapMeshFolder}\n\n" +
+
+            $"Wireframe Preview Folder:\n" +
+            $"{WorldMeshesPaths.GeneratedWireframePreviewMeshes}"
         );
     }
 

@@ -101,6 +101,9 @@ public static class WorldMeshesPaths
     public const string GeneratedClipmapMeshes =
         GeneratedMeshes + "/Clipmap";
 
+    public const string GeneratedWireframePreviewMeshes =
+        GeneratedMeshes + "/WireframePreview";
+
     public const string GeneratedCollisionMeshes =
         GeneratedMeshes + "/Collision";
 

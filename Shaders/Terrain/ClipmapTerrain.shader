@@ -900,57 +900,6 @@ Shader "Custom/ClipmapTerrain"
             {
                 Varyings OUT;
 
-                /*
-                 * Package 3 Wireframe Only fast path.
-                 *
-                 * The transient barycentric proxy owns displaced depth
-                 * and wire rendering while _AuthoringWireframeOnly is set.
-                 * Keep the source MeshRenderer/material/MPB alive, but
-                 * skip terrain height, normal, lighting, and fog work and
-                 * collapse its triangles outside the clip volume.
-                 * Runtime leaves this property at zero.
-                 */
-                if (
-                    _AuthoringWireframeOnly >
-                    0.5
-                )
-                {
-                    OUT.positionHCS =
-                        float4(
-                            2.0,
-                            2.0,
-                            1.0,
-                            1.0
-                        );
-
-                    OUT.positionWS =
-                        float3(
-                            0.0,
-                            0.0,
-                            0.0
-                        );
-
-                    OUT.normalWS =
-                        float3(
-                            0.0,
-                            1.0,
-                            0.0
-                        );
-
-                    OUT.vertexLighting =
-                        half3(
-                            0.0,
-                            0.0,
-                            0.0
-                        );
-
-                    OUT.fogFactor =
-                        0.0;
-
-                    return
-                        OUT;
-                }
-
                 float3 positionWS =
                     TransformObjectToWorld(
                         IN.positionOS.xyz

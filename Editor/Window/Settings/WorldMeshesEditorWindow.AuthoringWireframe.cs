@@ -184,6 +184,12 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.LabelField(
+            "Preview Assets",
+            TerrainAuthoringWireframeSectionCache
+                .PreviewAssetStatusLabel
+        );
+
+        EditorGUILayout.LabelField(
             "Source Renderers",
             TerrainAuthoringWireframeRenderer
                 .SourceRendererCount
@@ -191,35 +197,14 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.LabelField(
-            "Section Descriptors",
+            "Generated Wireframe Sections",
             TerrainAuthoringWireframeSectionCache
                 .TotalSectionDescriptorCount
                 .ToString()
         );
 
         EditorGUILayout.LabelField(
-            "Built Proxy Sections",
-            TerrainAuthoringWireframeSectionCache
-                .BuiltSectionCount
-                .ToString()
-        );
-
-        EditorGUILayout.LabelField(
-            "Unbuilt / Lazy Sections",
-            TerrainAuthoringWireframeSectionCache
-                .UnbuiltSectionCount
-                .ToString()
-        );
-
-        EditorGUILayout.LabelField(
-            "Pending Section Builds",
-            TerrainAuthoringWireframeSectionCache
-                .PendingBuildCount
-                .ToString()
-        );
-
-        EditorGUILayout.LabelField(
-            "Cached Wire Edges",
+            "Generated Wire Edges",
             TerrainAuthoringWireframeRenderer
                 .CachedEdgeCount
                 .ToString()
@@ -258,75 +243,6 @@ public partial class WorldMeshesEditorWindow :
             TerrainAuthoringWireframeCulling
                 .FrustumCulledSectionCount
                 .ToString()
-        );
-
-        GUILayout.Space(
-            5f
-        );
-
-        EditorGUILayout.LabelField(
-            "Wire Representation",
-            TerrainAuthoringWireframeSectionCache
-                .ActiveRepresentationLabel
-        );
-
-        EditorGUILayout.LabelField(
-            "First Visible Latency",
-            FormatWireframeMilliseconds(
-                TerrainAuthoringWireframeSectionCache
-                    .FirstVisibleLatencyMilliseconds,
-                true
-            )
-        );
-
-        EditorGUILayout.LabelField(
-            "Last Source Preparation",
-            FormatWireframeMilliseconds(
-                TerrainAuthoringWireframeSectionCache
-                    .LastSourcePreparationMilliseconds
-            )
-        );
-
-        EditorGUILayout.LabelField(
-            "Last / Avg Section Build",
-            FormatWireframeMilliseconds(
-                TerrainAuthoringWireframeSectionCache
-                    .LastSectionBuildMilliseconds
-            ) +
-            " / " +
-            FormatWireframeMilliseconds(
-                TerrainAuthoringWireframeSectionCache
-                    .AverageSectionBuildMilliseconds
-            )
-        );
-
-        EditorGUILayout.LabelField(
-            "Last Vertex Preparation",
-            FormatWireframeMilliseconds(
-                TerrainAuthoringWireframeSectionCache
-                    .LastVertexPreparationMilliseconds
-            )
-        );
-
-        EditorGUILayout.LabelField(
-            "Last Mesh Upload",
-            FormatWireframeMilliseconds(
-                TerrainAuthoringWireframeSectionCache
-                    .LastMeshUploadMilliseconds
-            )
-        );
-
-        EditorGUILayout.LabelField(
-            "Depth / Wire Submission",
-            FormatWireframeMilliseconds(
-                TerrainAuthoringWireframeSectionCache
-                    .LastDepthSubmissionMilliseconds
-            ) +
-            " / " +
-            FormatWireframeMilliseconds(
-                TerrainAuthoringWireframeSectionCache
-                    .LastWireSubmissionMilliseconds
-            )
         );
 
         string statusMessage =
@@ -369,52 +285,28 @@ public partial class WorldMeshesEditorWindow :
             "This is a custom displaced wireframe, not Unity's " +
             "built-in Scene View wireframe mode.\n\n" +
 
-            "Package 3 keeps Package 2 spatial descriptors, lazy builds, " +
-            "caching, LOD limits, distance culling, and frustum culling, " +
-            "but replaces explicit MeshTopology.Lines proxies with one " +
-            "barycentric triangle mesh per built section.\n\n" +
+            "Wireframe preview geometry is generated once alongside the " +
+            "clipmap meshes. Enabling or disabling Wireframe only changes " +
+            "editor visualization; it does not rebuild triangle topology " +
+            "or edge buffers.\n\n" +
 
-            "Overlay draws barycentric displaced triangle edges over the " +
-            "normal terrain. Wireframe Only reuses the same section mesh " +
-            "first as a solid depth proxy and then as visible wire, so " +
-            "hidden terrain edges remain occluded.\n\n" +
+            "Overlay draws the generated explicit MeshTopology.Lines " +
+            "sections over the normal terrain. Wireframe Only suppresses " +
+            "the normal fill, renders each section's displaced triangle " +
+            "submesh as an invisible depth proxy, then renders its exact " +
+            "deduplicated line submesh.\n\n" +
 
-            "Cached / Rendered Wire Edges now count triangle-edge " +
-            "incidences represented by the barycentric meshes; shared " +
-            "triangle edges are therefore counted from both triangles.\n\n" +
+            "Terrain height/stamp changes do not require preview " +
+            "regeneration because displacement still comes from the " +
+            "current height cache. Clipmap topology changes require the " +
+            "normal Generate / Regenerate Clipmap Meshes operation.\n\n" +
 
-            "All controls and diagnostics remain editor-only and do not " +
-            "change generated clipmap geometry, runtime terrain, LOD " +
-            "layout, heightmap streaming, or collision streaming.",
+            "These preview assets and controls are editor-only and do not " +
+            "alter runtime terrain, LOD layout, heightmap streaming, or " +
+            "collision streaming.",
             MessageType.Info
         );
 
         GUILayout.EndVertical();
-    }
-
-    private static string FormatWireframeMilliseconds(
-        double milliseconds,
-        bool pendingWhenNegative = false
-    )
-    {
-        if (
-            pendingWhenNegative
-            &&
-            milliseconds < 0.0
-        )
-        {
-            return
-                "Pending";
-        }
-
-        return
-            Mathf.Max(
-                0f,
-                (float)milliseconds
-            )
-            .ToString(
-                "0.00"
-            ) +
-            " ms";
     }
 }
