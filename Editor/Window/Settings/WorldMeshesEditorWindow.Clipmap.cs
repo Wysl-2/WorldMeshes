@@ -8,15 +8,38 @@ public partial class WorldMeshesEditorWindow : EditorWindow
     // =====================================================
 
     [SerializeField]
-    private int inputClipmapCenterResolution = 64;
+    private int inputClipmapCenterResolution =
+        64;
 
     [SerializeField]
-    private int inputClipmapLevelCount = 6;
+    private int inputClipmapLevelCount =
+        6;
 
     [SerializeField]
-    private int inputClipmapBaseSampleStep = 1;
+    private int inputClipmapBaseSampleStep =
+        1;
+
+    /*
+     * User-facing staged coverage requests for LOD1+.
+     *
+     * These floats exist only in the editor UI. WorldSettings
+     * stores exact integer outer resolutions as the authoritative
+     * generated topology.
+     *
+     * Index 0 = LOD1.
+     */
+    [SerializeField]
+    private float[] inputClipmapLODOuterCoverages =
+        new float[
+            TerrainClipmapTopologyUtility.MaximumLevelCount -
+            1
+        ];
 
     private WorldSettings clipmapInputSource;
+
+    // =====================================================
+    // LOAD
+    // =====================================================
 
     private void LoadClipmapSettingsIntoEditor()
     {
@@ -30,15 +53,15 @@ public partial class WorldMeshesEditorWindow : EditorWindow
 
         inputClipmapCenterResolution =
             Mathf.Max(
-                8,
+                TerrainClipmapTopologyUtility.MinimumOuterResolution,
                 worldSettings.clipmapCenterResolution
             );
 
         inputClipmapLevelCount =
             Mathf.Clamp(
                 worldSettings.clipmapLevelCount,
-                1,
-                10
+                TerrainClipmapTopologyUtility.MinimumLevelCount,
+                TerrainClipmapTopologyUtility.MaximumLevelCount
             );
 
         inputClipmapBaseSampleStep =
@@ -47,11 +70,34 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                 worldSettings.clipmapBaseSampleStep
             );
 
+        EnsureClipmapLODCoverageInputCapacity();
+
+        for (
+            int level = 1;
+            level <
+                TerrainClipmapTopologyUtility.MaximumLevelCount;
+            level++
+        )
+        {
+            inputClipmapLODOuterCoverages[
+                level - 1
+            ] =
+                TerrainClipmapTopologyUtility
+                    .GetLODOuterCoverage(
+                        worldSettings,
+                        level
+                    );
+        }
+
         clipmapInputSource =
             worldSettings;
 
         Repaint();
     }
+
+    // =====================================================
+    // UPDATE
+    // =====================================================
 
     private void UpdateClipmapSettings()
     {
@@ -62,15 +108,15 @@ public partial class WorldMeshesEditorWindow : EditorWindow
 
         int centerResolution =
             Mathf.Max(
-                8,
+                TerrainClipmapTopologyUtility.MinimumOuterResolution,
                 inputClipmapCenterResolution
             );
 
         int levelCount =
             Mathf.Clamp(
                 inputClipmapLevelCount,
-                1,
-                10
+                TerrainClipmapTopologyUtility.MinimumLevelCount,
+                TerrainClipmapTopologyUtility.MaximumLevelCount
             );
 
         int baseSampleStep =
@@ -80,11 +126,15 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             );
 
         // -------------------------------------------------
-        // Validate resolution
+        // Validate LOD0 resolution
         // -------------------------------------------------
 
         if (
-            centerResolution % 4 != 0
+            centerResolution %
+                TerrainClipmapTopologyUtility
+                    .OuterResolutionAlignment
+            !=
+            0
         )
         {
             EditorUtility.DisplayDialog(
@@ -104,6 +154,26 @@ public partial class WorldMeshesEditorWindow : EditorWindow
 
             return;
         }
+
+        inputClipmapCenterResolution =
+            centerResolution;
+
+        inputClipmapLevelCount =
+            levelCount;
+
+        inputClipmapBaseSampleStep =
+            baseSampleStep;
+
+        EnsureClipmapLODCoverageInputCapacity();
+
+        float stagedBaseSpacing =
+            CalculateStagedClipmapBaseSpacing();
+
+        int[] savedOuterResolutions =
+            ResolveStagedLODOuterResolutions(
+                stagedBaseSpacing,
+                levelCount
+            );
 
         // -------------------------------------------------
         // Record undo
@@ -127,6 +197,9 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         worldSettings.clipmapBaseSampleStep =
             baseSampleStep;
 
+        worldSettings.clipmapLODOuterResolutions =
+            savedOuterResolutions;
+
         EditorUtility.SetDirty(
             worldSettings
         );
@@ -135,34 +208,24 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             worldSettings
         );
 
-        clipmapInputSource =
-            worldSettings;
-
-        // -------------------------------------------------
-        // Derived values
-        // -------------------------------------------------
-
-        float baseSpacing =
-            worldSettings.ClipmapBaseSpacing;
+        /*
+         * Reload the staged world-space coverage from the exact
+         * saved topology so aligned values become the new visible
+         * baseline without preserving a second source of truth.
+         */
+        LoadClipmapSettingsIntoEditor();
 
         float outerDiameter =
-            centerResolution *
-            baseSpacing *
-            Mathf.Pow(
-                2f,
-                levelCount - 1
-            );
+            TerrainClipmapTopologyUtility
+                .CalculateClipmapDiameter(
+                    worldSettings
+                );
 
-        int generatedAssetCount =
-            1 +
-            Mathf.Max(
-                0,
-                levelCount - 1
-            )
-            *
-            2;
-
-        Repaint();
+        long estimatedTriangles =
+            TerrainClipmapTopologyUtility
+                .CalculateTotalTriangleCount(
+                    worldSettings
+                );
 
         Debug.Log(
             "Clipmap settings updated.\n\n" +
@@ -177,16 +240,23 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             $"{baseSampleStep}\n" +
 
             $"Base Vertex Spacing: " +
-            $"{baseSpacing}\n\n" +
-
-            $"Expected Clipmap Assets: " +
-            $"{generatedAssetCount}\n" +
+            $"{worldSettings.ClipmapBaseSpacing}\n\n" +
 
             $"Outer Coverage: " +
             $"{outerDiameter} x " +
-            $"{outerDiameter}"
+            $"{outerDiameter}\n" +
+
+            $"Estimated Triangles: " +
+            $"{estimatedTriangles:N0}\n\n" +
+
+            "Regenerate Clipmap Meshes before running " +
+            "Setup / Repair World Hierarchy."
         );
     }
+
+    // =====================================================
+    // DRAW
+    // =====================================================
 
     private void DrawClipmapGenerationSettings()
     {
@@ -232,15 +302,22 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             LoadClipmapSettingsIntoEditor();
         }
 
+        EnsureClipmapLODCoverageInputCapacity();
+
         // -------------------------------------------------
-        // Inputs
+        // LOD0 inputs
         // -------------------------------------------------
 
         float oldLabelWidth =
             EditorGUIUtility.labelWidth;
 
         EditorGUIUtility.labelWidth =
-            150f;
+            165f;
+
+        GUILayout.Label(
+            "LOD0",
+            EditorStyles.boldLabel
+        );
 
         inputClipmapCenterResolution =
             EditorGUILayout.IntField(
@@ -260,24 +337,21 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                 inputClipmapBaseSampleStep
             );
 
-        EditorGUIUtility.labelWidth =
-            oldLabelWidth;
-
         // -------------------------------------------------
         // Clamp basic ranges
         // -------------------------------------------------
 
         inputClipmapCenterResolution =
             Mathf.Max(
-                8,
+                TerrainClipmapTopologyUtility.MinimumOuterResolution,
                 inputClipmapCenterResolution
             );
 
         inputClipmapLevelCount =
             Mathf.Clamp(
                 inputClipmapLevelCount,
-                1,
-                10
+                TerrainClipmapTopologyUtility.MinimumLevelCount,
+                TerrainClipmapTopologyUtility.MaximumLevelCount
             );
 
         inputClipmapBaseSampleStep =
@@ -286,17 +360,14 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                 inputClipmapBaseSampleStep
             );
 
-        // -------------------------------------------------
-        // Validation
-        // -------------------------------------------------
-
-        bool resolutionValid =
+        bool centerResolutionValid =
             inputClipmapCenterResolution %
-            4
+                TerrainClipmapTopologyUtility
+                    .OuterResolutionAlignment
             ==
             0;
 
-        if (!resolutionValid)
+        if (!centerResolutionValid)
         {
             GUILayout.Space(5f);
 
@@ -307,10 +378,6 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                 MessageType.Warning
             );
         }
-
-        // -------------------------------------------------
-        // Derived values
-        // -------------------------------------------------
 
         float heightSampleSpacing =
             Mathf.Max(
@@ -324,15 +391,161 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             );
 
         float stagedBaseSpacing =
-            heightSampleSpacing *
-            inputClipmapBaseSampleStep;
+            CalculateStagedClipmapBaseSpacing();
 
-        float stagedOuterDiameter =
+        float lod0Coverage =
             inputClipmapCenterResolution *
-            stagedBaseSpacing *
-            Mathf.Pow(
-                2f,
-                inputClipmapLevelCount - 1
+            stagedBaseSpacing;
+
+        EditorGUILayout.LabelField(
+            "Vertex Spacing",
+            stagedBaseSpacing.ToString()
+        );
+
+        EditorGUILayout.LabelField(
+            "Outer Coverage",
+            $"{lod0Coverage} x {lod0Coverage}"
+        );
+
+        // -------------------------------------------------
+        // Per-LOD coverage
+        // -------------------------------------------------
+
+        if (
+            inputClipmapLevelCount >
+            1
+        )
+        {
+            GUILayout.Space(10f);
+
+            GUILayout.Label(
+                "LOD Ring Coverage",
+                EditorStyles.boldLabel
+            );
+
+            EditorGUILayout.HelpBox(
+                "Each coarser LOD keeps the existing 2:1 " +
+                "vertex-spacing relationship. Outer Coverage " +
+                "controls how far that LOD extends.\n\n" +
+                "Coverage is rounded upward to the nearest " +
+                "grid-aligned resolution divisible by 4. Inner " +
+                "ring boundaries remain derived automatically " +
+                "from the previous finer LOD.",
+                MessageType.Info
+            );
+
+            int finerOuterResolution =
+                inputClipmapCenterResolution;
+
+            for (
+                int level = 1;
+                level < inputClipmapLevelCount;
+                level++
+            )
+            {
+                int index =
+                    level -
+                    1;
+
+                float spacing =
+                    stagedBaseSpacing *
+                    Mathf.Pow(
+                        2f,
+                        level
+                    );
+
+                GUILayout.Space(4f);
+
+                GUILayout.Label(
+                    $"LOD{level}",
+                    EditorStyles.boldLabel
+                );
+
+                float requestedCoverage =
+                    Mathf.Max(
+                        0f,
+                        inputClipmapLODOuterCoverages[
+                            index
+                        ]
+                    );
+
+                requestedCoverage =
+                    EditorGUILayout.FloatField(
+                        "Outer Coverage",
+                        requestedCoverage
+                    );
+
+                inputClipmapLODOuterCoverages[
+                    index
+                ] =
+                    Mathf.Max(
+                        0f,
+                        requestedCoverage
+                    );
+
+                int resolvedResolution =
+                    TerrainClipmapTopologyUtility
+                        .ResolveOuterResolutionForCoverage(
+                            requestedCoverage,
+                            spacing,
+                            finerOuterResolution
+                        );
+
+                float resolvedCoverage =
+                    resolvedResolution *
+                    spacing;
+
+                GUILayout.Space(3f);
+
+                EditorGUILayout.LabelField(
+                    $"LOD{level} Generated Coverage",
+                    $"{resolvedCoverage} x " +
+                    $"{resolvedCoverage}"
+                );
+
+                EditorGUILayout.LabelField(
+                    $"LOD{level} Vertex Spacing",
+                    spacing.ToString()
+                );
+
+                EditorGUILayout.LabelField(
+                    $"LOD{level} Outer Resolution",
+                    resolvedResolution.ToString()
+                );
+
+                if (
+                    !Mathf.Approximately(
+                        requestedCoverage,
+                        resolvedCoverage
+                    )
+                )
+                {
+                    EditorGUILayout.HelpBox(
+                        $"LOD{level} will align upward from " +
+                        $"{requestedCoverage} to " +
+                        $"{resolvedCoverage} world units.",
+                        MessageType.None
+                    );
+                }
+
+                finerOuterResolution =
+                    resolvedResolution;
+
+                GUILayout.Space(5f);
+            }
+        }
+
+        EditorGUIUtility.labelWidth =
+            oldLabelWidth;
+
+        // -------------------------------------------------
+        // Resolve staged topology
+        // -------------------------------------------------
+
+        int[] stagedOuterResolutions =
+            ResolveStagedLODOuterResolutions(
+                stagedBaseSpacing,
+                inputClipmapLevelCount
             );
 
         int generatedAssetCount =
@@ -345,6 +558,29 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             *
             2;
 
+        int outermostResolution =
+            inputClipmapLevelCount <= 1
+                ? inputClipmapCenterResolution
+                : stagedOuterResolutions[
+                    inputClipmapLevelCount -
+                    2
+                ];
+
+        float outermostSpacing =
+            stagedBaseSpacing *
+            Mathf.Pow(
+                2f,
+                inputClipmapLevelCount - 1
+            );
+
+        float stagedOuterDiameter =
+            outermostResolution *
+            outermostSpacing;
+
+        // -------------------------------------------------
+        // Derived summary
+        // -------------------------------------------------
+
         GUILayout.Space(5f);
 
         EditorGUILayout.LabelField(
@@ -353,57 +589,80 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         );
 
         EditorGUILayout.LabelField(
-            "Base Vertex Spacing",
-            stagedBaseSpacing.ToString()
-        );
-
-        EditorGUILayout.LabelField(
             "Generated Assets",
             generatedAssetCount.ToString()
         );
 
         EditorGUILayout.LabelField(
-            "Outer Coverage",
+            "Final Outer Coverage",
             $"{stagedOuterDiameter} x " +
             $"{stagedOuterDiameter}"
         );
 
         // -------------------------------------------------
-        // LOD spacing summary
+        // Triangle estimate
         // -------------------------------------------------
 
         GUILayout.Space(5f);
 
-        string spacingSummary =
-            "";
+        long totalTriangles =
+            TerrainClipmapTopologyUtility
+                .CalculateCenterTriangleCount(
+                    inputClipmapCenterResolution
+                );
+
+        string triangleSummary =
+            $"LOD0: {totalTriangles:N0}";
+
+        int triangleFinerOuterResolution =
+            inputClipmapCenterResolution;
 
         for (
-            int level = 0;
+            int level = 1;
             level < inputClipmapLevelCount;
             level++
         )
         {
-            float levelSpacing =
-                stagedBaseSpacing *
-                Mathf.Pow(
-                    2f,
-                    level
-                );
+            int outerResolution =
+                stagedOuterResolutions[
+                    level - 1
+                ];
 
-            if (level > 0)
-            {
-                spacingSummary +=
-                    "\n";
-            }
+            long ringTriangles =
+                TerrainClipmapTopologyUtility
+                    .CalculateRingTriangleCount(
+                        outerResolution,
+                        triangleFinerOuterResolution
+                    );
 
-            spacingSummary +=
-                $"LOD{level}: " +
-                $"{levelSpacing}";
+            long stitchTriangles =
+                TerrainClipmapTopologyUtility
+                    .CalculateStitchTriangleCount(
+                        triangleFinerOuterResolution
+                    );
+
+            long levelTriangles =
+                ringTriangles +
+                stitchTriangles;
+
+            totalTriangles +=
+                levelTriangles;
+
+            triangleSummary +=
+                $"\nLOD{level}: " +
+                $"{levelTriangles:N0} " +
+                $"({ringTriangles:N0} ring + " +
+                $"{stitchTriangles:N0} stitch)";
+
+            triangleFinerOuterResolution =
+                outerResolution;
         }
 
         EditorGUILayout.HelpBox(
-            "Vertex Spacing\n\n" +
-            spacingSummary,
+            "Estimated Triangles\n\n" +
+            triangleSummary +
+            "\n\n" +
+            $"Total: {totalTriangles:N0}",
             MessageType.Info
         );
 
@@ -418,8 +677,9 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             "runtime terrain clipmap.\n\n" +
 
             "LOD0 is a complete square. Each coarser level " +
-            "is a hollow ring, with a dedicated 2:1 stitch " +
-            "mesh joining it to the previous level.\n\n" +
+            "is a hollow ring with independently configurable " +
+            "outer coverage and a dedicated 2:1 stitch mesh " +
+            "joining it to the previous level.\n\n" +
 
             "No height displacement is performed at this stage.",
             MessageType.Info
@@ -462,7 +722,9 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             "saved in WorldSettings.\n\n" +
 
             "Press Update Clipmap Settings before generating " +
-            "if you have changed the fields above.",
+            "if you have changed the fields above. After a " +
+            "topology change, regenerate the clipmap meshes " +
+            "before running Setup / Repair World Hierarchy.",
             MessageType.Warning
         );
 
@@ -500,11 +762,11 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         EditorGUILayout.HelpBox(
             "Validates the complete generated clipmap topology.\n\n" +
 
-            "The center, rings, and stitch meshes are treated " +
-            "as one combined surface and checked for cracks, " +
-            "holes, overlapping triangles, non-manifold edges, " +
-            "degenerate triangles, incorrect winding, and " +
-            "incorrect overall coverage.\n\n" +
+            "The center, variable-sized rings, and stitch meshes " +
+            "are treated as one combined surface and checked for " +
+            "cracks, holes, overlapping triangles, non-manifold " +
+            "edges, degenerate triangles, incorrect winding, and " +
+            "incorrect per-LOD/overall coverage.\n\n" +
 
             "No generated assets are modified.",
             MessageType.Info
@@ -524,5 +786,175 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         }
 
         GUILayout.EndVertical();
+    }
+
+    // =====================================================
+    // STAGED LOD HELPERS
+    // =====================================================
+
+    private void EnsureClipmapLODCoverageInputCapacity()
+    {
+        int requiredLength =
+            TerrainClipmapTopologyUtility.MaximumLevelCount -
+            1;
+
+        if (
+            inputClipmapLODOuterCoverages != null
+            &&
+            inputClipmapLODOuterCoverages.Length ==
+                requiredLength
+        )
+        {
+            return;
+        }
+
+        float[] replacement =
+            new float[
+                requiredLength
+            ];
+
+        if (
+            inputClipmapLODOuterCoverages != null
+        )
+        {
+            int copyCount =
+                Mathf.Min(
+                    replacement.Length,
+                    inputClipmapLODOuterCoverages.Length
+                );
+
+            for (
+                int index = 0;
+                index < copyCount;
+                index++
+            )
+            {
+                replacement[index] =
+                    inputClipmapLODOuterCoverages[
+                        index
+                    ];
+            }
+        }
+
+        inputClipmapLODOuterCoverages =
+            replacement;
+    }
+
+    private float CalculateStagedClipmapBaseSpacing()
+    {
+        if (worldSettings == null)
+        {
+            return
+                1f;
+        }
+
+        float heightSampleSpacing =
+            Mathf.Max(
+                0.01f,
+                worldSettings.chunkSize
+            )
+            /
+            Mathf.Max(
+                1,
+                worldSettings.heightfieldResolutionPerChunk
+            );
+
+        return
+            heightSampleSpacing *
+            Mathf.Max(
+                1,
+                inputClipmapBaseSampleStep
+            );
+    }
+
+    private int[] ResolveStagedLODOuterResolutions(
+        float baseSpacing,
+        int levelCount
+    )
+    {
+        EnsureClipmapLODCoverageInputCapacity();
+
+        int safeLevelCount =
+            Mathf.Clamp(
+                levelCount,
+                TerrainClipmapTopologyUtility.MinimumLevelCount,
+                TerrainClipmapTopologyUtility.MaximumLevelCount
+            );
+
+        int[] resolved =
+            new int[
+                Mathf.Max(
+                    0,
+                    safeLevelCount - 1
+                )
+            ];
+
+        int finerResolution =
+            inputClipmapCenterResolution;
+
+        for (
+            int level = 1;
+            level < safeLevelCount;
+            level++
+        )
+        {
+            int index =
+                level -
+                1;
+
+            float spacing =
+                Mathf.Max(
+                    0.0001f,
+                    baseSpacing
+                )
+                *
+                Mathf.Pow(
+                    2f,
+                    level
+                );
+
+            float requestedCoverage =
+                inputClipmapLODOuterCoverages[
+                    index
+                ];
+
+            /*
+             * Newly exposed levels may not yet have a staged
+             * coverage value. Preserve legacy behavior by starting
+             * them at the physical coverage produced by the LOD0
+             * resolution at this level's spacing.
+             */
+            if (
+                requestedCoverage <=
+                    0f
+            )
+            {
+                requestedCoverage =
+                    inputClipmapCenterResolution *
+                    spacing;
+
+                inputClipmapLODOuterCoverages[
+                    index
+                ] =
+                    requestedCoverage;
+            }
+
+            int resolution =
+                TerrainClipmapTopologyUtility
+                    .ResolveOuterResolutionForCoverage(
+                        requestedCoverage,
+                        spacing,
+                        finerResolution
+                    );
+
+            resolved[index] =
+                resolution;
+
+            finerResolution =
+                resolution;
+        }
+
+        return
+            resolved;
     }
 }

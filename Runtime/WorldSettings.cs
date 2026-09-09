@@ -208,6 +208,20 @@ public class WorldSettings : ScriptableObject
     public int clipmapBaseSampleStep =
         1;
 
+    /*
+     * Exact outer grid resolutions for LOD1+.
+     *
+     * Index 0 = LOD1, index 1 = LOD2, etc.
+     *
+     * Missing or non-positive entries deliberately fall back to
+     * clipmapCenterResolution so WorldSettings assets created
+     * before per-LOD coverage was introduced preserve the exact
+     * legacy clipmap topology.
+     */
+    [HideInInspector]
+    public int[] clipmapLODOuterResolutions =
+        new int[0];
+
     // =====================================================
     // DERIVED CLIPMAP VALUES
     // =====================================================

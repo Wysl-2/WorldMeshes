@@ -180,10 +180,10 @@ public sealed class TerrainClipmapLayout
 public static class TerrainClipmapLayoutUtility
 {
     public const int MinimumLevelCount =
-        1;
+        TerrainClipmapTopologyUtility.MinimumLevelCount;
 
     public const int MaximumLevelCount =
-        10;
+        TerrainClipmapTopologyUtility.MaximumLevelCount;
 
     // =====================================================
     // CALCULATE COMPLETE LAYOUT
@@ -222,6 +222,22 @@ public static class TerrainClipmapLayoutUtility
         }
 
         if (
+            !TerrainClipmapTopologyUtility
+                .TryValidateSettings(
+                    worldSettings,
+                    out string topologyError
+                )
+        )
+        {
+            errorMessage =
+                topologyError;
+
+            layout.Invalidate();
+
+            return false;
+        }
+
+        if (
             !IsFinite(
                 targetWorldPosition.x
             )
@@ -246,13 +262,6 @@ public static class TerrainClipmapLayoutUtility
         int levelCount =
             GetLevelCount(
                 worldSettings
-            );
-
-        int centerResolution =
-            Mathf.Max(
-                1,
-                worldSettings
-                    .clipmapCenterResolution
             );
 
         layout.EnsureCapacity(
@@ -305,17 +314,20 @@ public static class TerrainClipmapLayoutUtility
             );
 
             /*
-             * Every generated LOD uses centerResolution cells
-             * across its outer square.
+             * Each LOD now owns an independent outer grid
+             * resolution while preserving the same power-of-two
+             * spacing hierarchy.
              *
-             * LOD0 is the center patch. Higher levels are rings,
-             * but each ring's outside extent is described by the
-             * same resolution at that level's spacing.
+             * Bounds therefore come from the exact generated
+             * topology for this level rather than assuming every
+             * ring reuses the LOD0 resolution.
              */
             float halfExtent =
-                centerResolution *
-                spacing *
-                0.5f;
+                TerrainClipmapTopologyUtility
+                    .GetLODHalfExtent(
+                        worldSettings,
+                        level
+                    );
 
             minimumX =
                 Mathf.Min(
@@ -364,6 +376,11 @@ public static class TerrainClipmapLayoutUtility
         /*
          * The outermost independently-snapped LOD anchor is the
          * center used by runtime height-cache coverage checks.
+         *
+         * Topology validation guarantees every finer LOD plus its
+         * transition remains contained by the next coarser level,
+         * so the outermost LOD remains an authoritative cache
+         * footprint.
          */
         layout.CoverageCenter =
             layout.GetAnchor(
@@ -407,77 +424,44 @@ public static class TerrainClipmapLayoutUtility
     // LOD SPACING
     // =====================================================
 
+    /*
+     * Kept as the existing public layout API so runtime/editor
+     * callers do not need to change. The authoritative spacing
+     * calculation now lives with the shared topology rules.
+     */
     public static float GetLODSpacing(
         WorldSettings worldSettings,
         int level
     )
     {
-        float baseSpacing =
-            1f;
-
-        if (worldSettings != null)
-        {
-            baseSpacing =
-                Mathf.Max(
-                    0.0001f,
-                    worldSettings
-                        .ClipmapBaseSpacing
-                );
-        }
-
-        int safeLevel =
-            Mathf.Max(
-                0,
-                level
-            );
-
         return
-            baseSpacing *
-            Mathf.Pow(
-                2f,
-                safeLevel
-            );
+            TerrainClipmapTopologyUtility
+                .GetLODSpacing(
+                    worldSettings,
+                    level
+                );
     }
 
     // =====================================================
     // CLIPMAP DIAMETER
     // =====================================================
 
+    /*
+     * Returns the exact outer coverage of the outermost LOD.
+     *
+     * TerrainHeightmapStreamer already calls this method for
+     * cache sizing, so runtime height-cache coverage follows the
+     * same per-LOD topology as generated geometry automatically.
+     */
     public static float CalculateClipmapDiameter(
         WorldSettings worldSettings
     )
     {
-        if (worldSettings == null)
-        {
-            return 0f;
-        }
-
-        int centerResolution =
-            Mathf.Max(
-                1,
-                worldSettings
-                    .clipmapCenterResolution
-            );
-
-        int levelCount =
-            GetLevelCount(
-                worldSettings
-            );
-
-        float baseSpacing =
-            Mathf.Max(
-                0.0001f,
-                worldSettings
-                    .ClipmapBaseSpacing
-            );
-
         return
-            centerResolution *
-            baseSpacing *
-            Mathf.Pow(
-                2f,
-                levelCount - 1
-            );
+            TerrainClipmapTopologyUtility
+                .CalculateClipmapDiameter(
+                    worldSettings
+                );
     }
 
     // =====================================================
@@ -599,10 +583,8 @@ public static class TerrainClipmapLayoutUtility
     /*
      * Canonical generated clipmap position.
      *
-     * TerrainWorldHierarchyGenerator uses this now. The upcoming
-     * edit-mode Scene View controller can use the same helper when
-     * centering the preview or restoring transient editor placement
-     * before scene save / Play Mode.
+     * TerrainWorldHierarchyGenerator and edit-mode preview systems
+     * share this helper so canonical placement remains consistent.
      */
     public static Vector3 CalculateWorldCenterPosition(
         WorldSettings worldSettings,
@@ -633,10 +615,6 @@ public static class TerrainClipmapLayoutUtility
     /*
      * Shared spatial helper for systems that intentionally keep a
      * clipmap follow target inside the logical terrain rectangle.
-     *
-     * The runtime Player controller does not currently clamp its
-     * movement here. The upcoming Scene View authoring controller
-     * will use this helper for editor-camera / pivot follow targets.
      */
     public static Vector3 ClampTargetXZToWorld(
         WorldSettings worldSettings,

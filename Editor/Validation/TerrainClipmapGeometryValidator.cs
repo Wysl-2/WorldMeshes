@@ -61,31 +61,16 @@ public static class TerrainClipmapGeometryValidator
             worldSettings.ClipmapBaseSpacing;
 
         if (
-            resolution % 4 != 0
+            !TerrainClipmapTopologyUtility
+                .TryValidateSettings(
+                    worldSettings,
+                    out string topologyError
+                )
         )
         {
             Debug.LogError(
                 "Cannot validate clipmap geometry.\n\n" +
-
-                "Clipmap Center Resolution must be " +
-                "evenly divisible by 4."
-            );
-
-            return false;
-        }
-
-        if (
-            baseSpacing <= 0f
-            ||
-            float.IsNaN(baseSpacing)
-            ||
-            float.IsInfinity(baseSpacing)
-        )
-        {
-            Debug.LogError(
-                "Cannot validate clipmap geometry.\n\n" +
-
-                "Clipmap base spacing is invalid."
+                topologyError
             );
 
             return false;
@@ -118,43 +103,10 @@ public static class TerrainClipmapGeometryValidator
         // -------------------------------------------------
 
         long expectedCenterTriangles =
-            2L *
-            resolution *
-            resolution;
-
-        int holeQuadsPerSide =
-            resolution /
-            2
-            +
-            2;
-
-        long expectedRingTriangles =
-            2L
-            *
-            (
-                (long)resolution *
-                resolution
-                -
-                (long)holeQuadsPerSide *
-                holeQuadsPerSide
-            );
-
-        /*
-         * Four transition sides:
-         *
-         * resolution / 2 segments
-         * 3 triangles per segment
-         *
-         * plus four corner quads:
-         *
-         * 4 * 2 triangles
-         */
-
-        long expectedStitchTriangles =
-            6L *
-            resolution
-            +
-            8L;
+            TerrainClipmapTopologyUtility
+                .CalculateCenterTriangleCount(
+                    resolution
+                );
 
         int expectedAssetCount =
             1
@@ -221,16 +173,37 @@ public static class TerrainClipmapGeometryValidator
             // Ring
             // ---------------------------------------------
 
+            int outerResolution =
+                TerrainClipmapTopologyUtility
+                    .GetLODOuterResolution(
+                        worldSettings,
+                        level
+                    );
+
+            int finerOuterResolution =
+                TerrainClipmapTopologyUtility
+                    .GetLODOuterResolution(
+                        worldSettings,
+                        level - 1
+                    );
+
             float levelSpacing =
-                baseSpacing *
-                Mathf.Pow(
-                    2f,
-                    level
-                );
+                TerrainClipmapTopologyUtility
+                    .GetLODSpacing(
+                        worldSettings,
+                        level
+                    );
 
             float ringDiameter =
-                resolution *
+                outerResolution *
                 levelSpacing;
+
+            long expectedRingTriangles =
+                TerrainClipmapTopologyUtility
+                    .CalculateRingTriangleCount(
+                        outerResolution,
+                        finerOuterResolution
+                    );
 
             if (
                 !TryLoadAndValidatePiece(
@@ -268,33 +241,29 @@ public static class TerrainClipmapGeometryValidator
                 level - 1;
 
             float fineSpacing =
-                baseSpacing *
-                Mathf.Pow(
-                    2f,
-                    fineLevel
-                );
+                TerrainClipmapTopologyUtility
+                    .GetLODSpacing(
+                        worldSettings,
+                        fineLevel
+                    );
 
             /*
-             * The stitch runs from:
-             *
-             * ± resolution / 2 fine samples
-             *
-             * to:
-             *
-             * ± (resolution / 2 + 2) fine samples
-             *
-             * therefore its total diameter is:
-             *
-             * (resolution + 4) * fineSpacing
+             * The existing transition extends two finer samples
+             * beyond the finer LOD boundary on each side.
              */
-
             float stitchDiameter =
                 (
-                    resolution +
+                    finerOuterResolution +
                     4
                 )
                 *
                 fineSpacing;
+
+            long expectedStitchTriangles =
+                TerrainClipmapTopologyUtility
+                    .CalculateStitchTriangleCount(
+                        finerOuterResolution
+                    );
 
             if (
                 !TryLoadAndValidatePiece(
@@ -352,11 +321,18 @@ public static class TerrainClipmapGeometryValidator
         // COMBINED TOPOLOGY
         // =====================================================
 
+        int outermostResolution =
+            TerrainClipmapTopologyUtility
+                .GetLODOuterResolution(
+                    worldSettings,
+                    levelCount - 1
+                );
+
         if (
             !ValidateCombinedTopology(
                 pieces,
 
-                resolution,
+                outermostResolution,
                 levelCount,
                 baseSpacing,
                 positionTolerance,
@@ -410,25 +386,16 @@ public static class TerrainClipmapGeometryValidator
         // =====================================================
 
         float outerDiameter =
-            resolution *
-            baseSpacing *
-            Mathf.Pow(
-                2f,
-                levelCount - 1
-            );
+            TerrainClipmapTopologyUtility
+                .CalculateClipmapDiameter(
+                    worldSettings
+                );
 
         long expectedTotalTriangles =
-            expectedCenterTriangles
-            +
-            (
-                levelCount - 1
-            )
-            *
-            (
-                expectedRingTriangles
-                +
-                expectedStitchTriangles
-            );
+            TerrainClipmapTopologyUtility
+                .CalculateTotalTriangleCount(
+                    worldSettings
+                );
 
         Debug.Log(
             "Clipmap geometry validation passed.\n\n" +
@@ -882,7 +849,7 @@ public static class TerrainClipmapGeometryValidator
 
     private static bool ValidateCombinedTopology(
         List<MeshPiece> pieces,
-        int resolution,
+        int outerResolution,
         int levelCount,
         float baseSpacing,
         float positionTolerance,
@@ -1054,7 +1021,7 @@ public static class TerrainClipmapGeometryValidator
         // -------------------------------------------------
 
         double outerDiameter =
-            resolution
+            outerResolution
             *
             (double)baseSpacing
             *
@@ -1159,7 +1126,7 @@ public static class TerrainClipmapGeometryValidator
         // -------------------------------------------------
 
         int expectedOuterBoundaryEdges =
-            resolution *
+            outerResolution *
             4;
 
         if (

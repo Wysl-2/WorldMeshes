@@ -76,48 +76,20 @@ public static class TerrainClipmapMeshGenerator
             worldSettings.ClipmapBaseSpacing;
 
         // -------------------------------------------------
-        // Validate center resolution
+        // Validate topology
         // -------------------------------------------------
 
-        /*
-         * The transition geometry assumes:
-         *
-         * fine spacing   = S
-         * coarse spacing = 2S
-         *
-         * Requiring the center resolution to be divisible
-         * by four ensures every ring boundary lands exactly
-         * on both grids.
-         */
-
         if (
-            centerResolution < 8 ||
-            centerResolution % 4 != 0
+            !TerrainClipmapTopologyUtility
+                .TryValidateSettings(
+                    worldSettings,
+                    out string topologyError
+                )
         )
         {
             Debug.LogError(
                 "Cannot generate clipmap meshes.\n\n" +
-
-                "Clipmap Center Resolution must be at " +
-                "least 8 and evenly divisible by 4.\n\n" +
-
-                $"Current Resolution: " +
-                $"{centerResolution}"
-            );
-
-            return;
-        }
-
-        if (
-            baseSpacing <= 0f ||
-            float.IsNaN(baseSpacing) ||
-            float.IsInfinity(baseSpacing)
-        )
-        {
-            Debug.LogError(
-                "Cannot generate clipmap meshes.\n\n" +
-
-                "The derived clipmap base spacing is invalid."
+                topologyError
             );
 
             return;
@@ -250,11 +222,25 @@ public static class TerrainClipmapMeshGenerator
                 }
 
                 float levelSpacing =
-                    baseSpacing *
-                    Mathf.Pow(
-                        2f,
-                        level
-                    );
+                    TerrainClipmapTopologyUtility
+                        .GetLODSpacing(
+                            worldSettings,
+                            level
+                        );
+
+                int outerResolution =
+                    TerrainClipmapTopologyUtility
+                        .GetLODOuterResolution(
+                            worldSettings,
+                            level
+                        );
+
+                int finerOuterResolution =
+                    TerrainClipmapTopologyUtility
+                        .GetLODOuterResolution(
+                            worldSettings,
+                            level - 1
+                        );
 
                 string ringPath =
                     GetRingMeshPath(
@@ -267,7 +253,8 @@ public static class TerrainClipmapMeshGenerator
 
                 GeneratedMeshData ringData =
                     BuildRingMesh(
-                        centerResolution,
+                        outerResolution,
+                        finerOuterResolution,
                         levelSpacing
                     );
 
@@ -314,11 +301,11 @@ public static class TerrainClipmapMeshGenerator
                 }
 
                 float fineSpacing =
-                    baseSpacing *
-                    Mathf.Pow(
-                        2f,
-                        level - 1
-                    );
+                    TerrainClipmapTopologyUtility
+                        .GetLODSpacing(
+                            worldSettings,
+                            level - 1
+                        );
 
                 string stitchPath =
                     GetStitchMeshPath(
@@ -332,7 +319,7 @@ public static class TerrainClipmapMeshGenerator
 
                 GeneratedMeshData stitchData =
                     BuildStitchMesh(
-                        centerResolution,
+                        finerOuterResolution,
                         fineSpacing
                     );
 
@@ -429,12 +416,10 @@ public static class TerrainClipmapMeshGenerator
         // -------------------------------------------------
 
         float outerDiameter =
-            centerResolution *
-            baseSpacing *
-            Mathf.Pow(
-                2f,
-                levelCount - 1
-            );
+            TerrainClipmapTopologyUtility
+                .CalculateClipmapDiameter(
+                    worldSettings
+                );
 
         // -------------------------------------------------
         // Complete
@@ -522,7 +507,8 @@ public static class TerrainClipmapMeshGenerator
     // =====================================================
 
     private static GeneratedMeshData BuildRingMesh(
-        int centerResolution,
+        int outerResolution,
+        int finerOuterResolution,
         float spacing
     )
     {
@@ -535,25 +521,18 @@ public static class TerrainClipmapMeshGenerator
          * Express the ring entirely in units of this LOD's
          * own vertex spacing.
          *
-         * Outer half-extent:
-         *
-         * centerResolution / 2
-         *
-         * Inner half-extent:
-         *
-         * centerResolution / 4 + 1
-         *
-         * The extra one-cell gap is occupied by the
-         * stitch mesh between this level and the previous
-         * finer level.
+         * The outer boundary is independently configurable.
+         * The inner boundary remains derived from the previous
+         * finer LOD so the existing 2:1 stitch topology stays
+         * authoritative.
          */
 
         int outerHalf =
-            centerResolution /
+            outerResolution /
             2;
 
         int innerHalf =
-            centerResolution /
+            finerOuterResolution /
             4 +
             1;
 
@@ -599,7 +578,7 @@ public static class TerrainClipmapMeshGenerator
     // =====================================================
 
     private static GeneratedMeshData BuildStitchMesh(
-        int centerResolution,
+        int fineOuterResolution,
         float fineSpacing
     )
     {
@@ -612,7 +591,7 @@ public static class TerrainClipmapMeshGenerator
          */
 
         int half =
-            centerResolution /
+            fineOuterResolution /
             2;
 
         /*
@@ -634,7 +613,7 @@ public static class TerrainClipmapMeshGenerator
             2;
 
         int coarseSegmentsPerSide =
-            centerResolution /
+            fineOuterResolution /
             2;
 
         // =================================================
