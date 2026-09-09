@@ -191,9 +191,30 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.LabelField(
-            "Cached Proxy Meshes",
-            TerrainAuthoringWireframeRenderer
-                .CachedProxyMeshCount
+            "Section Descriptors",
+            TerrainAuthoringWireframeSectionCache
+                .TotalSectionDescriptorCount
+                .ToString()
+        );
+
+        EditorGUILayout.LabelField(
+            "Built Proxy Sections",
+            TerrainAuthoringWireframeSectionCache
+                .BuiltSectionCount
+                .ToString()
+        );
+
+        EditorGUILayout.LabelField(
+            "Unbuilt / Lazy Sections",
+            TerrainAuthoringWireframeSectionCache
+                .UnbuiltSectionCount
+                .ToString()
+        );
+
+        EditorGUILayout.LabelField(
+            "Pending Section Builds",
+            TerrainAuthoringWireframeSectionCache
+                .PendingBuildCount
                 .ToString()
         );
 
@@ -205,9 +226,9 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.LabelField(
-            "Rendered Proxy Meshes",
+            "Rendered Sections",
             TerrainAuthoringWireframeCulling
-                .RenderedProxyMeshCount
+                .RenderedSectionCount
                 .ToString()
         );
 
@@ -219,17 +240,93 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.LabelField(
-            "LOD-Culled Proxies",
+            "LOD-Culled Sections",
             TerrainAuthoringWireframeCulling
-                .LODCulledProxyCount
+                .LODCulledSectionCount
                 .ToString()
         );
 
         EditorGUILayout.LabelField(
-            "Distance-Culled Proxies",
+            "Distance-Culled Sections",
             TerrainAuthoringWireframeCulling
-                .DistanceCulledProxyCount
+                .DistanceCulledSectionCount
                 .ToString()
+        );
+
+        EditorGUILayout.LabelField(
+            "Frustum-Culled Sections",
+            TerrainAuthoringWireframeCulling
+                .FrustumCulledSectionCount
+                .ToString()
+        );
+
+        GUILayout.Space(
+            5f
+        );
+
+        EditorGUILayout.LabelField(
+            "Wire Representation",
+            TerrainAuthoringWireframeSectionCache
+                .ActiveRepresentationLabel
+        );
+
+        EditorGUILayout.LabelField(
+            "First Visible Latency",
+            FormatWireframeMilliseconds(
+                TerrainAuthoringWireframeSectionCache
+                    .FirstVisibleLatencyMilliseconds,
+                true
+            )
+        );
+
+        EditorGUILayout.LabelField(
+            "Last Source Preparation",
+            FormatWireframeMilliseconds(
+                TerrainAuthoringWireframeSectionCache
+                    .LastSourcePreparationMilliseconds
+            )
+        );
+
+        EditorGUILayout.LabelField(
+            "Last / Avg Section Build",
+            FormatWireframeMilliseconds(
+                TerrainAuthoringWireframeSectionCache
+                    .LastSectionBuildMilliseconds
+            ) +
+            " / " +
+            FormatWireframeMilliseconds(
+                TerrainAuthoringWireframeSectionCache
+                    .AverageSectionBuildMilliseconds
+            )
+        );
+
+        EditorGUILayout.LabelField(
+            "Last Vertex Preparation",
+            FormatWireframeMilliseconds(
+                TerrainAuthoringWireframeSectionCache
+                    .LastVertexPreparationMilliseconds
+            )
+        );
+
+        EditorGUILayout.LabelField(
+            "Last Mesh Upload",
+            FormatWireframeMilliseconds(
+                TerrainAuthoringWireframeSectionCache
+                    .LastMeshUploadMilliseconds
+            )
+        );
+
+        EditorGUILayout.LabelField(
+            "Depth / Wire Submission",
+            FormatWireframeMilliseconds(
+                TerrainAuthoringWireframeSectionCache
+                    .LastDepthSubmissionMilliseconds
+            ) +
+            " / " +
+            FormatWireframeMilliseconds(
+                TerrainAuthoringWireframeSectionCache
+                    .LastWireSubmissionMilliseconds
+            )
         );
 
         string statusMessage =
@@ -272,28 +369,52 @@ public partial class WorldMeshesEditorWindow :
             "This is a custom displaced wireframe, not Unity's " +
             "built-in Scene View wireframe mode.\n\n" +
 
-            "Overlay keeps the normal Stage 5 terrain visible and " +
-            "draws the displaced triangle edges on top.\n\n" +
+            "Package 3 keeps Package 2 spatial descriptors, lazy builds, " +
+            "caching, LOD limits, distance culling, and frustum culling, " +
+            "but replaces explicit MeshTopology.Lines proxies with one " +
+            "barycentric triangle mesh per built section.\n\n" +
 
-            "Wireframe Only suppresses the normal terrain fill and " +
-            "draws an invisible displaced depth proxy before the " +
-            "lines so terrain still occludes hidden edges.\n\n" +
+            "Overlay draws barycentric displaced triangle edges over the " +
+            "normal terrain. Wireframe Only reuses the same section mesh " +
+            "first as a solid depth proxy and then as visible wire, so " +
+            "hidden terrain edges remain occluded.\n\n" +
 
-            "Proxy meshes are transient editor resources. They copy " +
-            "the generated clipmap positions and TEXCOORD3 stitch " +
-            "weights, then reuse the source renderer's current height " +
-            "cache, stitch offset, world bounds, transform, and " +
-            "conservative renderer bounds.\n\n" +
+            "Cached / Rendered Wire Edges now count triangle-edge " +
+            "incidences represented by the barycentric meshes; shared " +
+            "triangle edges are therefore counted from both triangles.\n\n" +
 
-            "Maximum Wireframe LOD and Maximum Wireframe Distance " +
-            "only control editor Scene View proxy submission. They do " +
-            "not change generated clipmap geometry, runtime terrain, " +
-            "LOD layout, heightmap streaming, or collision streaming. " +
-            "Disable the distance limit to preserve unrestricted " +
-            "distance rendering.",
+            "All controls and diagnostics remain editor-only and do not " +
+            "change generated clipmap geometry, runtime terrain, LOD " +
+            "layout, heightmap streaming, or collision streaming.",
             MessageType.Info
         );
 
         GUILayout.EndVertical();
+    }
+
+    private static string FormatWireframeMilliseconds(
+        double milliseconds,
+        bool pendingWhenNegative = false
+    )
+    {
+        if (
+            pendingWhenNegative
+            &&
+            milliseconds < 0.0
+        )
+        {
+            return
+                "Pending";
+        }
+
+        return
+            Mathf.Max(
+                0f,
+                (float)milliseconds
+            )
+            .ToString(
+                "0.00"
+            ) +
+            " ms";
     }
 }

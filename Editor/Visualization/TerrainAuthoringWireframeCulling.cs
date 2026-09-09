@@ -1,17 +1,22 @@
-using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
+public enum TerrainAuthoringWireframeSectionVisibility
+{
+    Visible,
+    LODCulled,
+    DistanceCulled,
+    FrustumCulled
+}
+
 /*
- * Editor-only submission policy for the true displaced wireframe.
+ * Editor-only visibility policy for spatial true-wireframe sections.
  *
- * TerrainAuthoringWireframeRenderer continues to own proxy creation,
- * materials, and Graphics.RenderMesh calls. This helper owns only:
- *
- * - editor preference-backed visibility limits
- * - cached per-renderer LOD / hollow-ring distance metadata
- * - lightweight Scene View submission decisions
- * - most-recent-repaint diagnostics
+ * Package 2 keeps the Package 1 preference surface, but moves the
+ * submission decision from whole source renderers to independently
+ * cullable section bounds. The current Scene View camera state is cached
+ * once per repaint so section tests do not touch EditorPrefs or allocate
+ * frustum-plane arrays inside the hot loop.
  */
 public static class TerrainAuthoringWireframeCulling
 {
@@ -35,24 +40,11 @@ public static class TerrainAuthoringWireframeCulling
         1000f;
 
     // =====================================================
-    // CACHED RENDERER METADATA
+    // MOST-RECENT REPAINT STATE
     // =====================================================
 
-    private static readonly Dictionary<int, RendererMetadata>
-        metadataByRendererId =
-            new Dictionary<int, RendererMetadata>();
-
-    // =====================================================
-    // MOST-RECENT REPAINT DIAGNOSTICS
-    // =====================================================
-
-    private static int renderedProxyMeshCount;
-
-    private static int renderedEdgeCount;
-
-    private static int lodCulledProxyCount;
-
-    private static int distanceCulledProxyCount;
+    private static readonly Plane[] repaintFrustumPlanes =
+        new Plane[6];
 
     private static int repaintMaximumLOD =
         DefaultMaximumLOD;
@@ -64,6 +56,20 @@ public static class TerrainAuthoringWireframeCulling
     private static Vector3 repaintCameraPosition;
 
     private static bool repaintCameraReady;
+
+    // =====================================================
+    // MOST-RECENT REPAINT DIAGNOSTICS
+    // =====================================================
+
+    private static int renderedSectionCount;
+
+    private static int renderedEdgeCount;
+
+    private static int lodCulledSectionCount;
+
+    private static int distanceCulledSectionCount;
+
+    private static int frustumCulledSectionCount;
 
     // =====================================================
     // PUBLIC SETTINGS
@@ -190,12 +196,25 @@ public static class TerrainAuthoringWireframeCulling
     // PUBLIC DIAGNOSTICS
     // =====================================================
 
+    public static int RenderedSectionCount
+    {
+        get
+        {
+            return
+                renderedSectionCount;
+        }
+    }
+
+    /*
+     * Backwards-compatible Package 1 diagnostic name.
+     * A rendered proxy is now one rendered spatial section.
+     */
     public static int RenderedProxyMeshCount
     {
         get
         {
             return
-                renderedProxyMeshCount;
+                renderedSectionCount;
         }
     }
 
@@ -208,12 +227,30 @@ public static class TerrainAuthoringWireframeCulling
         }
     }
 
+    public static int LODCulledSectionCount
+    {
+        get
+        {
+            return
+                lodCulledSectionCount;
+        }
+    }
+
     public static int LODCulledProxyCount
     {
         get
         {
             return
-                lodCulledProxyCount;
+                lodCulledSectionCount;
+        }
+    }
+
+    public static int DistanceCulledSectionCount
+    {
+        get
+        {
+            return
+                distanceCulledSectionCount;
         }
     }
 
@@ -222,97 +259,17 @@ public static class TerrainAuthoringWireframeCulling
         get
         {
             return
-                distanceCulledProxyCount;
+                distanceCulledSectionCount;
         }
     }
 
-    // =====================================================
-    // PROXY METADATA SYNCHRONIZATION
-    // =====================================================
-
-    public static void UpdateLOD(
-        MeshRenderer renderer,
-        Transform clipmapRoot
-    )
+    public static int FrustumCulledSectionCount
     {
-        if (renderer == null)
+        get
         {
-            return;
+            return
+                frustumCulledSectionCount;
         }
-
-        RendererMetadata metadata =
-            GetOrCreateMetadata(
-                renderer.GetInstanceID()
-            );
-
-        metadata.lodLevel =
-            DetermineLODLevel(
-                renderer.transform,
-                clipmapRoot
-            );
-    }
-
-    public static void RegisterGeometry(
-        MeshRenderer renderer,
-        List<Vector3> vertices,
-        List<int> lineIndices
-    )
-    {
-        if (renderer == null)
-        {
-            return;
-        }
-
-        RendererMetadata metadata =
-            GetOrCreateMetadata(
-                renderer.GetInstanceID()
-            );
-
-        float rawInnerHalfExtent =
-            CalculateInnerHalfExtentXZ(
-                vertices
-            );
-
-        /*
-         * Stitch vertices on the adaptive fine edge can shift by one
-         * fine-grid sample at runtime/editor follow positions.
-         *
-         * Subtract one smallest source edge as a conservative inward
-         * safety margin. Ring meshes receive a similarly conservative
-         * margin, which is preferable to incorrectly distance-culling
-         * geometry close to the configured threshold.
-         */
-        float inwardSafetyMargin =
-            CalculateMinimumHorizontalEdgeLength(
-                vertices,
-                lineIndices
-            );
-
-        metadata.innerHalfExtentXZ =
-            Mathf.Max(
-                0f,
-                rawInnerHalfExtent -
-                    inwardSafetyMargin
-            );
-    }
-
-    public static void RemoveRenderer(
-        int rendererId
-    )
-    {
-        metadataByRendererId.Remove(
-            rendererId
-        );
-    }
-
-    public static void ClearCachedMetadata()
-    {
-        metadataByRendererId.Clear();
-
-        ResetRenderedDiagnostics();
-
-        repaintCameraReady =
-            false;
     }
 
     // =====================================================
@@ -341,87 +298,72 @@ public static class TerrainAuthoringWireframeCulling
         repaintCameraReady =
             camera != null;
 
+        if (!repaintCameraReady)
+        {
+            repaintCameraPosition =
+                Vector3.zero;
+
+            return;
+        }
+
         repaintCameraPosition =
-            repaintCameraReady
-                ? camera.transform.position
-                : Vector3.zero;
+            camera.transform.position;
+
+        GeometryUtility.CalculateFrustumPlanes(
+            camera,
+            repaintFrustumPlanes
+        );
     }
 
-    public static bool ShouldRender(
-        MeshRenderer renderer
-    )
+    public static TerrainAuthoringWireframeSectionVisibility
+        EvaluateSection(
+            int lodLevel,
+            Bounds worldBounds
+        )
     {
-        if (
-            renderer == null
-            ||
-            !repaintCameraReady
-        )
-        {
-            return false;
-        }
-
-        int rendererId =
-            renderer.GetInstanceID();
-
-        RendererMetadata metadata;
-
-        if (
-            !metadataByRendererId.TryGetValue(
-                rendererId,
-                out metadata
-            )
-            ||
-            metadata == null
-        )
-        {
-            /*
-             * Missing metadata should never make an otherwise valid
-             * cached proxy disappear. Preserve the pre-culling behavior
-             * until the next normal proxy synchronization fills it in.
-             */
-            return true;
-        }
-
-        if (
-            metadata.lodLevel >
-            repaintMaximumLOD
-        )
-        {
-            lodCulledProxyCount++;
-
-            return false;
-        }
-
-        if (!repaintDistanceLimitEnabled)
-        {
-            return true;
-        }
-
-        float distanceSquared =
-            CalculateDistanceSquaredToRenderer(
-                renderer,
-                metadata,
-                repaintCameraPosition
+        TerrainAuthoringWireframeSectionVisibility visibility =
+            EvaluateSectionWithoutDiagnostics(
+                lodLevel,
+                worldBounds
             );
 
-        if (
-            (double)distanceSquared >
-            repaintMaximumDistanceSquared
-        )
+        switch (visibility)
         {
-            distanceCulledProxyCount++;
+            case TerrainAuthoringWireframeSectionVisibility.LODCulled:
+                lodCulledSectionCount++;
+                break;
 
-            return false;
+            case TerrainAuthoringWireframeSectionVisibility.DistanceCulled:
+                distanceCulledSectionCount++;
+                break;
+
+            case TerrainAuthoringWireframeSectionVisibility.FrustumCulled:
+                frustumCulledSectionCount++;
+                break;
         }
 
-        return true;
+        return
+            visibility;
+    }
+
+    public static bool IsPotentiallyVisible(
+        int lodLevel,
+        Bounds worldBounds
+    )
+    {
+        return
+            EvaluateSectionWithoutDiagnostics(
+                lodLevel,
+                worldBounds
+            ) ==
+            TerrainAuthoringWireframeSectionVisibility.Visible;
     }
 
     public static void RecordRendered(
         int edgeCount
     )
     {
-        renderedProxyMeshCount++;
+        renderedSectionCount++;
 
         renderedEdgeCount +=
             Mathf.Max(
@@ -430,401 +372,80 @@ public static class TerrainAuthoringWireframeCulling
             );
     }
 
-    // =====================================================
-    // DISTANCE
-    // =====================================================
-
-    private static float CalculateDistanceSquaredToRenderer(
-        MeshRenderer renderer,
-        RendererMetadata metadata,
-        Vector3 cameraPosition
-    )
+    public static void ResetRenderedDiagnostics()
     {
-        /*
-         * Renderer.bounds already contains the conservative displaced
-         * Y range and any stitch X/Z bounds expansion maintained by the
-         * existing clipmap systems.
-         */
-        float distanceSquared =
-            renderer.bounds.SqrDistance(
-                cameraPosition
-            );
-
-        float innerHalfExtent =
-            metadata.innerHalfExtentXZ;
-
-        if (innerHalfExtent <= 0f)
-        {
-            return
-                distanceSquared;
-        }
-
-        /*
-         * A hollow ring's outer AABB commonly contains the Scene View
-         * camera even when the nearest actual ring edge is far away.
-         * Account for that empty central square using metadata cached
-         * once during proxy construction.
-         */
-        Transform rendererTransform =
-            renderer.transform;
-
-        Vector3 localCameraPosition =
-            rendererTransform
-                .InverseTransformPoint(
-                    cameraPosition
-                );
-
-        float absoluteX =
-            Mathf.Abs(
-                localCameraPosition.x
-            );
-
-        float absoluteZ =
-            Mathf.Abs(
-                localCameraPosition.z
-            );
-
-        if (
-            absoluteX >=
-                innerHalfExtent
-            ||
-            absoluteZ >=
-                innerHalfExtent
-        )
-        {
-            return
-                distanceSquared;
-        }
-
-        Vector3 scale =
-            rendererTransform.lossyScale;
-
-        float distanceToInnerX =
-            (
-                innerHalfExtent -
-                absoluteX
-            )
-            *
-            Mathf.Max(
-                0.0001f,
-                Mathf.Abs(
-                    scale.x
-                )
-            );
-
-        float distanceToInnerZ =
-            (
-                innerHalfExtent -
-                absoluteZ
-            )
-            *
-            Mathf.Max(
-                0.0001f,
-                Mathf.Abs(
-                    scale.z
-                )
-            );
-
-        float distanceToInnerBoundary =
-            Mathf.Min(
-                distanceToInnerX,
-                distanceToInnerZ
-            );
-
-        return
-            distanceSquared
-            +
-            distanceToInnerBoundary *
-            distanceToInnerBoundary;
-    }
-
-    // =====================================================
-    // LOD METADATA
-    // =====================================================
-
-    private static int DetermineLODLevel(
-        Transform rendererTransform,
-        Transform clipmapRoot
-    )
-    {
-        Transform current =
-            rendererTransform;
-
-        while (
-            current != null
-            &&
-            current != clipmapRoot
-        )
-        {
-            if (
-                current.name ==
-                "Center_LOD0"
-            )
-            {
-                return 0;
-            }
-
-            if (
-                TryParseLODGroupName(
-                    current.name,
-                    out int level
-                )
-            )
-            {
-                return
-                    Mathf.Max(
-                        0,
-                        level
-                    );
-            }
-
-            current =
-                current.parent;
-        }
-
-        return 0;
-    }
-
-    private static bool TryParseLODGroupName(
-        string objectName,
-        out int level
-    )
-    {
-        level =
-            0;
-
-        if (
-            string.IsNullOrEmpty(
-                objectName
-            )
-            ||
-            !objectName.StartsWith(
-                "LOD"
-            )
-            ||
-            objectName.Length <= 3
-        )
-        {
-            return false;
-        }
-
-        return
-            int.TryParse(
-                objectName.Substring(
-                    3
-                ),
-                out level
-            );
-    }
-
-    // =====================================================
-    // GEOMETRY METADATA
-    // =====================================================
-
-    private static float CalculateInnerHalfExtentXZ(
-        List<Vector3> vertices
-    )
-    {
-        if (
-            vertices == null
-            ||
-            vertices.Count <= 0
-        )
-        {
-            return 0f;
-        }
-
-        float minimumRadius =
-            float.PositiveInfinity;
-
-        for (
-            int index = 0;
-            index < vertices.Count;
-            index++
-        )
-        {
-            Vector3 vertex =
-                vertices[index];
-
-            float radius =
-                Mathf.Max(
-                    Mathf.Abs(
-                        vertex.x
-                    ),
-                    Mathf.Abs(
-                        vertex.z
-                    )
-                );
-
-            if (
-                radius <
-                minimumRadius
-            )
-            {
-                minimumRadius =
-                    radius;
-            }
-        }
-
-        if (!IsFinite(minimumRadius))
-        {
-            return 0f;
-        }
-
-        return
-            Mathf.Max(
-                0f,
-                minimumRadius
-            );
-    }
-
-    private static float CalculateMinimumHorizontalEdgeLength(
-        List<Vector3> vertices,
-        List<int> lineIndices
-    )
-    {
-        if (
-            vertices == null
-            ||
-            lineIndices == null
-            ||
-            lineIndices.Count < 2
-        )
-        {
-            return 0f;
-        }
-
-        float minimumLengthSquared =
-            float.PositiveInfinity;
-
-        for (
-            int index = 0;
-            index + 1 < lineIndices.Count;
-            index += 2
-        )
-        {
-            int indexA =
-                lineIndices[index];
-
-            int indexB =
-                lineIndices[index + 1];
-
-            if (
-                indexA < 0
-                ||
-                indexA >= vertices.Count
-                ||
-                indexB < 0
-                ||
-                indexB >= vertices.Count
-            )
-            {
-                continue;
-            }
-
-            Vector3 a =
-                vertices[indexA];
-
-            Vector3 b =
-                vertices[indexB];
-
-            float deltaX =
-                b.x -
-                a.x;
-
-            float deltaZ =
-                b.z -
-                a.z;
-
-            float lengthSquared =
-                deltaX *
-                    deltaX
-                +
-                deltaZ *
-                    deltaZ;
-
-            if (
-                lengthSquared >
-                    0.00000001f
-                &&
-                lengthSquared <
-                    minimumLengthSquared
-            )
-            {
-                minimumLengthSquared =
-                    lengthSquared;
-            }
-        }
-
-        if (!IsFinite(minimumLengthSquared))
-        {
-            return 0f;
-        }
-
-        return
-            Mathf.Sqrt(
-                minimumLengthSquared
-            );
-    }
-
-    // =====================================================
-    // METADATA STORAGE
-    // =====================================================
-
-    private static RendererMetadata GetOrCreateMetadata(
-        int rendererId
-    )
-    {
-        if (
-            metadataByRendererId.TryGetValue(
-                rendererId,
-                out RendererMetadata metadata
-            )
-            &&
-            metadata != null
-        )
-        {
-            return
-                metadata;
-        }
-
-        metadata =
-            new RendererMetadata();
-
-        metadataByRendererId[
-            rendererId
-        ] =
-            metadata;
-
-        return
-            metadata;
-    }
-
-    private sealed class RendererMetadata
-    {
-        public int lodLevel;
-
-        public float innerHalfExtentXZ;
-    }
-
-    // =====================================================
-    // HELPERS
-    // =====================================================
-
-    private static void ResetRenderedDiagnostics()
-    {
-        renderedProxyMeshCount =
+        renderedSectionCount =
             0;
 
         renderedEdgeCount =
             0;
 
-        lodCulledProxyCount =
+        lodCulledSectionCount =
             0;
 
-        distanceCulledProxyCount =
+        distanceCulledSectionCount =
+            0;
+
+        frustumCulledSectionCount =
             0;
     }
+
+    // =====================================================
+    // INTERNAL VISIBILITY
+    // =====================================================
+
+    private static TerrainAuthoringWireframeSectionVisibility
+        EvaluateSectionWithoutDiagnostics(
+            int lodLevel,
+            Bounds worldBounds
+        )
+    {
+        if (!repaintCameraReady)
+        {
+            return
+                TerrainAuthoringWireframeSectionVisibility.FrustumCulled;
+        }
+
+        if (
+            lodLevel >
+            repaintMaximumLOD
+        )
+        {
+            return
+                TerrainAuthoringWireframeSectionVisibility.LODCulled;
+        }
+
+        if (
+            repaintDistanceLimitEnabled
+            &&
+            (double)worldBounds.SqrDistance(
+                repaintCameraPosition
+            ) >
+            repaintMaximumDistanceSquared
+        )
+        {
+            return
+                TerrainAuthoringWireframeSectionVisibility.DistanceCulled;
+        }
+
+        if (
+            !GeometryUtility.TestPlanesAABB(
+                repaintFrustumPlanes,
+                worldBounds
+            )
+        )
+        {
+            return
+                TerrainAuthoringWireframeSectionVisibility.FrustumCulled;
+        }
+
+        return
+            TerrainAuthoringWireframeSectionVisibility.Visible;
+    }
+
+    // =====================================================
+    // HELPERS
+    // =====================================================
 
     private static bool IsFinite(
         float value

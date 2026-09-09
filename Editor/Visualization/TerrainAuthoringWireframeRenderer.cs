@@ -24,25 +24,10 @@ public enum TerrainAuthoringWireframeStatus
 /*
  * Editor-only displaced clipmap wireframe renderer.
  *
- * The renderer deliberately does not rely on Unity's Scene View
- * wireframe mode. It creates transient proxy meshes whose second
- * submesh contains deduplicated triangle edges with MeshTopology.Lines.
- *
- * The proxy meshes preserve:
- *
- * - source vertex positions
- * - source triangle topology
- * - UV channel 3 / TEXCOORD3 adaptive stitch weights
- *
- * Rendering reuses the source terrain renderer's current
- * MaterialPropertyBlock so the wireframe receives the same:
- *
- * - height cache
- * - world bounds
- * - clipmap transition offset
- *
- * The source renderer's current localToWorldMatrix supplies the
- * independently-snapped LOD placement from the normal clipmap hierarchy.
+ * Package 3 keeps Package 2 spatial/lazy ownership but changes each built
+ * section to a barycentric triangle representation. One cached triangle
+ * mesh is reused for the Wireframe Only depth pass and the visible wire
+ * pass, eliminating explicit line topology and unique-edge construction.
  */
 [InitializeOnLoad]
 public static class TerrainAuthoringWireframeRenderer
@@ -75,6 +60,9 @@ public static class TerrainAuthoringWireframeRenderer
     private const float DefaultOpacity =
         0.8f;
 
+    private const float DefaultWireframeThickness =
+        1.25f;
+
     private static readonly Color DefaultColor =
         Color.white;
 
@@ -106,12 +94,12 @@ public static class TerrainAuthoringWireframeRenderer
     // WIREFRAME SHADER PROPERTY IDS
     // =====================================================
 
-    private static readonly int WireframeColorPropertyId =
+    internal static readonly int WireframeColorPropertyId =
         Shader.PropertyToID(
             "_WireframeColor"
         );
 
-    private static readonly int WireframeOpacityPropertyId =
+    internal static readonly int WireframeOpacityPropertyId =
         Shader.PropertyToID(
             "_WireframeOpacity"
         );
@@ -141,21 +129,25 @@ public static class TerrainAuthoringWireframeRenderer
             "_WireframeDepthBias"
         );
 
+    private static readonly int WireframeDepthOnlyPropertyId =
+        Shader.PropertyToID(
+            "_WireframeDepthOnly"
+        );
+
+    private static readonly int WireframeThicknessPropertyId =
+        Shader.PropertyToID(
+            "_WireframeThickness"
+        );
+
     // =====================================================
     // TRANSIENT STATE
     // =====================================================
 
     private static Transform boundClipmapRoot;
 
-    private static readonly Dictionary<int, WireframeEntry>
-        entries =
-            new Dictionary<int, WireframeEntry>();
-
     private static Material lineMaterial;
 
     private static Material depthMaterial;
-
-    private static MaterialPropertyBlock drawPropertyBlock;
 
     private static MaterialPropertyBlock sourcePropertyBlock;
 
@@ -172,10 +164,6 @@ public static class TerrainAuthoringWireframeRenderer
         "True displaced wireframe is disabled.";
 
     private static int sourceRendererCount;
-
-    private static int cachedProxyMeshCount;
-
-    private static int cachedEdgeCount;
 
     // =====================================================
     // INITIALIZATION
@@ -236,6 +224,17 @@ public static class TerrainAuthoringWireframeRenderer
                 EnabledEditorPrefsKey,
                 value
             );
+
+            if (value)
+            {
+                TerrainAuthoringWireframeSectionCache
+                    .BeginEnableMeasurement();
+            }
+            else
+            {
+                TerrainAuthoringWireframeSectionCache
+                    .CancelEnableMeasurement();
+            }
 
             RequestReapply();
         }
@@ -331,15 +330,9 @@ public static class TerrainAuthoringWireframeRenderer
         {
             Color safeColor =
                 new Color(
-                    Mathf.Clamp01(
-                        value.r
-                    ),
-                    Mathf.Clamp01(
-                        value.g
-                    ),
-                    Mathf.Clamp01(
-                        value.b
-                    ),
+                    Mathf.Clamp01(value.r),
+                    Mathf.Clamp01(value.g),
+                    Mathf.Clamp01(value.b),
                     1f
                 );
 
@@ -347,20 +340,11 @@ public static class TerrainAuthoringWireframeRenderer
                 WireframeColor;
 
             if (
-                Mathf.Approximately(
-                    current.r,
-                    safeColor.r
-                )
+                Mathf.Approximately(current.r, safeColor.r)
                 &&
-                Mathf.Approximately(
-                    current.g,
-                    safeColor.g
-                )
+                Mathf.Approximately(current.g, safeColor.g)
                 &&
-                Mathf.Approximately(
-                    current.b,
-                    safeColor.b
-                )
+                Mathf.Approximately(current.b, safeColor.b)
             )
             {
                 return;
@@ -401,17 +385,11 @@ public static class TerrainAuthoringWireframeRenderer
         set
         {
             float safeValue =
-                float.IsNaN(
-                    value
-                )
+                float.IsNaN(value)
                 ||
-                float.IsInfinity(
-                    value
-                )
+                float.IsInfinity(value)
                     ? DefaultOpacity
-                    : Mathf.Clamp01(
-                        value
-                    );
+                    : Mathf.Clamp01(value);
 
             if (
                 Mathf.Approximately(
@@ -433,7 +411,7 @@ public static class TerrainAuthoringWireframeRenderer
     }
 
     // =====================================================
-    // PUBLIC STATUS
+    // PUBLIC STATUS / DIAGNOSTICS
     // =====================================================
 
     public static TerrainAuthoringWireframeStatus Status
@@ -452,28 +430,22 @@ public static class TerrainAuthoringWireframeRenderer
             switch (status)
             {
                 case TerrainAuthoringWireframeStatus.Ready:
-                    return
-                        "Ready";
+                    return "Ready";
 
                 case TerrainAuthoringWireframeStatus.ClipmapUnavailable:
-                    return
-                        "Clipmap Unavailable";
+                    return "Clipmap Unavailable";
 
                 case TerrainAuthoringWireframeStatus.ShaderUnavailable:
-                    return
-                        "Shader Unavailable";
+                    return "Shader Unavailable";
 
                 case TerrainAuthoringWireframeStatus.PlayMode:
-                    return
-                        "Runtime Terrain";
+                    return "Runtime Terrain";
 
                 case TerrainAuthoringWireframeStatus.Error:
-                    return
-                        "Error";
+                    return "Error";
 
                 default:
-                    return
-                        "Disabled";
+                    return "Disabled";
             }
         }
     }
@@ -496,12 +468,17 @@ public static class TerrainAuthoringWireframeRenderer
         }
     }
 
+    /*
+     * Backwards-compatible Package 1 names. A cached proxy mesh is now
+     * one built spatial section rather than one complete source renderer.
+     */
     public static int CachedProxyMeshCount
     {
         get
         {
             return
-                cachedProxyMeshCount;
+                TerrainAuthoringWireframeSectionCache
+                    .BuiltSectionCount;
         }
     }
 
@@ -510,7 +487,8 @@ public static class TerrainAuthoringWireframeRenderer
         get
         {
             return
-                cachedEdgeCount;
+                TerrainAuthoringWireframeSectionCache
+                    .CachedEdgeCount;
         }
     }
 
@@ -525,9 +503,29 @@ public static class TerrainAuthoringWireframeRenderer
 
     public static void RequestRebuild()
     {
-        DestroyProxyMeshes();
+        TerrainAuthoringWireframeSectionCache
+            .DestroyAll();
 
         RequestReapply();
+    }
+
+    internal static void RequestRepaint()
+    {
+        RepaintEditorViews();
+    }
+
+    internal static void ReportLazyBuildError(
+        string message
+    )
+    {
+        SetStatus(
+            TerrainAuthoringWireframeStatus.Error,
+            string.IsNullOrEmpty(message)
+                ? "Could not build a lazy true-wireframe section."
+                : message
+        );
+
+        RepaintEditorViews();
     }
 
     // =====================================================
@@ -609,6 +607,9 @@ public static class TerrainAuthoringWireframeRenderer
 
                 ReleaseTransientResources();
 
+                sourceRendererCount =
+                    0;
+
                 SetStatus(
                     TerrainAuthoringWireframeStatus.Disabled,
                     "True displaced wireframe is disabled."
@@ -653,6 +654,9 @@ public static class TerrainAuthoringWireframeRenderer
                 boundClipmapRoot =
                     null;
 
+                sourceRendererCount =
+                    0;
+
                 SetStatus(
                     TerrainAuthoringWireframeStatus.ClipmapUnavailable,
                     "WorldRoot/Clipmap was not found in the active scene. Run Setup / Repair World Hierarchy."
@@ -687,9 +691,9 @@ public static class TerrainAuthoringWireframeRenderer
             }
 
             if (
-                !SynchronizeProxyMeshes(
+                !SynchronizeSources(
                     clipmapRoot,
-                    out string proxyError
+                    out string sourceError
                 )
             )
             {
@@ -699,7 +703,7 @@ public static class TerrainAuthoringWireframeRenderer
 
                 SetStatus(
                     TerrainAuthoringWireframeStatus.Error,
-                    proxyError
+                    sourceError
                 );
 
                 RepaintEditorViews();
@@ -718,8 +722,8 @@ public static class TerrainAuthoringWireframeRenderer
             SetStatus(
                 TerrainAuthoringWireframeStatus.Ready,
                 wireframeOnly
-                    ? "Wireframe Only is active. A transient displaced depth proxy preserves terrain self-occlusion while the normal terrain fill is suppressed."
-                    : "Overlay mode is active. The transient line proxy is rendered over the normal displaced terrain."
+                    ? "Wireframe Only is active. Visible spatial sections use one cached barycentric triangle mesh for depth occlusion and wire rendering."
+                    : "Overlay mode is active. Visible spatial sections render as barycentric displaced triangle wire over the normal terrain."
             );
 
             RepaintEditorViews();
@@ -748,8 +752,7 @@ public static class TerrainAuthoringWireframeRenderer
             ||
             EditorApplication.isPlayingOrWillChangePlaymode
             ||
-            status !=
-                TerrainAuthoringWireframeStatus.Ready
+            status != TerrainAuthoringWireframeStatus.Ready
         )
         {
             return;
@@ -770,8 +773,7 @@ public static class TerrainAuthoringWireframeRenderer
         if (
             currentEvent == null
             ||
-            currentEvent.type !=
-                EventType.Repaint
+            currentEvent.type != EventType.Repaint
         )
         {
             return;
@@ -788,199 +790,22 @@ public static class TerrainAuthoringWireframeRenderer
             return;
         }
 
-        EnsurePropertyBlocks();
-
-        Color color =
-            WireframeColor;
-
-        float opacity =
-            WireframeOpacity;
-
-        bool wireframeOnly =
-            Mode ==
-                TerrainAuthoringWireframeMode.WireframeOnly;
-
-        TerrainAuthoringWireframeCulling
-            .BeginSceneViewRepaint(
-                sceneView.camera
+        TerrainAuthoringWireframeSectionCache
+            .RenderSceneView(
+                sceneView.camera,
+                lineMaterial,
+                depthMaterial,
+                Mode == TerrainAuthoringWireframeMode.WireframeOnly,
+                WireframeColor,
+                WireframeOpacity
             );
-
-        foreach (
-            WireframeEntry entry
-            in entries.Values
-        )
-        {
-            if (
-                entry == null
-                ||
-                entry.SourceRenderer == null
-                ||
-                entry.ProxyMesh == null
-            )
-            {
-                continue;
-            }
-
-            MeshRenderer sourceRenderer =
-                entry.SourceRenderer;
-
-            if (
-                !sourceRenderer.enabled
-                ||
-                !sourceRenderer.gameObject.activeInHierarchy
-            )
-            {
-                continue;
-            }
-
-            MeshFilter meshFilter =
-                sourceRenderer
-                    .GetComponent<MeshFilter>();
-
-            if (
-                meshFilter == null
-                ||
-                meshFilter.sharedMesh == null
-                ||
-                meshFilter.sharedMesh !=
-                    entry.SourceMesh
-            )
-            {
-                RequestReapply();
-
-                continue;
-            }
-
-            Bounds sourceBounds =
-                sourceRenderer.localBounds;
-
-            if (
-                entry.ProxyMesh.bounds !=
-                sourceBounds
-            )
-            {
-                /*
-                 * Mirror the source renderer's current conservative
-                 * GPU-displacement bounds. TerrainClipmapBoundsController
-                 * owns vertical expansion and the layout applier owns
-                 * extra stitch X/Z expansion.
-                 */
-                entry.ProxyMesh.bounds =
-                    sourceBounds;
-            }
-
-            if (
-                !TerrainAuthoringWireframeCulling
-                    .ShouldRender(
-                        sourceRenderer
-                    )
-            )
-            {
-                continue;
-            }
-
-            TerrainAuthoringWireframeCulling
-                .RecordRendered(
-                    entry.EdgeCount
-                );
-
-            sourceRenderer.GetPropertyBlock(
-                drawPropertyBlock
-            );
-
-            drawPropertyBlock.SetColor(
-                WireframeColorPropertyId,
-                color
-            );
-
-            drawPropertyBlock.SetFloat(
-                WireframeOpacityPropertyId,
-                opacity
-            );
-
-            Matrix4x4 matrix =
-                sourceRenderer.localToWorldMatrix;
-
-            int layer =
-                sourceRenderer.gameObject.layer;
-
-            if (wireframeOnly)
-            {
-                RenderParams depthParams =
-                    CreateRenderParams(
-                        depthMaterial,
-                        sceneView.camera,
-                        layer,
-                        drawPropertyBlock
-                    );
-
-                Graphics.RenderMesh(
-                    depthParams,
-                    entry.ProxyMesh,
-                    0,
-                    matrix
-                );
-            }
-
-            RenderParams lineParams =
-                CreateRenderParams(
-                    lineMaterial,
-                    sceneView.camera,
-                    layer,
-                    drawPropertyBlock
-                );
-
-            Graphics.RenderMesh(
-                lineParams,
-                entry.ProxyMesh,
-                1,
-                matrix
-            );
-        }
-    }
-
-    private static RenderParams CreateRenderParams(
-        Material material,
-        Camera camera,
-        int layer,
-        MaterialPropertyBlock propertyBlock
-    )
-    {
-        RenderParams renderParams =
-            new RenderParams(
-                material
-            );
-
-        renderParams.camera =
-            camera;
-
-        renderParams.layer =
-            layer;
-
-        renderParams.matProps =
-            propertyBlock;
-
-        renderParams.shadowCastingMode =
-            ShadowCastingMode.Off;
-
-        renderParams.receiveShadows =
-            false;
-
-        renderParams.lightProbeUsage =
-            LightProbeUsage.Off;
-
-        renderParams.reflectionProbeUsage =
-            ReflectionProbeUsage.Off;
-
-        return
-            renderParams;
     }
 
     // =====================================================
-    // PROXY MESH SYNCHRONIZATION
+    // SOURCE SYNCHRONIZATION
     // =====================================================
 
-    private static bool SynchronizeProxyMeshes(
+    private static bool SynchronizeSources(
         Transform clipmapRoot,
         out string errorMessage
     )
@@ -1002,12 +827,6 @@ public static class TerrainAuthoringWireframeRenderer
         {
             sourceRendererCount =
                 0;
-
-            cachedProxyMeshCount =
-                entries.Count;
-
-            cachedEdgeCount =
-                CalculateCachedEdgeCount();
 
             errorMessage =
                 "No MeshRenderer components were found under WorldRoot/Clipmap.";
@@ -1041,130 +860,30 @@ public static class TerrainAuthoringWireframeRenderer
             int rendererId =
                 renderer.GetInstanceID();
 
-            TerrainAuthoringWireframeCulling
-                .UpdateLOD(
-                    renderer,
-                    clipmapRoot
-                );
-
             seenRendererIds.Add(
                 rendererId
             );
 
-            if (
-                entries.TryGetValue(
-                    rendererId,
-                    out WireframeEntry existingEntry
-                )
-                &&
-                existingEntry != null
-                &&
-                existingEntry.SourceRenderer ==
-                    renderer
-                &&
-                existingEntry.SourceMesh ==
-                    sourceMesh
-                &&
-                existingEntry.ProxyMesh !=
-                    null
-            )
-            {
-                continue;
-            }
-
-            if (existingEntry != null)
-            {
-                DestroyEntry(
-                    existingEntry
-                );
-
-                entries.Remove(
-                    rendererId
-                );
-            }
-
-            if (
-                !TryBuildProxyMesh(
+            TerrainAuthoringWireframeSectionCache
+                .RegisterSource(
                     renderer,
                     sourceMesh,
-                    out WireframeEntry newEntry,
-                    out string buildError
-                )
-            )
-            {
-                errorMessage =
-                    "Could not build the transient displaced wireframe proxy.\n\n" +
-                    buildError;
+                    clipmapRoot
+                );
+        }
 
-                return false;
-            }
-
-            entries.Add(
-                rendererId,
-                newEntry
+        TerrainAuthoringWireframeSectionCache
+            .RemoveStaleSources(
+                seenRendererIds
             );
-        }
-
-        List<int> staleIds =
-            new List<int>();
-
-        foreach (
-            KeyValuePair<int, WireframeEntry> pair
-            in entries
-        )
-        {
-            if (
-                !seenRendererIds.Contains(
-                    pair.Key
-                )
-            )
-            {
-                staleIds.Add(
-                    pair.Key
-                );
-            }
-        }
-
-        foreach (
-            int staleId
-            in staleIds
-        )
-        {
-            if (
-                entries.TryGetValue(
-                    staleId,
-                    out WireframeEntry staleEntry
-                )
-            )
-            {
-                DestroyEntry(
-                    staleEntry
-                );
-            }
-
-            entries.Remove(
-                staleId
-            );
-
-            TerrainAuthoringWireframeCulling
-                .RemoveRenderer(
-                    staleId
-                );
-        }
 
         sourceRendererCount =
             compatibleRendererCount;
 
-        cachedProxyMeshCount =
-            entries.Count;
-
-        cachedEdgeCount =
-            CalculateCachedEdgeCount();
-
         if (
             compatibleRendererCount <= 0
             ||
-            entries.Count <= 0
+            TerrainAuthoringWireframeSectionCache.SourceRendererCount <= 0
         )
         {
             errorMessage =
@@ -1175,304 +894,6 @@ public static class TerrainAuthoringWireframeRenderer
 
         return true;
     }
-
-    private static bool TryBuildProxyMesh(
-        MeshRenderer renderer,
-        Mesh sourceMesh,
-        out WireframeEntry entry,
-        out string errorMessage
-    )
-    {
-        entry =
-            null;
-
-        errorMessage =
-            "";
-
-        if (
-            renderer == null
-            ||
-            sourceMesh == null
-        )
-        {
-            errorMessage =
-                "The source renderer or mesh is null.";
-
-            return false;
-        }
-
-        if (!sourceMesh.isReadable)
-        {
-            errorMessage =
-                $"Source clipmap mesh '{sourceMesh.name}' is not readable in the Editor.";
-
-            return false;
-        }
-
-        List<Vector3> vertices =
-            new List<Vector3>();
-
-        sourceMesh.GetVertices(
-            vertices
-        );
-
-        if (vertices.Count <= 0)
-        {
-            errorMessage =
-                $"Source clipmap mesh '{sourceMesh.name}' has no vertices.";
-
-            return false;
-        }
-
-        List<Vector4> clipmapData =
-            new List<Vector4>();
-
-        sourceMesh.GetUVs(
-            3,
-            clipmapData
-        );
-
-        if (
-            clipmapData.Count !=
-            vertices.Count
-        )
-        {
-            errorMessage =
-                $"Source clipmap mesh '{sourceMesh.name}' does not contain one UV3/TEXCOORD3 clipmap-data value per vertex.\n\n" +
-                $"Vertices: {vertices.Count}\n" +
-                $"Clipmap Data: {clipmapData.Count}";
-
-            return false;
-        }
-
-        List<int> triangleIndices =
-            new List<int>();
-
-        HashSet<ulong> uniqueEdges =
-            new HashSet<ulong>();
-
-        List<int> lineIndices =
-            new List<int>();
-
-        int subMeshCount =
-            sourceMesh.subMeshCount;
-
-        for (
-            int subMeshIndex = 0;
-            subMeshIndex < subMeshCount;
-            subMeshIndex++
-        )
-        {
-            if (
-                sourceMesh.GetTopology(
-                    subMeshIndex
-                )
-                !=
-                MeshTopology.Triangles
-            )
-            {
-                continue;
-            }
-
-            int[] sourceIndices =
-                sourceMesh.GetIndices(
-                    subMeshIndex
-                );
-
-            for (
-                int index = 0;
-                index + 2 < sourceIndices.Length;
-                index += 3
-            )
-            {
-                int a =
-                    sourceIndices[
-                        index
-                    ];
-
-                int b =
-                    sourceIndices[
-                        index + 1
-                    ];
-
-                int c =
-                    sourceIndices[
-                        index + 2
-                    ];
-
-                triangleIndices.Add(
-                    a
-                );
-
-                triangleIndices.Add(
-                    b
-                );
-
-                triangleIndices.Add(
-                    c
-                );
-
-                AddUniqueEdge(
-                    a,
-                    b,
-                    uniqueEdges,
-                    lineIndices
-                );
-
-                AddUniqueEdge(
-                    b,
-                    c,
-                    uniqueEdges,
-                    lineIndices
-                );
-
-                AddUniqueEdge(
-                    c,
-                    a,
-                    uniqueEdges,
-                    lineIndices
-                );
-            }
-        }
-
-        if (
-            triangleIndices.Count <= 0
-            ||
-            lineIndices.Count <= 0
-        )
-        {
-            errorMessage =
-                $"Source clipmap mesh '{sourceMesh.name}' contains no triangle topology suitable for displaced wireframe generation.";
-
-            return false;
-        }
-
-        TerrainAuthoringWireframeCulling
-            .RegisterGeometry(
-                renderer,
-                vertices,
-                lineIndices
-            );
-
-        Mesh proxyMesh =
-            new Mesh();
-
-        proxyMesh.name =
-            $"WorldMeshes_Wireframe_{sourceMesh.name}_{renderer.GetInstanceID()}";
-
-        proxyMesh.hideFlags =
-            HideFlags.HideAndDontSave;
-
-        proxyMesh.indexFormat =
-            vertices.Count >
-                65535
-                ? IndexFormat.UInt32
-                : IndexFormat.UInt16;
-
-        proxyMesh.SetVertices(
-            vertices
-        );
-
-        proxyMesh.SetUVs(
-            3,
-            clipmapData
-        );
-
-        proxyMesh.subMeshCount =
-            2;
-
-        /*
-         * Submesh 0:
-         * source triangle topology, used only as an invisible depth
-         * proxy in Wireframe Only mode.
-         */
-        proxyMesh.SetIndices(
-            triangleIndices,
-            MeshTopology.Triangles,
-            0,
-            false
-        );
-
-        /*
-         * Submesh 1:
-         * every unique undirected triangle edge exactly once.
-         */
-        proxyMesh.SetIndices(
-            lineIndices,
-            MeshTopology.Lines,
-            1,
-            false
-        );
-
-        proxyMesh.bounds =
-            renderer.localBounds;
-
-        entry =
-            new WireframeEntry(
-                renderer,
-                sourceMesh,
-                proxyMesh,
-                lineIndices.Count /
-                    2
-            );
-
-        return true;
-    }
-
-    private static void AddUniqueEdge(
-        int indexA,
-        int indexB,
-        HashSet<ulong> uniqueEdges,
-        List<int> lineIndices
-    )
-    {
-        if (indexA == indexB)
-        {
-            return;
-        }
-
-        int minimumIndex =
-            Mathf.Min(
-                indexA,
-                indexB
-            );
-
-        int maximumIndex =
-            Mathf.Max(
-                indexA,
-                indexB
-            );
-
-        ulong edgeKey =
-            (
-                (ulong)(uint)minimumIndex
-                <<
-                32
-            )
-            |
-            (uint)maximumIndex;
-
-        if (
-            !uniqueEdges.Add(
-                edgeKey
-            )
-        )
-        {
-            return;
-        }
-
-        lineIndices.Add(
-            minimumIndex
-        );
-
-        lineIndices.Add(
-            maximumIndex
-        );
-    }
-
-    // =====================================================
-    // SOURCE RENDERER COMPATIBILITY
-    // =====================================================
 
     private static bool TryGetCompatibleSourceMesh(
         MeshRenderer renderer,
@@ -1555,7 +976,7 @@ public static class TerrainAuthoringWireframeRenderer
                 true
             );
 
-        EnsurePropertyBlocks();
+        EnsureSourcePropertyBlock();
 
         foreach (
             MeshRenderer renderer
@@ -1630,7 +1051,7 @@ public static class TerrainAuthoringWireframeRenderer
             );
 
         lineMaterial.name =
-            "WorldMeshes Authoring Wireframe Lines";
+            "WorldMeshes Authoring Barycentric Wireframe";
 
         lineMaterial.hideFlags =
             HideFlags.HideAndDontSave;
@@ -1662,6 +1083,16 @@ public static class TerrainAuthoringWireframeRenderer
         lineMaterial.SetFloat(
             WireframeDepthBiasPropertyId,
             0.00001f
+        );
+
+        lineMaterial.SetFloat(
+            WireframeDepthOnlyPropertyId,
+            0f
+        );
+
+        lineMaterial.SetFloat(
+            WireframeThicknessPropertyId,
+            DefaultWireframeThickness
         );
 
         depthMaterial =
@@ -1704,6 +1135,16 @@ public static class TerrainAuthoringWireframeRenderer
             0f
         );
 
+        depthMaterial.SetFloat(
+            WireframeDepthOnlyPropertyId,
+            1f
+        );
+
+        depthMaterial.SetFloat(
+            WireframeThicknessPropertyId,
+            DefaultWireframeThickness
+        );
+
         return true;
     }
 
@@ -1713,53 +1154,10 @@ public static class TerrainAuthoringWireframeRenderer
 
     private static void ReleaseTransientResources()
     {
-        DestroyProxyMeshes();
+        TerrainAuthoringWireframeSectionCache
+            .DestroyAll();
+
         DestroyMaterials();
-    }
-
-    private static void DestroyProxyMeshes()
-    {
-        foreach (
-            WireframeEntry entry
-            in entries.Values
-        )
-        {
-            DestroyEntry(
-                entry
-            );
-        }
-
-        entries.Clear();
-
-        sourceRendererCount =
-            0;
-
-        cachedProxyMeshCount =
-            0;
-
-        cachedEdgeCount =
-            0;
-
-        TerrainAuthoringWireframeCulling
-            .ClearCachedMetadata();
-    }
-
-    private static void DestroyEntry(
-        WireframeEntry entry
-    )
-    {
-        if (
-            entry == null
-            ||
-            entry.ProxyMesh == null
-        )
-        {
-            return;
-        }
-
-        Object.DestroyImmediate(
-            entry.ProxyMesh
-        );
     }
 
     private static void DestroyMaterials()
@@ -1785,27 +1183,6 @@ public static class TerrainAuthoringWireframeRenderer
         }
     }
 
-    private static int CalculateCachedEdgeCount()
-    {
-        int total =
-            0;
-
-        foreach (
-            WireframeEntry entry
-            in entries.Values
-        )
-        {
-            if (entry != null)
-            {
-                total +=
-                    entry.EdgeCount;
-            }
-        }
-
-        return
-            total;
-    }
-
     // =====================================================
     // EDITOR EVENTS
     // =====================================================
@@ -1823,11 +1200,12 @@ public static class TerrainAuthoringWireframeRenderer
     private static void OnProjectChanged()
     {
         /*
-         * Generated clipmap mesh assets are updated in place.
-         * Their Unity object identity can therefore remain unchanged
-         * while triangle topology changes. Force line topology rebuild.
+         * Generated clipmap mesh assets are updated in place. Their Unity
+         * object identity can remain unchanged while topology changes, so
+         * discard all section descriptors/proxies on project changes.
          */
-        DestroyProxyMeshes();
+        TerrainAuthoringWireframeSectionCache
+            .DestroyAll();
 
         RequestReapply();
     }
@@ -1849,7 +1227,11 @@ public static class TerrainAuthoringWireframeRenderer
         boundClipmapRoot =
             null;
 
-        DestroyProxyMeshes();
+        sourceRendererCount =
+            0;
+
+        TerrainAuthoringWireframeSectionCache
+            .DestroyAll();
 
         RequestReapply();
     }
@@ -1870,6 +1252,9 @@ public static class TerrainAuthoringWireframeRenderer
                     true;
 
                 ReleaseTransientResources();
+
+                sourceRendererCount =
+                    0;
 
                 SetStatus(
                     TerrainAuthoringWireframeStatus.PlayMode,
@@ -1931,14 +1316,8 @@ public static class TerrainAuthoringWireframeRenderer
     // HELPERS
     // =====================================================
 
-    private static void EnsurePropertyBlocks()
+    private static void EnsureSourcePropertyBlock()
     {
-        if (drawPropertyBlock == null)
-        {
-            drawPropertyBlock =
-                new MaterialPropertyBlock();
-        }
-
         if (sourcePropertyBlock == null)
         {
             sourcePropertyBlock =
@@ -1955,9 +1334,7 @@ public static class TerrainAuthoringWireframeRenderer
             newStatus;
 
         statusMessage =
-            string.IsNullOrEmpty(
-                message
-            )
+            string.IsNullOrEmpty(message)
                 ? ""
                 : message;
     }
@@ -1979,41 +1356,6 @@ public static class TerrainAuthoringWireframeRenderer
             {
                 window.Repaint();
             }
-        }
-    }
-
-    // =====================================================
-    // ENTRY
-    // =====================================================
-
-    private sealed class WireframeEntry
-    {
-        public readonly MeshRenderer SourceRenderer;
-
-        public readonly Mesh SourceMesh;
-
-        public readonly Mesh ProxyMesh;
-
-        public readonly int EdgeCount;
-
-        public WireframeEntry(
-            MeshRenderer sourceRenderer,
-            Mesh sourceMesh,
-            Mesh proxyMesh,
-            int edgeCount
-        )
-        {
-            SourceRenderer =
-                sourceRenderer;
-
-            SourceMesh =
-                sourceMesh;
-
-            ProxyMesh =
-                proxyMesh;
-
-            EdgeCount =
-                edgeCount;
         }
     }
 }
