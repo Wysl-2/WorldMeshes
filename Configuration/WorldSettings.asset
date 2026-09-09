@@ -16,7 +16,7 @@ MonoBehaviour:
   gridHeight: 96
   chunkSize: 128
   heightfieldResolutionPerChunk: 128
-  heightTileChunkSpan: 2
+  heightTileChunkSpan: 8
   heightSeed: 54321
   heightNoiseScale: 400
   heightBaseHeight: 0
@@ -26,14 +26,14 @@ MonoBehaviour:
   heightLacunarity: 2
   collisionResolution: 64
   clipmapCenterResolution: 512
-  clipmapLevelCount: 6
+  clipmapLevelCount: 5
   clipmapBaseSampleStep: 1
-  clipmapLODOuterResolutions: 0002000000020000000200000002000000020000
-  lastGeneratedHeightSignature: 22fe48cdf8cd10c5122b9883844ddcafd1db6901480655ceb3e0ee2617033059
-  heightmapGenerationRevision: 53
-  lastGeneratedSurfaceSignature: e5f7e83e1cabbeda1f086eaf7c80ae9b882940ea1530bc7447a0b8a78bb38016
-  surfaceMaskGenerationRevision: 35
-  surfaceSourceHeightmapGenerationRevision: 53
-  lastGeneratedCollisionSignature: 5507cbe9a8b0b0c7ac52b57c6d5f7235228bf8525e67580e77c344e3dfef8dd9
-  collisionMeshGenerationRevision: 49
-  collisionSourceHeightmapGenerationRevision: 53
+  clipmapLODOuterResolutions: 00020000000200000002000000020000
+  lastGeneratedHeightSignature: 2d8dd9e318b3988127ad77376d181b6e369160edb16937bfdba739fd1163970a
+  heightmapGenerationRevision: 2
+  lastGeneratedSurfaceSignature: 1fbb7940d2674fa88891224861d5bfa482771ae71ec752ff3048d01341367079
+  surfaceMaskGenerationRevision: 2
+  surfaceSourceHeightmapGenerationRevision: 2
+  lastGeneratedCollisionSignature: 46c0e58363a83436f8fa31c42c8eb54eff5429b15a9089b8371340a8461e10c3
+  collisionMeshGenerationRevision: 2
+  collisionSourceHeightmapGenerationRevision: 2

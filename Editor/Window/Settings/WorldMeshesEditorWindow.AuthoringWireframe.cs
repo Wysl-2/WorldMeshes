@@ -105,6 +105,72 @@ public partial class WorldMeshesEditorWindow :
                     newOpacity;
         }
 
+        int maximumLOD =
+            TerrainAuthoringWireframeCulling
+                .MaximumLOD;
+
+        EditorGUI.BeginChangeCheck();
+
+        int newMaximumLOD =
+            EditorGUILayout.IntField(
+                "Maximum Wireframe LOD",
+                maximumLOD
+            );
+
+        if (EditorGUI.EndChangeCheck())
+        {
+            TerrainAuthoringWireframeCulling
+                .MaximumLOD =
+                    newMaximumLOD;
+        }
+
+        bool distanceLimitEnabled =
+            TerrainAuthoringWireframeCulling
+                .DistanceLimitEnabled;
+
+        EditorGUI.BeginChangeCheck();
+
+        bool newDistanceLimitEnabled =
+            EditorGUILayout.Toggle(
+                "Limit Wireframe Distance",
+                distanceLimitEnabled
+            );
+
+        if (EditorGUI.EndChangeCheck())
+        {
+            TerrainAuthoringWireframeCulling
+                .DistanceLimitEnabled =
+                    newDistanceLimitEnabled;
+
+            distanceLimitEnabled =
+                newDistanceLimitEnabled;
+        }
+
+        EditorGUI.BeginDisabledGroup(
+            !distanceLimitEnabled
+        );
+
+        float maximumDistance =
+            TerrainAuthoringWireframeCulling
+                .MaximumDistance;
+
+        EditorGUI.BeginChangeCheck();
+
+        float newMaximumDistance =
+            EditorGUILayout.FloatField(
+                "Maximum Wireframe Distance",
+                maximumDistance
+            );
+
+        if (EditorGUI.EndChangeCheck())
+        {
+            TerrainAuthoringWireframeCulling
+                .MaximumDistance =
+                    newMaximumDistance;
+        }
+
+        EditorGUI.EndDisabledGroup();
+
         EditorGUI.EndDisabledGroup();
 
         GUILayout.Space(
@@ -132,9 +198,37 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.LabelField(
-            "Unique Wire Edges",
+            "Cached Wire Edges",
             TerrainAuthoringWireframeRenderer
                 .CachedEdgeCount
+                .ToString()
+        );
+
+        EditorGUILayout.LabelField(
+            "Rendered Proxy Meshes",
+            TerrainAuthoringWireframeCulling
+                .RenderedProxyMeshCount
+                .ToString()
+        );
+
+        EditorGUILayout.LabelField(
+            "Rendered Wire Edges",
+            TerrainAuthoringWireframeCulling
+                .RenderedEdgeCount
+                .ToString()
+        );
+
+        EditorGUILayout.LabelField(
+            "LOD-Culled Proxies",
+            TerrainAuthoringWireframeCulling
+                .LODCulledProxyCount
+                .ToString()
+        );
+
+        EditorGUILayout.LabelField(
+            "Distance-Culled Proxies",
+            TerrainAuthoringWireframeCulling
+                .DistanceCulledProxyCount
                 .ToString()
         );
 
@@ -189,7 +283,14 @@ public partial class WorldMeshesEditorWindow :
             "the generated clipmap positions and TEXCOORD3 stitch " +
             "weights, then reuse the source renderer's current height " +
             "cache, stitch offset, world bounds, transform, and " +
-            "conservative renderer bounds.",
+            "conservative renderer bounds.\n\n" +
+
+            "Maximum Wireframe LOD and Maximum Wireframe Distance " +
+            "only control editor Scene View proxy submission. They do " +
+            "not change generated clipmap geometry, runtime terrain, " +
+            "LOD layout, heightmap streaming, or collision streaming. " +
+            "Disable the distance limit to preserve unrestricted " +
+            "distance rendering.",
             MessageType.Info
         );
 

@@ -800,6 +800,11 @@ public static class TerrainAuthoringWireframeRenderer
             Mode ==
                 TerrainAuthoringWireframeMode.WireframeOnly;
 
+        TerrainAuthoringWireframeCulling
+            .BeginSceneViewRepaint(
+                sceneView.camera
+            );
+
         foreach (
             WireframeEntry entry
             in entries.Values
@@ -863,6 +868,21 @@ public static class TerrainAuthoringWireframeRenderer
                 entry.ProxyMesh.bounds =
                     sourceBounds;
             }
+
+            if (
+                !TerrainAuthoringWireframeCulling
+                    .ShouldRender(
+                        sourceRenderer
+                    )
+            )
+            {
+                continue;
+            }
+
+            TerrainAuthoringWireframeCulling
+                .RecordRendered(
+                    entry.EdgeCount
+                );
 
             sourceRenderer.GetPropertyBlock(
                 drawPropertyBlock
@@ -1021,6 +1041,12 @@ public static class TerrainAuthoringWireframeRenderer
             int rendererId =
                 renderer.GetInstanceID();
 
+            TerrainAuthoringWireframeCulling
+                .UpdateLOD(
+                    renderer,
+                    clipmapRoot
+                );
+
             seenRendererIds.Add(
                 rendererId
             );
@@ -1119,6 +1145,11 @@ public static class TerrainAuthoringWireframeRenderer
             entries.Remove(
                 staleId
             );
+
+            TerrainAuthoringWireframeCulling
+                .RemoveRenderer(
+                    staleId
+                );
         }
 
         sourceRendererCount =
@@ -1315,6 +1346,13 @@ public static class TerrainAuthoringWireframeRenderer
 
             return false;
         }
+
+        TerrainAuthoringWireframeCulling
+            .RegisterGeometry(
+                renderer,
+                vertices,
+                lineIndices
+            );
 
         Mesh proxyMesh =
             new Mesh();
@@ -1701,6 +1739,9 @@ public static class TerrainAuthoringWireframeRenderer
 
         cachedEdgeCount =
             0;
+
+        TerrainAuthoringWireframeCulling
+            .ClearCachedMetadata();
     }
 
     private static void DestroyEntry(
