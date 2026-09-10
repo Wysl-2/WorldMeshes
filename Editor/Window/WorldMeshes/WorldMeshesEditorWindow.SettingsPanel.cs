@@ -280,6 +280,10 @@ public partial class WorldMeshesEditorWindow :
 
         DrawWorkspaceSectionGap();
 
+        DrawTargetSurfaceBlendFoundationValidationSettings();
+
+        DrawWorkspaceSectionGap();
+
         DrawAuthoringChangePipelineSettings();
 
         DrawWorkspaceSectionGap();

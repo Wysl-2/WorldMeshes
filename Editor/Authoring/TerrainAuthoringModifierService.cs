@@ -569,6 +569,80 @@ public static partial class TerrainAuthoringModifierService
             );
     }
 
+    public static bool SetStampTargetBaseHeight(
+        TerrainAuthoringData authoringData,
+        WorldSettings worldSettings,
+        string stableId,
+        float targetBaseHeight,
+        out string errorMessage
+    )
+    {
+        if (
+            !TryFindStampModifier(
+                authoringData,
+                stableId,
+                out TerrainStampModifier modifier,
+                out errorMessage
+            )
+        )
+        {
+            return false;
+        }
+
+        return
+            ExecuteMutation(
+                authoringData,
+                worldSettings,
+                "Set Terrain Stamp Target Base Height",
+                () =>
+                {
+                    modifier.SetTargetBaseHeightInternal(
+                        targetBaseHeight
+                    );
+
+                    return true;
+                },
+                out errorMessage
+            );
+    }
+
+    public static bool SetStampTargetHeightRange(
+        TerrainAuthoringData authoringData,
+        WorldSettings worldSettings,
+        string stableId,
+        float targetHeightRange,
+        out string errorMessage
+    )
+    {
+        if (
+            !TryFindStampModifier(
+                authoringData,
+                stableId,
+                out TerrainStampModifier modifier,
+                out errorMessage
+            )
+        )
+        {
+            return false;
+        }
+
+        return
+            ExecuteMutation(
+                authoringData,
+                worldSettings,
+                "Set Terrain Stamp Target Height Range",
+                () =>
+                {
+                    modifier.SetTargetHeightRangeInternal(
+                        targetHeightRange
+                    );
+
+                    return true;
+                },
+                out errorMessage
+            );
+    }
+
     public static bool SetStampFalloff(
         TerrainAuthoringData authoringData,
         WorldSettings worldSettings,
@@ -1087,6 +1161,14 @@ public static partial class TerrainAuthoringModifierService
 
             copy.SetHeightDeltaInternal(
                 stamp.HeightDelta
+            );
+
+            copy.SetTargetBaseHeightInternal(
+                stamp.TargetBaseHeight
+            );
+
+            copy.SetTargetHeightRangeInternal(
+                stamp.TargetHeightRange
             );
 
             copy.SetFalloffInternal(

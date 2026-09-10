@@ -53,6 +53,14 @@ public sealed class TerrainStampModifier :
         10f;
 
     [SerializeField]
+    private float targetBaseHeight =
+        0f;
+
+    [SerializeField]
+    private float targetHeightRange =
+        10f;
+
+    [SerializeField]
     [Range(0f, 1f)]
     private float falloff =
         0.25f;
@@ -192,6 +200,28 @@ public sealed class TerrainStampModifier :
         }
     }
 
+    public float TargetBaseHeight
+    {
+        get
+        {
+            return SanitizeFinite(
+                targetBaseHeight,
+                0f
+            );
+        }
+    }
+
+    public float TargetHeightRange
+    {
+        get
+        {
+            return SanitizeFinite(
+                targetHeightRange,
+                0f
+            );
+        }
+    }
+
     public float Falloff
     {
         get
@@ -250,6 +280,38 @@ public sealed class TerrainStampModifier :
                 )
             );
         }
+    }
+
+    /*
+     * Translates a normalized/remapped source-height sample into the
+     * absolute terrain elevation represented by this target surface.
+     *
+     * This is intentionally independent from footprint falloff and terrain
+     * composition. Future Max/Min/Replace modes can therefore keep source
+     * height and blend influence as separate concepts.
+     */
+    public float EvaluateTargetHeight(
+        float normalizedSourceHeight
+    )
+    {
+        float sourceHeight =
+            Mathf.Clamp01(
+                SanitizeFinite(
+                    normalizedSourceHeight,
+                    0f
+                )
+            );
+
+        float evaluatedHeight =
+            TargetBaseHeight
+            +
+            sourceHeight *
+            TargetHeightRange;
+
+        return SanitizeFinite(
+            evaluatedHeight,
+            TargetBaseHeight
+        );
     }
 
     public override Bounds GetAffectedWorldBounds()
@@ -420,6 +482,28 @@ public sealed class TerrainStampModifier :
             );
     }
 
+    internal void SetTargetBaseHeightInternal(
+        float value
+    )
+    {
+        targetBaseHeight =
+            SanitizeFinite(
+                value,
+                0f
+            );
+    }
+
+    internal void SetTargetHeightRangeInternal(
+        float value
+    )
+    {
+        targetHeightRange =
+            SanitizeFinite(
+                value,
+                0f
+            );
+    }
+
     internal void SetFalloffInternal(
         float value
     )
@@ -478,7 +562,7 @@ public sealed class TerrainStampModifier :
 
     protected override string GetSignatureTypeId()
     {
-        return "TerrainStampModifierV6";
+        return "TerrainStampModifierV7";
     }
 
     protected override void AppendTypeSpecificSignatureData(
@@ -494,6 +578,8 @@ public sealed class TerrainStampModifier :
         AppendFloat(builder, SourceInputMax);
         AppendFloat(builder, SourceGamma);
         AppendFloat(builder, HeightDelta);
+        AppendFloat(builder, TargetBaseHeight);
+        AppendFloat(builder, TargetHeightRange);
         AppendFloat(builder, Falloff);
         AppendInt(builder, (int)FalloffShape);
         AppendInt(builder, (int)FalloffProfile);
