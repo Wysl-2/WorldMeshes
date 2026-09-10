@@ -5,7 +5,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-public static class TerrainMaxMinBlendValidationUtility
+public static class TerrainReplaceBlendValidationUtility
 {
     private sealed class Result
     {
@@ -21,7 +21,7 @@ public static class TerrainMaxMinBlendValidationUtility
     private static readonly string ValidationRoot =
         WorldMeshesPaths.GeneratedValidation
         +
-        "/MaxMinBlendModes";
+        "/ReplaceBlendMode";
 
     private static readonly string ValidationDataPath =
         ValidationRoot
@@ -248,10 +248,13 @@ public static class TerrainMaxMinBlendValidationUtility
                 "Required GPU composition/readback capabilities are available."
             );
 
-            ValidateCoreSemantics();
-            ValidateFalloffAndNegativeRange();
-            ValidateSourceRemapAndOrientation();
-            ValidateOrderingAndReorder();
+            ValidateExistingModeRegression();
+            ValidateCoreReplaceSemantics();
+            ValidateSourceTargetSeparation();
+            ValidateFalloffAndFootprintShapes();
+            ValidateSourcePipeline();
+            ValidateOrdering();
+            ValidateEnableDisableOutput();
             ValidateCrossTileSeam();
             ValidateRangeMetadata();
             ValidateUnsupportedBlendMode();
@@ -266,46 +269,48 @@ public static class TerrainMaxMinBlendValidationUtility
 
     private static void ValidateEnumAndCompilerContract()
     {
-        bool passed =
+        bool enumPassed =
             (int)TerrainHeightBlendMode.Additive == 0
             &&
             (int)TerrainHeightBlendMode.Max == 1
             &&
-            (int)TerrainHeightBlendMode.Min == 2;
+            (int)TerrainHeightBlendMode.Min == 2
+            &&
+            (int)TerrainHeightBlendMode.Replace == 3;
 
         Add(
             "Blend-mode enum contract",
-            passed,
-            passed
-                ? "Additive=0, Max=1, and Min=2 preserve explicit serialization values."
-                : "TerrainHeightBlendMode numeric values do not match the Package 2 contract."
+            enumPassed,
+            enumPassed
+                ? "Additive=0, Max=1, Min=2, and Replace=3 preserve explicit serialization values."
+                : "TerrainHeightBlendMode numeric values do not match the Package 3 contract."
         );
 
         Add(
             "Runtime height compiler version",
             TerrainGenerationStateUtility
                 .RuntimeHeightCompilerVersion == 10,
-            $"RuntimeHeightCompilerVersion={TerrainGenerationStateUtility.RuntimeHeightCompilerVersion}; expected 10 after Package 3 Replace support."
+            $"RuntimeHeightCompilerVersion={TerrainGenerationStateUtility.RuntimeHeightCompilerVersion}; expected 10 for Replace composition."
         );
 
         TerrainStampModifier defaultStamp =
             new TerrainStampModifier();
 
         Add(
-            "Existing Additive default preserved",
+            "Existing Additive creation default preserved",
             defaultStamp.BlendMode ==
                 TerrainHeightBlendMode.Additive,
             $"Default blend mode={defaultStamp.BlendMode}."
         );
     }
 
-    private static void ValidateCoreSemantics()
+    private static void ValidateExistingModeRegression()
     {
         Texture2D whiteTexture =
             CreateConstantTexture(
                 8,
                 1f,
-                "MaxMinWhite"
+                "ReplaceRegressionWhite"
             );
 
         TerrainHeightStampAsset asset =
@@ -315,70 +320,34 @@ public static class TerrainMaxMinBlendValidationUtility
 
         try
         {
-            ValidateSingleCenterCase(
-                "Additive positive regression",
+            ValidateExistingModeCenterCase(
+                "Additive regression",
                 asset,
                 TerrainHeightBlendMode.Additive,
                 50f,
                 20f,
                 0f,
-                10f,
                 70f
             );
 
-            ValidateSingleCenterCase(
-                "Additive negative regression",
-                asset,
-                TerrainHeightBlendMode.Additive,
-                50f,
-                -15f,
-                0f,
-                10f,
-                35f
-            );
-
-            ValidateSingleCenterCase(
-                "Max raises toward target",
+            ValidateExistingModeCenterCase(
+                "Max regression",
                 asset,
                 TerrainHeightBlendMode.Max,
                 50f,
                 0f,
                 100f,
-                0f,
                 100f
             );
 
-            ValidateSingleCenterCase(
-                "Max never lowers terrain",
-                asset,
-                TerrainHeightBlendMode.Max,
-                120f,
-                0f,
-                100f,
-                0f,
-                120f
-            );
-
-            ValidateSingleCenterCase(
-                "Min lowers toward target",
+            ValidateExistingModeCenterCase(
+                "Min regression",
                 asset,
                 TerrainHeightBlendMode.Min,
-                100f,
+                50f,
                 0f,
                 40f,
-                0f,
                 40f
-            );
-
-            ValidateSingleCenterCase(
-                "Min never raises terrain",
-                asset,
-                TerrainHeightBlendMode.Min,
-                20f,
-                0f,
-                40f,
-                0f,
-                20f
             );
         }
         finally
@@ -388,20 +357,17 @@ public static class TerrainMaxMinBlendValidationUtility
         }
     }
 
-    private static void ValidateSingleCenterCase(
+    private static void ValidateExistingModeCenterCase(
         string name,
         TerrainHeightStampAsset asset,
         TerrainHeightBlendMode blendMode,
         float seedHeight,
         float heightDelta,
         float targetBaseHeight,
-        float targetHeightRange,
         float expectedCenter
     )
     {
         const int samplesPerSide = 17;
-        const float sampleSpacing = 1f;
-        const float tileWorldSize = 16f;
 
         TerrainAuthoringData data =
             ScriptableObject
@@ -411,7 +377,7 @@ public static class TerrainMaxMinBlendValidationUtility
 
         try
         {
-            TerrainStampModifier stamp =
+            data.AddHeightModifierInternal(
                 CreateStamp(
                     asset,
                     blendMode,
@@ -419,12 +385,9 @@ public static class TerrainMaxMinBlendValidationUtility
                     new Vector2(12f, 12f),
                     heightDelta,
                     targetBaseHeight,
-                    targetHeightRange,
+                    0f,
                     0f
-                );
-
-            data.AddHeightModifierInternal(
-                stamp
+                )
             );
 
             data.RepairModifierStableIds();
@@ -433,7 +396,7 @@ public static class TerrainMaxMinBlendValidationUtility
                 CreateConstantTexture(
                     samplesPerSide,
                     seedHeight,
-                    "MaxMinSeed"
+                    "ReplaceRegressionSeed"
                 );
 
             if (
@@ -442,12 +405,9 @@ public static class TerrainMaxMinBlendValidationUtility
                     seed,
                     Vector2Int.zero,
                     samplesPerSide,
-                    sampleSpacing,
-                    tileWorldSize,
-                    new Vector2(
-                        tileWorldSize,
-                        tileWorldSize
-                    ),
+                    1f,
+                    16f,
+                    new Vector2(16f, 16f),
                     false,
                     seedHeight,
                     seedHeight,
@@ -472,15 +432,12 @@ public static class TerrainMaxMinBlendValidationUtility
                     8 * samplesPerSide + 8
                 ];
 
-            bool passed =
+            Add(
+                name,
                 ApproximatelyGpu(
                     center,
                     expectedCenter
-                );
-
-            Add(
-                name,
-                passed,
+                ),
                 $"Center={center:R}, expected={expectedCenter:R}."
             );
         }
@@ -491,182 +448,98 @@ public static class TerrainMaxMinBlendValidationUtility
         }
     }
 
-    private static void ValidateFalloffAndNegativeRange()
+    private static void ValidateCoreReplaceSemantics()
     {
         Texture2D whiteTexture =
             CreateConstantTexture(
                 8,
                 1f,
-                "MaxMinFalloffWhite"
+                "ReplaceWhite"
             );
 
-        TerrainHeightStampAsset asset =
+        TerrainHeightStampAsset whiteAsset =
             CreateStampAsset(
                 whiteTexture
             );
 
         try
         {
-            ValidateFalloffCase(
-                asset,
-                TerrainHeightBlendMode.Max,
-                0f,
-                100f,
-                0f,
-                50f,
-                "Max partial footprint falloff"
-            );
-
-            ValidateFalloffCase(
-                asset,
-                TerrainHeightBlendMode.Min,
+            ValidateSingleCenterCase(
+                "Replace raises terrain",
+                whiteAsset,
+                40f,
                 100f,
                 0f,
                 0f,
-                50f,
-                "Min partial footprint falloff"
+                100f
             );
 
             ValidateSingleCenterCase(
-                "Max negative TargetHeightRange",
-                asset,
-                TerrainHeightBlendMode.Max,
+                "Replace lowers terrain",
+                whiteAsset,
+                160f,
+                100f,
                 0f,
                 0f,
-                200f,
-                -150f,
-                50f
+                100f
             );
 
             ValidateSingleCenterCase(
-                "Min negative TargetHeightRange",
-                asset,
-                TerrainHeightBlendMode.Min,
-                100f,
+                "Replace flat zero target range",
+                whiteAsset,
+                35f,
+                150f,
                 0f,
+                0f,
+                150f
+            );
+
+            ValidateSingleCenterCase(
+                "Replace positive target range",
+                whiteAsset,
+                20f,
+                100f,
                 200f,
-                -150f,
-                50f
+                0f,
+                300f
+            );
+
+            ValidateSingleCenterCase(
+                "Replace negative target range",
+                whiteAsset,
+                20f,
+                300f,
+                -200f,
+                0f,
+                100f
             );
         }
         finally
         {
-            Destroy(asset);
+            Destroy(whiteAsset);
             Destroy(whiteTexture);
         }
     }
 
-    private static void ValidateFalloffCase(
-        TerrainHeightStampAsset asset,
-        TerrainHeightBlendMode blendMode,
-        float seedHeight,
-        float targetBaseHeight,
-        float targetHeightRange,
-        float expectedQuarterHeight,
-        string name
-    )
+    private static void ValidateSourceTargetSeparation()
     {
-        const int samplesPerSide = 17;
-        const float sampleSpacing = 1f;
-        const float tileWorldSize = 16f;
-
-        TerrainAuthoringData data =
-            ScriptableObject
-                .CreateInstance<TerrainAuthoringData>();
-
-        Texture2D seed = null;
-
-        try
-        {
-            TerrainStampModifier stamp =
-                CreateStamp(
-                    asset,
-                    blendMode,
-                    new Vector2(8f, 8f),
-                    new Vector2(16f, 16f),
-                    0f,
-                    targetBaseHeight,
-                    targetHeightRange,
-                    1f
-                );
-
-            data.AddHeightModifierInternal(
-                stamp
+        Texture2D blackTexture =
+            CreateConstantTexture(
+                8,
+                0f,
+                "ReplaceBlack"
             );
 
-            data.RepairModifierStableIds();
-
-            seed =
-                CreateConstantTexture(
-                    samplesPerSide,
-                    seedHeight,
-                    "MaxMinFalloffSeed"
-                );
-
-            if (
-                !TryComposeAndRead(
-                    data,
-                    seed,
-                    Vector2Int.zero,
-                    samplesPerSide,
-                    sampleSpacing,
-                    tileWorldSize,
-                    new Vector2(16f, 16f),
-                    false,
-                    seedHeight,
-                    seedHeight,
-                    out float[] values,
-                    out _,
-                    out _,
-                    out string errorMessage
-                )
-            )
-            {
-                Add(name, false, errorMessage);
-                return;
-            }
-
-            float quarter =
-                values[
-                    8 * samplesPerSide + 4
-                ];
-
-            float edge =
-                values[
-                    8 * samplesPerSide
-                ];
-
-            bool passed =
-                ApproximatelyGpu(
-                    quarter,
-                    expectedQuarterHeight
-                )
-                &&
-                ApproximatelyGpu(
-                    edge,
-                    seedHeight
-                );
-
-            Add(
-                name,
-                passed,
-                $"Quarter={quarter:R}, expected={expectedQuarterHeight:R}; edge={edge:R}, expected unchanged {seedHeight:R}."
+        TerrainHeightStampAsset blackAsset =
+            CreateStampAsset(
+                blackTexture
             );
-        }
-        finally
-        {
-            Destroy(seed);
-            Destroy(data);
-        }
-    }
 
-    private static void ValidateSourceRemapAndOrientation()
-    {
         Texture2D quarterTexture =
             CreateConstantTexture(
                 8,
                 0.25f,
-                "MaxMinQuarterSource"
+                "ReplaceQuarter"
             );
 
         TerrainHeightStampAsset quarterAsset =
@@ -674,68 +547,36 @@ public static class TerrainMaxMinBlendValidationUtility
                 quarterTexture
             );
 
-        Texture2D gradientTexture =
-            CreateGradientTexture(
-                9,
-                "MaxMinGradientSource"
-            );
-
-        TerrainHeightStampAsset gradientAsset =
-            CreateStampAsset(
-                gradientTexture
-            );
-
         try
         {
-            ValidateSourceRemapCase(
-                quarterAsset,
-                TerrainHeightBlendMode.Max,
+            ValidateSingleCenterCase(
+                "Black source still replaces to target base",
+                blackAsset,
+                240f,
+                70f,
+                500f,
                 0f,
-                50f,
-                "Max source remap"
+                70f
             );
 
-            ValidateSourceRemapCase(
-                quarterAsset,
-                TerrainHeightBlendMode.Min,
-                100f,
-                50f,
-                "Min source remap"
-            );
-
-            ValidateOrientationCase(
-                gradientAsset,
-                TerrainHeightBlendMode.Max,
-                0f,
-                "Max source orientation / rotation"
-            );
-
-            ValidateOrientationCase(
-                gradientAsset,
-                TerrainHeightBlendMode.Min,
-                100f,
-                "Min source orientation / rotation"
+            ValidateRemapCase(
+                quarterAsset
             );
         }
         finally
         {
+            Destroy(blackAsset);
+            Destroy(blackTexture);
             Destroy(quarterAsset);
             Destroy(quarterTexture);
-            Destroy(gradientAsset);
-            Destroy(gradientTexture);
         }
     }
 
-    private static void ValidateSourceRemapCase(
-        TerrainHeightStampAsset asset,
-        TerrainHeightBlendMode blendMode,
-        float seedHeight,
-        float expectedCenter,
-        string name
+    private static void ValidateRemapCase(
+        TerrainHeightStampAsset asset
     )
     {
         const int samplesPerSide = 17;
-        const float tileWorldSize = 16f;
 
         TerrainAuthoringData data =
             ScriptableObject
@@ -748,7 +589,7 @@ public static class TerrainMaxMinBlendValidationUtility
             TerrainStampModifier stamp =
                 CreateStamp(
                     asset,
-                    blendMode,
+                    TerrainHeightBlendMode.Replace,
                     new Vector2(8f, 8f),
                     new Vector2(12f, 12f),
                     0f,
@@ -772,8 +613,8 @@ public static class TerrainMaxMinBlendValidationUtility
             seed =
                 CreateConstantTexture(
                     samplesPerSide,
-                    seedHeight,
-                    "MaxMinRemapSeed"
+                    0f,
+                    "ReplaceRemapSeed"
                 );
 
             if (
@@ -783,7 +624,146 @@ public static class TerrainMaxMinBlendValidationUtility
                     Vector2Int.zero,
                     samplesPerSide,
                     1f,
-                    tileWorldSize,
+                    16f,
+                    new Vector2(16f, 16f),
+                    false,
+                    0f,
+                    0f,
+                    out float[] values,
+                    out _,
+                    out _,
+                    out string errorMessage
+                )
+            )
+            {
+                Add(
+                    "Replace source remap",
+                    false,
+                    errorMessage
+                );
+
+                return;
+            }
+
+            float center =
+                values[
+                    8 * samplesPerSide + 8
+                ];
+
+            Add(
+                "Replace source remap",
+                ApproximatelyGpu(
+                    center,
+                    50f
+                ),
+                $"Source 0.25 remapped through [0,0.5] produced center={center:R}; expected 50."
+            );
+
+            stamp.SetSourceRemapInternal(
+                0f,
+                0.5f,
+                2f
+            );
+
+            if (
+                !TryComposeAndRead(
+                    data,
+                    seed,
+                    Vector2Int.zero,
+                    samplesPerSide,
+                    1f,
+                    16f,
+                    new Vector2(16f, 16f),
+                    false,
+                    0f,
+                    0f,
+                    out values,
+                    out _,
+                    out _,
+                    out errorMessage
+                )
+            )
+            {
+                Add(
+                    "Replace source gamma",
+                    false,
+                    errorMessage
+                );
+
+                return;
+            }
+
+            center =
+                values[
+                    8 * samplesPerSide + 8
+                ];
+
+            Add(
+                "Replace source gamma",
+                ApproximatelyGpu(
+                    center,
+                    25f
+                ),
+                $"Remapped source 0.5 with gamma 2 produced center={center:R}; expected 25."
+            );
+        }
+        finally
+        {
+            Destroy(seed);
+            Destroy(data);
+        }
+    }
+
+    private static void ValidateSingleCenterCase(
+        string name,
+        TerrainHeightStampAsset asset,
+        float seedHeight,
+        float targetBaseHeight,
+        float targetHeightRange,
+        float falloff,
+        float expectedCenter
+    )
+    {
+        const int samplesPerSide = 17;
+
+        TerrainAuthoringData data =
+            ScriptableObject
+                .CreateInstance<TerrainAuthoringData>();
+
+        Texture2D seed = null;
+
+        try
+        {
+            data.AddHeightModifierInternal(
+                CreateStamp(
+                    asset,
+                    TerrainHeightBlendMode.Replace,
+                    new Vector2(8f, 8f),
+                    new Vector2(12f, 12f),
+                    0f,
+                    targetBaseHeight,
+                    targetHeightRange,
+                    falloff
+                )
+            );
+
+            data.RepairModifierStableIds();
+
+            seed =
+                CreateConstantTexture(
+                    samplesPerSide,
+                    seedHeight,
+                    "ReplaceCenterSeed"
+                );
+
+            if (
+                !TryComposeAndRead(
+                    data,
+                    seed,
+                    Vector2Int.zero,
+                    samplesPerSide,
+                    1f,
+                    16f,
                     new Vector2(16f, 16f),
                     false,
                     seedHeight,
@@ -795,7 +775,12 @@ public static class TerrainMaxMinBlendValidationUtility
                 )
             )
             {
-                Add(name, false, errorMessage);
+                Add(
+                    name,
+                    false,
+                    errorMessage
+                );
+
                 return;
             }
 
@@ -804,16 +789,13 @@ public static class TerrainMaxMinBlendValidationUtility
                     8 * samplesPerSide + 8
                 ];
 
-            bool passed =
+            Add(
+                name,
                 ApproximatelyGpu(
                     center,
                     expectedCenter
-                );
-
-            Add(
-                name,
-                passed,
-                $"Source 0.25 remapped through [0,0.5] produced center {center:R}; expected {expectedCenter:R}."
+                ),
+                $"Center={center:R}, expected={expectedCenter:R}."
             );
         }
         finally
@@ -823,15 +805,262 @@ public static class TerrainMaxMinBlendValidationUtility
         }
     }
 
+    private static void ValidateFalloffAndFootprintShapes()
+    {
+        const int samplesPerSide = 17;
+
+        Texture2D whiteTexture =
+            CreateConstantTexture(
+                8,
+                1f,
+                "ReplaceFalloffWhite"
+            );
+
+        TerrainHeightStampAsset asset =
+            CreateStampAsset(
+                whiteTexture
+            );
+
+        TerrainAuthoringData rectangleData =
+            ScriptableObject
+                .CreateInstance<TerrainAuthoringData>();
+
+        TerrainAuthoringData ellipseData =
+            ScriptableObject
+                .CreateInstance<TerrainAuthoringData>();
+
+        Texture2D seed = null;
+
+        try
+        {
+            TerrainStampModifier rectangle =
+                CreateStamp(
+                    asset,
+                    TerrainHeightBlendMode.Replace,
+                    new Vector2(8f, 8f),
+                    new Vector2(16f, 16f),
+                    0f,
+                    100f,
+                    0f,
+                    1f
+                );
+
+            rectangle.SetFalloffShapeInternal(
+                TerrainStampFalloffShape.Rectangle
+            );
+
+            rectangle.SetFalloffProfileInternal(
+                TerrainStampFalloffProfile.Smooth
+            );
+
+            rectangleData.AddHeightModifierInternal(
+                rectangle
+            );
+
+            rectangleData.RepairModifierStableIds();
+
+            seed =
+                CreateConstantTexture(
+                    samplesPerSide,
+                    0f,
+                    "ReplaceFalloffSeed"
+                );
+
+            if (
+                TryComposeAndRead(
+                    rectangleData,
+                    seed,
+                    Vector2Int.zero,
+                    samplesPerSide,
+                    1f,
+                    16f,
+                    new Vector2(16f, 16f),
+                    false,
+                    0f,
+                    0f,
+                    out float[] rectangleValues,
+                    out _,
+                    out _,
+                    out string rectangleError
+                )
+            )
+            {
+                float center =
+                    rectangleValues[
+                        8 * samplesPerSide + 8
+                    ];
+
+                float quarter =
+                    rectangleValues[
+                        8 * samplesPerSide + 4
+                    ];
+
+                float edge =
+                    rectangleValues[
+                        8 * samplesPerSide
+                    ];
+
+                bool passed =
+                    ApproximatelyGpu(
+                        center,
+                        100f
+                    )
+                    &&
+                    ApproximatelyGpu(
+                        quarter,
+                        50f
+                    )
+                    &&
+                    ApproximatelyGpu(
+                        edge,
+                        0f
+                    );
+
+                Add(
+                    "Replace footprint falloff influence",
+                    passed,
+                    $"Center={center:R}, quarter={quarter:R}, edge={edge:R}; expected 100/50/0."
+                );
+            }
+            else
+            {
+                Add(
+                    "Replace footprint falloff influence",
+                    false,
+                    rectangleError
+                );
+            }
+
+            TerrainStampModifier ellipse =
+                CreateStamp(
+                    asset,
+                    TerrainHeightBlendMode.Replace,
+                    new Vector2(8f, 8f),
+                    new Vector2(16f, 16f),
+                    0f,
+                    100f,
+                    0f,
+                    0f
+                );
+
+            ellipse.SetFalloffShapeInternal(
+                TerrainStampFalloffShape.Ellipse
+            );
+
+            ellipseData.AddHeightModifierInternal(
+                ellipse
+            );
+
+            ellipseData.RepairModifierStableIds();
+
+            if (
+                TryComposeAndRead(
+                    ellipseData,
+                    seed,
+                    Vector2Int.zero,
+                    samplesPerSide,
+                    1f,
+                    16f,
+                    new Vector2(16f, 16f),
+                    false,
+                    0f,
+                    0f,
+                    out float[] ellipseValues,
+                    out _,
+                    out _,
+                    out string ellipseError
+                )
+            )
+            {
+                float center =
+                    ellipseValues[
+                        8 * samplesPerSide + 8
+                    ];
+
+                float corner =
+                    ellipseValues[0];
+
+                Add(
+                    "Replace ellipse footprint",
+                    ApproximatelyGpu(
+                        center,
+                        100f
+                    )
+                    &&
+                    ApproximatelyGpu(
+                        corner,
+                        0f
+                    ),
+                    $"Center={center:R}, corner={corner:R}; expected 100/0."
+                );
+            }
+            else
+            {
+                Add(
+                    "Replace ellipse footprint",
+                    false,
+                    ellipseError
+                );
+            }
+        }
+        finally
+        {
+            Destroy(seed);
+            Destroy(rectangleData);
+            Destroy(ellipseData);
+            Destroy(asset);
+            Destroy(whiteTexture);
+        }
+    }
+
+    private static void ValidateSourcePipeline()
+    {
+        Texture2D gradientTexture =
+            CreateGradientTexture(
+                9,
+                "ReplaceGradient"
+            );
+
+        TerrainHeightStampAsset gradientAsset =
+            CreateStampAsset(
+                gradientTexture
+            );
+
+        Texture2D impulseTexture =
+            CreateImpulseTexture(
+                9,
+                "ReplaceImpulse"
+            );
+
+        TerrainHeightStampAsset impulseAsset =
+            CreateStampAsset(
+                impulseTexture
+            );
+
+        try
+        {
+            ValidateOrientationCase(
+                gradientAsset
+            );
+
+            ValidateSmoothingCase(
+                impulseAsset
+            );
+        }
+        finally
+        {
+            Destroy(gradientAsset);
+            Destroy(gradientTexture);
+            Destroy(impulseAsset);
+            Destroy(impulseTexture);
+        }
+    }
+
     private static void ValidateOrientationCase(
-        TerrainHeightStampAsset asset,
-        TerrainHeightBlendMode blendMode,
-        float seedHeight,
-        string name
+        TerrainHeightStampAsset asset
     )
     {
         const int samplesPerSide = 17;
-        const float tileWorldSize = 16f;
 
         float[] baseline = null;
         float[] flipX = null;
@@ -843,8 +1072,6 @@ public static class TerrainMaxMinBlendValidationUtility
         if (
             !TryComposeOrientationVariant(
                 asset,
-                blendMode,
-                seedHeight,
                 false,
                 false,
                 0f,
@@ -854,8 +1081,6 @@ public static class TerrainMaxMinBlendValidationUtility
             ||
             !TryComposeOrientationVariant(
                 asset,
-                blendMode,
-                seedHeight,
                 true,
                 false,
                 0f,
@@ -865,8 +1090,6 @@ public static class TerrainMaxMinBlendValidationUtility
             ||
             !TryComposeOrientationVariant(
                 asset,
-                blendMode,
-                seedHeight,
                 false,
                 true,
                 0f,
@@ -876,8 +1099,6 @@ public static class TerrainMaxMinBlendValidationUtility
             ||
             !TryComposeOrientationVariant(
                 asset,
-                blendMode,
-                seedHeight,
                 false,
                 false,
                 180f,
@@ -886,7 +1107,12 @@ public static class TerrainMaxMinBlendValidationUtility
             )
         )
         {
-            Add(name, false, errorMessage);
+            Add(
+                "Replace source orientation / rotation",
+                false,
+                errorMessage
+            );
+
             return;
         }
 
@@ -927,18 +1153,16 @@ public static class TerrainMaxMinBlendValidationUtility
             );
 
         Add(
-            name,
+            "Replace source orientation / rotation",
             passed,
             passed
-                ? "Flip X, Flip Z, and 180-degree rotation reuse the existing source-coordinate pipeline."
+                ? "Flip X, Flip Z, and 180-degree rotation reuse the existing shared source-coordinate pipeline."
                 : $"baseline={baseline[a]:R}, flipX={flipX[mirrorX]:R}, flipZ={flipZ[mirrorZ]:R}, rotated={rotated[opposite]:R}."
         );
     }
 
     private static bool TryComposeOrientationVariant(
         TerrainHeightStampAsset asset,
-        TerrainHeightBlendMode blendMode,
-        float seedHeight,
         bool flipX,
         bool flipZ,
         float rotationDegrees,
@@ -959,7 +1183,7 @@ public static class TerrainMaxMinBlendValidationUtility
             TerrainStampModifier stamp =
                 CreateStamp(
                     asset,
-                    blendMode,
+                    TerrainHeightBlendMode.Replace,
                     new Vector2(8f, 8f),
                     new Vector2(16f, 16f),
                     0f,
@@ -989,8 +1213,8 @@ public static class TerrainMaxMinBlendValidationUtility
             seed =
                 CreateConstantTexture(
                     samplesPerSide,
-                    seedHeight,
-                    "MaxMinOrientationSeed"
+                    0f,
+                    "ReplaceOrientationSeed"
                 );
 
             return
@@ -1003,8 +1227,8 @@ public static class TerrainMaxMinBlendValidationUtility
                     16f,
                     new Vector2(16f, 16f),
                     false,
-                    seedHeight,
-                    seedHeight,
+                    0f,
+                    0f,
                     out values,
                     out _,
                     out _,
@@ -1018,13 +1242,162 @@ public static class TerrainMaxMinBlendValidationUtility
         }
     }
 
-    private static void ValidateOrderingAndReorder()
+    private static void ValidateSmoothingCase(
+        TerrainHeightStampAsset asset
+    )
+    {
+        const int samplesPerSide = 17;
+
+        float rawCenter;
+        float smoothCenter;
+
+        if (
+            !TryComposeSmoothingVariant(
+                asset,
+                0f,
+                out rawCenter,
+                out string rawError
+            )
+        )
+        {
+            Add(
+                "Replace smoothing pipeline",
+                false,
+                rawError
+            );
+
+            return;
+        }
+
+        if (
+            !TryComposeSmoothingVariant(
+                asset,
+                2f,
+                out smoothCenter,
+                out string smoothError
+            )
+        )
+        {
+            Add(
+                "Replace smoothing pipeline",
+                false,
+                smoothError
+            );
+
+            return;
+        }
+
+        bool passed =
+            rawCenter > 90f
+            &&
+            smoothCenter > 0f
+            &&
+            smoothCenter <
+                rawCenter - 0.01f;
+
+        Add(
+            "Replace smoothing pipeline",
+            passed,
+            $"Raw center={rawCenter:R}; smoothed center={smoothCenter:R}. Replace consumes the existing filtered source result."
+        );
+    }
+
+    private static bool TryComposeSmoothingVariant(
+        TerrainHeightStampAsset asset,
+        float smoothingRadius,
+        out float center,
+        out string errorMessage
+    )
+    {
+        const int samplesPerSide = 17;
+
+        center =
+            0f;
+
+        TerrainAuthoringData data =
+            ScriptableObject
+                .CreateInstance<TerrainAuthoringData>();
+
+        Texture2D seed = null;
+
+        try
+        {
+            TerrainStampModifier stamp =
+                CreateStamp(
+                    asset,
+                    TerrainHeightBlendMode.Replace,
+                    new Vector2(8f, 8f),
+                    new Vector2(16f, 16f),
+                    0f,
+                    0f,
+                    100f,
+                    0f
+                );
+
+            stamp.SetSmoothingRadiusInternal(
+                smoothingRadius
+            );
+
+            stamp.SetSmoothingStrengthInternal(
+                1f
+            );
+
+            data.AddHeightModifierInternal(
+                stamp
+            );
+
+            data.RepairModifierStableIds();
+
+            seed =
+                CreateConstantTexture(
+                    samplesPerSide,
+                    0f,
+                    "ReplaceSmoothingSeed"
+                );
+
+            if (
+                !TryComposeAndRead(
+                    data,
+                    seed,
+                    Vector2Int.zero,
+                    samplesPerSide,
+                    1f,
+                    16f,
+                    new Vector2(16f, 16f),
+                    false,
+                    0f,
+                    0f,
+                    out float[] values,
+                    out _,
+                    out _,
+                    out errorMessage
+                )
+            )
+            {
+                return false;
+            }
+
+            center =
+                values[
+                    8 * samplesPerSide + 8
+                ];
+
+            return true;
+        }
+        finally
+        {
+            Destroy(seed);
+            Destroy(data);
+        }
+    }
+
+    private static void ValidateOrdering()
     {
         Texture2D whiteTexture =
             CreateConstantTexture(
                 8,
                 1f,
-                "MaxMinOrderWhite"
+                "ReplaceOrderWhite"
             );
 
         TerrainHeightStampAsset asset =
@@ -1036,53 +1409,85 @@ public static class TerrainMaxMinBlendValidationUtility
         {
             ValidateOrderCase(
                 asset,
-                TerrainHeightBlendMode.Additive,
-                TerrainHeightBlendMode.Max,
+                TerrainHeightBlendMode.Replace,
                 100f,
-                "Additive -> Max"
-            );
-
-            ValidateOrderCase(
-                asset,
-                TerrainHeightBlendMode.Max,
                 TerrainHeightBlendMode.Additive,
+                0f,
                 120f,
-                "Max -> Additive"
+                "Replace -> Additive"
             );
 
             ValidateOrderCase(
                 asset,
                 TerrainHeightBlendMode.Additive,
-                TerrainHeightBlendMode.Min,
-                40f,
-                "Additive -> Min"
-            );
-
-            ValidateOrderCase(
-                asset,
-                TerrainHeightBlendMode.Min,
-                TerrainHeightBlendMode.Additive,
-                60f,
-                "Min -> Additive"
-            );
-
-            ValidateOrderCase(
-                asset,
-                TerrainHeightBlendMode.Max,
-                TerrainHeightBlendMode.Min,
-                40f,
-                "Max -> Min"
-            );
-
-            ValidateOrderCase(
-                asset,
-                TerrainHeightBlendMode.Min,
-                TerrainHeightBlendMode.Max,
+                0f,
+                TerrainHeightBlendMode.Replace,
                 100f,
-                "Min -> Max"
+                100f,
+                "Additive -> Replace"
             );
 
-            ValidateServiceReorder(
+            ValidateOrderCase(
+                asset,
+                TerrainHeightBlendMode.Replace,
+                100f,
+                TerrainHeightBlendMode.Max,
+                0f,
+                120f,
+                "Replace -> Max"
+            );
+
+            ValidateOrderCase(
+                asset,
+                TerrainHeightBlendMode.Max,
+                0f,
+                TerrainHeightBlendMode.Replace,
+                100f,
+                100f,
+                "Max -> Replace"
+            );
+
+            ValidateOrderCase(
+                asset,
+                TerrainHeightBlendMode.Replace,
+                100f,
+                TerrainHeightBlendMode.Min,
+                0f,
+                40f,
+                "Replace -> Min"
+            );
+
+            ValidateOrderCase(
+                asset,
+                TerrainHeightBlendMode.Min,
+                0f,
+                TerrainHeightBlendMode.Replace,
+                100f,
+                100f,
+                "Min -> Replace"
+            );
+
+            ValidateOrderCase(
+                asset,
+                TerrainHeightBlendMode.Replace,
+                100f,
+                TerrainHeightBlendMode.Replace,
+                30f,
+                30f,
+                "Replace -> Replace"
+            );
+
+            ValidateOrderCase(
+                asset,
+                TerrainHeightBlendMode.Replace,
+                30f,
+                TerrainHeightBlendMode.Replace,
+                100f,
+                100f,
+                "Replace overlap reverse order"
+            );
+
+            ValidateMixedOrderCase(
                 asset
             );
         }
@@ -1096,7 +1501,9 @@ public static class TerrainMaxMinBlendValidationUtility
     private static void ValidateOrderCase(
         TerrainHeightStampAsset asset,
         TerrainHeightBlendMode firstMode,
+        float firstReplaceTarget,
         TerrainHeightBlendMode secondMode,
+        float secondReplaceTarget,
         float expectedCenter,
         string name
     )
@@ -1112,16 +1519,18 @@ public static class TerrainMaxMinBlendValidationUtility
         try
         {
             data.AddHeightModifierInternal(
-                CreateOrderingStamp(
+                CreateOrderStamp(
                     asset,
-                    firstMode
+                    firstMode,
+                    firstReplaceTarget
                 )
             );
 
             data.AddHeightModifierInternal(
-                CreateOrderingStamp(
+                CreateOrderStamp(
                     asset,
-                    secondMode
+                    secondMode,
+                    secondReplaceTarget
                 )
             );
 
@@ -1131,7 +1540,7 @@ public static class TerrainMaxMinBlendValidationUtility
                 CreateConstantTexture(
                     samplesPerSide,
                     50f,
-                    "MaxMinOrderSeed"
+                    "ReplaceOrderSeed"
                 );
 
             if (
@@ -1153,7 +1562,12 @@ public static class TerrainMaxMinBlendValidationUtility
                 )
             )
             {
-                Add(name, false, errorMessage);
+                Add(
+                    name,
+                    false,
+                    errorMessage
+                );
+
                 return;
             }
 
@@ -1178,9 +1592,114 @@ public static class TerrainMaxMinBlendValidationUtility
         }
     }
 
-    private static TerrainStampModifier CreateOrderingStamp(
+    private static void ValidateMixedOrderCase(
+        TerrainHeightStampAsset asset
+    )
+    {
+        const int samplesPerSide = 17;
+
+        TerrainAuthoringData data =
+            ScriptableObject
+                .CreateInstance<TerrainAuthoringData>();
+
+        Texture2D seed = null;
+
+        try
+        {
+            data.AddHeightModifierInternal(
+                CreateOrderStamp(
+                    asset,
+                    TerrainHeightBlendMode.Additive,
+                    0f
+                )
+            );
+
+            data.AddHeightModifierInternal(
+                CreateOrderStamp(
+                    asset,
+                    TerrainHeightBlendMode.Replace,
+                    100f
+                )
+            );
+
+            data.AddHeightModifierInternal(
+                CreateOrderStamp(
+                    asset,
+                    TerrainHeightBlendMode.Max,
+                    0f
+                )
+            );
+
+            data.AddHeightModifierInternal(
+                CreateOrderStamp(
+                    asset,
+                    TerrainHeightBlendMode.Min,
+                    0f
+                )
+            );
+
+            data.RepairModifierStableIds();
+
+            seed =
+                CreateConstantTexture(
+                    samplesPerSide,
+                    50f,
+                    "ReplaceMixedOrderSeed"
+                );
+
+            if (
+                !TryComposeAndRead(
+                    data,
+                    seed,
+                    Vector2Int.zero,
+                    samplesPerSide,
+                    1f,
+                    16f,
+                    new Vector2(16f, 16f),
+                    false,
+                    50f,
+                    50f,
+                    out float[] values,
+                    out _,
+                    out _,
+                    out string errorMessage
+                )
+            )
+            {
+                Add(
+                    "Mixed Additive/Replace/Max/Min ordering",
+                    false,
+                    errorMessage
+                );
+
+                return;
+            }
+
+            float center =
+                values[
+                    8 * samplesPerSide + 8
+                ];
+
+            Add(
+                "Mixed Additive/Replace/Max/Min ordering",
+                ApproximatelyGpu(
+                    center,
+                    40f
+                ),
+                $"Center={center:R}, expected 40 from Additive -> Replace -> Max -> Min."
+            );
+        }
+        finally
+        {
+            Destroy(seed);
+            Destroy(data);
+        }
+    }
+
+    private static TerrainStampModifier CreateOrderStamp(
         TerrainHeightStampAsset asset,
-        TerrainHeightBlendMode blendMode
+        TerrainHeightBlendMode blendMode,
+        float replaceTarget
     )
     {
         float heightDelta =
@@ -1190,8 +1709,14 @@ public static class TerrainMaxMinBlendValidationUtility
 
         float targetBaseHeight =
             blendMode == TerrainHeightBlendMode.Max
-                ? 100f
-                : 40f;
+                ? 120f
+                :
+                blendMode == TerrainHeightBlendMode.Min
+                    ? 40f
+                    :
+                    blendMode == TerrainHeightBlendMode.Replace
+                        ? replaceTarget
+                        : 0f;
 
         return
             CreateStamp(
@@ -1206,175 +1731,15 @@ public static class TerrainMaxMinBlendValidationUtility
             );
     }
 
-    private static void ValidateServiceReorder(
-        TerrainHeightStampAsset asset
-    )
+    private static void ValidateEnableDisableOutput()
     {
         const int samplesPerSide = 17;
-
-        TerrainAuthoringData data =
-            ScriptableObject
-                .CreateInstance<TerrainAuthoringData>();
-
-        Texture2D seed = null;
-
-        try
-        {
-            TerrainStampModifier additive =
-                CreateOrderingStamp(
-                    asset,
-                    TerrainHeightBlendMode.Additive
-                );
-
-            TerrainStampModifier maximum =
-                CreateOrderingStamp(
-                    asset,
-                    TerrainHeightBlendMode.Max
-                );
-
-            data.AddHeightModifierInternal(
-                additive
-            );
-
-            data.AddHeightModifierInternal(
-                maximum
-            );
-
-            data.RepairModifierStableIds();
-
-            seed =
-                CreateConstantTexture(
-                    samplesPerSide,
-                    50f,
-                    "MaxMinReorderSeed"
-                );
-
-            if (
-                !TryComposeAndRead(
-                    data,
-                    seed,
-                    Vector2Int.zero,
-                    samplesPerSide,
-                    1f,
-                    16f,
-                    new Vector2(16f, 16f),
-                    false,
-                    50f,
-                    50f,
-                    out float[] before,
-                    out _,
-                    out _,
-                    out string beforeError
-                )
-            )
-            {
-                Add(
-                    "Service reorder preserves stack semantics",
-                    false,
-                    beforeError
-                );
-
-                return;
-            }
-
-            bool reordered =
-                TerrainAuthoringModifierService
-                    .ReorderModifier(
-                        data,
-                        worldSettings,
-                        maximum.StableId,
-                        0,
-                        out string reorderError
-                    );
-
-            if (!reordered)
-            {
-                Add(
-                    "Service reorder preserves stack semantics",
-                    false,
-                    reorderError
-                );
-
-                return;
-            }
-
-            if (
-                !TryComposeAndRead(
-                    data,
-                    seed,
-                    Vector2Int.zero,
-                    samplesPerSide,
-                    1f,
-                    16f,
-                    new Vector2(16f, 16f),
-                    false,
-                    50f,
-                    50f,
-                    out float[] after,
-                    out _,
-                    out _,
-                    out string afterError
-                )
-            )
-            {
-                Add(
-                    "Service reorder preserves stack semantics",
-                    false,
-                    afterError
-                );
-
-                return;
-            }
-
-            float beforeCenter =
-                before[8 * samplesPerSide + 8];
-
-            float afterCenter =
-                after[8 * samplesPerSide + 8];
-
-            bool passed =
-                ApproximatelyGpu(
-                    beforeCenter,
-                    100f
-                )
-                &&
-                ApproximatelyGpu(
-                    afterCenter,
-                    120f
-                );
-
-            Add(
-                "Service reorder preserves stack semantics",
-                passed,
-                $"Additive->Max={beforeCenter:R}; Max->Additive after reorder={afterCenter:R}."
-            );
-        }
-        finally
-        {
-            Undo.ClearUndo(
-                data
-            );
-
-            TerrainAuthoringModifierChangeTracker
-                .Forget(
-                    data
-                );
-
-            Destroy(seed);
-            Destroy(data);
-        }
-    }
-
-    private static void ValidateCrossTileSeam()
-    {
-        const int samplesPerSide = 17;
-        const float tileWorldSize = 16f;
 
         Texture2D whiteTexture =
             CreateConstantTexture(
                 8,
                 1f,
-                "MaxMinCrossTileWhite"
+                "ReplaceEnableWhite"
             );
 
         TerrainHeightStampAsset asset =
@@ -1390,17 +1755,166 @@ public static class TerrainMaxMinBlendValidationUtility
 
         try
         {
-            data.AddHeightModifierInternal(
+            TerrainStampModifier stamp =
                 CreateStamp(
                     asset,
-                    TerrainHeightBlendMode.Max,
-                    new Vector2(16f, 8f),
-                    new Vector2(16f, 12f),
+                    TerrainHeightBlendMode.Replace,
+                    new Vector2(8f, 8f),
+                    new Vector2(12f, 12f),
                     0f,
                     100f,
                     0f,
                     0f
+                );
+
+            data.AddHeightModifierInternal(
+                stamp
+            );
+
+            data.RepairModifierStableIds();
+
+            seed =
+                CreateConstantTexture(
+                    samplesPerSide,
+                    50f,
+                    "ReplaceEnableSeed"
+                );
+
+            float enabledCenter =
+                ComposeCenterOrNaN(
+                    data,
+                    seed
+                );
+
+            stamp.SetEnabledInternal(
+                false
+            );
+
+            float disabledCenter =
+                ComposeCenterOrNaN(
+                    data,
+                    seed
+                );
+
+            stamp.SetEnabledInternal(
+                true
+            );
+
+            float reenabledCenter =
+                ComposeCenterOrNaN(
+                    data,
+                    seed
+                );
+
+            bool passed =
+                ApproximatelyGpu(
+                    enabledCenter,
+                    100f
                 )
+                &&
+                ApproximatelyGpu(
+                    disabledCenter,
+                    50f
+                )
+                &&
+                ApproximatelyGpu(
+                    reenabledCenter,
+                    100f
+                );
+
+            Add(
+                "Replace enable / disable output",
+                passed,
+                $"Enabled={enabledCenter:R}, disabled={disabledCenter:R}, re-enabled={reenabledCenter:R}; expected 100/50/100."
+            );
+        }
+        finally
+        {
+            Destroy(seed);
+            Destroy(data);
+            Destroy(asset);
+            Destroy(whiteTexture);
+        }
+    }
+
+    private static float ComposeCenterOrNaN(
+        TerrainAuthoringData data,
+        Texture2D seed
+    )
+    {
+        const int samplesPerSide = 17;
+
+        if (
+            !TryComposeAndRead(
+                data,
+                seed,
+                Vector2Int.zero,
+                samplesPerSide,
+                1f,
+                16f,
+                new Vector2(16f, 16f),
+                false,
+                50f,
+                50f,
+                out float[] values,
+                out _,
+                out _,
+                out _
+            )
+        )
+        {
+            return float.NaN;
+        }
+
+        return
+            values[
+                8 * samplesPerSide + 8
+            ];
+    }
+
+    private static void ValidateCrossTileSeam()
+    {
+        const int samplesPerSide = 17;
+        const float tileWorldSize = 16f;
+
+        Texture2D whiteTexture =
+            CreateConstantTexture(
+                8,
+                1f,
+                "ReplaceCrossTileWhite"
+            );
+
+        TerrainHeightStampAsset asset =
+            CreateStampAsset(
+                whiteTexture
+            );
+
+        TerrainAuthoringData data =
+            ScriptableObject
+                .CreateInstance<TerrainAuthoringData>();
+
+        Texture2D seed = null;
+
+        try
+        {
+            TerrainStampModifier stamp =
+                CreateStamp(
+                    asset,
+                    TerrainHeightBlendMode.Replace,
+                    new Vector2(16f, 8f),
+                    new Vector2(18f, 12f),
+                    0f,
+                    100f,
+                    0f,
+                    0f
+                );
+
+            stamp.SetRotationDegreesInternal(
+                35f
+            );
+
+            data.AddHeightModifierInternal(
+                stamp
             );
 
             data.RepairModifierStableIds();
@@ -1409,7 +1923,7 @@ public static class TerrainMaxMinBlendValidationUtility
                 CreateConstantTexture(
                     samplesPerSide,
                     0f,
-                    "MaxMinCrossTileSeed"
+                    "ReplaceCrossTileSeed"
                 );
 
             bool leftOk =
@@ -1455,7 +1969,7 @@ public static class TerrainMaxMinBlendValidationUtility
             )
             {
                 Add(
-                    "Max cross-tile duplicated border",
+                    "Rotated Replace cross-tile duplicated border",
                     false,
                     !leftOk
                         ? leftError
@@ -1487,9 +2001,9 @@ public static class TerrainMaxMinBlendValidationUtility
                 );
 
             Add(
-                "Max cross-tile duplicated border",
+                "Rotated Replace cross-tile duplicated border",
                 passed,
-                $"Left border={leftBorder:R}; right border={rightBorder:R}."
+                $"Left border={leftBorder:R}; right border={rightBorder:R}; expected equal 100."
             );
         }
         finally
@@ -1507,7 +2021,7 @@ public static class TerrainMaxMinBlendValidationUtility
             CreateConstantTexture(
                 8,
                 1f,
-                "MaxMinRangeWhite"
+                "ReplaceRangeWhite"
             );
 
         TerrainHeightStampAsset asset =
@@ -1523,42 +2037,20 @@ public static class TerrainMaxMinBlendValidationUtility
                 {
                     CreateStamp(
                         asset,
-                        TerrainHeightBlendMode.Additive,
-                        new Vector2(8f, 8f),
-                        new Vector2(12f, 12f),
-                        20f,
-                        0f,
-                        0f,
-                        0f
-                    )
-                },
-                40f,
-                60f,
-                40f,
-                80f,
-                "Additive conservative absolute range"
-            );
-
-            ValidateRangeCase(
-                asset,
-                new[]
-                {
-                    CreateStamp(
-                        asset,
-                        TerrainHeightBlendMode.Max,
+                        TerrainHeightBlendMode.Replace,
                         new Vector2(8f, 8f),
                         new Vector2(12f, 12f),
                         0f,
                         100f,
-                        0f,
+                        200f,
                         0f
                     )
                 },
                 40f,
                 60f,
                 40f,
-                100f,
-                "Max conservative absolute range"
+                300f,
+                "Replace conservative range raises maximum"
             );
 
             ValidateRangeCase(
@@ -1567,7 +2059,7 @@ public static class TerrainMaxMinBlendValidationUtility
                 {
                     CreateStamp(
                         asset,
-                        TerrainHeightBlendMode.Min,
+                        TerrainHeightBlendMode.Replace,
                         new Vector2(8f, 8f),
                         new Vector2(12f, 12f),
                         0f,
@@ -1580,31 +2072,7 @@ public static class TerrainMaxMinBlendValidationUtility
                 60f,
                 20f,
                 60f,
-                "Min conservative absolute range"
-            );
-
-            ValidateRangeCase(
-                asset,
-                new[]
-                {
-                    CreateOrderingStamp(
-                        asset,
-                        TerrainHeightBlendMode.Additive
-                    ),
-                    CreateOrderingStamp(
-                        asset,
-                        TerrainHeightBlendMode.Max
-                    ),
-                    CreateOrderingStamp(
-                        asset,
-                        TerrainHeightBlendMode.Min
-                    )
-                },
-                40f,
-                60f,
-                40f,
-                100f,
-                "Mixed-mode conservative absolute range"
+                "Replace conservative range lowers minimum"
             );
 
             ValidateRangeCase(
@@ -1613,20 +2081,64 @@ public static class TerrainMaxMinBlendValidationUtility
                 {
                     CreateStamp(
                         asset,
-                        TerrainHeightBlendMode.Min,
+                        TerrainHeightBlendMode.Replace,
                         new Vector2(8f, 8f),
                         new Vector2(12f, 12f),
                         0f,
-                        200f,
-                        -180f,
+                        300f,
+                        -200f,
+                        0.5f
+                    )
+                },
+                40f,
+                60f,
+                40f,
+                300f,
+                "Replace negative target range metadata"
+            );
+
+            ValidateRangeCase(
+                asset,
+                new[]
+                {
+                    CreateOrderStamp(
+                        asset,
+                        TerrainHeightBlendMode.Replace,
+                        100f
+                    ),
+                    CreateOrderStamp(
+                        asset,
+                        TerrainHeightBlendMode.Additive,
                         0f
                     )
                 },
                 40f,
                 60f,
-                20f,
+                40f,
+                120f,
+                "Replace -> Additive conservative range"
+            );
+
+            ValidateRangeCase(
+                asset,
+                new[]
+                {
+                    CreateOrderStamp(
+                        asset,
+                        TerrainHeightBlendMode.Additive,
+                        0f
+                    ),
+                    CreateOrderStamp(
+                        asset,
+                        TerrainHeightBlendMode.Replace,
+                        100f
+                    )
+                },
+                40f,
                 60f,
-                "Negative target-range metadata"
+                40f,
+                100f,
+                "Additive -> Replace conservative range"
             );
         }
         finally
@@ -1674,7 +2186,7 @@ public static class TerrainMaxMinBlendValidationUtility
                     samplesPerSide,
                     baseMinimum,
                     baseMaximum,
-                    "MaxMinRangeSeed"
+                    "ReplaceRangeSeed"
                 );
 
             bool trackedOk =
@@ -1771,7 +2283,7 @@ public static class TerrainMaxMinBlendValidationUtility
             Add(
                 name,
                 passed,
-                $"Returned=[{compositeMinimum:R}, {compositeMaximum:R}], actual=[{actualMinimum:R}, {actualMaximum:R}], preview/no-range max diff={maximumDifference:R}."
+                $"Returned=[{compositeMinimum:R}, {compositeMaximum:R}], actual=[{actualMinimum:R}, {actualMaximum:R}], range/no-range max diff={maximumDifference:R}."
             );
         }
         finally
@@ -1789,7 +2301,7 @@ public static class TerrainMaxMinBlendValidationUtility
             CreateConstantTexture(
                 8,
                 1f,
-                "MaxMinUnsupportedWhite"
+                "ReplaceUnsupportedWhite"
             );
 
         TerrainHeightStampAsset asset =
@@ -1824,7 +2336,7 @@ public static class TerrainMaxMinBlendValidationUtility
                 CreateConstantTexture(
                     samplesPerSide,
                     0f,
-                    "MaxMinUnsupportedSeed"
+                    "ReplaceUnsupportedSeed"
                 );
 
             bool succeeded =
@@ -1857,7 +2369,7 @@ public static class TerrainMaxMinBlendValidationUtility
                 );
 
             Add(
-                "Unsupported blend modes fail explicitly",
+                "Unsupported blend modes still fail explicitly",
                 passed,
                 succeeded
                     ? "The compositor unexpectedly accepted blend mode 999."
@@ -1908,7 +2420,7 @@ public static class TerrainMaxMinBlendValidationUtility
         )
         {
             Add(
-                "Preview/runtime shared compositor parity",
+                "Replace preview/runtime shared compositor parity",
                 false,
                 "Current world layout is not valid for a first-tile runtime parity test."
             );
@@ -1920,7 +2432,7 @@ public static class TerrainMaxMinBlendValidationUtility
             CreateConstantTexture(
                 8,
                 1f,
-                "MaxMinRuntimeWhite"
+                "ReplaceRuntimeWhite"
             );
 
         TerrainHeightStampAsset asset =
@@ -1951,19 +2463,6 @@ public static class TerrainMaxMinBlendValidationUtility
             data.AddHeightModifierInternal(
                 CreateStamp(
                     asset,
-                    TerrainHeightBlendMode.Max,
-                    center,
-                    size,
-                    0f,
-                    100f,
-                    0f,
-                    0.2f
-                )
-            );
-
-            data.AddHeightModifierInternal(
-                CreateStamp(
-                    asset,
                     TerrainHeightBlendMode.Additive,
                     center,
                     size,
@@ -1977,11 +2476,37 @@ public static class TerrainMaxMinBlendValidationUtility
             data.AddHeightModifierInternal(
                 CreateStamp(
                     asset,
+                    TerrainHeightBlendMode.Replace,
+                    center,
+                    size,
+                    0f,
+                    90f,
+                    0f,
+                    0.2f
+                )
+            );
+
+            data.AddHeightModifierInternal(
+                CreateStamp(
+                    asset,
+                    TerrainHeightBlendMode.Max,
+                    center,
+                    size,
+                    0f,
+                    110f,
+                    0f,
+                    0.2f
+                )
+            );
+
+            data.AddHeightModifierInternal(
+                CreateStamp(
+                    asset,
                     TerrainHeightBlendMode.Min,
                     center,
                     size,
                     0f,
-                    80f,
+                    100f,
                     0f,
                     0.2f
                 )
@@ -1993,7 +2518,7 @@ public static class TerrainMaxMinBlendValidationUtility
                 CreateConstantTexture(
                     samplesPerSide,
                     50f,
-                    "MaxMinRuntimeCommitted"
+                    "ReplaceRuntimeCommitted"
                 );
 
             if (
@@ -2005,20 +2530,20 @@ public static class TerrainMaxMinBlendValidationUtility
                     sampleSpacing,
                     tileWorldSize,
                     worldSizeXZ,
-                    false,
+                    true,
                     50f,
                     50f,
-                    out float[] direct,
+                    out float[] previewPath,
                     out _,
                     out _,
-                    out string directError
+                    out string previewError
                 )
             )
             {
                 Add(
-                    "Preview/runtime shared compositor parity",
+                    "Replace preview/runtime shared compositor parity",
                     false,
-                    directError
+                    previewError
                 );
 
                 return;
@@ -2044,7 +2569,7 @@ public static class TerrainMaxMinBlendValidationUtility
                 )
                 {
                     Add(
-                        "Preview/runtime shared compositor parity",
+                        "Replace preview/runtime shared compositor parity",
                         false,
                         prepareError
                     );
@@ -2059,7 +2584,7 @@ public static class TerrainMaxMinBlendValidationUtility
                 )
                 {
                     Add(
-                        "Preview/runtime shared compositor parity",
+                        "Replace preview/runtime shared compositor parity",
                         false,
                         "The runtime composition context did not classify tile (0, 0) as modifier-affected."
                     );
@@ -2077,7 +2602,7 @@ public static class TerrainMaxMinBlendValidationUtility
                 )
                 {
                     Add(
-                        "Preview/runtime shared compositor parity",
+                        "Replace preview/runtime shared compositor parity",
                         false,
                         runtimeError
                     );
@@ -2088,15 +2613,15 @@ public static class TerrainMaxMinBlendValidationUtility
 
             float maximumDifference =
                 CalculateMaximumDifference(
-                    direct,
+                    previewPath,
                     runtime
                 );
 
             Add(
-                "Preview/runtime shared compositor parity",
+                "Replace preview/runtime shared compositor parity",
                 maximumDifference <=
                     GpuTolerance,
-                $"Direct compositor vs runtime composition-context maximum difference={maximumDifference:R}."
+                $"Range-aware preview compositor vs runtime composition-context maximum difference={maximumDifference:R}."
             );
         }
         finally
@@ -2165,7 +2690,7 @@ public static class TerrainMaxMinBlendValidationUtility
         )
         {
             Add(
-                "Blend-mode mutation setup",
+                "Replace mutation setup",
                 false,
                 addError
             );
@@ -2195,7 +2720,7 @@ public static class TerrainMaxMinBlendValidationUtility
                     mutationData,
                     worldSettings,
                     mutationModifierId,
-                    TerrainHeightBlendMode.Max,
+                    TerrainHeightBlendMode.Replace,
                     out string blendError
                 );
 
@@ -2227,7 +2752,7 @@ public static class TerrainMaxMinBlendValidationUtility
             changed
             &&
             stamp.BlendMode ==
-                TerrainHeightBlendMode.Max
+                TerrainHeightBlendMode.Replace
             &&
             mutationData.authoringRevision ==
                 revisionBefore + 1
@@ -2240,7 +2765,7 @@ public static class TerrainMaxMinBlendValidationUtility
             );
 
         Add(
-            "Blend-mode service mutation",
+            "Replace blend-mode service mutation",
             mutationPassed,
             mutationPassed
                 ? "SetModifierBlendMode changed mode, revision, signature, and expected dirty tiles through the central mutation path."
@@ -2287,10 +2812,10 @@ public static class TerrainMaxMinBlendValidationUtility
             enableDirtyCount > 0;
 
         Add(
-            "Max enable / disable invalidation",
+            "Replace enable / disable invalidation",
             enableDisablePassed,
             enableDisablePassed
-                ? "Disable and enable both dirtied the modifier footprint through the established change tracker."
+                ? "Disable and enable both dirtied the Replace footprint through the established change tracker."
                 : string.IsNullOrEmpty(disableError)
                     ? enableError
                     : disableError
@@ -2315,6 +2840,17 @@ public static class TerrainMaxMinBlendValidationUtility
                 mutationModifierId
             );
 
+        if (stamp == null)
+        {
+            Add(
+                "Undo/Redo Replace setup",
+                false,
+                "The mutation test modifier could not be found after resetting to Additive."
+            );
+
+            return false;
+        }
+
         undoExpectedBlendMode =
             stamp.BlendMode;
 
@@ -2333,7 +2869,7 @@ public static class TerrainMaxMinBlendValidationUtility
                     mutationData,
                     worldSettings,
                     mutationModifierId,
-                    TerrainHeightBlendMode.Min,
+                    TerrainHeightBlendMode.Replace,
                     out string finalError
                 );
 
@@ -2350,7 +2886,7 @@ public static class TerrainMaxMinBlendValidationUtility
         )
         {
             Add(
-                "Undo/Redo blend-mode setup",
+                "Undo/Redo Replace setup",
                 false,
                 finalError
             );
@@ -2371,19 +2907,19 @@ public static class TerrainMaxMinBlendValidationUtility
                 );
 
         Add(
-            "Undo/Redo blend-mode setup",
+            "Undo/Redo Replace setup",
             undoExpectedBlendMode ==
                 TerrainHeightBlendMode.Additive
             &&
             redoExpectedBlendMode ==
-                TerrainHeightBlendMode.Min
+                TerrainHeightBlendMode.Replace
             &&
             redoExpectedRevision ==
                 undoExpectedRevision + 1
             &&
             redoExpectedSignature !=
                 undoExpectedSignature,
-            "A final Additive -> Min service mutation was recorded as one Undo step."
+            "A final Additive -> Replace service mutation was recorded as one Undo step."
         );
 
         return true;
@@ -2432,11 +2968,11 @@ public static class TerrainMaxMinBlendValidationUtility
                     undoExpectedSignature;
 
             Add(
-                "Undo restores blend mode",
+                "Undo restores pre-Replace mode",
                 passed,
                 passed
                     ? "Undo restored Additive mode, revision, and deterministic modifier signature."
-                    : "Undo did not restore the expected blend-mode state."
+                    : "Undo did not restore the expected pre-Replace state."
             );
 
             Undo.PerformRedo();
@@ -2497,11 +3033,11 @@ public static class TerrainMaxMinBlendValidationUtility
                     redoExpectedSignature;
 
             Add(
-                "Redo restores blend mode",
+                "Redo restores Replace mode",
                 passed,
                 passed
-                    ? "Redo restored Min mode, revision, and deterministic modifier signature."
-                    : "Redo did not restore the expected blend-mode state."
+                    ? "Redo restored Replace mode, revision, and deterministic modifier signature."
+                    : "Redo did not restore the expected Replace state."
             );
         }
         catch (Exception exception)
@@ -2627,25 +3163,11 @@ public static class TerrainMaxMinBlendValidationUtility
     )
     {
         Texture2D texture =
-            new Texture2D(
+            CreateNumericTexture(
                 size,
-                size,
-                TextureFormat.RFloat,
-                false,
-                true
+                name,
+                FilterMode.Bilinear
             );
-
-        texture.name =
-            name;
-
-        texture.wrapMode =
-            TextureWrapMode.Clamp;
-
-        texture.filterMode =
-            FilterMode.Bilinear;
-
-        texture.anisoLevel =
-            0;
 
         float[] values =
             new float[
@@ -2681,25 +3203,11 @@ public static class TerrainMaxMinBlendValidationUtility
     )
     {
         Texture2D texture =
-            new Texture2D(
+            CreateNumericTexture(
                 size,
-                size,
-                TextureFormat.RFloat,
-                false,
-                true
+                name,
+                FilterMode.Bilinear
             );
-
-        texture.name =
-            name;
-
-        texture.wrapMode =
-            TextureWrapMode.Clamp;
-
-        texture.filterMode =
-            FilterMode.Bilinear;
-
-        texture.anisoLevel =
-            0;
 
         float[] values =
             new float[
@@ -2748,6 +3256,44 @@ public static class TerrainMaxMinBlendValidationUtility
         return texture;
     }
 
+    private static Texture2D CreateImpulseTexture(
+        int size,
+        string name
+    )
+    {
+        Texture2D texture =
+            CreateNumericTexture(
+                size,
+                name,
+                FilterMode.Bilinear
+            );
+
+        float[] values =
+            new float[
+                size * size
+            ];
+
+        int center =
+            size / 2;
+
+        values[
+            center * size + center
+        ] =
+            1f;
+
+        texture.SetPixelData(
+            values,
+            0
+        );
+
+        texture.Apply(
+            false,
+            false
+        );
+
+        return texture;
+    }
+
     private static Texture2D CreateRampSeedTexture(
         int size,
         float minimum,
@@ -2756,22 +3302,11 @@ public static class TerrainMaxMinBlendValidationUtility
     )
     {
         Texture2D texture =
-            new Texture2D(
+            CreateNumericTexture(
                 size,
-                size,
-                TextureFormat.RFloat,
-                false,
-                true
+                name,
+                FilterMode.Point
             );
-
-        texture.name =
-            name;
-
-        texture.wrapMode =
-            TextureWrapMode.Clamp;
-
-        texture.filterMode =
-            FilterMode.Point;
 
         float[] values =
             new float[
@@ -2823,6 +3358,36 @@ public static class TerrainMaxMinBlendValidationUtility
             false,
             false
         );
+
+        return texture;
+    }
+
+    private static Texture2D CreateNumericTexture(
+        int size,
+        string name,
+        FilterMode filterMode
+    )
+    {
+        Texture2D texture =
+            new Texture2D(
+                size,
+                size,
+                TextureFormat.RFloat,
+                false,
+                true
+            );
+
+        texture.name =
+            name;
+
+        texture.wrapMode =
+            TextureWrapMode.Clamp;
+
+        texture.filterMode =
+            filterMode;
+
+        texture.anisoLevel =
+            0;
 
         return texture;
     }
@@ -2961,7 +3526,7 @@ public static class TerrainMaxMinBlendValidationUtility
             if (request.hasError)
             {
                 errorMessage =
-                    "AsyncGPUReadback failed for the temporary composition target.";
+                    "AsyncGPUReadback failed for the temporary Replace composition target.";
 
                 return false;
             }
@@ -3080,15 +3645,14 @@ public static class TerrainMaxMinBlendValidationUtility
             ||
             b == null
             ||
-            a.Length !=
-                b.Length
+            a.Length != b.Length
         )
         {
             return
                 float.PositiveInfinity;
         }
 
-        float maximumDifference =
+        float maximum =
             0f;
 
         for (
@@ -3097,9 +3661,9 @@ public static class TerrainMaxMinBlendValidationUtility
             index++
         )
         {
-            maximumDifference =
+            maximum =
                 Mathf.Max(
-                    maximumDifference,
+                    maximum,
                     Mathf.Abs(
                         a[index] -
                         b[index]
@@ -3107,7 +3671,7 @@ public static class TerrainMaxMinBlendValidationUtility
                 );
         }
 
-        return maximumDifference;
+        return maximum;
     }
 
     private static void EnsureFolder(
@@ -3266,14 +3830,14 @@ public static class TerrainMaxMinBlendValidationUtility
         if (lastFailedCount > 0)
         {
             Debug.LogError(
-                "WorldMeshes Max / Min Blend validation\n\n" +
+                "WorldMeshes Replace Blend Mode validation\n\n" +
                 builder
             );
         }
         else
         {
             Debug.Log(
-                "WorldMeshes Max / Min Blend validation\n\n" +
+                "WorldMeshes Replace Blend Mode validation\n\n" +
                 builder
             );
         }
@@ -3331,6 +3895,10 @@ public static class TerrainMaxMinBlendValidationUtility
     )
     {
         return
+            !float.IsNaN(a)
+            &&
+            !float.IsInfinity(a)
+            &&
             Mathf.Abs(
                 a - b
             ) <=
@@ -3343,10 +3911,9 @@ public static class TerrainMaxMinBlendValidationUtility
     {
         if (value != null)
         {
-            UnityEngine.Object
-                .DestroyImmediate(
-                    value
-                );
+            UnityEngine.Object.DestroyImmediate(
+                value
+            );
         }
     }
 }

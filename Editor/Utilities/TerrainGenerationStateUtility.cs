@@ -12,10 +12,10 @@ public static partial class TerrainGenerationStateUtility
 
     /*
      * Runtime heightmaps bake the current modifier-inclusive composite.
-     * Version 9 adds target-surface Max/Min height-stamp composition.
+     * Version 10 adds target-surface Replace height-stamp composition.
      */
     public const int RuntimeHeightCompilerVersion =
-        9;
+        10;
 
     public const int CollisionGeneratorVersion =
         1;

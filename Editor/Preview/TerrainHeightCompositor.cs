@@ -12,7 +12,7 @@ using UnityEngine.Rendering;
  * - validate an existing preview-cache target
  * - calculate authoritative absolute authoring-space addressing
  * - evaluate the CURRENT ordered height-modifier stack for one tile
- * - dispatch supported Additive/Max/Min TerrainStampModifier operations
+ * - dispatch supported Additive/Max/Min/Replace TerrainStampModifier operations
  * - optionally propagate a conservative absolute range for the completed tile
  * - expose narrow tile-composition diagnostics
  *
@@ -46,6 +46,9 @@ public sealed class TerrainHeightCompositor
     private const string MinStampKernelName =
         "ApplyMinStamp";
 
+    private const string ReplaceStampKernelName =
+        "ApplyReplaceStamp";
+
     private const string ValidationKernelName =
         "ValidationAddConstant";
 
@@ -55,6 +58,7 @@ public sealed class TerrainHeightCompositor
     private int additiveStampKernel = -1;
     private int maxStampKernel = -1;
     private int minStampKernel = -1;
+    private int replaceStampKernel = -1;
     private int validationKernel = -1;
 
     private uint identityThreadGroupSizeX;
@@ -65,6 +69,8 @@ public sealed class TerrainHeightCompositor
     private uint maxStampThreadGroupSizeY;
     private uint minStampThreadGroupSizeX;
     private uint minStampThreadGroupSizeY;
+    private uint replaceStampThreadGroupSizeX;
+    private uint replaceStampThreadGroupSizeY;
     private uint validationThreadGroupSizeX;
     private uint validationThreadGroupSizeY;
 
@@ -109,6 +115,7 @@ public sealed class TerrainHeightCompositor
                 && additiveStampKernel >= 0
                 && maxStampKernel >= 0
                 && minStampKernel >= 0
+                && replaceStampKernel >= 0
                 && validationKernel >= 0
                 && identityThreadGroupSizeX > 0
                 && identityThreadGroupSizeY > 0
@@ -118,6 +125,8 @@ public sealed class TerrainHeightCompositor
                 && maxStampThreadGroupSizeY > 0
                 && minStampThreadGroupSizeX > 0
                 && minStampThreadGroupSizeY > 0
+                && replaceStampThreadGroupSizeX > 0
+                && replaceStampThreadGroupSizeY > 0
                 && validationThreadGroupSizeX > 0
                 && validationThreadGroupSizeY > 0;
         }
@@ -212,6 +221,11 @@ public sealed class TerrainHeightCompositor
                     MinStampKernelName
                 );
 
+            replaceStampKernel =
+                computeShader.FindKernel(
+                    ReplaceStampKernelName
+                );
+
             validationKernel =
                 computeShader.FindKernel(
                     ValidationKernelName
@@ -229,6 +243,7 @@ public sealed class TerrainHeightCompositor
                 "- " + AdditiveStampKernelName + "\n" +
                 "- " + MaxStampKernelName + "\n" +
                 "- " + MinStampKernelName + "\n" +
+                "- " + ReplaceStampKernelName + "\n" +
                 "- " + ValidationKernelName + "\n\n" +
                 exception.Message;
 
@@ -264,6 +279,13 @@ public sealed class TerrainHeightCompositor
         );
 
         computeShader.GetKernelThreadGroupSizes(
+            replaceStampKernel,
+            out replaceStampThreadGroupSizeX,
+            out replaceStampThreadGroupSizeY,
+            out _
+        );
+
+        computeShader.GetKernelThreadGroupSizes(
             validationKernel,
             out validationThreadGroupSizeX,
             out validationThreadGroupSizeY,
@@ -279,6 +301,8 @@ public sealed class TerrainHeightCompositor
             || maxStampThreadGroupSizeY == 0
             || minStampThreadGroupSizeX == 0
             || minStampThreadGroupSizeY == 0
+            || replaceStampThreadGroupSizeX == 0
+            || replaceStampThreadGroupSizeY == 0
             || validationThreadGroupSizeX == 0
             || validationThreadGroupSizeY == 0
         )
@@ -654,6 +678,8 @@ public sealed class TerrainHeightCompositor
                 blendMode != TerrainHeightBlendMode.Max
                 &&
                 blendMode != TerrainHeightBlendMode.Min
+                &&
+                blendMode != TerrainHeightBlendMode.Replace
             )
             {
                 errorMessage =
@@ -798,6 +824,46 @@ public sealed class TerrainHeightCompositor
                             );
                         break;
                     }
+
+                    case TerrainHeightBlendMode.Replace:
+                    {
+                        float targetA =
+                            stampModifier
+                                .EvaluateTargetHeight(
+                                    0f
+                                );
+
+                        float targetB =
+                            stampModifier
+                                .EvaluateTargetHeight(
+                                    1f
+                                );
+
+                        float targetMinimum =
+                            Mathf.Min(
+                                targetA,
+                                targetB
+                            );
+
+                        float targetMaximum =
+                            Mathf.Max(
+                                targetA,
+                                targetB
+                            );
+
+                        compositeMinimumHeight =
+                            Mathf.Min(
+                                compositeMinimumHeight,
+                                targetMinimum
+                            );
+
+                        compositeMaximumHeight =
+                            Mathf.Max(
+                                compositeMaximumHeight,
+                                targetMaximum
+                            );
+                        break;
+                    }
                 }
 
                 if (
@@ -869,6 +935,13 @@ public sealed class TerrainHeightCompositor
                 threadGroupSizeX = minStampThreadGroupSizeX;
                 threadGroupSizeY = minStampThreadGroupSizeY;
                 blendLabel = "Min";
+                break;
+
+            case TerrainHeightBlendMode.Replace:
+                kernel = replaceStampKernel;
+                threadGroupSizeX = replaceStampThreadGroupSizeX;
+                threadGroupSizeY = replaceStampThreadGroupSizeY;
+                blendLabel = "Replace";
                 break;
 
             default:
@@ -1180,8 +1253,8 @@ public sealed class TerrainHeightCompositor
 
     /*
      * Height stamps are normalized numeric source data. Additive maps
-     * sampled red values to HeightDelta contribution weight; Max/Min map the
-     * same normalized source values onto the Package 1 target surface.
+     * sampled red values to HeightDelta contribution weight; Max/Min/Replace
+     * map the same normalized source values onto the Package 1 target surface.
      *
      * The shader clamps sampled red values to 0..1 so both interpretations
      * retain a deterministic bounded source contract.
@@ -1784,6 +1857,7 @@ public sealed class TerrainHeightCompositor
         additiveStampKernel = -1;
         maxStampKernel = -1;
         minStampKernel = -1;
+        replaceStampKernel = -1;
         validationKernel = -1;
 
         identityThreadGroupSizeX = 0;
@@ -1794,6 +1868,8 @@ public sealed class TerrainHeightCompositor
         maxStampThreadGroupSizeY = 0;
         minStampThreadGroupSizeX = 0;
         minStampThreadGroupSizeY = 0;
+        replaceStampThreadGroupSizeX = 0;
+        replaceStampThreadGroupSizeY = 0;
         validationThreadGroupSizeX = 0;
         validationThreadGroupSizeY = 0;
     }

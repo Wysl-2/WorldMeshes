@@ -2,6 +2,7 @@
 #pragma kernel ApplyAdditiveStamp
 #pragma kernel ApplyMaxStamp
 #pragma kernel ApplyMinStamp
+#pragma kernel ApplyReplaceStamp
 #pragma kernel ValidationAddConstant
 
 RWTexture2DArray<float> _HeightCache;
@@ -1006,6 +1007,48 @@ void ApplyMinStamp(
         lerp(
             currentHeight,
             candidateHeight,
+            footprintInfluence
+        );
+}
+
+[numthreads(8, 8, 1)]
+void ApplyReplaceStamp(
+    uint3 dispatchThreadId : SV_DispatchThreadID
+)
+{
+    uint3 cacheAddress;
+    float sourceHeight;
+    float footprintInfluence;
+
+    if (
+        !TryEvaluateStampSample(
+            dispatchThreadId,
+            cacheAddress,
+            sourceHeight,
+            footprintInfluence
+        )
+    )
+    {
+        return;
+    }
+
+    float currentHeight =
+        _HeightCache[
+            cacheAddress
+        ];
+
+    float targetHeight =
+        _StampTargetBaseHeight
+        +
+        sourceHeight *
+        _StampTargetHeightRange;
+
+    _HeightCache[
+        cacheAddress
+    ] =
+        lerp(
+            currentHeight,
+            targetHeight,
             footprintInfluence
         );
 }

@@ -20,7 +20,11 @@ MonoBehaviour:
   - rid: 3932701523395477573
   - rid: 3932701523395477575
   - rid: 3932701523395477574
-  authoringRevision: 1865
+  - rid: 3932701523395477577
+  - rid: 3932701523395477578
+  - rid: 3932701523395477580
+  - rid: 3932701523395477579
+  authoringRevision: 2019
   references:
     version: 2
     RefIds:
@@ -39,7 +43,7 @@ MonoBehaviour:
         sourceInputMin: 0
         sourceInputMax: 1
         sourceGamma: 1
-        heightDelta: 180
+        heightDelta: 120
         targetBaseHeight: 0
         targetHeightRange: 10
         falloff: 0.25
@@ -52,19 +56,19 @@ MonoBehaviour:
       data:
         stableId: e75f55be8d2645f283d9309109ee379e
         enabled: 1
-        blendMode: 1
+        blendMode: 3
         stampAsset: {fileID: 11400000, guid: ffeea23aec65944e0b11e3cd9d352afb, type: 2}
-        positionXZ: {x: 6341.846, y: 5802.8594}
+        positionXZ: {x: 6328.2744, y: 5749.2363}
         sizeXZ: {x: 1041.3499, y: 1041.3499}
-        rotationDegrees: -75.19619
+        rotationDegrees: -66.423416
         flipX: 0
         flipZ: 0
         sourceInputMin: 0
         sourceInputMax: 1
         sourceGamma: 1
         heightDelta: 80
-        targetBaseHeight: 80
-        targetHeightRange: 160
+        targetBaseHeight: 60
+        targetHeightRange: 120
         falloff: 0.47771582
         falloffShape: 1
         falloffProfile: 0
@@ -75,9 +79,9 @@ MonoBehaviour:
       data:
         stableId: daab77029197436db35c42ddb81d5037
         enabled: 1
-        blendMode: 1
+        blendMode: 3
         stampAsset: {fileID: 11400000, guid: ffeea23aec65944e0b11e3cd9d352afb, type: 2}
-        positionXZ: {x: 7573.523, y: 5662.5933}
+        positionXZ: {x: 7565.933, y: 5693.462}
         sizeXZ: {x: 1144.4536, y: 1144.4536}
         rotationDegrees: -81.52113
         flipX: 0
@@ -86,8 +90,8 @@ MonoBehaviour:
         sourceInputMax: 1
         sourceGamma: 1
         heightDelta: 80
-        targetBaseHeight: 80
-        targetHeightRange: 200
+        targetBaseHeight: 40
+        targetHeightRange: 120
         falloff: 0.8972735
         falloffShape: 1
         falloffProfile: 0
@@ -98,21 +102,113 @@ MonoBehaviour:
       data:
         stableId: a6a887caad364ccbbc8e6ba7c8521e00
         enabled: 1
-        blendMode: 1
+        blendMode: 3
         stampAsset: {fileID: 11400000, guid: ffeea23aec65944e0b11e3cd9d352afb, type: 2}
-        positionXZ: {x: 6532.379, y: 5199.171}
+        positionXZ: {x: 6514.1963, y: 5220.2124}
         sizeXZ: {x: 1041.3499, y: 1041.3499}
-        rotationDegrees: -86.9381
+        rotationDegrees: -94.503624
         flipX: 0
         flipZ: 0
         sourceInputMin: 0
         sourceInputMax: 1
         sourceGamma: 1
         heightDelta: 80
-        targetBaseHeight: 110
-        targetHeightRange: 140
+        targetBaseHeight: 80
+        targetHeightRange: 120
         falloff: 0.804409
         falloffShape: 1
         falloffProfile: 0
         smoothingRadius: 2
+        smoothingStrength: 1
+    - rid: 3932701523395477577
+      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
+      data:
+        stableId: a82fd32a8b544ed89df40367ae1d6dac
+        enabled: 1
+        blendMode: 1
+        stampAsset: {fileID: 11400000, guid: 1c502e8b4b3f65daf802fa42abb20b54, type: 2}
+        positionXZ: {x: 5947.0356, y: 6857.7563}
+        sizeXZ: {x: 3483.977, y: 3483.977}
+        rotationDegrees: 30.769653
+        flipX: 0
+        flipZ: 0
+        sourceInputMin: 0
+        sourceInputMax: 1
+        sourceGamma: 1
+        heightDelta: 80
+        targetBaseHeight: 0
+        targetHeightRange: 80
+        falloff: 0.38412058
+        falloffShape: 0
+        falloffProfile: 0
+        smoothingRadius: 4
+        smoothingStrength: 1
+    - rid: 3932701523395477578
+      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
+      data:
+        stableId: aa2ed4fc7b6b4d139ee678bf44c57d02
+        enabled: 1
+        blendMode: 3
+        stampAsset: {fileID: 11400000, guid: ffeea23aec65944e0b11e3cd9d352afb, type: 2}
+        positionXZ: {x: 6293.2305, y: 6411.1245}
+        sizeXZ: {x: 899.37476, y: 899.37476}
+        rotationDegrees: 89.40964
+        flipX: 0
+        flipZ: 0
+        sourceInputMin: 0
+        sourceInputMax: 1
+        sourceGamma: 1
+        heightDelta: 60
+        targetBaseHeight: 20
+        targetHeightRange: 80
+        falloff: 0.4250984
+        falloffShape: 1
+        falloffProfile: 0
+        smoothingRadius: 3
+        smoothingStrength: 1
+    - rid: 3932701523395477579
+      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
+      data:
+        stableId: 3dc58ffb60e84371be4c8446ea1d29f0
+        enabled: 1
+        blendMode: 3
+        stampAsset: {fileID: 11400000, guid: 1491abb90d27d36868594cecf1b0fade, type: 2}
+        positionXZ: {x: 7765.9487, y: 5243.5444}
+        sizeXZ: {x: 860.3365, y: 860.3365}
+        rotationDegrees: -67.01174
+        flipX: 0
+        flipZ: 0
+        sourceInputMin: 0
+        sourceInputMax: 1
+        sourceGamma: 1
+        heightDelta: 40
+        targetBaseHeight: 40
+        targetHeightRange: 80
+        falloff: 0.9110984
+        falloffShape: 1
+        falloffProfile: 0
+        smoothingRadius: 0
+        smoothingStrength: 1
+    - rid: 3932701523395477580
+      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
+      data:
+        stableId: 95a930a5365c42c69e53f3d4aac9e79d
+        enabled: 1
+        blendMode: 3
+        stampAsset: {fileID: 11400000, guid: ffeea23aec65944e0b11e3cd9d352afb, type: 2}
+        positionXZ: {x: 5704.3457, y: 7682.0967}
+        sizeXZ: {x: 602.64307, y: 602.64307}
+        rotationDegrees: 55.89235
+        flipX: 0
+        flipZ: 0
+        sourceInputMin: 0
+        sourceInputMax: 1
+        sourceGamma: 1
+        heightDelta: 60
+        targetBaseHeight: 20
+        targetHeightRange: 40
+        falloff: 0.44336906
+        falloffShape: 1
+        falloffProfile: 0
+        smoothingRadius: 3
         smoothingStrength: 1

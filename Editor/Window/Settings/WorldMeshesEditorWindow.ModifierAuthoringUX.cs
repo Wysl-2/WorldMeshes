@@ -837,6 +837,9 @@ public partial class WorldMeshesEditorWindow :
             ||
             activeBlendMode ==
                 TerrainHeightBlendMode.Min
+            ||
+            activeBlendMode ==
+                TerrainHeightBlendMode.Replace
         )
         {
             float targetBaseHeight =
