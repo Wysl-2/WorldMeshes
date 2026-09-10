@@ -14,6 +14,9 @@ public sealed class TerrainHeightStampAssetEditor :
     private SerializedProperty creationDefaultsVersionProperty;
     private SerializedProperty defaultSizeXZProperty;
     private SerializedProperty defaultHeightDeltaProperty;
+    private SerializedProperty defaultBlendModeProperty;
+    private SerializedProperty defaultTargetBaseHeightProperty;
+    private SerializedProperty defaultTargetHeightRangeProperty;
     private SerializedProperty defaultSourceInputMinProperty;
     private SerializedProperty defaultSourceInputMaxProperty;
     private SerializedProperty defaultSourceGammaProperty;
@@ -43,6 +46,21 @@ public sealed class TerrainHeightStampAssetEditor :
         defaultHeightDeltaProperty =
             serializedObject.FindProperty(
                 "defaultHeightDelta"
+            );
+
+        defaultBlendModeProperty =
+            serializedObject.FindProperty(
+                "defaultBlendMode"
+            );
+
+        defaultTargetBaseHeightProperty =
+            serializedObject.FindProperty(
+                "defaultTargetBaseHeight"
+            );
+
+        defaultTargetHeightRangeProperty =
+            serializedObject.FindProperty(
+                "defaultTargetHeightRange"
             );
 
         defaultSourceInputMinProperty =
@@ -148,8 +166,17 @@ public sealed class TerrainHeightStampAssetEditor :
         Vector2 sizeXZ =
             stampAsset.DefaultSizeXZ;
 
+        TerrainHeightBlendMode blendMode =
+            stampAsset.DefaultBlendMode;
+
         float heightDelta =
             stampAsset.DefaultHeightDelta;
+
+        float targetBaseHeight =
+            stampAsset.DefaultTargetBaseHeight;
+
+        float targetHeightRange =
+            stampAsset.DefaultTargetHeightRange;
 
         float sourceInputMin =
             stampAsset.DefaultSourceInputMin;
@@ -188,11 +215,93 @@ public sealed class TerrainHeightStampAssetEditor :
                 sizeXZ
             );
 
-        heightDelta =
-            EditorGUILayout.FloatField(
-                "Height Delta",
-                heightDelta
+        GUILayout.Space(
+            8f
+        );
+
+        GUILayout.Label(
+            "Output Defaults",
+            EditorStyles.boldLabel
+        );
+
+        blendMode =
+            (TerrainHeightBlendMode)
+            EditorGUILayout.EnumPopup(
+                new GUIContent(
+                    "Blend Mode",
+                    TerrainHeightBlendModeAuthoringUtility
+                        .BlendModeTooltip
+                ),
+                blendMode
             );
+
+        if (
+            TerrainHeightBlendModeAuthoringUtility
+                .IsSupported(
+                    blendMode
+                )
+        )
+        {
+            EditorGUILayout.HelpBox(
+                TerrainHeightBlendModeAuthoringUtility
+                    .GetDescription(
+                        blendMode
+                    ),
+                MessageType.None
+            );
+        }
+        else
+        {
+            EditorGUILayout.HelpBox(
+                "The selected default blend mode is not supported and will resolve to Additive.",
+                MessageType.Warning
+            );
+        }
+
+        if (
+            TerrainHeightBlendModeAuthoringUtility
+                .UsesHeightDelta(
+                    blendMode
+                )
+        )
+        {
+            heightDelta =
+                EditorGUILayout.FloatField(
+                    new GUIContent(
+                        "Height Delta",
+                        TerrainHeightBlendModeAuthoringUtility
+                            .HeightDeltaTooltip
+                    ),
+                    heightDelta
+                );
+        }
+        else if (
+            TerrainHeightBlendModeAuthoringUtility
+                .UsesTargetSurface(
+                    blendMode
+                )
+        )
+        {
+            targetBaseHeight =
+                EditorGUILayout.FloatField(
+                    new GUIContent(
+                        "Target Base Height",
+                        TerrainHeightBlendModeAuthoringUtility
+                            .TargetBaseHeightTooltip
+                    ),
+                    targetBaseHeight
+                );
+
+            targetHeightRange =
+                EditorGUILayout.FloatField(
+                    new GUIContent(
+                        "Target Height Range",
+                        TerrainHeightBlendModeAuthoringUtility
+                            .TargetHeightRangeTooltip
+                    ),
+                    targetHeightRange
+                );
+        }
 
         GUILayout.Space(
             8f
@@ -246,7 +355,11 @@ public sealed class TerrainHeightStampAssetEditor :
 
         falloff =
             EditorGUILayout.Slider(
-                "Amount",
+                new GUIContent(
+                    "Amount",
+                    TerrainHeightBlendModeAuthoringUtility
+                        .FalloffTooltip
+                ),
                 falloff,
                 0f,
                 1f
@@ -263,13 +376,21 @@ public sealed class TerrainHeightStampAssetEditor :
 
         smoothingRadius =
             EditorGUILayout.FloatField(
-                "Radius",
+                new GUIContent(
+                    "Radius",
+                    TerrainHeightBlendModeAuthoringUtility
+                        .SmoothingTooltip
+                ),
                 smoothingRadius
             );
 
         smoothingStrength =
             EditorGUILayout.Slider(
-                "Strength",
+                new GUIContent(
+                    "Strength",
+                    TerrainHeightBlendModeAuthoringUtility
+                        .SmoothingTooltip
+                ),
                 smoothingStrength,
                 0f,
                 1f
@@ -282,10 +403,28 @@ public sealed class TerrainHeightStampAssetEditor :
                     sizeXZ
                 );
 
+            blendMode =
+                TerrainHeightBlendModeUtility
+                    .Sanitize(
+                        blendMode
+                    );
+
             if (!IsFinite(heightDelta))
             {
                 heightDelta =
                     stampAsset.DefaultHeightDelta;
+            }
+
+            if (!IsFinite(targetBaseHeight))
+            {
+                targetBaseHeight =
+                    stampAsset.DefaultTargetBaseHeight;
+            }
+
+            if (!IsFinite(targetHeightRange))
+            {
+                targetHeightRange =
+                    stampAsset.DefaultTargetHeightRange;
             }
 
             TerrainStampSourceRemapUtility
@@ -338,8 +477,17 @@ public sealed class TerrainHeightStampAssetEditor :
             defaultSizeXZProperty.vector2Value =
                 sizeXZ;
 
+            defaultBlendModeProperty.intValue =
+                (int)blendMode;
+
             defaultHeightDeltaProperty.floatValue =
                 heightDelta;
+
+            defaultTargetBaseHeightProperty.floatValue =
+                targetBaseHeight;
+
+            defaultTargetHeightRangeProperty.floatValue =
+                targetHeightRange;
 
             defaultSourceInputMinProperty.floatValue =
                 sourceInputMin;

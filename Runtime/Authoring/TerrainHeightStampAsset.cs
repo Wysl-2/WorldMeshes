@@ -29,7 +29,13 @@ public sealed class TerrainHeightStampAsset :
     ScriptableObject
 {
     public const int CurrentCreationDefaultsVersion =
+        2;
+
+    private const int CreationDefaultsVersionV1 =
         1;
+
+    private const int CreationDefaultsVersionV2 =
+        2;
 
     private const float MinimumDefaultSize =
         0.01f;
@@ -38,6 +44,12 @@ public sealed class TerrainHeightStampAsset :
         128f;
 
     private const float BaselineDefaultHeightDelta =
+        10f;
+
+    private const float BaselineDefaultTargetBaseHeight =
+        0f;
+
+    private const float BaselineDefaultTargetHeightRange =
         10f;
 
     private const float BaselineDefaultFalloff =
@@ -71,6 +83,18 @@ public sealed class TerrainHeightStampAsset :
     [SerializeField]
     private float defaultHeightDelta =
         BaselineDefaultHeightDelta;
+
+    [SerializeField]
+    private TerrainHeightBlendMode defaultBlendMode =
+        TerrainHeightBlendMode.Additive;
+
+    [SerializeField]
+    private float defaultTargetBaseHeight =
+        BaselineDefaultTargetBaseHeight;
+
+    [SerializeField]
+    private float defaultTargetHeightRange =
+        BaselineDefaultTargetHeightRange;
 
     [SerializeField]
     private float defaultSourceInputMin =
@@ -179,7 +203,7 @@ public sealed class TerrainHeightStampAsset :
         get
         {
             Vector2 value =
-                HasStoredCreationDefaults
+                HasV1CreationDefaults
                     ? defaultSizeXZ
                     : new Vector2(
                         BaselineDefaultSize,
@@ -198,7 +222,7 @@ public sealed class TerrainHeightStampAsset :
         get
         {
             float value =
-                HasStoredCreationDefaults
+                HasV1CreationDefaults
                     ? defaultHeightDelta
                     : BaselineDefaultHeightDelta;
 
@@ -206,6 +230,55 @@ public sealed class TerrainHeightStampAsset :
                 IsFinite(value)
                     ? value
                     : BaselineDefaultHeightDelta;
+        }
+    }
+
+    public TerrainHeightBlendMode DefaultBlendMode
+    {
+        get
+        {
+            TerrainHeightBlendMode value =
+                HasV2BlendCreationDefaults
+                    ? defaultBlendMode
+                    : TerrainHeightBlendMode.Additive;
+
+            return
+                TerrainHeightBlendModeUtility
+                    .Sanitize(
+                        value
+                    );
+        }
+    }
+
+    public float DefaultTargetBaseHeight
+    {
+        get
+        {
+            float value =
+                HasV2BlendCreationDefaults
+                    ? defaultTargetBaseHeight
+                    : BaselineDefaultTargetBaseHeight;
+
+            return
+                IsFinite(value)
+                    ? value
+                    : BaselineDefaultTargetBaseHeight;
+        }
+    }
+
+    public float DefaultTargetHeightRange
+    {
+        get
+        {
+            float value =
+                HasV2BlendCreationDefaults
+                    ? defaultTargetHeightRange
+                    : BaselineDefaultTargetHeightRange;
+
+            return
+                IsFinite(value)
+                    ? value
+                    : BaselineDefaultTargetHeightRange;
         }
     }
 
@@ -256,7 +329,7 @@ public sealed class TerrainHeightStampAsset :
         get
         {
             TerrainStampFalloffShape value =
-                HasStoredCreationDefaults
+                HasV1CreationDefaults
                     ? defaultFalloffShape
                     : TerrainStampFalloffShape.Rectangle;
 
@@ -273,7 +346,7 @@ public sealed class TerrainHeightStampAsset :
         get
         {
             TerrainStampFalloffProfile value =
-                HasStoredCreationDefaults
+                HasV1CreationDefaults
                     ? defaultFalloffProfile
                     : TerrainStampFalloffProfile.Smooth;
 
@@ -290,7 +363,7 @@ public sealed class TerrainHeightStampAsset :
         get
         {
             float value =
-                HasStoredCreationDefaults
+                HasV1CreationDefaults
                     ? defaultFalloff
                     : BaselineDefaultFalloff;
 
@@ -307,7 +380,7 @@ public sealed class TerrainHeightStampAsset :
         get
         {
             float value =
-                HasStoredCreationDefaults
+                HasV1CreationDefaults
                     ? defaultSmoothingRadius
                     : BaselineDefaultSmoothingRadius;
 
@@ -330,7 +403,7 @@ public sealed class TerrainHeightStampAsset :
         get
         {
             float value =
-                HasStoredCreationDefaults
+                HasV1CreationDefaults
                     ? defaultSmoothingStrength
                     : BaselineDefaultSmoothingStrength;
 
@@ -347,13 +420,23 @@ public sealed class TerrainHeightStampAsset :
         }
     }
 
-    private bool HasStoredCreationDefaults
+    private bool HasV1CreationDefaults
     {
         get
         {
             return
                 creationDefaultsVersion >=
-                    CurrentCreationDefaultsVersion;
+                    CreationDefaultsVersionV1;
+        }
+    }
+
+    private bool HasV2BlendCreationDefaults
+    {
+        get
+        {
+            return
+                creationDefaultsVersion >=
+                    CreationDefaultsVersionV2;
         }
     }
 
@@ -377,9 +460,49 @@ public sealed class TerrainHeightStampAsset :
             texture;
     }
 
+    /*
+     * Backward-compatible Package 3 creation-default setter.
+     *
+     * Existing callers that do not provide blend-specific defaults retain
+     * their established Additive creation behavior while being upgraded to a
+     * complete Version 2 default set.
+     */
     internal void SetCreationDefaultsInternal(
         Vector2 sizeXZ,
         float heightDelta,
+        float sourceInputMin,
+        float sourceInputMax,
+        float sourceGamma,
+        TerrainStampFalloffShape falloffShape,
+        TerrainStampFalloffProfile falloffProfile,
+        float falloff,
+        float smoothingRadius,
+        float smoothingStrength
+    )
+    {
+        SetCreationDefaultsInternal(
+            sizeXZ,
+            TerrainHeightBlendMode.Additive,
+            heightDelta,
+            BaselineDefaultTargetBaseHeight,
+            BaselineDefaultTargetHeightRange,
+            sourceInputMin,
+            sourceInputMax,
+            sourceGamma,
+            falloffShape,
+            falloffProfile,
+            falloff,
+            smoothingRadius,
+            smoothingStrength
+        );
+    }
+
+    internal void SetCreationDefaultsInternal(
+        Vector2 sizeXZ,
+        TerrainHeightBlendMode blendMode,
+        float heightDelta,
+        float targetBaseHeight,
+        float targetHeightRange,
         float sourceInputMin,
         float sourceInputMax,
         float sourceGamma,
@@ -398,10 +521,26 @@ public sealed class TerrainHeightStampAsset :
                 sizeXZ
             );
 
+        defaultBlendMode =
+            TerrainHeightBlendModeUtility
+                .Sanitize(
+                    blendMode
+                );
+
         defaultHeightDelta =
             IsFinite(heightDelta)
                 ? heightDelta
                 : BaselineDefaultHeightDelta;
+
+        defaultTargetBaseHeight =
+            IsFinite(targetBaseHeight)
+                ? targetBaseHeight
+                : BaselineDefaultTargetBaseHeight;
+
+        defaultTargetHeightRange =
+            IsFinite(targetHeightRange)
+                ? targetHeightRange
+                : BaselineDefaultTargetHeightRange;
 
         TerrainStampSourceRemapUtility
             .SanitizeRequestedValues(
@@ -453,7 +592,7 @@ public sealed class TerrainHeightStampAsset :
         out float gamma
     )
     {
-        if (!HasStoredCreationDefaults)
+        if (!HasV1CreationDefaults)
         {
             inputMin =
                 TerrainStampSourceRemapUtility

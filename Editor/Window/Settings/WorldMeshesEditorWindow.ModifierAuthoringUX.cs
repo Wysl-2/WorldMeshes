@@ -759,7 +759,11 @@ public partial class WorldMeshesEditorWindow :
         TerrainHeightBlendMode editedBlendMode =
             (TerrainHeightBlendMode)
             EditorGUILayout.EnumPopup(
-                "Blend Mode",
+                new GUIContent(
+                    "Blend Mode",
+                    TerrainHeightBlendModeAuthoringUtility
+                        .BlendModeTooltip
+                ),
                 activeBlendMode
             );
 
@@ -793,13 +797,35 @@ public partial class WorldMeshesEditorWindow :
         }
 
         if (
-            activeBlendMode ==
-                TerrainHeightBlendMode.Additive
+            TerrainHeightBlendModeAuthoringUtility
+                .IsSupported(
+                    activeBlendMode
+                )
+        )
+        {
+            EditorGUILayout.HelpBox(
+                TerrainHeightBlendModeAuthoringUtility
+                    .GetDescription(
+                        activeBlendMode
+                    ),
+                MessageType.None
+            );
+        }
+
+        if (
+            TerrainHeightBlendModeAuthoringUtility
+                .UsesHeightDelta(
+                    activeBlendMode
+                )
         )
         {
             float heightDelta =
                 EditorGUILayout.DelayedFloatField(
-                    "Height Delta",
+                    new GUIContent(
+                        "Height Delta",
+                        TerrainHeightBlendModeAuthoringUtility
+                            .HeightDeltaTooltip
+                    ),
                     stamp.HeightDelta
                 );
 
@@ -832,19 +858,19 @@ public partial class WorldMeshesEditorWindow :
             }
         }
         else if (
-            activeBlendMode ==
-                TerrainHeightBlendMode.Max
-            ||
-            activeBlendMode ==
-                TerrainHeightBlendMode.Min
-            ||
-            activeBlendMode ==
-                TerrainHeightBlendMode.Replace
+            TerrainHeightBlendModeAuthoringUtility
+                .UsesTargetSurface(
+                    activeBlendMode
+                )
         )
         {
             float targetBaseHeight =
                 EditorGUILayout.DelayedFloatField(
-                    "Target Base Height",
+                    new GUIContent(
+                        "Target Base Height",
+                        TerrainHeightBlendModeAuthoringUtility
+                            .TargetBaseHeightTooltip
+                    ),
                     stamp.TargetBaseHeight
                 );
 
@@ -878,7 +904,11 @@ public partial class WorldMeshesEditorWindow :
 
             float targetHeightRange =
                 EditorGUILayout.DelayedFloatField(
-                    "Target Height Range",
+                    new GUIContent(
+                        "Target Height Range",
+                        TerrainHeightBlendModeAuthoringUtility
+                            .TargetHeightRangeTooltip
+                    ),
                     stamp.TargetHeightRange
                 );
 
@@ -981,7 +1011,10 @@ public partial class WorldMeshesEditorWindow :
 
         EditorGUILayout.LabelField(
             "Blend Mode",
-            modifier.BlendMode.ToString()
+            TerrainHeightBlendModeAuthoringUtility
+                .GetDisplayName(
+                    modifier.BlendMode
+                )
         );
 
         bool editingAllowed =

@@ -328,6 +328,10 @@ public partial class WorldMeshesEditorWindow :
 
         DrawWorkspaceSectionGap();
 
+        DrawBlendModeAuthoringUXDefaultsValidationSettings();
+
+        DrawWorkspaceSectionGap();
+
         DrawStampLibraryBrowserValidationSettings();
 
         DrawWorkspaceSectionGap();

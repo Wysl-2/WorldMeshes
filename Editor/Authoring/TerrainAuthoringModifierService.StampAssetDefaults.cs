@@ -69,6 +69,14 @@ public static partial class TerrainAuthoringModifierService
             stampAsset.DefaultHeightDelta
         );
 
+        newModifier.SetTargetBaseHeightInternal(
+            stampAsset.DefaultTargetBaseHeight
+        );
+
+        newModifier.SetTargetHeightRangeInternal(
+            stampAsset.DefaultTargetHeightRange
+        );
+
         newModifier.SetFalloffShapeInternal(
             stampAsset.DefaultFalloffShape
         );
@@ -90,7 +98,7 @@ public static partial class TerrainAuthoringModifierService
         );
 
         newModifier.SetBlendModeInternal(
-            TerrainHeightBlendMode.Additive
+            stampAsset.DefaultBlendMode
         );
 
         newModifier.SetEnabledInternal(
