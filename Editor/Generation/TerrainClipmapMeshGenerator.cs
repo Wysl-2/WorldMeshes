@@ -447,7 +447,7 @@ public static class TerrainClipmapMeshGenerator
         AssetDatabase.Refresh();
 
         TerrainAuthoringWireframeRenderer
-            .RequestRebuild();
+            .InvalidateBindings();
 
         // -------------------------------------------------
         // Select center

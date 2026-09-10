@@ -6,11 +6,11 @@ using UnityEngine.Rendering;
 /*
  * Editor-only cache of generated true-wireframe preview section assets.
  *
- * Package 4 removes Package 2/3 transient/lazy mesh construction. Source
- * registration only loads already-generated explicit-edge section meshes
- * from the deterministic preview asset owned by each clipmap source mesh.
- * Scene View repaint performs visibility tests and RenderMesh submission
- * only; it never traverses source triangles or constructs proxy topology.
+ * Source registration binds clipmap renderers to already-generated
+ * explicit-edge section meshes from the deterministic preview asset owned
+ * by each source clipmap mesh. Scene View repaint performs visibility tests
+ * and RenderMesh submission only; it never traverses source triangles or
+ * constructs preview topology.
  */
 public static class TerrainAuthoringWireframeSectionCache
 {
@@ -44,7 +44,7 @@ public static class TerrainAuthoringWireframeSectionCache
         }
     }
 
-    public static int TotalSectionDescriptorCount
+    public static int GeneratedSectionCount
     {
         get
         {
@@ -53,16 +53,7 @@ public static class TerrainAuthoringWireframeSectionCache
         }
     }
 
-    public static int BuiltSectionCount
-    {
-        get
-        {
-            return
-                generatedSectionCount;
-        }
-    }
-
-    public static int CachedEdgeCount
+    public static int GeneratedEdgeCount
     {
         get
         {
@@ -130,9 +121,11 @@ public static class TerrainAuthoringWireframeSectionCache
             &&
             existingEntry.SourceMesh == sourceMesh
             &&
-            existingEntry.Sections != null
-            &&
-            existingEntry.Sections.Length > 0
+            TryValidateSectionsAgainstSource(
+                sourceMesh,
+                existingEntry.Sections,
+                out _
+            )
         )
         {
             existingEntry.LODLevel =
@@ -351,7 +344,236 @@ public static class TerrainAuthoringWireframeSectionCache
         sections =
             loadedSections.ToArray();
 
+        if (
+            !TryValidateSectionsAgainstSource(
+                sourceMesh,
+                sections,
+                out string validationError
+            )
+        )
+        {
+            sections =
+                null;
+
+            errorMessage =
+                validationError;
+
+            return false;
+        }
+
         return true;
+    }
+
+    private static bool TryValidateSectionsAgainstSource(
+        Mesh sourceMesh,
+        WireframeSection[] sections,
+        out string errorMessage
+    )
+    {
+        errorMessage =
+            "";
+
+        if (
+            sourceMesh == null
+            ||
+            sections == null
+            ||
+            sections.Length <= 0
+        )
+        {
+            errorMessage =
+                "Wireframe preview bindings are missing or invalid. " +
+                "Regenerate Clipmap Meshes.";
+
+            return false;
+        }
+
+        ulong sourceTriangleIndexCount =
+            CalculateTriangleIndexCount(
+                sourceMesh
+            );
+
+        ulong previewTriangleIndexCount =
+            0UL;
+
+        bool hasPreviewBounds =
+            false;
+
+        Bounds previewBounds =
+            new Bounds();
+
+        foreach (
+            WireframeSection section
+            in sections
+        )
+        {
+            if (
+                section == null
+                ||
+                !TryValidateGeneratedSection(
+                    section.Mesh,
+                    out _
+                )
+            )
+            {
+                errorMessage =
+                    "Wireframe preview assets are missing or incompatible. " +
+                    "Regenerate Clipmap Meshes.\n\n" +
+                    $"Source mesh:\n{sourceMesh.name}";
+
+                return false;
+            }
+
+            Mesh sectionMesh =
+                section.Mesh;
+
+            previewTriangleIndexCount +=
+                sectionMesh.GetIndexCount(
+                    0
+                );
+
+            if (!hasPreviewBounds)
+            {
+                previewBounds =
+                    sectionMesh.bounds;
+
+                hasPreviewBounds =
+                    true;
+            }
+            else
+            {
+                previewBounds.Encapsulate(
+                    sectionMesh.bounds.min
+                );
+
+                previewBounds.Encapsulate(
+                    sectionMesh.bounds.max
+                );
+            }
+        }
+
+        if (
+            sourceTriangleIndexCount <= 0UL
+            ||
+            previewTriangleIndexCount !=
+                sourceTriangleIndexCount
+        )
+        {
+            errorMessage =
+                "Wireframe preview assets are out of date. " +
+                "Regenerate Clipmap Meshes.\n\n" +
+                $"Source mesh: {sourceMesh.name}\n" +
+                $"Source triangle indices: {sourceTriangleIndexCount}\n" +
+                $"Preview triangle indices: {previewTriangleIndexCount}";
+
+            return false;
+        }
+
+        if (
+            !hasPreviewBounds
+            ||
+            !BoundsApproximatelyMatch(
+                sourceMesh.bounds,
+                previewBounds
+            )
+        )
+        {
+            errorMessage =
+                "Wireframe preview assets are out of date. " +
+                "Regenerate Clipmap Meshes.\n\n" +
+                $"Source mesh:\n{sourceMesh.name}";
+
+            return false;
+        }
+
+        return true;
+    }
+
+    private static ulong CalculateTriangleIndexCount(
+        Mesh mesh
+    )
+    {
+        if (mesh == null)
+        {
+            return 0UL;
+        }
+
+        ulong indexCount =
+            0UL;
+
+        for (
+            int subMeshIndex = 0;
+            subMeshIndex < mesh.subMeshCount;
+            subMeshIndex++
+        )
+        {
+            if (
+                mesh.GetTopology(
+                    subMeshIndex
+                ) !=
+                MeshTopology.Triangles
+            )
+            {
+                continue;
+            }
+
+            indexCount +=
+                mesh.GetIndexCount(
+                    subMeshIndex
+                );
+        }
+
+        return
+            indexCount;
+    }
+
+    private static bool BoundsApproximatelyMatch(
+        Bounds sourceBounds,
+        Bounds previewBounds
+    )
+    {
+        float maximumSize =
+            Mathf.Max(
+                1f,
+                Mathf.Max(
+                    sourceBounds.size.x,
+                    Mathf.Max(
+                        sourceBounds.size.y,
+                        sourceBounds.size.z
+                    )
+                )
+            );
+
+        float tolerance =
+            maximumSize *
+            0.0001f;
+
+        return
+            VectorApproximatelyMatches(
+                sourceBounds.min,
+                previewBounds.min,
+                tolerance
+            )
+            &&
+            VectorApproximatelyMatches(
+                sourceBounds.max,
+                previewBounds.max,
+                tolerance
+            );
+    }
+
+    private static bool VectorApproximatelyMatches(
+        Vector3 a,
+        Vector3 b,
+        float tolerance
+    )
+    {
+        return
+            Mathf.Abs(a.x - b.x) <= tolerance
+            &&
+            Mathf.Abs(a.y - b.y) <= tolerance
+            &&
+            Mathf.Abs(a.z - b.z) <= tolerance;
     }
 
     private static bool TryValidateGeneratedSection(
@@ -851,10 +1073,10 @@ public static class TerrainAuthoringWireframeSectionCache
     }
 
     // =====================================================
-    // RESOURCE RELEASE
+    // BINDING CACHE
     // =====================================================
 
-    public static void DestroyAll()
+    public static void ClearBindings()
     {
         entries.Clear();
 

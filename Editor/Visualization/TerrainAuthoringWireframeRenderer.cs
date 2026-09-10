@@ -24,11 +24,10 @@ public enum TerrainAuthoringWireframeStatus
 /*
  * Editor-only displaced clipmap wireframe renderer.
  *
- * Package 4 restores the Package 1/2 explicit-edge representation and
- * removes all runtime/lazy topology construction. Spatial section meshes
- * are generated persistently with the clipmap mesh assets. Enabling this
- * visualization only synchronizes lightweight asset descriptors and
- * submits already-generated meshes to the current Scene View.
+ * Spatial explicit-edge section meshes are generated persistently with the
+ * clipmap mesh assets. Enabling this visualization only synchronizes
+ * lightweight source-to-preview bindings and submits already-generated
+ * meshes to the current Scene View.
  */
 [InitializeOnLoad]
 public static class TerrainAuthoringWireframeRenderer
@@ -445,26 +444,6 @@ public static class TerrainAuthoringWireframeRenderer
         }
     }
 
-    public static int CachedProxyMeshCount
-    {
-        get
-        {
-            return
-                TerrainAuthoringWireframeSectionCache
-                    .BuiltSectionCount;
-        }
-    }
-
-    public static int CachedEdgeCount
-    {
-        get
-        {
-            return
-                TerrainAuthoringWireframeSectionCache
-                    .CachedEdgeCount;
-        }
-    }
-
     // =====================================================
     // PUBLIC COMMANDS
     // =====================================================
@@ -474,10 +453,10 @@ public static class TerrainAuthoringWireframeRenderer
         ScheduleReapply();
     }
 
-    public static void RequestRebuild()
+    public static void InvalidateBindings()
     {
         TerrainAuthoringWireframeSectionCache
-            .DestroyAll();
+            .ClearBindings();
 
         RequestReapply();
     }
@@ -563,6 +542,9 @@ public static class TerrainAuthoringWireframeRenderer
                 SetFillSuppression(
                     false
                 );
+
+                TerrainAuthoringWireframeCulling
+                    .ResetRenderedDiagnostics();
 
                 SetStatus(
                     TerrainAuthoringWireframeStatus.Disabled,
@@ -871,7 +853,7 @@ public static class TerrainAuthoringWireframeRenderer
         if (
             TerrainAuthoringWireframeSectionCache.SourceRendererCount <= 0
             ||
-            TerrainAuthoringWireframeSectionCache.BuiltSectionCount <= 0
+            TerrainAuthoringWireframeSectionCache.GeneratedSectionCount <= 0
         )
         {
             errorMessage =
@@ -1123,7 +1105,7 @@ public static class TerrainAuthoringWireframeRenderer
     private static void ReleaseTransientResources()
     {
         TerrainAuthoringWireframeSectionCache
-            .DestroyAll();
+            .ClearBindings();
 
         DestroyMaterials();
     }
@@ -1167,9 +1149,12 @@ public static class TerrainAuthoringWireframeRenderer
 
     private static void OnProjectChanged()
     {
-        TerrainAuthoringWireframeSectionCache
-            .DestroyAll();
-
+        /*
+         * Generated preview assets are persistent. Generic project changes
+         * only revalidate the existing bindings; explicit clipmap
+         * regeneration calls InvalidateBindings after updating preview
+         * assets.
+         */
         RequestReapply();
     }
 
@@ -1194,7 +1179,7 @@ public static class TerrainAuthoringWireframeRenderer
             0;
 
         TerrainAuthoringWireframeSectionCache
-            .DestroyAll();
+            .ClearBindings();
 
         RequestReapply();
     }

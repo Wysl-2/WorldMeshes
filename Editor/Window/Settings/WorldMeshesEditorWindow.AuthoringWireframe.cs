@@ -199,14 +199,14 @@ public partial class WorldMeshesEditorWindow :
         EditorGUILayout.LabelField(
             "Generated Wireframe Sections",
             TerrainAuthoringWireframeSectionCache
-                .TotalSectionDescriptorCount
+                .GeneratedSectionCount
                 .ToString()
         );
 
         EditorGUILayout.LabelField(
             "Generated Wire Edges",
-            TerrainAuthoringWireframeRenderer
-                .CachedEdgeCount
+            TerrainAuthoringWireframeSectionCache
+                .GeneratedEdgeCount
                 .ToString()
         );
 

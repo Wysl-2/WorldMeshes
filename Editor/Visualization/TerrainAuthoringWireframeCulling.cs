@@ -12,11 +12,10 @@ public enum TerrainAuthoringWireframeSectionVisibility
 /*
  * Editor-only visibility policy for spatial true-wireframe sections.
  *
- * Package 2 keeps the Package 1 preference surface, but moves the
- * submission decision from whole source renderers to independently
- * cullable section bounds. The current Scene View camera state is cached
- * once per repaint so section tests do not touch EditorPrefs or allocate
- * frustum-plane arrays inside the hot loop.
+ * Visibility is evaluated against independently cullable section bounds.
+ * The current Scene View camera state is cached once per repaint so section
+ * tests do not touch EditorPrefs or allocate frustum-plane arrays inside the
+ * hot loop.
  */
 public static class TerrainAuthoringWireframeCulling
 {
@@ -205,19 +204,6 @@ public static class TerrainAuthoringWireframeCulling
         }
     }
 
-    /*
-     * Backwards-compatible Package 1 diagnostic name.
-     * A rendered proxy is now one rendered spatial section.
-     */
-    public static int RenderedProxyMeshCount
-    {
-        get
-        {
-            return
-                renderedSectionCount;
-        }
-    }
-
     public static int RenderedEdgeCount
     {
         get
@@ -236,25 +222,7 @@ public static class TerrainAuthoringWireframeCulling
         }
     }
 
-    public static int LODCulledProxyCount
-    {
-        get
-        {
-            return
-                lodCulledSectionCount;
-        }
-    }
-
     public static int DistanceCulledSectionCount
-    {
-        get
-        {
-            return
-                distanceCulledSectionCount;
-        }
-    }
-
-    public static int DistanceCulledProxyCount
     {
         get
         {
@@ -344,19 +312,6 @@ public static class TerrainAuthoringWireframeCulling
 
         return
             visibility;
-    }
-
-    public static bool IsPotentiallyVisible(
-        int lodLevel,
-        Bounds worldBounds
-    )
-    {
-        return
-            EvaluateSectionWithoutDiagnostics(
-                lodLevel,
-                worldBounds
-            ) ==
-            TerrainAuthoringWireframeSectionVisibility.Visible;
     }
 
     public static void RecordRendered(
