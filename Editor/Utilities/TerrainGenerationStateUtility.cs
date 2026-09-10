@@ -11,11 +11,11 @@ public static partial class TerrainGenerationStateUtility
     // =====================================================
 
     /*
-     * Runtime heightmaps now bake the current modifier-inclusive
-     * composite rather than copying committed base tiles directly.
+     * Runtime heightmaps bake the current modifier-inclusive composite.
+     * Version 9 adds target-surface Max/Min height-stamp composition.
      */
     public const int RuntimeHeightCompilerVersion =
-        8;
+        9;
 
     public const int CollisionGeneratorVersion =
         1;

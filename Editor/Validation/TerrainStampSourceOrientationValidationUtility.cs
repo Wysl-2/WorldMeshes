@@ -1639,8 +1639,6 @@ public static class TerrainStampSourceOrientationValidationUtility
                     context.TileWorldSize,
                     context.WorldSizeXZ,
                     context.AuthoringData,
-                    out _,
-                    out _,
                     out errorMessage
                 )
             )

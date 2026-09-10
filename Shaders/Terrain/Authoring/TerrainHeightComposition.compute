@@ -1,5 +1,7 @@
 #pragma kernel IdentityComposite
 #pragma kernel ApplyAdditiveStamp
+#pragma kernel ApplyMaxStamp
+#pragma kernel ApplyMinStamp
 #pragma kernel ValidationAddConstant
 
 RWTexture2DArray<float> _HeightCache;
@@ -31,6 +33,8 @@ float _StampSourceInputMax;
 float _StampSourceGamma;
 
 float _StampHeightDelta;
+float _StampTargetBaseHeight;
+float _StampTargetHeightRange;
 float _StampFalloff;
 int _StampFalloffShape;
 int _StampFalloffProfile;
@@ -762,12 +766,26 @@ float RemapStampSourceWeight(
         );
 }
 
-[numthreads(8, 8, 1)]
-void ApplyAdditiveStamp(
-    uint3 dispatchThreadId : SV_DispatchThreadID
+bool TryEvaluateStampSample(
+    uint3 dispatchThreadId,
+    out uint3 cacheAddress,
+    out float sourceHeight,
+    out float footprintInfluence
 )
 {
-    uint3 cacheAddress;
+    cacheAddress =
+        uint3(
+            0,
+            0,
+            0
+        );
+
+    sourceHeight =
+        0.0;
+
+    footprintInfluence =
+        0.0;
+
     float2 sampleWorldXZ;
 
     if (
@@ -778,7 +796,7 @@ void ApplyAdditiveStamp(
         )
     )
     {
-        return;
+        return false;
     }
 
     if (
@@ -786,7 +804,7 @@ void ApplyAdditiveStamp(
         || _StampSizeXZ.y <= 0.0
     )
     {
-        return;
+        return false;
     }
 
     float2 stampDelta =
@@ -824,7 +842,7 @@ void ApplyAdditiveStamp(
         || stampUV.y > 1.0
     )
     {
-        return;
+        return false;
     }
 
     /*
@@ -839,30 +857,53 @@ void ApplyAdditiveStamp(
 
     /*
      * Smoothing changes only source texture weight. Source remapping then
-     * interprets that final filtered source value. The established footprint
-     * Falloff remains spatial and continues to use stampUV.
+     * interprets that final filtered source value. Footprint influence remains
+     * spatial and separate from the normalized target-surface source height.
      */
     float sourceWeight =
         SampleFinalStampTextureWeight(
             sourceUV
         );
 
-    float remappedWeight =
-        RemapStampSourceWeight(
-            sourceWeight
+    sourceHeight =
+        saturate(
+            RemapStampSourceWeight(
+                sourceWeight
+            )
         );
 
-    float footprintFalloff =
+    footprintInfluence =
         CalculateFootprintFalloff(
             stampUV
         );
 
-    float finalWeight =
-        saturate(
-            remappedWeight
+    return true;
+}
+
+[numthreads(8, 8, 1)]
+void ApplyAdditiveStamp(
+    uint3 dispatchThreadId : SV_DispatchThreadID
+)
+{
+    uint3 cacheAddress;
+    float sourceHeight;
+    float footprintInfluence;
+
+    if (
+        !TryEvaluateStampSample(
+            dispatchThreadId,
+            cacheAddress,
+            sourceHeight,
+            footprintInfluence
         )
-        *
-        footprintFalloff;
+    )
+    {
+        return;
+    }
+
+    float finalWeight =
+        sourceHeight *
+        footprintInfluence;
 
     float contribution =
         finalWeight *
@@ -871,6 +912,102 @@ void ApplyAdditiveStamp(
     _HeightCache[
         cacheAddress
     ] += contribution;
+}
+
+[numthreads(8, 8, 1)]
+void ApplyMaxStamp(
+    uint3 dispatchThreadId : SV_DispatchThreadID
+)
+{
+    uint3 cacheAddress;
+    float sourceHeight;
+    float footprintInfluence;
+
+    if (
+        !TryEvaluateStampSample(
+            dispatchThreadId,
+            cacheAddress,
+            sourceHeight,
+            footprintInfluence
+        )
+    )
+    {
+        return;
+    }
+
+    float currentHeight =
+        _HeightCache[
+            cacheAddress
+        ];
+
+    float targetHeight =
+        _StampTargetBaseHeight
+        +
+        sourceHeight *
+        _StampTargetHeightRange;
+
+    float candidateHeight =
+        max(
+            currentHeight,
+            targetHeight
+        );
+
+    _HeightCache[
+        cacheAddress
+    ] =
+        lerp(
+            currentHeight,
+            candidateHeight,
+            footprintInfluence
+        );
+}
+
+[numthreads(8, 8, 1)]
+void ApplyMinStamp(
+    uint3 dispatchThreadId : SV_DispatchThreadID
+)
+{
+    uint3 cacheAddress;
+    float sourceHeight;
+    float footprintInfluence;
+
+    if (
+        !TryEvaluateStampSample(
+            dispatchThreadId,
+            cacheAddress,
+            sourceHeight,
+            footprintInfluence
+        )
+    )
+    {
+        return;
+    }
+
+    float currentHeight =
+        _HeightCache[
+            cacheAddress
+        ];
+
+    float targetHeight =
+        _StampTargetBaseHeight
+        +
+        sourceHeight *
+        _StampTargetHeightRange;
+
+    float candidateHeight =
+        min(
+            currentHeight,
+            targetHeight
+        );
+
+    _HeightCache[
+        cacheAddress
+    ] =
+        lerp(
+            currentHeight,
+            candidateHeight,
+            footprintInfluence
+        );
 }
 
 

@@ -1580,8 +1580,7 @@ public static class TerrainAuthoringPreviewService
                 /*
                  * ResetCompositeTilesForRecomposition has just restored the
                  * slice from committed data, so its current range is the base
-                 * range to which conservative modifier contributions are
-                 * added.
+                 * absolute range supplied to the mode-aware compositor.
                  */
                 if (
                     !previewCache
@@ -1617,8 +1616,10 @@ public static class TerrainAuthoringPreviewService
                             worldSettings.HeightTileWorldSize,
                             previewCache.WorldSizeXZ,
                             authoringData,
-                            out float minimumContribution,
-                            out float maximumContribution,
+                            baseMinimumHeight,
+                            baseMaximumHeight,
+                            out float compositeMinimumHeight,
+                            out float compositeMaximumHeight,
                             out string compositorError
                         )
                 )
@@ -1635,14 +1636,6 @@ public static class TerrainAuthoringPreviewService
 
                     return;
                 }
-
-                float compositeMinimumHeight =
-                    baseMinimumHeight
-                    + minimumContribution;
-
-                float compositeMaximumHeight =
-                    baseMaximumHeight
-                    + maximumContribution;
 
                 finalCompositeRanges.Add(
                     new TerrainAuthoringPreviewCache.CompositeSliceRangeUpdate(

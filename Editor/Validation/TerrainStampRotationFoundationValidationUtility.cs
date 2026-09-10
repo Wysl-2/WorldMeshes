@@ -618,8 +618,6 @@ public static class TerrainStampRotationFoundationValidationUtility
                     context.TileWorldSize,
                     context.WorldSizeXZ,
                     context.AuthoringData,
-                    out _,
-                    out _,
                     out errorMessage
                 ))
             {

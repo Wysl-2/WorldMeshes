@@ -12,8 +12,8 @@ using UnityEngine.Rendering;
  * - validate an existing preview-cache target
  * - calculate authoritative absolute authoring-space addressing
  * - evaluate the CURRENT ordered height-modifier stack for one tile
- * - dispatch supported additive TerrainStampModifier operations
- * - calculate a conservative contribution interval for the completed tile
+ * - dispatch supported Additive/Max/Min TerrainStampModifier operations
+ * - optionally propagate a conservative absolute range for the completed tile
  * - expose narrow tile-composition diagnostics
  *
  * Non-responsibilities:
@@ -40,6 +40,12 @@ public sealed class TerrainHeightCompositor
     private const string AdditiveStampKernelName =
         "ApplyAdditiveStamp";
 
+    private const string MaxStampKernelName =
+        "ApplyMaxStamp";
+
+    private const string MinStampKernelName =
+        "ApplyMinStamp";
+
     private const string ValidationKernelName =
         "ValidationAddConstant";
 
@@ -47,12 +53,18 @@ public sealed class TerrainHeightCompositor
 
     private int identityKernel = -1;
     private int additiveStampKernel = -1;
+    private int maxStampKernel = -1;
+    private int minStampKernel = -1;
     private int validationKernel = -1;
 
     private uint identityThreadGroupSizeX;
     private uint identityThreadGroupSizeY;
     private uint additiveStampThreadGroupSizeX;
     private uint additiveStampThreadGroupSizeY;
+    private uint maxStampThreadGroupSizeX;
+    private uint maxStampThreadGroupSizeY;
+    private uint minStampThreadGroupSizeX;
+    private uint minStampThreadGroupSizeY;
     private uint validationThreadGroupSizeX;
     private uint validationThreadGroupSizeY;
 
@@ -95,11 +107,17 @@ public sealed class TerrainHeightCompositor
                 computeShader != null
                 && identityKernel >= 0
                 && additiveStampKernel >= 0
+                && maxStampKernel >= 0
+                && minStampKernel >= 0
                 && validationKernel >= 0
                 && identityThreadGroupSizeX > 0
                 && identityThreadGroupSizeY > 0
                 && additiveStampThreadGroupSizeX > 0
                 && additiveStampThreadGroupSizeY > 0
+                && maxStampThreadGroupSizeX > 0
+                && maxStampThreadGroupSizeY > 0
+                && minStampThreadGroupSizeX > 0
+                && minStampThreadGroupSizeY > 0
                 && validationThreadGroupSizeX > 0
                 && validationThreadGroupSizeY > 0;
         }
@@ -184,6 +202,16 @@ public sealed class TerrainHeightCompositor
                     AdditiveStampKernelName
                 );
 
+            maxStampKernel =
+                computeShader.FindKernel(
+                    MaxStampKernelName
+                );
+
+            minStampKernel =
+                computeShader.FindKernel(
+                    MinStampKernelName
+                );
+
             validationKernel =
                 computeShader.FindKernel(
                     ValidationKernelName
@@ -199,6 +227,8 @@ public sealed class TerrainHeightCompositor
                 "Required:\n" +
                 "- " + IdentityKernelName + "\n" +
                 "- " + AdditiveStampKernelName + "\n" +
+                "- " + MaxStampKernelName + "\n" +
+                "- " + MinStampKernelName + "\n" +
                 "- " + ValidationKernelName + "\n\n" +
                 exception.Message;
 
@@ -220,6 +250,20 @@ public sealed class TerrainHeightCompositor
         );
 
         computeShader.GetKernelThreadGroupSizes(
+            maxStampKernel,
+            out maxStampThreadGroupSizeX,
+            out maxStampThreadGroupSizeY,
+            out _
+        );
+
+        computeShader.GetKernelThreadGroupSizes(
+            minStampKernel,
+            out minStampThreadGroupSizeX,
+            out minStampThreadGroupSizeY,
+            out _
+        );
+
+        computeShader.GetKernelThreadGroupSizes(
             validationKernel,
             out validationThreadGroupSizeX,
             out validationThreadGroupSizeY,
@@ -231,6 +275,10 @@ public sealed class TerrainHeightCompositor
             || identityThreadGroupSizeY == 0
             || additiveStampThreadGroupSizeX == 0
             || additiveStampThreadGroupSizeY == 0
+            || maxStampThreadGroupSizeX == 0
+            || maxStampThreadGroupSizeY == 0
+            || minStampThreadGroupSizeX == 0
+            || minStampThreadGroupSizeY == 0
             || validationThreadGroupSizeX == 0
             || validationThreadGroupSizeY == 0
         )
@@ -370,8 +418,8 @@ public sealed class TerrainHeightCompositor
     }
 
     /*
-     * Compatibility overload for callers that do not require the
-     * conservative contribution interval.
+     * Composition overload for callers that do not require conservative
+     * height-range metadata. Runtime height baking uses this path.
      */
     public bool TryComposeTile(
         RenderTexture heightCache,
@@ -386,7 +434,7 @@ public sealed class TerrainHeightCompositor
     )
     {
         return
-            TryComposeTile(
+            TryComposeTileInternal(
                 heightCache,
                 tileCoordinate,
                 sliceIndex,
@@ -395,6 +443,9 @@ public sealed class TerrainHeightCompositor
                 tileWorldSize,
                 worldSizeXZ,
                 authoringData,
+                false,
+                0f,
+                0f,
                 out _,
                 out _,
                 out errorMessage
@@ -402,21 +453,10 @@ public sealed class TerrainHeightCompositor
     }
 
     /*
-     * Production composition entry point.
-     *
-     * The caller must have already restored this slice from committed
-     * base data. The complete CURRENT modifier stack is evaluated in
-     * serialized list order.
-     *
-     * minimumContribution / maximumContribution describe a conservative
-     * additive interval for every modifier actually participating in
-     * this tile's completed composition:
-     *
-     *     positive HeightDelta -> [0, HeightDelta]
-     *     negative HeightDelta -> [HeightDelta, 0]
-     *
-     * This interval is deliberately conservative. It does not inspect
-     * texture pixels or attempt to claim a tighter bound.
+     * Range-aware production composition entry point used by the editor
+     * preview. The caller supplies the committed/base absolute range for the
+     * tile and receives a conservative absolute range after the complete
+     * CURRENT modifier stack is evaluated in serialized list order.
      */
     public bool TryComposeTile(
         RenderTexture heightCache,
@@ -427,14 +467,74 @@ public sealed class TerrainHeightCompositor
         float tileWorldSize,
         Vector2 worldSizeXZ,
         TerrainAuthoringData authoringData,
-        out float minimumContribution,
-        out float maximumContribution,
+        float baseMinimumHeight,
+        float baseMaximumHeight,
+        out float compositeMinimumHeight,
+        out float compositeMaximumHeight,
         out string errorMessage
     )
     {
-        minimumContribution = 0f;
-        maximumContribution = 0f;
+        return
+            TryComposeTileInternal(
+                heightCache,
+                tileCoordinate,
+                sliceIndex,
+                samplesPerSide,
+                sampleSpacing,
+                tileWorldSize,
+                worldSizeXZ,
+                authoringData,
+                true,
+                baseMinimumHeight,
+                baseMaximumHeight,
+                out compositeMinimumHeight,
+                out compositeMaximumHeight,
+                out errorMessage
+            );
+    }
+
+    private bool TryComposeTileInternal(
+        RenderTexture heightCache,
+        Vector2Int tileCoordinate,
+        int sliceIndex,
+        int samplesPerSide,
+        float sampleSpacing,
+        float tileWorldSize,
+        Vector2 worldSizeXZ,
+        TerrainAuthoringData authoringData,
+        bool trackRange,
+        float baseMinimumHeight,
+        float baseMaximumHeight,
+        out float compositeMinimumHeight,
+        out float compositeMaximumHeight,
+        out string errorMessage
+    )
+    {
+        compositeMinimumHeight =
+            baseMinimumHeight;
+
+        compositeMaximumHeight =
+            baseMaximumHeight;
+
         errorMessage = "";
+
+        if (
+            trackRange
+            &&
+            (
+                !IsFinite(baseMinimumHeight)
+                ||
+                !IsFinite(baseMaximumHeight)
+                ||
+                baseMaximumHeight < baseMinimumHeight
+            )
+        )
+        {
+            errorMessage =
+                "The compositor received an invalid committed/base height range.";
+
+            return false;
+        }
 
         if (!TryPrepare(out errorMessage))
         {
@@ -545,15 +645,21 @@ public sealed class TerrainHeightCompositor
                 return false;
             }
 
+            TerrainHeightBlendMode blendMode =
+                stampModifier.BlendMode;
+
             if (
-                stampModifier.BlendMode !=
-                TerrainHeightBlendMode.Additive
+                blendMode != TerrainHeightBlendMode.Additive
+                &&
+                blendMode != TerrainHeightBlendMode.Max
+                &&
+                blendMode != TerrainHeightBlendMode.Min
             )
             {
                 errorMessage =
                     "Unsupported terrain height blend mode at modifier " +
                     $"index {modifierIndex}: " +
-                    $"{stampModifier.BlendMode}.";
+                    $"{blendMode}.";
 
                 return false;
             }
@@ -575,7 +681,14 @@ public sealed class TerrainHeightCompositor
             float heightDelta =
                 stampModifier.HeightDelta;
 
-            if (Mathf.Approximately(heightDelta, 0f))
+            if (
+                blendMode == TerrainHeightBlendMode.Additive
+                &&
+                Mathf.Approximately(
+                    heightDelta,
+                    0f
+                )
+            )
             {
                 continue;
             }
@@ -593,7 +706,7 @@ public sealed class TerrainHeightCompositor
             }
 
             if (
-                !TryDispatchAdditiveStamp(
+                !TryDispatchStamp(
                     heightCache,
                     tileCoordinate,
                     tileWorldOriginXZ,
@@ -612,27 +725,96 @@ public sealed class TerrainHeightCompositor
 
             MarkModifierDispatchSucceeded();
 
-            if (heightDelta > 0f)
+            if (trackRange)
             {
-                maximumContribution += heightDelta;
-            }
-            else
-            {
-                minimumContribution += heightDelta;
-            }
+                switch (blendMode)
+                {
+                    case TerrainHeightBlendMode.Additive:
+                        compositeMinimumHeight +=
+                            Mathf.Min(
+                                0f,
+                                heightDelta
+                            );
 
-            if (
-                !IsFinite(minimumContribution)
-                || !IsFinite(maximumContribution)
-                || maximumContribution < minimumContribution
-            )
-            {
-                errorMessage =
-                    "The conservative modifier contribution range " +
-                    "overflowed or became invalid while composing " +
-                    $"tile ({tileCoordinate.x}, {tileCoordinate.y}).";
+                        compositeMaximumHeight +=
+                            Mathf.Max(
+                                0f,
+                                heightDelta
+                            );
+                        break;
 
-                return false;
+                    case TerrainHeightBlendMode.Max:
+                    {
+                        float targetA =
+                            stampModifier
+                                .EvaluateTargetHeight(
+                                    0f
+                                );
+
+                        float targetB =
+                            stampModifier
+                                .EvaluateTargetHeight(
+                                    1f
+                                );
+
+                        float targetMaximum =
+                            Mathf.Max(
+                                targetA,
+                                targetB
+                            );
+
+                        compositeMaximumHeight =
+                            Mathf.Max(
+                                compositeMaximumHeight,
+                                targetMaximum
+                            );
+                        break;
+                    }
+
+                    case TerrainHeightBlendMode.Min:
+                    {
+                        float targetA =
+                            stampModifier
+                                .EvaluateTargetHeight(
+                                    0f
+                                );
+
+                        float targetB =
+                            stampModifier
+                                .EvaluateTargetHeight(
+                                    1f
+                                );
+
+                        float targetMinimum =
+                            Mathf.Min(
+                                targetA,
+                                targetB
+                            );
+
+                        compositeMinimumHeight =
+                            Mathf.Min(
+                                compositeMinimumHeight,
+                                targetMinimum
+                            );
+                        break;
+                    }
+                }
+
+                if (
+                    !IsFinite(compositeMinimumHeight)
+                    ||
+                    !IsFinite(compositeMaximumHeight)
+                    ||
+                    compositeMaximumHeight < compositeMinimumHeight
+                )
+                {
+                    errorMessage =
+                        "The conservative composite height range " +
+                        "overflowed or became invalid while composing " +
+                        $"tile ({tileCoordinate.x}, {tileCoordinate.y}).";
+
+                    return false;
+                }
             }
         }
 
@@ -646,7 +828,7 @@ public sealed class TerrainHeightCompositor
         return true;
     }
 
-    private bool TryDispatchAdditiveStamp(
+    private bool TryDispatchStamp(
         RenderTexture heightCache,
         Vector2Int tileCoordinate,
         Vector2 tileWorldOriginXZ,
@@ -660,6 +842,43 @@ public sealed class TerrainHeightCompositor
     )
     {
         errorMessage = "";
+
+        int kernel;
+        uint threadGroupSizeX;
+        uint threadGroupSizeY;
+        string blendLabel;
+
+        switch (stampModifier.BlendMode)
+        {
+            case TerrainHeightBlendMode.Additive:
+                kernel = additiveStampKernel;
+                threadGroupSizeX = additiveStampThreadGroupSizeX;
+                threadGroupSizeY = additiveStampThreadGroupSizeY;
+                blendLabel = "Additive";
+                break;
+
+            case TerrainHeightBlendMode.Max:
+                kernel = maxStampKernel;
+                threadGroupSizeX = maxStampThreadGroupSizeX;
+                threadGroupSizeY = maxStampThreadGroupSizeY;
+                blendLabel = "Max";
+                break;
+
+            case TerrainHeightBlendMode.Min:
+                kernel = minStampKernel;
+                threadGroupSizeX = minStampThreadGroupSizeX;
+                threadGroupSizeY = minStampThreadGroupSizeY;
+                blendLabel = "Min";
+                break;
+
+            default:
+                errorMessage =
+                    "Unsupported terrain height blend mode: " +
+                    stampModifier.BlendMode +
+                    ".";
+
+                return false;
+        }
 
         TerrainHeightStampAsset stampAsset =
             stampModifier.StampAsset;
@@ -688,19 +907,19 @@ public sealed class TerrainHeightCompositor
         int groupsX =
             DivideRoundUp(
                 samplesPerSide,
-                additiveStampThreadGroupSizeX
+                threadGroupSizeX
             );
 
         int groupsY =
             DivideRoundUp(
                 samplesPerSide,
-                additiveStampThreadGroupSizeY
+                threadGroupSizeY
             );
 
         if (groupsX <= 0 || groupsY <= 0)
         {
             errorMessage =
-                "The additive stamp compositor calculated an invalid " +
+                $"The {blendLabel} stamp compositor calculated an invalid " +
                 "compute dispatch size.";
 
             return false;
@@ -709,7 +928,7 @@ public sealed class TerrainHeightCompositor
         try
         {
             SetCommonKernelParameters(
-                additiveStampKernel,
+                kernel,
                 heightCache,
                 tileCoordinate,
                 tileWorldOriginXZ,
@@ -721,7 +940,7 @@ public sealed class TerrainHeightCompositor
             );
 
             computeShader.SetTexture(
-                additiveStampKernel,
+                kernel,
                 "_StampTexture",
                 stampAsset.HeightTexture
             );
@@ -824,6 +1043,16 @@ public sealed class TerrainHeightCompositor
                 stampModifier.HeightDelta
             );
 
+            computeShader.SetFloat(
+                "_StampTargetBaseHeight",
+                stampModifier.TargetBaseHeight
+            );
+
+            computeShader.SetFloat(
+                "_StampTargetHeightRange",
+                stampModifier.TargetHeightRange
+            );
+
             /*
              * Spatial falloff contract:
              *
@@ -862,7 +1091,7 @@ public sealed class TerrainHeightCompositor
             );
 
             computeShader.Dispatch(
-                additiveStampKernel,
+                kernel,
                 groupsX,
                 groupsY,
                 1
@@ -873,7 +1102,7 @@ public sealed class TerrainHeightCompositor
         catch (Exception exception)
         {
             errorMessage =
-                "The additive height stamp could not be dispatched " +
+                $"The {blendLabel} height stamp could not be dispatched " +
                 $"for tile ({tileCoordinate.x}, {tileCoordinate.y}) " +
                 $"and cache slice {sliceIndex}.\n\n" +
                 exception.Message;
@@ -950,13 +1179,12 @@ public sealed class TerrainHeightCompositor
     }
 
     /*
-     * Height stamps are numeric data:
+     * Height stamps are normalized numeric source data. Additive maps
+     * sampled red values to HeightDelta contribution weight; Max/Min map the
+     * same normalized source values onto the Package 1 target surface.
      *
-     *     red 0 = no contribution
-     *     red 1 = full HeightDelta contribution
-     *
-     * The shader clamps sampled red values to 0..1 so the conservative
-     * contribution-range contract remains guaranteed.
+     * The shader clamps sampled red values to 0..1 so both interpretations
+     * retain a deterministic bounded source contract.
      *
      * Bilinear + Clamp remain mandatory. Small-radius smoothing uses mip 0.
      * Medium/large-radius smoothing automatically samples prefiltered mip
@@ -1554,12 +1782,18 @@ public sealed class TerrainHeightCompositor
 
         identityKernel = -1;
         additiveStampKernel = -1;
+        maxStampKernel = -1;
+        minStampKernel = -1;
         validationKernel = -1;
 
         identityThreadGroupSizeX = 0;
         identityThreadGroupSizeY = 0;
         additiveStampThreadGroupSizeX = 0;
         additiveStampThreadGroupSizeY = 0;
+        maxStampThreadGroupSizeX = 0;
+        maxStampThreadGroupSizeY = 0;
+        minStampThreadGroupSizeX = 0;
+        minStampThreadGroupSizeY = 0;
         validationThreadGroupSizeX = 0;
         validationThreadGroupSizeY = 0;
     }

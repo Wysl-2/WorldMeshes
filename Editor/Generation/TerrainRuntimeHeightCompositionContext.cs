@@ -426,8 +426,6 @@ internal sealed class TerrainRuntimeHeightCompositionContext :
                 tileWorldSize,
                 worldSizeXZ,
                 authoringData,
-                out _,
-                out _,
                 out string compositorError
             )
         )

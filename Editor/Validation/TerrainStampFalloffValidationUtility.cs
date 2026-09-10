@@ -1868,8 +1868,6 @@ public static class TerrainStampFalloffValidationUtility
                     context.TileWorldSize,
                     context.WorldSizeXZ,
                     context.AuthoringData,
-                    out _,
-                    out _,
                     out errorMessage
                 )
             )

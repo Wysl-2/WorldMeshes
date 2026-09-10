@@ -2143,8 +2143,6 @@ public static class TerrainStampSourceRemapValidationUtility
                     context.TileWorldSize,
                     context.WorldSizeXZ,
                     context.AuthoringData,
-                    out _,
-                    out _,
                     out errorMessage
                 )
             )

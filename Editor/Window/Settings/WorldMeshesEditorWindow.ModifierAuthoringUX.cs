@@ -753,38 +753,166 @@ public partial class WorldMeshesEditorWindow :
         TerrainStampModifier stamp
     )
     {
-        float heightDelta =
-            EditorGUILayout.DelayedFloatField(
-                "Height Delta",
-                stamp.HeightDelta
+        TerrainHeightBlendMode activeBlendMode =
+            stamp.BlendMode;
+
+        TerrainHeightBlendMode editedBlendMode =
+            (TerrainHeightBlendMode)
+            EditorGUILayout.EnumPopup(
+                "Blend Mode",
+                activeBlendMode
             );
 
         if (
-            !Mathf.Approximately(
-                heightDelta,
-                stamp.HeightDelta
-            )
+            editedBlendMode !=
+                activeBlendMode
         )
         {
             if (
                 TerrainAuthoringModifierService
-                    .SetStampHeightDelta(
+                    .SetModifierBlendMode(
                         terrainAuthoringData,
                         worldSettings,
                         stamp.StableId,
-                        heightDelta,
-                        out string heightError
+                        editedBlendMode,
+                        out string blendModeError
                     )
             )
             {
+                activeBlendMode =
+                    editedBlendMode;
+
                 OnModifierMutationSucceeded();
             }
             else
             {
                 SetModifierAuthoringError(
-                    heightError
+                    blendModeError
                 );
             }
+        }
+
+        if (
+            activeBlendMode ==
+                TerrainHeightBlendMode.Additive
+        )
+        {
+            float heightDelta =
+                EditorGUILayout.DelayedFloatField(
+                    "Height Delta",
+                    stamp.HeightDelta
+                );
+
+            if (
+                !Mathf.Approximately(
+                    heightDelta,
+                    stamp.HeightDelta
+                )
+            )
+            {
+                if (
+                    TerrainAuthoringModifierService
+                        .SetStampHeightDelta(
+                            terrainAuthoringData,
+                            worldSettings,
+                            stamp.StableId,
+                            heightDelta,
+                            out string heightError
+                        )
+                )
+                {
+                    OnModifierMutationSucceeded();
+                }
+                else
+                {
+                    SetModifierAuthoringError(
+                        heightError
+                    );
+                }
+            }
+        }
+        else if (
+            activeBlendMode ==
+                TerrainHeightBlendMode.Max
+            ||
+            activeBlendMode ==
+                TerrainHeightBlendMode.Min
+        )
+        {
+            float targetBaseHeight =
+                EditorGUILayout.DelayedFloatField(
+                    "Target Base Height",
+                    stamp.TargetBaseHeight
+                );
+
+            if (
+                !Mathf.Approximately(
+                    targetBaseHeight,
+                    stamp.TargetBaseHeight
+                )
+            )
+            {
+                if (
+                    TerrainAuthoringModifierService
+                        .SetStampTargetBaseHeight(
+                            terrainAuthoringData,
+                            worldSettings,
+                            stamp.StableId,
+                            targetBaseHeight,
+                            out string targetBaseError
+                        )
+                )
+                {
+                    OnModifierMutationSucceeded();
+                }
+                else
+                {
+                    SetModifierAuthoringError(
+                        targetBaseError
+                    );
+                }
+            }
+
+            float targetHeightRange =
+                EditorGUILayout.DelayedFloatField(
+                    "Target Height Range",
+                    stamp.TargetHeightRange
+                );
+
+            if (
+                !Mathf.Approximately(
+                    targetHeightRange,
+                    stamp.TargetHeightRange
+                )
+            )
+            {
+                if (
+                    TerrainAuthoringModifierService
+                        .SetStampTargetHeightRange(
+                            terrainAuthoringData,
+                            worldSettings,
+                            stamp.StableId,
+                            targetHeightRange,
+                            out string targetRangeError
+                        )
+                )
+                {
+                    OnModifierMutationSucceeded();
+                }
+                else
+                {
+                    SetModifierAuthoringError(
+                        targetRangeError
+                    );
+                }
+            }
+        }
+        else
+        {
+            EditorGUILayout.HelpBox(
+                "The selected terrain height blend mode is not supported by the current compositor.",
+                MessageType.Error
+            );
         }
 
         DrawStampFalloffSettings(

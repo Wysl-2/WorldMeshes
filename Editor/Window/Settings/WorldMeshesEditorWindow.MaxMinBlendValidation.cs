@@ -4,7 +4,7 @@ using UnityEngine;
 public partial class WorldMeshesEditorWindow :
     EditorWindow
 {
-    private void DrawTargetSurfaceBlendFoundationValidationSettings()
+    private void DrawMaxMinBlendValidationSettings()
     {
         GUILayout.BeginVertical(
             EditorStyles.helpBox,
@@ -12,31 +12,31 @@ public partial class WorldMeshesEditorWindow :
         );
 
         GUILayout.Label(
-            "Target-Surface Blend Foundation Validation",
+            "Max / Min Blend Validation",
             EditorStyles.boldLabel
         );
 
         bool busy =
-            TerrainTargetSurfaceBlendFoundationValidationUtility
+            TerrainMaxMinBlendValidationUtility
                 .IsScheduled
             ||
-            TerrainTargetSurfaceBlendFoundationValidationUtility
+            TerrainMaxMinBlendValidationUtility
                 .IsRunning;
 
         string status =
-            TerrainTargetSurfaceBlendFoundationValidationUtility
+            TerrainMaxMinBlendValidationUtility
                 .IsScheduled
                 ? "Scheduled"
                 :
-                TerrainTargetSurfaceBlendFoundationValidationUtility
+                TerrainMaxMinBlendValidationUtility
                     .IsRunning
                     ? "Running"
                     :
-                    TerrainTargetSurfaceBlendFoundationValidationUtility
+                    TerrainMaxMinBlendValidationUtility
                         .LastFailedCount > 0
                         ? "Failed"
                         :
-                        TerrainTargetSurfaceBlendFoundationValidationUtility
+                        TerrainMaxMinBlendValidationUtility
                             .LastPassedCount > 0
                             ? "Passed"
                             : "Ready";
@@ -48,14 +48,14 @@ public partial class WorldMeshesEditorWindow :
 
         EditorGUILayout.LabelField(
             "Passed",
-            TerrainTargetSurfaceBlendFoundationValidationUtility
+            TerrainMaxMinBlendValidationUtility
                 .LastPassedCount
                 .ToString()
         );
 
         EditorGUILayout.LabelField(
             "Failed",
-            TerrainTargetSurfaceBlendFoundationValidationUtility
+            TerrainMaxMinBlendValidationUtility
                 .LastFailedCount
                 .ToString()
         );
@@ -75,12 +75,12 @@ public partial class WorldMeshesEditorWindow :
 
         if (
             GUILayout.Button(
-                "Validate Target-Surface Blend Foundation",
+                "Validate Max / Min Blend Modes",
                 GUILayout.ExpandWidth(true)
             )
         )
         {
-            TerrainTargetSurfaceBlendFoundationValidationUtility
+            TerrainMaxMinBlendValidationUtility
                 .RequestValidation();
         }
 
@@ -91,18 +91,19 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.HelpBox(
-            TerrainTargetSurfaceBlendFoundationValidationUtility
+            TerrainMaxMinBlendValidationUtility
                 .LastSummary,
-            TerrainTargetSurfaceBlendFoundationValidationUtility
+            TerrainMaxMinBlendValidationUtility
                 .LastFailedCount > 0
                 ? MessageType.Error
                 : MessageType.Info
         );
 
         EditorGUILayout.HelpBox(
-            "Validates the Package 1 target-surface data foundation, central " +
-            "service mutations, dirty regions, duplication, Undo/Redo, and unchanged " +
-            "Additive GPU output. Max/Min behavior is validated separately.",
+            "Validates Additive regression behavior, Max/Min target-surface " +
+            "composition, falloff, remapping/orientation, ordered stacking, " +
+            "cross-tile seams, conservative range metadata, runtime parity, " +
+            "blend-mode mutations, dirty regions, enable/disable, and Undo/Redo.",
             MessageType.None
         );
 

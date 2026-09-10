@@ -1,4 +1,6 @@
 public enum TerrainHeightBlendMode
 {
-    Additive = 0
+    Additive = 0,
+    Max = 1,
+    Min = 2
 }
