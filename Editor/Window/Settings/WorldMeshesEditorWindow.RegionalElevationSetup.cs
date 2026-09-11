@@ -481,102 +481,26 @@ public partial class WorldMeshesEditorWindow :
             return;
         }
 
-        bool hasCommittedHeightfield =
-            !string.IsNullOrEmpty(
-                TerrainAuthoringStateUtility
-                    .GetCommittedHeightfieldSignature(
-                        worldSettings
-                    )
-            );
-
         if (
-            hasCommittedHeightfield
-            &&
-            terrainAuthoringData.authoringRevision ==
-            int.MaxValue
+            !TerrainRegionalElevationService
+                .ReplaceNodeLayoutWithGrid(
+                    terrainAuthoringData,
+                    worldSettings,
+                    divisionsX,
+                    divisionsZ,
+                    inputNodeInitialElevation,
+                    out string serviceError
+                )
         )
         {
             EditorUtility.DisplayDialog(
                 "Regional Elevation Initialization Failed",
-                "TerrainAuthoringData.authoringRevision has reached the " +
-                "maximum Int32 value and cannot be advanced safely.",
+                serviceError,
                 "OK"
             );
 
             return;
         }
-
-        string undoLabel =
-            existingSource == null
-                ? "Initialize Regional Elevation"
-                : "Reinitialize Regional Elevation";
-
-        Undo.RecordObject(
-            terrainAuthoringData,
-            undoLabel
-        );
-
-        terrainAuthoringData
-            .SetRegionalElevationSourceInternal(
-                generatedSource
-            );
-
-        /*
-         * authoringRevision is also used by the current Height Authoring UI
-         * as an initialized-heightfield signal. Before the first committed
-         * heightfield exists, keep revision at zero so creating regional setup
-         * data does not make the heightfield button incorrectly say
-         * "Reinitialize". Once a committed base exists, regional source
-         * creation/replacement is a normal authoring change and advances the
-         * overall authoring revision.
-         */
-        if (hasCommittedHeightfield)
-        {
-            terrainAuthoringData.authoringRevision =
-                Mathf.Max(
-                    0,
-                    terrainAuthoringData.authoringRevision
-                )
-                +
-                1;
-        }
-
-        EditorUtility.SetDirty(
-            terrainAuthoringData
-        );
-
-        AssetDatabase.SaveAssetIfDirty(
-            terrainAuthoringData
-        );
-
-        Undo.FlushUndoRecordObjects();
-
-        if (hasCommittedHeightfield)
-        {
-            HashSet<Vector2Int> allHeightTiles =
-                new HashSet<Vector2Int>();
-
-            TerrainRegionalElevationCompositionUtility
-                .CollectAllHeightTiles(
-                    worldSettings,
-                    allHeightTiles
-                );
-
-            TerrainRuntimeInvalidationService
-                .InvalidateAuthoringHeightTiles(
-                    worldSettings,
-                    terrainAuthoringData,
-                    allHeightTiles
-                );
-
-            TerrainAuthoringPreviewService
-                .NotifyCompositeAuthoringStateChanged(
-                    allHeightTiles
-                );
-        }
-
-        TerrainRegionalElevationSetupUndoTracker
-            .RecordCurrentState();
 
         Selection.activeObject =
             terrainAuthoringData;
