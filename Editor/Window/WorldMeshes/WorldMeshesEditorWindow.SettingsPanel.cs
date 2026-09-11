@@ -292,6 +292,10 @@ public partial class WorldMeshesEditorWindow :
 
         DrawWorkspaceSectionGap();
 
+        DrawNodeElevationInterpolationValidationSettings();
+
+        DrawWorkspaceSectionGap();
+
         DrawTargetSurfaceBlendFoundationValidationSettings();
 
         DrawWorkspaceSectionGap();
