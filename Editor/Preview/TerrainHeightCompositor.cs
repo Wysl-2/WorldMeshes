@@ -79,7 +79,7 @@ public sealed class TerrainHeightCompositor
      *
      * These values count successfully reconstructed/composited TILES,
      * not individual modifier GPU dispatches. One tile can execute zero,
-     * one, or many additive stamp dispatches.
+     * one, or many height-stamp dispatches.
      */
     private int currentTransactionDispatchTileCount;
     private int lastDispatchTileCount;
@@ -91,7 +91,7 @@ public sealed class TerrainHeightCompositor
      * "Considered" counts modifier-list entries visited by tile
      * transactions. "Modifier dispatch" counts supported modifier
      * operations that reached a GPU dispatch. "Compute dispatch" counts
-     * the corresponding additive-stamp compute dispatches.
+     * the corresponding height-stamp compute dispatches.
      */
     private int currentTransactionModifierConsideredCount;
     private int lastModifierConsideredCount;
@@ -673,13 +673,10 @@ public sealed class TerrainHeightCompositor
                 stampModifier.BlendMode;
 
             if (
-                blendMode != TerrainHeightBlendMode.Additive
-                &&
-                blendMode != TerrainHeightBlendMode.Max
-                &&
-                blendMode != TerrainHeightBlendMode.Min
-                &&
-                blendMode != TerrainHeightBlendMode.Replace
+                !TerrainHeightBlendModeUtility
+                    .IsSupported(
+                        blendMode
+                    )
             )
             {
                 errorMessage =
@@ -1254,7 +1251,7 @@ public sealed class TerrainHeightCompositor
     /*
      * Height stamps are normalized numeric source data. Additive maps
      * sampled red values to HeightDelta contribution weight; Max/Min/Replace
-     * map the same normalized source values onto the Package 1 target surface.
+     * map the same normalized source values onto the target surface.
      *
      * The shader clamps sampled red values to 0..1 so both interpretations
      * retain a deterministic bounded source contract.

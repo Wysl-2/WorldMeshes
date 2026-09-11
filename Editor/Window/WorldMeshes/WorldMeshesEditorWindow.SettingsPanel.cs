@@ -280,6 +280,10 @@ public partial class WorldMeshesEditorWindow :
 
         DrawWorkspaceSectionGap();
 
+        DrawRegionalElevationFoundationSettings();
+
+        DrawWorkspaceSectionGap();
+
         DrawTargetSurfaceBlendFoundationValidationSettings();
 
         DrawWorkspaceSectionGap();

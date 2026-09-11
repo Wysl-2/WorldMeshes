@@ -24,7 +24,11 @@ MonoBehaviour:
   - rid: 3932701523395477578
   - rid: 3932701523395477580
   - rid: 3932701523395477579
-  authoringRevision: 2019
+  - rid: 3932701523395477581
+  - rid: 3932701523395477582
+  - rid: 3932701523395477583
+  - rid: 3932701523395477584
+  authoringRevision: 2144
   references:
     version: 2
     RefIds:
@@ -150,9 +154,9 @@ MonoBehaviour:
         enabled: 1
         blendMode: 3
         stampAsset: {fileID: 11400000, guid: ffeea23aec65944e0b11e3cd9d352afb, type: 2}
-        positionXZ: {x: 6293.2305, y: 6411.1245}
-        sizeXZ: {x: 899.37476, y: 899.37476}
-        rotationDegrees: 89.40964
+        positionXZ: {x: 6854.9805, y: 7527.255}
+        sizeXZ: {x: 868.5654, y: 818.3368}
+        rotationDegrees: 74.673035
         flipX: 0
         flipZ: 0
         sourceInputMin: 0
@@ -160,8 +164,8 @@ MonoBehaviour:
         sourceGamma: 1
         heightDelta: 60
         targetBaseHeight: 20
-        targetHeightRange: 80
-        falloff: 0.4250984
+        targetHeightRange: 60
+        falloff: 0.5949495
         falloffShape: 1
         falloffProfile: 0
         smoothingRadius: 3
@@ -196,8 +200,8 @@ MonoBehaviour:
         enabled: 1
         blendMode: 3
         stampAsset: {fileID: 11400000, guid: ffeea23aec65944e0b11e3cd9d352afb, type: 2}
-        positionXZ: {x: 5704.3457, y: 7682.0967}
-        sizeXZ: {x: 602.64307, y: 602.64307}
+        positionXZ: {x: 5797.005, y: 7462.0454}
+        sizeXZ: {x: 1344.5806, y: 1344.5806}
         rotationDegrees: 55.89235
         flipX: 0
         flipZ: 0
@@ -206,9 +210,101 @@ MonoBehaviour:
         sourceGamma: 1
         heightDelta: 60
         targetBaseHeight: 20
-        targetHeightRange: 40
-        falloff: 0.44336906
+        targetHeightRange: 60
+        falloff: 0.9084981
         falloffShape: 1
         falloffProfile: 0
         smoothingRadius: 3
+        smoothingStrength: 1
+    - rid: 3932701523395477581
+      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
+      data:
+        stableId: bbac06c99c554ebd8a0aa7912c8f9f39
+        enabled: 1
+        blendMode: 1
+        stampAsset: {fileID: 11400000, guid: e0c7f5643dd0b7399b5e14daff51b424, type: 2}
+        positionXZ: {x: 8156.3945, y: 6220.153}
+        sizeXZ: {x: 2507.2874, y: 2507.2874}
+        rotationDegrees: -27.4048
+        flipX: 0
+        flipZ: 0
+        sourceInputMin: 0
+        sourceInputMax: 1
+        sourceGamma: 1
+        heightDelta: 30
+        targetBaseHeight: 0
+        targetHeightRange: 35
+        falloff: 0.25
+        falloffShape: 0
+        falloffProfile: 0
+        smoothingRadius: 0
+        smoothingStrength: 1
+    - rid: 3932701523395477582
+      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
+      data:
+        stableId: 32f1241c090f4075941a73471dc1d485
+        enabled: 1
+        blendMode: 3
+        stampAsset: {fileID: 11400000, guid: c7e4eab20a83311298d68620206fc2bf, type: 2}
+        positionXZ: {x: 9019.42, y: 5908.1685}
+        sizeXZ: {x: 967.63855, y: 1226.1475}
+        rotationDegrees: 0
+        flipX: 0
+        flipZ: 0
+        sourceInputMin: 0
+        sourceInputMax: 1
+        sourceGamma: 1
+        heightDelta: 50
+        targetBaseHeight: 10
+        targetHeightRange: 60
+        falloff: 0.36726254
+        falloffShape: 1
+        falloffProfile: 0
+        smoothingRadius: 4
+        smoothingStrength: 1
+    - rid: 3932701523395477583
+      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
+      data:
+        stableId: 24ba822c41d24ddea726c1aa2179de19
+        enabled: 1
+        blendMode: 1
+        stampAsset: {fileID: 11400000, guid: b9ac81c84e9f62ddf9955887a713a9b8, type: 2}
+        positionXZ: {x: 10340.666, y: 6424.098}
+        sizeXZ: {x: 3302.1702, y: 3302.1702}
+        rotationDegrees: 20.000046
+        flipX: 0
+        flipZ: 0
+        sourceInputMin: 0
+        sourceInputMax: 1
+        sourceGamma: 1
+        heightDelta: 10
+        targetBaseHeight: 0
+        targetHeightRange: 80
+        falloff: 0.5734817
+        falloffShape: 1
+        falloffProfile: 0
+        smoothingRadius: 5
+        smoothingStrength: 1
+    - rid: 3932701523395477584
+      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
+      data:
+        stableId: 593b2fb06ae34ce899ae4b8b55be96b8
+        enabled: 1
+        blendMode: 1
+        stampAsset: {fileID: 11400000, guid: b9ac81c84e9f62ddf9955887a713a9b8, type: 2}
+        positionXZ: {x: 10272.898, y: 4570.927}
+        sizeXZ: {x: 3302.1702, y: 3302.1702}
+        rotationDegrees: 128.96613
+        flipX: 0
+        flipZ: 0
+        sourceInputMin: 0
+        sourceInputMax: 1
+        sourceGamma: 1
+        heightDelta: 10
+        targetBaseHeight: 0
+        targetHeightRange: 70
+        falloff: 0.5734817
+        falloffShape: 1
+        falloffProfile: 0
+        smoothingRadius: 5
         smoothingStrength: 1

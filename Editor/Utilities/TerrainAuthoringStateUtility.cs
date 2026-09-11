@@ -488,13 +488,30 @@ public static class TerrainAuthoringStateUtility
             manifest.committedContentHash
         );
 
+        /*
+         * Preserve legacy overall-signature behavior while regional
+         * elevation is absent. Merely installing the regional-elevation
+         * data model must not make existing generated terrain stale.
+         */
+        if (
+            authoringData.RegionalElevationSource !=
+            null
+        )
+        {
+            if (
+                !AppendRegionalElevationSignatureData(
+                    builder,
+                    authoringData.RegionalElevationSource
+                )
+            )
+            {
+                return "";
+            }
+        }
 
         /*
          * Preserve the pre-Stage-11 overall signature exactly while
-         * the modifier stack is empty. This avoids marking existing
-         * generated runtime data stale merely because the modifier
-         * data model was installed.
-         *
+         * the modifier stack is empty and no regional source exists.
          * Once modifiers exist, their ordered output-relevant state is
          * appended to the overall authoring signature.
          */
@@ -1173,6 +1190,36 @@ public static class TerrainAuthoringStateUtility
             ComputeSHA256(
                 builder.ToString()
             );
+    }
+
+    // =====================================================
+    // REGIONAL ELEVATION SIGNATURE HELPERS
+    // =====================================================
+
+    private static bool AppendRegionalElevationSignatureData(
+        StringBuilder builder,
+        TerrainRegionalElevationSource regionalSource
+    )
+    {
+        if (
+            builder == null
+            ||
+            regionalSource == null
+        )
+        {
+            return false;
+        }
+
+        builder.Append(
+            "|TerrainRegionalElevationV1"
+        );
+
+        return
+            regionalSource
+                .TryAppendDeterministicSignatureData(
+                    builder,
+                    out _
+                );
     }
 
     // =====================================================

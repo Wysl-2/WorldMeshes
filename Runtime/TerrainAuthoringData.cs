@@ -28,6 +28,18 @@ public class TerrainAuthoringData :
 
     public Texture2D importedHeightmap;
 
+    [Header("Regional Elevation")]
+
+    /*
+     * Optional broad regional-elevation authoring source.
+     *
+     * Existing TerrainAuthoringData assets intentionally deserialize this as
+     * null. Later packages will provide explicit setup/mutation workflows;
+     * Package 1 never creates a source automatically.
+     */
+    [SerializeReference]
+    private TerrainRegionalElevationSource regionalElevationSource;
+
     [Header("Height Modifiers")]
 
     /*
@@ -49,6 +61,25 @@ public class TerrainAuthoringData :
     [HideInInspector]
     public int authoringRevision =
         0;
+
+    public TerrainRegionalElevationSource RegionalElevationSource
+    {
+        get
+        {
+            return
+                regionalElevationSource;
+        }
+    }
+
+    public bool HasRegionalElevationSource
+    {
+        get
+        {
+            return
+                regionalElevationSource !=
+                null;
+        }
+    }
 
     public IReadOnlyList<TerrainHeightModifier> HeightModifiers
     {
@@ -189,6 +220,29 @@ public class TerrainAuthoringData :
 
         return
             repairedCount;
+    }
+
+    // =====================================================
+    // INTERNAL REGIONAL ELEVATION STORAGE ACCESS
+    // =====================================================
+
+    /*
+     * These are intentionally internal. A later package will introduce the
+     * production regional-elevation mutation service and transaction boundary.
+     */
+
+    internal void SetRegionalElevationSourceInternal(
+        TerrainRegionalElevationSource source
+    )
+    {
+        regionalElevationSource =
+            source;
+    }
+
+    internal void ClearRegionalElevationSourceInternal()
+    {
+        regionalElevationSource =
+            null;
     }
 
     // =====================================================

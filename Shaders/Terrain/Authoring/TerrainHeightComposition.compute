@@ -167,7 +167,7 @@ void IdentityComposite(
 
 
 // =====================================================
-// ADDITIVE HEIGHT STAMP
+// SHARED HEIGHT STAMP EVALUATION
 // =====================================================
 
 float CalculateRectangleFalloffEdgeDistance01(
