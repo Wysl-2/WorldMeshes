@@ -203,6 +203,10 @@ public partial class WorldMeshesEditorWindow :
 
         DrawWorkspaceSectionGap();
 
+        DrawRegionalElevationSetupSettings();
+
+        DrawWorkspaceSectionGap();
+
         DrawWorldHierarchySettings();
     }
 
@@ -281,6 +285,10 @@ public partial class WorldMeshesEditorWindow :
         DrawWorkspaceSectionGap();
 
         DrawRegionalElevationFoundationSettings();
+
+        DrawWorkspaceSectionGap();
+
+        DrawNodeElevationInitializationValidationSettings();
 
         DrawWorkspaceSectionGap();
 
