@@ -42,6 +42,7 @@ internal sealed class TerrainRuntimeHeightCompositionContext :
     private float tileWorldSize;
     private bool prepared;
     private int compositedTileCount;
+    private bool regionalCompositionRequired;
 
     public int AffectedTileCount =>
         affectedTiles.Count;
@@ -57,6 +58,12 @@ internal sealed class TerrainRuntimeHeightCompositionContext :
 
     public int ComputeDispatchCount =>
         compositor.LastComputeDispatchCount;
+
+    public int RegionalElevationDispatchCount =>
+        compositor.LastRegionalElevationDispatchCount;
+
+    public bool RegionalCompositionRequired =>
+        regionalCompositionRequired;
 
     public bool TryPrepare(
         WorldSettings settings,
@@ -82,6 +89,9 @@ internal sealed class TerrainRuntimeHeightCompositionContext :
 
         compositedTileCount =
             0;
+
+        regionalCompositionRequired =
+            false;
 
         if (
             worldSettings == null
@@ -142,52 +152,25 @@ internal sealed class TerrainRuntimeHeightCompositionContext :
             return false;
         }
 
-        IReadOnlyList<TerrainHeightModifier>
-            modifiers =
-                authoringData.HeightModifiers;
-
-        for (
-            int modifierIndex = 0;
-            modifierIndex < modifiers.Count;
-            modifierIndex++
+        if (
+            !TerrainRegionalElevationCompositionUtility
+                .TryCollectRequiredHeightTiles(
+                    worldSettings,
+                    authoringData,
+                    affectedTiles,
+                    0,
+                    out regionalCompositionRequired,
+                    out errorMessage
+                )
         )
         {
-            TerrainHeightModifier modifier =
-                modifiers[
-                    modifierIndex
-                ];
-
-            if (modifier == null)
-            {
-                errorMessage =
-                    $"Height modifier index {modifierIndex} is null.";
-
-                return false;
-            }
-
-            if (!modifier.Enabled)
-            {
-                continue;
-            }
-
-            /*
-             * Reuse the existing world-bounds -> height-tile mapping.
-             * Zero sample padding is sufficient for deciding which
-             * HEIGHT VALUES can change during a bake.
-             */
-            TerrainAuthoringPreviewDirtyRegionUtility
-                .CollectTilesOverlappingBounds(
-                    worldSettings,
-                    modifier.GetAffectedWorldBounds(),
-                    affectedTiles,
-                    0
-                );
+            return false;
         }
 
         /*
-         * If no enabled modifier touches the logical world, generated
-         * runtime output equals committed base data and no GPU modifier
-         * composition capability is required.
+         * If neither a regional source nor an enabled modifier affects the
+         * logical world, generated runtime output equals committed base data
+         * and no GPU composition capability is required.
          */
         if (affectedTiles.Count == 0)
         {
@@ -201,7 +184,7 @@ internal sealed class TerrainRuntimeHeightCompositionContext :
         {
             errorMessage =
                 "Runtime height composition requires compute-shader " +
-                "support because enabled modifiers affect the world.";
+                "support because authored composition affects the world.";
 
             return false;
         }
@@ -210,7 +193,7 @@ internal sealed class TerrainRuntimeHeightCompositionContext :
         {
             errorMessage =
                 "Runtime height composition requires 2D texture-array " +
-                "support because enabled modifiers affect the world.";
+                "support because authored composition affects the world.";
 
             return false;
         }
@@ -334,7 +317,7 @@ internal sealed class TerrainRuntimeHeightCompositionContext :
         {
             errorMessage =
                 $"Tile ({tileCoordinate.x}, {tileCoordinate.y}) was " +
-                "not classified as modifier-affected.";
+                "not classified as composition-affected.";
 
             return false;
         }
@@ -507,7 +490,12 @@ internal sealed class TerrainRuntimeHeightCompositionContext :
 
         affectedTiles.Clear();
 
+        regionalCompositionRequired =
+            false;
+
         DisposeTarget();
+
+        compositor.Dispose();
     }
 
     private void DisposeTarget()

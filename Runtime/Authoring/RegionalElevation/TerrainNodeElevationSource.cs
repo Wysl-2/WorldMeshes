@@ -277,7 +277,7 @@ public sealed class TerrainNodeElevationSource :
     protected override string GetSignatureTypeId()
     {
         return
-            "TerrainNodeElevationSourceV1";
+            "TerrainNodeElevationSourceV2";
     }
 
     protected override void AppendTypeSpecificSignatureData(

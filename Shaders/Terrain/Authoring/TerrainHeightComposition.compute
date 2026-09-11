@@ -1,4 +1,5 @@
 #pragma kernel IdentityComposite
+#pragma kernel ApplyNodeRegionalElevation
 #pragma kernel ApplyAdditiveStamp
 #pragma kernel ApplyMaxStamp
 #pragma kernel ApplyMinStamp
@@ -6,6 +7,22 @@
 #pragma kernel ValidationAddConstant
 
 RWTexture2DArray<float> _HeightCache;
+
+struct RegionalElevationNode
+{
+    float2 positionXZ;
+    float elevation;
+    float padding;
+};
+
+StructuredBuffer<RegionalElevationNode>
+    _RegionalElevationNodes;
+
+int _RegionalElevationNodeCount;
+
+static const float
+    REGIONAL_EXACT_NODE_DISTANCE_SQUARED =
+        0.000001;
 
 Texture2D<float4> _StampTexture;
 SamplerState sampler_StampTexture;
@@ -163,6 +180,123 @@ void IdentityComposite(
     _HeightCache[
         cacheAddress
     ] = height;
+}
+
+
+
+// =====================================================
+// NODE REGIONAL ELEVATION
+// =====================================================
+
+[numthreads(8, 8, 1)]
+void ApplyNodeRegionalElevation(
+    uint3 dispatchThreadId : SV_DispatchThreadID
+)
+{
+    uint3 cacheAddress;
+    float2 sampleWorldXZ;
+
+    if (
+        !TryGetAuthoringSample(
+            dispatchThreadId,
+            cacheAddress,
+            sampleWorldXZ
+        )
+    )
+    {
+        return;
+    }
+
+    if (
+        _RegionalElevationNodeCount <=
+        0
+    )
+    {
+        return;
+    }
+
+    float exactHeightSum =
+        0.0;
+
+    int exactMatchCount =
+        0;
+
+    float weightedHeightSum =
+        0.0;
+
+    float weightSum =
+        0.0;
+
+    for (
+        int nodeIndex = 0;
+        nodeIndex < _RegionalElevationNodeCount;
+        nodeIndex++
+    )
+    {
+        RegionalElevationNode node =
+            _RegionalElevationNodes[
+                nodeIndex
+            ];
+
+        float2 delta =
+            sampleWorldXZ -
+            node.positionXZ;
+
+        float distanceSquared =
+            dot(
+                delta,
+                delta
+            );
+
+        if (
+            distanceSquared <=
+            REGIONAL_EXACT_NODE_DISTANCE_SQUARED
+        )
+        {
+            exactHeightSum +=
+                node.elevation;
+
+            exactMatchCount++;
+
+            continue;
+        }
+
+        float weight =
+            rcp(
+                distanceSquared
+            );
+
+        weightedHeightSum +=
+            node.elevation *
+            weight;
+
+        weightSum +=
+            weight;
+    }
+
+    float regionalHeight;
+
+    if (exactMatchCount > 0)
+    {
+        regionalHeight =
+            exactHeightSum /
+            (float)exactMatchCount;
+    }
+    else
+    {
+        if (weightSum <= 0.0)
+        {
+            return;
+        }
+
+        regionalHeight =
+            weightedHeightSum /
+            weightSum;
+    }
+
+    _HeightCache[
+        cacheAddress
+    ] = regionalHeight;
 }
 
 

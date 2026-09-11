@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
@@ -95,6 +96,10 @@ public partial class WorldMeshesEditorWindow :
             &&
             existingNodeSource == null;
 
+        bool flatBaseSupported =
+            terrainAuthoringData.sourceMode ==
+                TerrainHeightSourceMode.Flat;
+
         EditorGUILayout.LabelField(
             "Current Source",
             existingSource != null
@@ -116,7 +121,8 @@ public partial class WorldMeshesEditorWindow :
         {
             EditorGUILayout.HelpBox(
                 "The current regional elevation source is not a node source. " +
-                "Package 2 will not replace an unsupported/future source type.",
+                "Package 4 will not replace or compose an unsupported/future " +
+                "source type.",
                 MessageType.Warning
             );
         }
@@ -147,6 +153,18 @@ public partial class WorldMeshesEditorWindow :
             GUILayout.EndVertical();
 
             return;
+        }
+
+        if (!flatBaseSupported)
+        {
+            EditorGUILayout.HelpBox(
+                "Package 4 node regional elevation composition currently " +
+                "supports only a Flat committed heightfield source. Change " +
+                "Height Source to Flat and initialize/reinitialize the " +
+                "committed authoring heightfield before creating an active " +
+                "node regional surface.",
+                MessageType.Warning
+            );
         }
 
         GUILayout.Space(6f);
@@ -290,6 +308,8 @@ public partial class WorldMeshesEditorWindow :
             &&
             elevationValid
             &&
+            flatBaseSupported
+            &&
             !unsupportedExistingSource
             &&
             !Application.isPlaying
@@ -332,8 +352,9 @@ public partial class WorldMeshesEditorWindow :
             "Reinitializing the committed authoring heightfield does not " +
             "regenerate or overwrite this node layout.\n\n" +
 
-            "Package 2 stores node data only. Regional elevation still has " +
-            "no effect on visible terrain.",
+            "Package 4 composes valid node regional elevation as an ABSOLUTE " +
+            "world-wide surface over a Flat committed base, before ordinary " +
+            "height modifiers.",
             MessageType.Info
         );
 
@@ -382,6 +403,21 @@ public partial class WorldMeshesEditorWindow :
             return;
         }
 
+        if (
+            terrainAuthoringData.sourceMode !=
+                TerrainHeightSourceMode.Flat
+        )
+        {
+            EditorUtility.DisplayDialog(
+                "Regional Elevation Initialization Failed",
+                "Package 4 node regional elevation composition currently " +
+                "supports only a Flat committed heightfield source.",
+                "OK"
+            );
+
+            return;
+        }
+
         TerrainRegionalElevationSource existingSource =
             terrainAuthoringData
                 .RegionalElevationSource;
@@ -395,7 +431,7 @@ public partial class WorldMeshesEditorWindow :
             EditorUtility.DisplayDialog(
                 "Regional Elevation",
                 "The existing regional elevation source is not a node " +
-                "source. Package 2 will not replace it.",
+                "source. Package 4 will not replace it.",
                 "OK"
             );
 
@@ -515,6 +551,33 @@ public partial class WorldMeshesEditorWindow :
 
         Undo.FlushUndoRecordObjects();
 
+        if (hasCommittedHeightfield)
+        {
+            HashSet<Vector2Int> allHeightTiles =
+                new HashSet<Vector2Int>();
+
+            TerrainRegionalElevationCompositionUtility
+                .CollectAllHeightTiles(
+                    worldSettings,
+                    allHeightTiles
+                );
+
+            TerrainRuntimeInvalidationService
+                .InvalidateAuthoringHeightTiles(
+                    worldSettings,
+                    terrainAuthoringData,
+                    allHeightTiles
+                );
+
+            TerrainAuthoringPreviewService
+                .NotifyCompositeAuthoringStateChanged(
+                    allHeightTiles
+                );
+        }
+
+        TerrainRegionalElevationSetupUndoTracker
+            .RecordCurrentState();
+
         Selection.activeObject =
             terrainAuthoringData;
 
@@ -535,7 +598,8 @@ public partial class WorldMeshesEditorWindow :
             $"{terrainAuthoringData.authoringRevision}\n\n" +
             "The grid is initialization-only; generated nodes are now " +
             "independent persistent authoring data.\n\n" +
-            "Package 2 does not evaluate these nodes against terrain."
+            "Package 4 composes this node source across the complete logical " +
+            "world before ordinary height modifiers."
         );
     }
 

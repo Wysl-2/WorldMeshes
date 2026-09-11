@@ -165,6 +165,8 @@ public static class TerrainAuthoringPreviewService
                 ReleaseBinding();
                 ReleaseCache();
 
+                heightCompositor.Dispose();
+
                 dirtyCompositeTiles.Clear();
 
                 SetStatus(
@@ -477,6 +479,14 @@ public static class TerrainAuthoringPreviewService
     public static long TotalCompositeComputeDispatchCount =>
         heightCompositor
             .TotalComputeDispatchCount;
+
+    public static int LastRegionalElevationDispatchCount =>
+        heightCompositor
+            .LastRegionalElevationDispatchCount;
+
+    public static long TotalRegionalElevationDispatchCount =>
+        heightCompositor
+            .TotalRegionalElevationDispatchCount;
 
 
 
@@ -1091,6 +1101,8 @@ public static class TerrainAuthoringPreviewService
         ReleaseBinding();
         ReleaseCache();
 
+        heightCompositor.Dispose();
+
         SetStatus(
             TerrainAuthoringPreviewStatus.Disabled,
             "Terrain authoring preview resources were released."
@@ -1382,81 +1394,60 @@ public static class TerrainAuthoringPreviewService
              * enabled modifiers while claiming the overall signature is
              * current.
              */
-            HashSet<Vector2Int> fullRebuildModifierTiles =
+            HashSet<Vector2Int> fullRebuildCompositionTiles =
                 new HashSet<Vector2Int>();
 
-            IReadOnlyList<TerrainHeightModifier>
-                currentModifiers =
-                    authoringData.HeightModifiers;
-
-            for (
-                int modifierIndex = 0;
-                modifierIndex < currentModifiers.Count;
-                modifierIndex++
+            if (
+                !TerrainRegionalElevationCompositionUtility
+                    .TryCollectRequiredHeightTiles(
+                        worldSettings,
+                        authoringData,
+                        fullRebuildCompositionTiles,
+                        1,
+                        out _,
+                        out string compositionSetError
+                    )
             )
             {
-                TerrainHeightModifier modifier =
-                    currentModifiers[
-                        modifierIndex
-                    ];
+                /*
+                 * The committed cache remains a valid base, but the complete
+                 * authored surface cannot be reconstructed. Keep the preview
+                 * stale and report the regional/modifier composition problem.
+                 */
+                overallSignatureAcknowledgementRequested =
+                    false;
 
-                if (modifier == null)
-                {
-                    /*
-                     * Keep the preview stale and force the full build
-                     * boundary to retry after the malformed authoring
-                     * state is corrected.
-                     */
-                    committedRebuildRequested =
-                        true;
+                SetStatus(
+                    TerrainAuthoringPreviewStatus.Error,
+                    "The committed preview cache was rebuilt, but the " +
+                    "complete regional/modifier composition set could not " +
+                    "be resolved.\n\n" +
+                    compositionSetError
+                );
 
-                    overallSignatureAcknowledgementRequested =
-                        false;
+                RepaintEditorViews();
 
-                    SetStatus(
-                        TerrainAuthoringPreviewStatus.Error,
-                        $"Height modifier index {modifierIndex} is null. " +
-                        "The committed preview cache was rebuilt, but " +
-                        "the complete modifier state could not be " +
-                        "reconstructed."
-                    );
-
-                    RepaintEditorViews();
-
-                    return;
-                }
-
-                if (!modifier.Enabled)
-                {
-                    continue;
-                }
-
-                TerrainAuthoringPreviewDirtyRegionUtility
-                    .CollectTilesOverlappingBounds(
-                        worldSettings,
-                        modifier.GetAffectedWorldBounds(),
-                        fullRebuildModifierTiles,
-                        1
-                    );
+                return;
             }
 
             /*
-             * Dirty requests that belonged to the previous committed
-             * cache are obsolete. The complete enabled modifier footprint
-             * becomes the authoritative post-build recomposition set.
+             * Dirty requests that belonged to the previous committed cache
+             * are obsolete. With a global node regional source this set is
+             * the complete logical world; without one it retains the
+             * established enabled-modifier footprint behavior.
              */
             dirtyCompositeTiles.Clear();
 
             dirtyCompositeTiles.UnionWith(
-                fullRebuildModifierTiles
+                fullRebuildCompositionTiles
             );
 
             /*
-             * When no enabled modifier touches the logical world, the
-             * committed base already represents the complete output.
-             * The normal zero-dirty acknowledgement path below handles
-             * that case. Otherwise acknowledgement occurs only after the
-             * dirty composition transaction succeeds.
+             * When neither regional elevation nor an enabled modifier
+             * requires composition, the committed base already represents
+             * the complete output. The normal zero-dirty acknowledgement
+             * path below handles that case. Otherwise acknowledgement occurs
+             * only after the dirty composition transaction succeeds.
              */
             overallSignatureAcknowledgementRequested =
                 true;
@@ -2147,6 +2138,8 @@ public static class TerrainAuthoringPreviewService
         ReleaseBinding();
         ReleaseCache();
 
+        heightCompositor.Dispose();
+
         dirtyCompositeTiles.Clear();
     }
 
@@ -2154,6 +2147,8 @@ public static class TerrainAuthoringPreviewService
     {
         ReleaseBinding();
         ReleaseCache();
+
+        heightCompositor.Dispose();
 
         dirtyCompositeTiles.Clear();
     }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -28,7 +29,8 @@ using UnityEngine.Rendering;
  * calling the production composition overload. Composition therefore
  * never accumulates edits from a previous composite result.
  */
-public sealed class TerrainHeightCompositor
+public sealed class TerrainHeightCompositor :
+    IDisposable
 {
     public const string ComputeShaderAssetPath =
         "Assets/WorldMeshes/Shaders/Terrain/Authoring/" +
@@ -36,6 +38,12 @@ public sealed class TerrainHeightCompositor
 
     private const string IdentityKernelName =
         "IdentityComposite";
+
+    private const string RegionalElevationKernelName =
+        "ApplyNodeRegionalElevation";
+
+    private const int RegionalElevationNodeStride =
+        sizeof(float) * 4;
 
     private const string AdditiveStampKernelName =
         "ApplyAdditiveStamp";
@@ -52,9 +60,25 @@ public sealed class TerrainHeightCompositor
     private const string ValidationKernelName =
         "ValidationAddConstant";
 
+    private struct RegionalElevationNodeGpu
+    {
+        public Vector2 PositionXZ;
+        public float Elevation;
+        public float Padding;
+    }
+
     private ComputeShader computeShader;
 
+    private ComputeBuffer regionalElevationNodeBuffer;
+
+    private RegionalElevationNodeGpu[]
+        regionalElevationUploadData;
+
+    private string regionalElevationUploadSignature =
+        "";
+
     private int identityKernel = -1;
+    private int regionalElevationKernel = -1;
     private int additiveStampKernel = -1;
     private int maxStampKernel = -1;
     private int minStampKernel = -1;
@@ -63,6 +87,8 @@ public sealed class TerrainHeightCompositor
 
     private uint identityThreadGroupSizeX;
     private uint identityThreadGroupSizeY;
+    private uint regionalElevationThreadGroupSizeX;
+    private uint regionalElevationThreadGroupSizeY;
     private uint additiveStampThreadGroupSizeX;
     private uint additiveStampThreadGroupSizeY;
     private uint maxStampThreadGroupSizeX;
@@ -105,6 +131,10 @@ public sealed class TerrainHeightCompositor
     private int lastComputeDispatchCount;
     private long totalComputeDispatchCount;
 
+    private int currentTransactionRegionalElevationDispatchCount;
+    private int lastRegionalElevationDispatchCount;
+    private long totalRegionalElevationDispatchCount;
+
     public bool IsPrepared
     {
         get
@@ -112,6 +142,7 @@ public sealed class TerrainHeightCompositor
             return
                 computeShader != null
                 && identityKernel >= 0
+                && regionalElevationKernel >= 0
                 && additiveStampKernel >= 0
                 && maxStampKernel >= 0
                 && minStampKernel >= 0
@@ -119,6 +150,8 @@ public sealed class TerrainHeightCompositor
                 && validationKernel >= 0
                 && identityThreadGroupSizeX > 0
                 && identityThreadGroupSizeY > 0
+                && regionalElevationThreadGroupSizeX > 0
+                && regionalElevationThreadGroupSizeY > 0
                 && additiveStampThreadGroupSizeX > 0
                 && additiveStampThreadGroupSizeY > 0
                 && maxStampThreadGroupSizeX > 0
@@ -155,6 +188,12 @@ public sealed class TerrainHeightCompositor
 
     public long TotalComputeDispatchCount =>
         totalComputeDispatchCount;
+
+    public int LastRegionalElevationDispatchCount =>
+        lastRegionalElevationDispatchCount;
+
+    public long TotalRegionalElevationDispatchCount =>
+        totalRegionalElevationDispatchCount;
 
     public uint IdentityThreadGroupSizeX =>
         identityThreadGroupSizeX;
@@ -206,6 +245,11 @@ public sealed class TerrainHeightCompositor
                     IdentityKernelName
                 );
 
+            regionalElevationKernel =
+                computeShader.FindKernel(
+                    RegionalElevationKernelName
+                );
+
             additiveStampKernel =
                 computeShader.FindKernel(
                     AdditiveStampKernelName
@@ -240,6 +284,7 @@ public sealed class TerrainHeightCompositor
                 "kernels could not be found.\n\n" +
                 "Required:\n" +
                 "- " + IdentityKernelName + "\n" +
+                "- " + RegionalElevationKernelName + "\n" +
                 "- " + AdditiveStampKernelName + "\n" +
                 "- " + MaxStampKernelName + "\n" +
                 "- " + MinStampKernelName + "\n" +
@@ -254,6 +299,13 @@ public sealed class TerrainHeightCompositor
             identityKernel,
             out identityThreadGroupSizeX,
             out identityThreadGroupSizeY,
+            out _
+        );
+
+        computeShader.GetKernelThreadGroupSizes(
+            regionalElevationKernel,
+            out regionalElevationThreadGroupSizeX,
+            out regionalElevationThreadGroupSizeY,
             out _
         );
 
@@ -295,6 +347,8 @@ public sealed class TerrainHeightCompositor
         if (
             identityThreadGroupSizeX == 0
             || identityThreadGroupSizeY == 0
+            || regionalElevationThreadGroupSizeX == 0
+            || regionalElevationThreadGroupSizeY == 0
             || additiveStampThreadGroupSizeX == 0
             || additiveStampThreadGroupSizeY == 0
             || maxStampThreadGroupSizeX == 0
@@ -332,6 +386,9 @@ public sealed class TerrainHeightCompositor
 
         currentTransactionComputeDispatchCount = 0;
         lastComputeDispatchCount = 0;
+
+        currentTransactionRegionalElevationDispatchCount = 0;
+        lastRegionalElevationDispatchCount = 0;
     }
 
     /*
@@ -598,6 +655,65 @@ public sealed class TerrainHeightCompositor
                 "TerrainAuthoringData is null.";
 
             return false;
+        }
+
+        if (
+            !TerrainRegionalElevationCompositionUtility
+                .TryResolveNodeSource(
+                    authoringData,
+                    out TerrainNodeElevationSource nodeSource,
+                    out bool regionalCompositionRequired,
+                    out errorMessage
+                )
+        )
+        {
+            return false;
+        }
+
+        if (regionalCompositionRequired)
+        {
+            if (
+                !TryDispatchNodeRegionalElevation(
+                    heightCache,
+                    tileCoordinate,
+                    tileWorldOriginXZ,
+                    sliceIndex,
+                    samplesPerSide,
+                    sampleSpacing,
+                    tileWorldSize,
+                    worldSizeXZ,
+                    nodeSource,
+                    out errorMessage
+                )
+            )
+            {
+                return false;
+            }
+
+            if (trackRange)
+            {
+                if (
+                    !TerrainRegionalElevationCompositionUtility
+                        .TryGetNodeElevationRange(
+                            nodeSource,
+                            out compositeMinimumHeight,
+                            out compositeMaximumHeight,
+                            out errorMessage
+                        )
+                )
+                {
+                    return false;
+                }
+            }
+        }
+        else
+        {
+            /*
+             * Do not keep obsolete GPU node data resident after a regional
+             * source is removed. Future regional composition will recreate
+             * the reusable buffer when needed.
+             */
+            ReleaseRegionalNodeBuffer();
         }
 
         Vector2 tileMinXZ =
@@ -887,6 +1003,278 @@ public sealed class TerrainHeightCompositor
          * the correct result after move/remove/disable operations.
          */
         MarkTileCompositionSucceeded();
+
+        return true;
+    }
+
+
+    private bool TryDispatchNodeRegionalElevation(
+        RenderTexture heightCache,
+        Vector2Int tileCoordinate,
+        Vector2 tileWorldOriginXZ,
+        int sliceIndex,
+        int samplesPerSide,
+        float sampleSpacing,
+        float tileWorldSize,
+        Vector2 worldSizeXZ,
+        TerrainNodeElevationSource nodeSource,
+        out string errorMessage
+    )
+    {
+        errorMessage =
+            "";
+
+        if (
+            !TryPrepareRegionalNodeBuffer(
+                nodeSource,
+                out errorMessage
+            )
+        )
+        {
+            return false;
+        }
+
+        int groupsX =
+            DivideRoundUp(
+                samplesPerSide,
+                regionalElevationThreadGroupSizeX
+            );
+
+        int groupsY =
+            DivideRoundUp(
+                samplesPerSide,
+                regionalElevationThreadGroupSizeY
+            );
+
+        if (
+            groupsX <= 0
+            ||
+            groupsY <= 0
+        )
+        {
+            errorMessage =
+                "The regional elevation compositor calculated an invalid " +
+                "compute dispatch size.";
+
+            return false;
+        }
+
+        try
+        {
+            SetCommonKernelParameters(
+                regionalElevationKernel,
+                heightCache,
+                tileCoordinate,
+                tileWorldOriginXZ,
+                sliceIndex,
+                samplesPerSide,
+                sampleSpacing,
+                tileWorldSize,
+                worldSizeXZ
+            );
+
+            computeShader.SetBuffer(
+                regionalElevationKernel,
+                "_RegionalElevationNodes",
+                regionalElevationNodeBuffer
+            );
+
+            computeShader.SetInt(
+                "_RegionalElevationNodeCount",
+                nodeSource.NodeCount
+            );
+
+            computeShader.Dispatch(
+                regionalElevationKernel,
+                groupsX,
+                groupsY,
+                1
+            );
+
+            MarkRegionalElevationDispatchSucceeded();
+        }
+        catch (
+            Exception exception
+        )
+        {
+            errorMessage =
+                "The node regional elevation pass could not be dispatched " +
+                $"for tile ({tileCoordinate.x}, {tileCoordinate.y}) and " +
+                $"cache slice {sliceIndex}.\n\n" +
+                exception.Message;
+
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool TryPrepareRegionalNodeBuffer(
+        TerrainNodeElevationSource nodeSource,
+        out string errorMessage
+    )
+    {
+        errorMessage =
+            "";
+
+        if (nodeSource == null)
+        {
+            errorMessage =
+                "TerrainNodeElevationSource is null.";
+
+            return false;
+        }
+
+        if (
+            !nodeSource.TryValidateOutputData(
+                out string sourceError
+            )
+        )
+        {
+            errorMessage =
+                "Regional elevation source output data is invalid. " +
+                sourceError;
+
+            return false;
+        }
+
+        int nodeCount =
+            nodeSource.NodeCount;
+
+        if (nodeCount <= 0)
+        {
+            errorMessage =
+                "TerrainNodeElevationSource contains no elevation nodes.";
+
+            return false;
+        }
+
+        StringBuilder signatureBuilder =
+            new StringBuilder();
+
+        if (
+            !nodeSource.TryAppendDeterministicSignatureData(
+                signatureBuilder,
+                out string signatureError
+            )
+        )
+        {
+            errorMessage =
+                "Regional elevation GPU upload signature could not be " +
+                "calculated. " +
+                signatureError;
+
+            return false;
+        }
+
+        string uploadSignature =
+            signatureBuilder.ToString();
+
+        bool bufferMatches =
+            regionalElevationNodeBuffer !=
+                null
+            &&
+            regionalElevationNodeBuffer.count ==
+                nodeCount;
+
+        if (!bufferMatches)
+        {
+            ReleaseRegionalNodeBuffer();
+
+            try
+            {
+                regionalElevationNodeBuffer =
+                    new ComputeBuffer(
+                        nodeCount,
+                        RegionalElevationNodeStride,
+                        ComputeBufferType.Structured
+                    );
+            }
+            catch (
+                Exception exception
+            )
+            {
+                ReleaseRegionalNodeBuffer();
+
+                errorMessage =
+                    "Could not allocate the regional elevation node GPU " +
+                    "buffer.\n\n" +
+                    exception.Message;
+
+                return false;
+            }
+        }
+
+        if (
+            regionalElevationUploadData == null
+            ||
+            regionalElevationUploadData.Length !=
+                nodeCount
+        )
+        {
+            regionalElevationUploadData =
+                new RegionalElevationNodeGpu[
+                    nodeCount
+                ];
+        }
+
+        if (
+            bufferMatches
+            &&
+            regionalElevationUploadSignature ==
+                uploadSignature
+        )
+        {
+            return true;
+        }
+
+        IReadOnlyList<TerrainElevationNode> nodes =
+            nodeSource.Nodes;
+
+        for (
+            int index = 0;
+            index < nodeCount;
+            index++
+        )
+        {
+            TerrainElevationNode node =
+                nodes[index];
+
+            regionalElevationUploadData[index] =
+                new RegionalElevationNodeGpu
+                {
+                    PositionXZ =
+                        node.PositionXZ,
+
+                    Elevation =
+                        node.Elevation,
+
+                    Padding =
+                        0f
+                };
+        }
+
+        try
+        {
+            regionalElevationNodeBuffer.SetData(
+                regionalElevationUploadData
+            );
+        }
+        catch (
+            Exception exception
+        )
+        {
+            ReleaseRegionalNodeBuffer();
+
+            errorMessage =
+                "Could not upload regional elevation nodes to the GPU.\n\n" +
+                exception.Message;
+
+            return false;
+        }
+
+        regionalElevationUploadSignature =
+            uploadSignature;
 
         return true;
     }
@@ -1474,6 +1862,16 @@ public sealed class TerrainHeightCompositor
         totalComputeDispatchCount++;
     }
 
+    private void MarkRegionalElevationDispatchSucceeded()
+    {
+        currentTransactionRegionalElevationDispatchCount++;
+
+        lastRegionalElevationDispatchCount =
+            currentTransactionRegionalElevationDispatchCount;
+
+        totalRegionalElevationDispatchCount++;
+    }
+
     private void MarkTileCompositionSucceeded()
     {
         currentTransactionDispatchTileCount++;
@@ -1846,11 +2244,37 @@ public sealed class TerrainHeightCompositor
             );
     }
 
+
+    public void Dispose()
+    {
+        ResetShaderState();
+    }
+
+    private void ReleaseRegionalNodeBuffer()
+    {
+        if (regionalElevationNodeBuffer != null)
+        {
+            regionalElevationNodeBuffer.Release();
+
+            regionalElevationNodeBuffer =
+                null;
+        }
+
+        regionalElevationUploadData =
+            null;
+
+        regionalElevationUploadSignature =
+            "";
+    }
+
     private void ResetShaderState()
     {
+        ReleaseRegionalNodeBuffer();
+
         computeShader = null;
 
         identityKernel = -1;
+        regionalElevationKernel = -1;
         additiveStampKernel = -1;
         maxStampKernel = -1;
         minStampKernel = -1;
@@ -1859,6 +2283,8 @@ public sealed class TerrainHeightCompositor
 
         identityThreadGroupSizeX = 0;
         identityThreadGroupSizeY = 0;
+        regionalElevationThreadGroupSizeX = 0;
+        regionalElevationThreadGroupSizeY = 0;
         additiveStampThreadGroupSizeX = 0;
         additiveStampThreadGroupSizeY = 0;
         maxStampThreadGroupSizeX = 0;
