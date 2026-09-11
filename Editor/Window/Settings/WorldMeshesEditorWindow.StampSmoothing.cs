@@ -20,32 +20,32 @@ public partial class WorldMeshesEditorWindow :
     private string activeStampSmoothingStableId =
         "";
 
-    private void OnDisable()
-    {
-        if (
-            activeStampSmoothingField !=
-                StampSmoothingInteractiveField.None
-            &&
-            TerrainAuthoringModifierService
-                .HasActiveInteractiveEdit
-            &&
-            TerrainAuthoringModifierService
-                .ActiveInteractiveStableId ==
-                activeStampSmoothingStableId
-        )
-        {
-            TerrainAuthoringModifierService
-                .CancelInteractiveEdit(
-                    out _
-                );
-        }
-
-        ClearSmoothingInteractiveState();
-
-        CancelStampSourceRemapInteractionOnDisable();
-
-        ShutdownStampLibraryBrowser();
-    }
+    // private void OnDisable()
+    // {
+    //     if (
+    //         activeStampSmoothingField !=
+    //             StampSmoothingInteractiveField.None
+    //         &&
+    //         TerrainAuthoringModifierService
+    //             .HasActiveInteractiveEdit
+    //         &&
+    //         TerrainAuthoringModifierService
+    //             .ActiveInteractiveStableId ==
+    //             activeStampSmoothingStableId
+    //     )
+    //     {
+    //         TerrainAuthoringModifierService
+    //             .CancelInteractiveEdit(
+    //                 out _
+    //             );
+    //     }
+    //
+    //     ClearSmoothingInteractiveState();
+    //
+    //     CancelStampSourceRemapInteractionOnDisable();
+    //
+    //     ShutdownStampLibraryBrowser();
+    // }
 
     // =====================================================
     // PRODUCTION SMOOTHING UI

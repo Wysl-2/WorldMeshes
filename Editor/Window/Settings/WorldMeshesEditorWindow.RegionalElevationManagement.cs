@@ -5,9 +5,6 @@ using UnityEngine;
 public partial class WorldMeshesEditorWindow : EditorWindow
 {
     [SerializeField]
-    private string selectedRegionalNodeStableId = "";
-
-    [SerializeField]
     private Vector2 regionalNodeListScroll = Vector2.zero;
 
     [SerializeField]
@@ -53,7 +50,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
 
         if (regionalSource == null)
         {
-            selectedRegionalNodeStableId = "";
+            TerrainRegionalElevationSelectionState.ForceClearSelection(terrainAuthoringData);
             EditorGUILayout.HelpBox(
                 "No regional elevation source is currently active. Use the Regional Elevation setup section above to initialize a Four Corners or grid layout.",
                 MessageType.Info);
@@ -63,14 +60,18 @@ public partial class WorldMeshesEditorWindow : EditorWindow
 
         if (!(regionalSource is TerrainNodeElevationSource nodeSource))
         {
-            selectedRegionalNodeStableId = "";
+            TerrainRegionalElevationSelectionState.ForceClearSelection(terrainAuthoringData);
             EditorGUILayout.LabelField("Source", regionalSource.GetType().Name);
             EditorGUILayout.HelpBox(
-                "Package 5 manages TerrainNodeElevationSource only. This future/unsupported regional source is left unchanged.",
+                "Package 5/6 manages TerrainNodeElevationSource only. This future/unsupported regional source is left unchanged.",
                 MessageType.Warning);
             GUILayout.EndVertical();
             return;
         }
+
+        string selectedRegionalNodeStableId =
+            TerrainRegionalElevationSelectionState.GetSelectedNodeStableId(
+                terrainAuthoringData);
 
         EditorGUILayout.LabelField("Source", "Elevation Nodes");
         EditorGUILayout.LabelField("Nodes", nodeSource.NodeCount.ToString("N0"));
@@ -81,8 +82,9 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         TerrainElevationNode selectedNode =
             FindRegionalNodeByStableId(nodeSource, selectedRegionalNodeStableId, out int selectedIndex);
 
-        if (selectedNode == null)
+        if (selectedNode == null && !string.IsNullOrEmpty(selectedRegionalNodeStableId))
         {
+            TerrainRegionalElevationSelectionState.ForceClearSelection(terrainAuthoringData);
             selectedRegionalNodeStableId = "";
         }
 
@@ -117,13 +119,24 @@ public partial class WorldMeshesEditorWindow : EditorWindow
 
             if (newSelected && !selected)
             {
-                selectedRegionalNodeStableId = node.StableId;
-                selectedNode = node;
-                selectedIndex = index;
+                if (TerrainRegionalElevationSelectionState.TrySelectNode(
+                    terrainAuthoringData,
+                    node.StableId,
+                    out _))
+                {
+                    selectedRegionalNodeStableId = node.StableId;
+                    selectedNode = node;
+                    selectedIndex = index;
+                    SceneView.RepaintAll();
+                }
             }
         }
 
         EditorGUILayout.EndScrollView();
+
+        selectedRegionalNodeStableId =
+            TerrainRegionalElevationSelectionState.GetSelectedNodeStableId(
+                terrainAuthoringData);
 
         selectedNode = FindRegionalNodeByStableId(
             nodeSource,
@@ -158,6 +171,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                 else
                 {
                     Repaint();
+                    SceneView.RepaintAll();
                 }
             }
 
@@ -179,8 +193,10 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                         removeId,
                         out string removeError))
                     {
-                        selectedRegionalNodeStableId = "";
+                        TerrainRegionalElevationSelectionState.ForceClearSelection(
+                            terrainAuthoringData);
                         Repaint();
+                        SceneView.RepaintAll();
                     }
                     else
                     {
@@ -215,8 +231,12 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                 out string stableId,
                 out string addError))
             {
-                selectedRegionalNodeStableId = stableId;
+                TerrainRegionalElevationSelectionState.TrySelectNode(
+                    terrainAuthoringData,
+                    stableId,
+                    out _);
                 Repaint();
+                SceneView.RepaintAll();
             }
             else
             {
@@ -275,8 +295,10 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                     managementGridInitialElevation,
                     out string replaceError))
                 {
-                    selectedRegionalNodeStableId = "";
+                    TerrainRegionalElevationSelectionState.ForceClearSelection(
+                        terrainAuthoringData);
                     Repaint();
+                    SceneView.RepaintAll();
                 }
                 else
                 {
@@ -304,9 +326,11 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                     worldSettings,
                     out string sourceError))
                 {
-                    selectedRegionalNodeStableId = "";
+                    TerrainRegionalElevationSelectionState.ForceClearSelection(
+                        terrainAuthoringData);
                     inputRegionalElevationMethod = RegionalElevationSetupMethod.None;
                     Repaint();
+                    SceneView.RepaintAll();
                 }
                 else
                 {
@@ -326,7 +350,6 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         }
 
         regionalManagementBoundAuthoringData = terrainAuthoringData;
-        selectedRegionalNodeStableId = "";
 
         if (worldSettings != null)
         {

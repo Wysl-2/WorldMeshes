@@ -15,6 +15,8 @@ MonoBehaviour:
   sourceMode: 0
   flatHeight: 0
   importedHeightmap: {fileID: 0}
+  regionalElevationSource:
+    rid: 3932701523395477608
   heightModifiers:
   - rid: 3932701523395477572
   - rid: 3932701523395477573
@@ -28,7 +30,7 @@ MonoBehaviour:
   - rid: 3932701523395477582
   - rid: 3932701523395477583
   - rid: 3932701523395477584
-  authoringRevision: 2144
+  authoringRevision: 2145
   references:
     version: 2
     RefIds:
@@ -308,3 +310,55 @@ MonoBehaviour:
         falloffProfile: 0
         smoothingRadius: 5
         smoothingStrength: 1
+    - rid: 3932701523395477608
+      type: {class: TerrainNodeElevationSource, ns: , asm: Assembly-CSharp}
+      data:
+        nodes:
+        - stableId: 934faaabae844925b4ebbd438e5c979a
+          positionXZ: {x: 0, y: 0}
+          elevation: 0
+        - stableId: 56bf35b44e894bf5a389acc292c543a3
+          positionXZ: {x: 4096, y: 0}
+          elevation: 0
+        - stableId: 6e920ebbbd6c4e04aba7dcca40b6c7dd
+          positionXZ: {x: 8192, y: 0}
+          elevation: 0
+        - stableId: f6e3eb12e4be4d268e1a1c690cd77ee3
+          positionXZ: {x: 12288, y: 0}
+          elevation: 0
+        - stableId: 836f07201ec84a11bd9fe6aa6b534ff4
+          positionXZ: {x: 0, y: 4096}
+          elevation: 0
+        - stableId: b177e85f76e743dc903f29b20044e532
+          positionXZ: {x: 4096, y: 4096}
+          elevation: 0
+        - stableId: 139d5a24068e4663952389e1d55c0cb2
+          positionXZ: {x: 8192, y: 4096}
+          elevation: 0
+        - stableId: 20823a3ce8a149679eb97936e8c5a2e9
+          positionXZ: {x: 12288, y: 4096}
+          elevation: 0
+        - stableId: 0dd8f57c94234a8eaaf41ccb675f86a6
+          positionXZ: {x: 0, y: 8192}
+          elevation: 0
+        - stableId: 91a30e5236af44b39a7bad430bc70b96
+          positionXZ: {x: 4096, y: 8192}
+          elevation: 0
+        - stableId: 7a77d67b87374743b26bbf015363bbd0
+          positionXZ: {x: 8192, y: 8192}
+          elevation: 0
+        - stableId: 2d6de611c0be4e1896bd3f180ec62340
+          positionXZ: {x: 12288, y: 8192}
+          elevation: 0
+        - stableId: d745e9e447284582a9c5c62b177de4a8
+          positionXZ: {x: 0, y: 12288}
+          elevation: 0
+        - stableId: 339bc3103c8848b2a2f196a95983da0c
+          positionXZ: {x: 4096, y: 12288}
+          elevation: 0
+        - stableId: 421cc75a7c174efabe25ba45f35886e6
+          positionXZ: {x: 8192, y: 12288}
+          elevation: 0
+        - stableId: ca1ee06526ca4466af746c8eb1f7d59e
+          positionXZ: {x: 12288, y: 12288}
+          elevation: 0

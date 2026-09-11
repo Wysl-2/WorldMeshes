@@ -65,7 +65,19 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         }
 
         InitializeStampLibraryBrowser();
+
+        TerrainRegionalElevationSceneTool
+            .SetContext(
+                worldSettings,
+                terrainAuthoringData
+            );
     }
+
+    // private void OnDisable()
+    // {
+    //     TerrainRegionalElevationSceneTool
+    //         .ClearContext();
+    // }
 
     private void OnGUI()
     {
