@@ -221,7 +221,7 @@ public static class TerrainRegionalElevationTriangulatedLinearValidationUtility
                 TerrainNodeElevationInterpolationMode.InverseDistanceWeighted) &&
             TerrainNodeElevationInterpolationModeUtility.SupportsCpuEvaluation(
                 TerrainNodeElevationInterpolationMode.TriangulatedLinear) &&
-            !TerrainNodeElevationInterpolationModeUtility.SupportsGpuComposition(
+            TerrainNodeElevationInterpolationModeUtility.SupportsGpuComposition(
                 TerrainNodeElevationInterpolationMode.TriangulatedLinear) &&
             !TerrainNodeElevationInterpolationModeUtility.SupportsCpuEvaluation(
                 TerrainNodeElevationInterpolationMode.TriangulatedSmooth) &&
@@ -232,8 +232,8 @@ public static class TerrainRegionalElevationTriangulatedLinearValidationUtility
             "CPU/GPU interpolation capability matrix is explicit",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "IDW is CPU/GPU-ready, Linear is CPU-ready/GPU-pending, and Smooth remains unavailable with serialized enum values unchanged."
-                : "Interpolation capability reporting did not match the Package I3 contract.");
+                ? "IDW and Linear are CPU/GPU-ready after Package I4, Smooth remains unavailable, and serialized enum values are unchanged."
+                : "Interpolation capability reporting did not match the current package contract.");
     }
 
     private static void ValidateTriangleAnalyticSamples()
@@ -747,13 +747,15 @@ public static class TerrainRegionalElevationTriangulatedLinearValidationUtility
 
         TerrainAuthoringData linearData = CreateDataFromSource(linear);
 
-        bool linearGpuRejected =
-            !TerrainRegionalElevationCompositionUtility.TryResolveNodeSource(
+        bool linearGpuSupported =
+            TerrainRegionalElevationCompositionUtility.TryResolveNodeSource(
                 linearData,
-                out _,
-                out _,
+                out TerrainNodeElevationSource resolvedLinearSource,
+                out bool regionalCompositionRequired,
                 out string gpuError) &&
-            gpuError.Contains("GPU");
+            ReferenceEquals(resolvedLinearSource, linear) &&
+            regionalCompositionRequired &&
+            string.IsNullOrEmpty(gpuError);
 
         TerrainNodeElevationSource smooth = CreateSource(
             new NodeSpec(Vector2.zero, 0f),
@@ -770,13 +772,13 @@ public static class TerrainRegionalElevationTriangulatedLinearValidationUtility
                 out string smoothError) &&
             smoothError.Contains("CPU");
 
-        bool passed = linearCpu && linearGpuRejected && smoothRejected;
+        bool passed = linearCpu && linearGpuSupported && smoothRejected;
 
         AddResult(
-            "Linear is CPU-ready while GPU Linear and Smooth remain explicitly unavailable",
+            "Linear CPU semantics remain authoritative while GPU composition is now available",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "Triangulated Linear evaluates on CPU, GPU composition rejects it without IDW fallback, and Triangulated Smooth remains CPU-unsupported."
+                ? "Triangulated Linear still evaluates through the Package I3 CPU path and is now accepted by Package I4 GPU composition, while Smooth remains unsupported."
                 : gpuError + " " + smoothError);
 
         ClearFixture(linearData);

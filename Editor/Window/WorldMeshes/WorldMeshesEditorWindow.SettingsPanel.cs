@@ -336,6 +336,10 @@ public partial class WorldMeshesEditorWindow :
 
         DrawWorkspaceSectionGap();
 
+        DrawRegionalElevationTriangulatedLinearGpuValidationSettings();
+
+        DrawWorkspaceSectionGap();
+
         DrawTargetSurfaceBlendFoundationValidationSettings();
 
         DrawWorkspaceSectionGap();

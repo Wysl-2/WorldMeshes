@@ -1,9 +1,8 @@
 /*
  * Persistent interpolation-mode identity for node-based regional elevation.
  *
- * CPU and GPU capability are reported separately. Package I3 enables CPU
- * Triangulated Linear evaluation while GPU terrain composition remains IDW-only
- * until Package I4.
+ * CPU and GPU capability are reported separately. Package I4 completes GPU
+ * Triangulated Linear composition while Triangulated Smooth remains deferred.
  */
 public enum TerrainNodeElevationInterpolationMode
 {
@@ -46,19 +45,28 @@ public static class TerrainNodeElevationInterpolationModeUtility
     public static bool SupportsGpuComposition(
         TerrainNodeElevationInterpolationMode mode)
     {
-        return mode ==
-            TerrainNodeElevationInterpolationMode.InverseDistanceWeighted;
+        switch (mode)
+        {
+            case TerrainNodeElevationInterpolationMode.InverseDistanceWeighted:
+            case TerrainNodeElevationInterpolationMode.TriangulatedLinear:
+                return true;
+
+            default:
+                return false;
+        }
     }
 
     /*
      * Backward-compatible production-readiness query retained for existing
-     * callers. A mode is fully implemented only when the current GPU terrain
-     * composition pipeline can render it.
+     * callers. A mode is fully implemented only when both CPU evaluation and
+     * the current GPU terrain-composition pipeline support it.
      */
     public static bool IsImplemented(
         TerrainNodeElevationInterpolationMode mode)
     {
-        return SupportsGpuComposition(mode);
+        return
+            SupportsCpuEvaluation(mode) &&
+            SupportsGpuComposition(mode);
     }
 
     public static string GetDisplayName(
@@ -108,16 +116,6 @@ public static class TerrainNodeElevationInterpolationModeUtility
                 "' is invalid.";
         }
 
-        if (
-            mode ==
-            TerrainNodeElevationInterpolationMode.TriangulatedLinear
-        )
-        {
-            return
-                "Triangulated Linear CPU evaluation is implemented, but GPU " +
-                "regional terrain composition is not available until Package I4.";
-        }
-
         return
             "Regional elevation interpolation mode '" +
             GetDisplayName(mode) +
@@ -125,8 +123,8 @@ public static class TerrainNodeElevationInterpolationModeUtility
     }
 
     /*
-     * Backward-compatible message for callers that require full production
-     * composition support rather than CPU evaluation alone.
+     * Backward-compatible message for callers that require complete production
+     * support rather than one specific capability.
      */
     public static string GetNotImplementedMessage(
         TerrainNodeElevationInterpolationMode mode)
@@ -136,6 +134,14 @@ public static class TerrainNodeElevationInterpolationModeUtility
             return GetCpuNotImplementedMessage(mode);
         }
 
-        return GetGpuNotImplementedMessage(mode);
+        if (!SupportsGpuComposition(mode))
+        {
+            return GetGpuNotImplementedMessage(mode);
+        }
+
+        return
+            "Regional elevation interpolation mode '" +
+            GetDisplayName(mode) +
+            "' is implemented.";
     }
 }

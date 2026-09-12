@@ -231,7 +231,7 @@ public static class TerrainRegionalElevationInterpolationModeValidationUtility
                 TerrainNodeElevationInterpolationMode.TriangulatedSmooth) &&
             TerrainNodeElevationInterpolationModeUtility.IsImplemented(
                 TerrainNodeElevationInterpolationMode.InverseDistanceWeighted) &&
-            !TerrainNodeElevationInterpolationModeUtility.IsImplemented(
+            TerrainNodeElevationInterpolationModeUtility.IsImplemented(
                 TerrainNodeElevationInterpolationMode.TriangulatedLinear) &&
             !TerrainNodeElevationInterpolationModeUtility.IsImplemented(
                 TerrainNodeElevationInterpolationMode.TriangulatedSmooth);
@@ -240,8 +240,8 @@ public static class TerrainRegionalElevationInterpolationModeValidationUtility
             "Enum values and existing-source default remain serialized-compatible",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "IDW=0, Linear=1, Smooth=2; a newly constructed source defaults to IDW and only IDW is production-implemented in Package I1."
-                : "Interpolation enum/default/implementation availability did not match the Package I1 contract.");
+                ? "IDW=0, Linear=1, Smooth=2; the existing default remains IDW, IDW and Linear are production-capable after I4, and Smooth remains unavailable."
+                : "Interpolation enum/default/implementation availability did not match the current package contract.");
     }
 
     private static void ValidateIdwRegression()
@@ -386,13 +386,15 @@ public static class TerrainRegionalElevationInterpolationModeValidationUtility
         TerrainAuthoringData linearData =
             CreateDataFromSource(linear);
 
-        bool linearCompositionRejected =
-            !TerrainRegionalElevationCompositionUtility.TryResolveNodeSource(
+        bool linearCompositionSupported =
+            TerrainRegionalElevationCompositionUtility.TryResolveNodeSource(
                 linearData,
-                out _,
-                out _,
+                out TerrainNodeElevationSource resolvedLinearSource,
+                out bool regionalCompositionRequired,
                 out string linearCompositionError) &&
-            linearCompositionError.Contains("GPU");
+            ReferenceEquals(resolvedLinearSource, linear) &&
+            regionalCompositionRequired &&
+            string.IsNullOrEmpty(linearCompositionError);
 
         TerrainNodeElevationSource smooth =
             CreateSource(
@@ -413,14 +415,14 @@ public static class TerrainRegionalElevationInterpolationModeValidationUtility
         bool passed =
             invalidRejected &&
             linearEvaluationSupported &&
-            linearCompositionRejected &&
+            linearCompositionSupported &&
             smoothRejected;
 
         AddResult(
-            "Invalid modes fail explicitly while CPU/GPU interpolation capability boundaries remain enforced",
+            "Invalid modes fail explicitly while current CPU/GPU interpolation capabilities remain enforced",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "Undefined enum data remains invalid; Linear now evaluates on CPU but is rejected by GPU composition, while Smooth remains CPU-unsupported."
+                ? "Undefined enum data remains invalid; Linear is now accepted by CPU and GPU composition, while Smooth remains CPU/GPU-unsupported."
                 : linearError + " " + linearCompositionError + " " + smoothError);
 
         ClearFixture(linearData);

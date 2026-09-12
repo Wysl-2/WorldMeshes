@@ -98,7 +98,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             EditorGUILayout.HelpBox(
                 TerrainNodeElevationInterpolationModeUtility
                     .GetCpuNotImplementedMessage(mode) +
-                " Use the selector to return the source to Inverse Distance Weighted.",
+                " Use the selector to return the source to a supported mode.",
                 MessageType.Warning);
         }
         else if (!gpuSupported)
@@ -106,14 +106,14 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             EditorGUILayout.HelpBox(
                 TerrainNodeElevationInterpolationModeUtility
                     .GetGpuNotImplementedMessage(mode) +
-                " The live production selector keeps this mode disabled until CPU/GPU parity is completed.",
+                " Use the selector to return the source to a supported mode.",
                 MessageType.Warning);
         }
         else
         {
             EditorGUILayout.HelpBox(
-                "Inverse Distance Weighted is available for both CPU evaluation and GPU terrain composition. " +
-                "Triangulated Linear CPU evaluation is implemented, but live GPU composition is deferred to Package I4.",
+                "Inverse Distance Weighted and Triangulated Linear are available for both CPU evaluation and GPU terrain composition. " +
+                "Triangulated Linear uses Package I2 Delaunay topology to produce a local piecewise-planar regional surface.",
                 MessageType.Info);
         }
 
@@ -132,10 +132,12 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             () => ApplyRegionalElevationInterpolationMode(
                 TerrainNodeElevationInterpolationMode.InverseDistanceWeighted));
 
-        menu.AddDisabledItem(
-            new GUIContent("Triangulated Linear (CPU Ready - GPU Pending I4)"),
+        menu.AddItem(
+            new GUIContent("Triangulated Linear"),
             currentMode ==
-                TerrainNodeElevationInterpolationMode.TriangulatedLinear);
+                TerrainNodeElevationInterpolationMode.TriangulatedLinear,
+            () => ApplyRegionalElevationInterpolationMode(
+                TerrainNodeElevationInterpolationMode.TriangulatedLinear));
 
         menu.AddDisabledItem(
             new GUIContent("Triangulated Smooth (Not Implemented)"),

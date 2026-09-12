@@ -29,7 +29,7 @@ using UnityEngine.Rendering;
  * calling the production composition overload. Composition therefore
  * never accumulates edits from a previous composite result.
  */
-public sealed class TerrainHeightCompositor :
+public sealed partial class TerrainHeightCompositor :
     IDisposable
 {
     public const string ComputeShaderAssetPath =
@@ -714,6 +714,7 @@ public sealed class TerrainHeightCompositor :
              * the reusable buffer when needed.
              */
             ReleaseRegionalNodeBuffer();
+            ReleaseTriangulatedLinearGpuResources();
         }
 
         Vector2 tileMinXZ =
@@ -1023,6 +1024,49 @@ public sealed class TerrainHeightCompositor :
     {
         errorMessage =
             "";
+
+        if (nodeSource == null)
+        {
+            errorMessage =
+                "TerrainNodeElevationSource is null.";
+            return false;
+        }
+
+        if (
+            nodeSource.InterpolationMode ==
+            TerrainNodeElevationInterpolationMode.TriangulatedLinear
+        )
+        {
+            ReleaseRegionalNodeBuffer();
+
+            return TryDispatchTriangulatedLinearRegionalElevation(
+                heightCache,
+                tileCoordinate,
+                tileWorldOriginXZ,
+                sliceIndex,
+                samplesPerSide,
+                sampleSpacing,
+                tileWorldSize,
+                worldSizeXZ,
+                nodeSource,
+                out errorMessage
+            );
+        }
+
+        if (
+            nodeSource.InterpolationMode !=
+            TerrainNodeElevationInterpolationMode.InverseDistanceWeighted
+        )
+        {
+            errorMessage =
+                TerrainNodeElevationInterpolationModeUtility
+                    .GetGpuNotImplementedMessage(
+                        nodeSource.InterpolationMode
+                    );
+            return false;
+        }
+
+        ReleaseTriangulatedLinearGpuResources();
 
         if (
             !TryPrepareRegionalNodeBuffer(
@@ -2270,6 +2314,7 @@ public sealed class TerrainHeightCompositor :
     private void ResetShaderState()
     {
         ReleaseRegionalNodeBuffer();
+        ReleaseTriangulatedLinearGpuResources();
 
         computeShader = null;
 

@@ -1,0 +1,542 @@
+#pragma kernel ComposeTriangulatedLinearRegionalElevation
+#pragma kernel EvaluateTriangulatedLinearSamples
+
+RWTexture2DArray<float> _HeightCache;
+
+struct LinearVertex
+{
+    float2 positionXZ;
+    float elevation;
+    float padding;
+};
+
+struct LinearTriangle
+{
+    int vertexA;
+    int vertexB;
+    int vertexC;
+    int padding;
+};
+
+struct LinearHullEdge
+{
+    int vertexA;
+    int vertexB;
+    int padding0;
+    int padding1;
+};
+
+StructuredBuffer<LinearVertex> _LinearVertices;
+StructuredBuffer<LinearTriangle> _LinearTriangles;
+StructuredBuffer<LinearHullEdge> _LinearHullEdges;
+
+int _LinearTopologyKind;
+int _LinearVertexCount;
+int _LinearTriangleCount;
+int _LinearHullEdgeCount;
+
+int _TargetSlice;
+int _SamplesPerSide;
+float _SampleSpacing;
+float _TileWorldSize;
+int2 _TileCoordinate;
+float2 _TileWorldOriginXZ;
+float2 _WorldSizeXZ;
+
+StructuredBuffer<float2> _LinearSamplePositions;
+RWStructuredBuffer<float> _LinearSampleResults;
+int _LinearSampleCount;
+
+static const float LINEAR_MIN_SEGMENT_LENGTH_SQUARED = 0.000001;
+static const float LINEAR_HULL_DISTANCE_TIE_TOLERANCE_SQUARED = 0.000001;
+static const float LINEAR_BARYCENTRIC_TOLERANCE = 0.000001;
+
+
+float Orientation(
+    float2 a,
+    float2 b,
+    float2 c)
+{
+    return
+        (b.x - a.x) * (c.y - a.y) -
+        (b.y - a.y) * (c.x - a.x);
+}
+
+
+bool IsValidVertexIndex(
+    int vertexIndex)
+{
+    return
+        vertexIndex >= 0 &&
+        vertexIndex < _LinearVertexCount;
+}
+
+
+bool TryProjectPointOntoSegment(
+    float2 samplePoint,
+    float2 a,
+    float2 b,
+    out float t,
+    out float distanceSquared)
+{
+    t = 0.0;
+    distanceSquared = 0.0;
+
+    float2 ab = b - a;
+    float lengthSquared = dot(ab, ab);
+
+    if (lengthSquared < LINEAR_MIN_SEGMENT_LENGTH_SQUARED)
+    {
+        return false;
+    }
+
+    t = saturate(dot(samplePoint - a, ab) / lengthSquared);
+
+    float2 projected = a + ab * t;
+    float2 delta = samplePoint - projected;
+    distanceSquared = dot(delta, delta);
+    return true;
+}
+
+
+bool TryCalculateBarycentricWeights(
+    float2 samplePoint,
+    float2 a,
+    float2 b,
+    float2 c,
+    out float3 weights)
+{
+    weights = float3(0.0, 0.0, 0.0);
+
+    float denominator = Orientation(a, b, c);
+
+    // I2 has already rejected degenerate topology on the CPU. Keep this
+    // guard narrow so valid very-thin I2 triangles are not reclassified by
+    // a much larger GPU-only area threshold.
+    if (abs(denominator) <= 1e-20)
+    {
+        return false;
+    }
+
+    weights.x = Orientation(b, c, samplePoint) / denominator;
+    weights.y = Orientation(c, a, samplePoint) / denominator;
+    weights.z = Orientation(a, b, samplePoint) / denominator;
+
+    if (
+        weights.x < -LINEAR_BARYCENTRIC_TOLERANCE ||
+        weights.y < -LINEAR_BARYCENTRIC_TOLERANCE ||
+        weights.z < -LINEAR_BARYCENTRIC_TOLERANCE ||
+        weights.x > 1.0 + LINEAR_BARYCENTRIC_TOLERANCE ||
+        weights.y > 1.0 + LINEAR_BARYCENTRIC_TOLERANCE ||
+        weights.z > 1.0 + LINEAR_BARYCENTRIC_TOLERANCE)
+    {
+        return false;
+    }
+
+    weights = clamp(weights, 0.0, 1.0);
+
+    float sum = weights.x + weights.y + weights.z;
+
+    if (sum <= 0.0000001)
+    {
+        return false;
+    }
+
+    weights /= sum;
+    return true;
+}
+
+
+bool TryEvaluateSegment(
+    float2 sampleXZ,
+    int vertexA,
+    int vertexB,
+    out float height)
+{
+    height = 0.0;
+
+    if (!IsValidVertexIndex(vertexA) || !IsValidVertexIndex(vertexB))
+    {
+        return false;
+    }
+
+    LinearVertex a = _LinearVertices[vertexA];
+    LinearVertex b = _LinearVertices[vertexB];
+
+    float t;
+    float distanceSquared;
+
+    if (!TryProjectPointOntoSegment(
+        sampleXZ,
+        a.positionXZ,
+        b.positionXZ,
+        t,
+        distanceSquared))
+    {
+        return false;
+    }
+
+    height = lerp(a.elevation, b.elevation, t);
+    return true;
+}
+
+
+bool TryEvaluateCollinear(
+    float2 sampleXZ,
+    out float height)
+{
+    height = 0.0;
+
+    if (_LinearVertexCount < 3)
+    {
+        return false;
+    }
+
+    LinearVertex first = _LinearVertices[0];
+    LinearVertex last = _LinearVertices[_LinearVertexCount - 1];
+
+    float2 axis = last.positionXZ - first.positionXZ;
+    float axisLengthSquared = dot(axis, axis);
+
+    if (axisLengthSquared < LINEAR_MIN_SEGMENT_LENGTH_SQUARED)
+    {
+        return false;
+    }
+
+    float sampleParameter =
+        dot(sampleXZ - first.positionXZ, axis) /
+        axisLengthSquared;
+
+    if (sampleParameter <= 0.0)
+    {
+        height = first.elevation;
+        return true;
+    }
+
+    if (sampleParameter >= 1.0)
+    {
+        height = last.elevation;
+        return true;
+    }
+
+    float previousParameter = 0.0;
+
+    [loop]
+    for (int vertexIndex = 1; vertexIndex < _LinearVertexCount; vertexIndex++)
+    {
+        LinearVertex current = _LinearVertices[vertexIndex];
+
+        float currentParameter =
+            dot(current.positionXZ - first.positionXZ, axis) /
+            axisLengthSquared;
+
+        if (currentParameter <= previousParameter)
+        {
+            return false;
+        }
+
+        if (sampleParameter <= currentParameter)
+        {
+            float denominator = currentParameter - previousParameter;
+            float localT =
+                saturate(
+                    (sampleParameter - previousParameter) /
+                    denominator);
+
+            LinearVertex previous =
+                _LinearVertices[vertexIndex - 1];
+
+            height =
+                lerp(
+                    previous.elevation,
+                    current.elevation,
+                    localT);
+
+            return true;
+        }
+
+        previousParameter = currentParameter;
+    }
+
+    height = last.elevation;
+    return true;
+}
+
+
+bool TryEvaluateTriangulated(
+    float2 sampleXZ,
+    out float height)
+{
+    height = 0.0;
+
+    if (_LinearTriangleCount <= 0 || _LinearHullEdgeCount <= 0)
+    {
+        return false;
+    }
+
+    [loop]
+    for (int triangleIndex = 0; triangleIndex < _LinearTriangleCount; triangleIndex++)
+    {
+        LinearTriangle topologyTriangle = _LinearTriangles[triangleIndex];
+
+        if (
+            !IsValidVertexIndex(topologyTriangle.vertexA) ||
+            !IsValidVertexIndex(topologyTriangle.vertexB) ||
+            !IsValidVertexIndex(topologyTriangle.vertexC))
+        {
+            return false;
+        }
+
+        LinearVertex a = _LinearVertices[topologyTriangle.vertexA];
+        LinearVertex b = _LinearVertices[topologyTriangle.vertexB];
+        LinearVertex c = _LinearVertices[topologyTriangle.vertexC];
+
+        float3 weights;
+
+        if (TryCalculateBarycentricWeights(
+            sampleXZ,
+            a.positionXZ,
+            b.positionXZ,
+            c.positionXZ,
+            weights))
+        {
+            height =
+                weights.x * a.elevation +
+                weights.y * b.elevation +
+                weights.z * c.elevation;
+            return true;
+        }
+    }
+
+    int selectedEdgeIndex = -1;
+    float bestDistanceSquared = 0.0;
+    float bestT = 0.0;
+    LinearHullEdge bestEdge;
+    bestEdge.vertexA = 0;
+    bestEdge.vertexB = 0;
+    bestEdge.padding0 = 0;
+    bestEdge.padding1 = 0;
+
+    [loop]
+    for (int edgeIndex = 0; edgeIndex < _LinearHullEdgeCount; edgeIndex++)
+    {
+        LinearHullEdge edge = _LinearHullEdges[edgeIndex];
+
+        if (!IsValidVertexIndex(edge.vertexA) || !IsValidVertexIndex(edge.vertexB))
+        {
+            return false;
+        }
+
+        LinearVertex a = _LinearVertices[edge.vertexA];
+        LinearVertex b = _LinearVertices[edge.vertexB];
+
+        float t;
+        float distanceSquared;
+
+        if (!TryProjectPointOntoSegment(
+            sampleXZ,
+            a.positionXZ,
+            b.positionXZ,
+            t,
+            distanceSquared))
+        {
+            return false;
+        }
+
+        bool better =
+            selectedEdgeIndex < 0 ||
+            distanceSquared <
+                bestDistanceSquared -
+                LINEAR_HULL_DISTANCE_TIE_TOLERANCE_SQUARED;
+
+        bool tied =
+            selectedEdgeIndex >= 0 &&
+            abs(distanceSquared - bestDistanceSquared) <=
+                LINEAR_HULL_DISTANCE_TIE_TOLERANCE_SQUARED;
+
+        if (better || (tied && edgeIndex < selectedEdgeIndex))
+        {
+            selectedEdgeIndex = edgeIndex;
+            bestDistanceSquared = distanceSquared;
+            bestT = t;
+            bestEdge = edge;
+        }
+    }
+
+    if (selectedEdgeIndex < 0)
+    {
+        return false;
+    }
+
+    LinearVertex hullA = _LinearVertices[bestEdge.vertexA];
+    LinearVertex hullB = _LinearVertices[bestEdge.vertexB];
+
+    height = lerp(hullA.elevation, hullB.elevation, bestT);
+    return true;
+}
+
+
+bool TryEvaluateLinearHeight(
+    float2 sampleXZ,
+    out float height)
+{
+    height = 0.0;
+
+    if (_LinearVertexCount <= 0)
+    {
+        return false;
+    }
+
+    if (_LinearTopologyKind == 1)
+    {
+        if (_LinearVertexCount != 1)
+        {
+            return false;
+        }
+
+        height = _LinearVertices[0].elevation;
+        return true;
+    }
+
+    if (_LinearTopologyKind == 2)
+    {
+        if (_LinearVertexCount != 2)
+        {
+            return false;
+        }
+
+        return TryEvaluateSegment(
+            sampleXZ,
+            0,
+            1,
+            height);
+    }
+
+    if (_LinearTopologyKind == 3)
+    {
+        return TryEvaluateCollinear(
+            sampleXZ,
+            height);
+    }
+
+    if (_LinearTopologyKind == 4)
+    {
+        return TryEvaluateTriangulated(
+            sampleXZ,
+            height);
+    }
+
+    return false;
+}
+
+
+bool TryGetAuthoringSample(
+    uint3 dispatchThreadId,
+    out uint3 cacheAddress,
+    out float2 sampleWorldXZ)
+{
+    cacheAddress = uint3(0, 0, 0);
+    sampleWorldXZ = float2(0.0, 0.0);
+
+    if (
+        dispatchThreadId.x >= (uint)_SamplesPerSide ||
+        dispatchThreadId.y >= (uint)_SamplesPerSide)
+    {
+        return false;
+    }
+
+    float2 expectedTileOriginXZ =
+        (float2)_TileCoordinate *
+        _TileWorldSize;
+
+    float originTolerance =
+        max(
+            abs(_SampleSpacing) * 0.001,
+            0.00001);
+
+    if (
+        any(
+            abs(
+                expectedTileOriginXZ -
+                _TileWorldOriginXZ) > originTolerance))
+    {
+        return false;
+    }
+
+    sampleWorldXZ =
+        _TileWorldOriginXZ +
+        float2(
+            dispatchThreadId.x,
+            dispatchThreadId.y) *
+        _SampleSpacing;
+
+    float worldTolerance =
+        max(
+            abs(_SampleSpacing) * 0.001,
+            0.00001);
+
+    if (
+        sampleWorldXZ.x < -worldTolerance ||
+        sampleWorldXZ.y < -worldTolerance ||
+        sampleWorldXZ.x > _WorldSizeXZ.x + worldTolerance ||
+        sampleWorldXZ.y > _WorldSizeXZ.y + worldTolerance)
+    {
+        return false;
+    }
+
+    cacheAddress =
+        uint3(
+            dispatchThreadId.x,
+            dispatchThreadId.y,
+            (uint)_TargetSlice);
+
+    return true;
+}
+
+
+[numthreads(8, 8, 1)]
+void ComposeTriangulatedLinearRegionalElevation(
+    uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint3 cacheAddress;
+    float2 sampleWorldXZ;
+
+    if (!TryGetAuthoringSample(
+        dispatchThreadId,
+        cacheAddress,
+        sampleWorldXZ))
+    {
+        return;
+    }
+
+    float height;
+    if (!TryEvaluateLinearHeight(sampleWorldXZ, height))
+    {
+        return;
+    }
+
+    _HeightCache[cacheAddress] = height;
+}
+
+
+[numthreads(64, 1, 1)]
+void EvaluateTriangulatedLinearSamples(
+    uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint sampleIndex = dispatchThreadId.x;
+
+    if (sampleIndex >= (uint)_LinearSampleCount)
+    {
+        return;
+    }
+
+    float height;
+    if (!TryEvaluateLinearHeight(
+        _LinearSamplePositions[sampleIndex],
+        height))
+    {
+        height = 0.0;
+    }
+
+    _LinearSampleResults[sampleIndex] = height;
+}
