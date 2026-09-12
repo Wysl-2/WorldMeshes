@@ -112,8 +112,8 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         else
         {
             EditorGUILayout.HelpBox(
-                "Inverse Distance Weighted and Triangulated Linear are available for both CPU evaluation and GPU terrain composition. " +
-                "Triangulated Linear uses Package I2 Delaunay topology to produce a local piecewise-planar regional surface.",
+                TerrainNodeElevationInterpolationModeUtility.GetDisplayName(mode) +
+                " is available for both CPU evaluation and GPU terrain composition.",
                 MessageType.Info);
         }
 
@@ -125,26 +125,44 @@ public partial class WorldMeshesEditorWindow : EditorWindow
     {
         GenericMenu menu = new GenericMenu();
 
-        menu.AddItem(
-            new GUIContent("Inverse Distance Weighted"),
-            currentMode ==
-                TerrainNodeElevationInterpolationMode.InverseDistanceWeighted,
-            () => ApplyRegionalElevationInterpolationMode(
-                TerrainNodeElevationInterpolationMode.InverseDistanceWeighted));
+        AddRegionalElevationInterpolationMenuItem(
+            menu,
+            currentMode,
+            TerrainNodeElevationInterpolationMode.InverseDistanceWeighted);
 
-        menu.AddItem(
-            new GUIContent("Triangulated Linear"),
-            currentMode ==
-                TerrainNodeElevationInterpolationMode.TriangulatedLinear,
-            () => ApplyRegionalElevationInterpolationMode(
-                TerrainNodeElevationInterpolationMode.TriangulatedLinear));
+        AddRegionalElevationInterpolationMenuItem(
+            menu,
+            currentMode,
+            TerrainNodeElevationInterpolationMode.TriangulatedLinear);
 
-        menu.AddDisabledItem(
-            new GUIContent("Triangulated Smooth (CPU Ready - GPU Pending)"),
-            currentMode ==
-                TerrainNodeElevationInterpolationMode.TriangulatedSmooth);
+        AddRegionalElevationInterpolationMenuItem(
+            menu,
+            currentMode,
+            TerrainNodeElevationInterpolationMode.TriangulatedSmooth);
 
         menu.ShowAsContext();
+    }
+
+    private void AddRegionalElevationInterpolationMenuItem(
+        GenericMenu menu,
+        TerrainNodeElevationInterpolationMode currentMode,
+        TerrainNodeElevationInterpolationMode mode)
+    {
+        GUIContent content = new GUIContent(
+            TerrainNodeElevationInterpolationModeUtility.GetDisplayName(mode));
+
+        bool isCurrent = currentMode == mode;
+
+        if (TerrainNodeElevationInterpolationModeUtility.IsImplemented(mode))
+        {
+            menu.AddItem(
+                content,
+                isCurrent,
+                () => ApplyRegionalElevationInterpolationMode(mode));
+            return;
+        }
+
+        menu.AddDisabledItem(content, isCurrent);
     }
 
     private void ApplyRegionalElevationInterpolationMode(

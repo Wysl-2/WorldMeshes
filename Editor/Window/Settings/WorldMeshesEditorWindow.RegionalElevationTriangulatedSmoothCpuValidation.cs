@@ -10,7 +10,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             EditorStyles.boldLabel);
 
         EditorGUILayout.HelpBox(
-            "Package I6 validates the reduced-HCT CPU reference surface: exact node heights/gradients, planar precision, C1 seams, degenerate layouts, hull behavior, cache dependencies, and IDW/Linear regression safety. Smooth GPU composition remains deferred to I7.",
+            "Package I6 validates the reduced-HCT CPU reference surface: exact node heights/gradients, planar precision, C1 seams, degenerate layouts, hull behavior, cache dependencies, and IDW/Linear regression safety. Package I7 validates production Smooth GPU composition against this CPU reference.",
             MessageType.None);
 
         EditorGUI.BeginDisabledGroup(

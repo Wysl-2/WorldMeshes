@@ -16,448 +16,185 @@ MonoBehaviour:
   flatHeight: 0
   importedHeightmap: {fileID: 0}
   regionalElevationSource:
-    rid: 3932701523395477614
+    rid: 3932701523395477624
   heightModifiers:
-  - rid: 3932701523395477572
-  - rid: 3932701523395477573
-  - rid: 3932701523395477575
-  - rid: 3932701523395477574
-  - rid: 3932701523395477577
-  - rid: 3932701523395477578
-  - rid: 3932701523395477580
-  - rid: 3932701523395477579
-  - rid: 3932701523395477581
-  - rid: 3932701523395477582
-  - rid: 3932701523395477583
-  - rid: 3932701523395477584
-  authoringRevision: 2256
+  - rid: 3932701523395477625
+  authoringRevision: 2308
   references:
     version: 2
     RefIds:
-    - rid: 3932701523395477572
+    - rid: 3932701523395477624
+      type: {class: TerrainNodeElevationSource, ns: , asm: Assembly-CSharp}
+      data:
+        interpolationMode: 2
+        nodes:
+        - stableId: 3f48d72c1dfe42fba991fa21f9f409c7
+          positionXZ: {x: 0, y: 0}
+          elevation: 0
+        - stableId: 54c207a504694eeabc3486801c104f44
+          positionXZ: {x: 2048, y: 0}
+          elevation: 0
+        - stableId: bf3c661fd26c4582a1fc60519c75ce68
+          positionXZ: {x: 4096, y: 0}
+          elevation: 0
+        - stableId: 52007ed4db5748578547ae6605dce24f
+          positionXZ: {x: 6144, y: 0}
+          elevation: 0
+        - stableId: 20f341475c4c4413a94220e7e3fa4763
+          positionXZ: {x: 8192, y: 0}
+          elevation: 0
+        - stableId: be5e7583c65e4b349b266cd36367edc3
+          positionXZ: {x: 10240, y: 0}
+          elevation: 0
+        - stableId: 124c4a44ea0b4e87bb709101ca287aa5
+          positionXZ: {x: 12288, y: 0}
+          elevation: 0
+        - stableId: be2490e083f6462b92ebd1b673affcc7
+          positionXZ: {x: 0, y: 2048}
+          elevation: 0
+        - stableId: e441d8cb6d1b46a88ed890fd1604df3d
+          positionXZ: {x: 2048, y: 2048}
+          elevation: 0
+        - stableId: b634d4287a8f4e6ba0dfdad05c80b6ec
+          positionXZ: {x: 4096, y: 2048}
+          elevation: 0
+        - stableId: a05ff8f92dce49c2a4c390b50c3903f0
+          positionXZ: {x: 6144, y: 2048}
+          elevation: 0
+        - stableId: c4dc825acb14430d82c6c64c9f7cd576
+          positionXZ: {x: 8192, y: 2048}
+          elevation: 0
+        - stableId: 8f6a3add67b748e5878be11384fda6e0
+          positionXZ: {x: 10240, y: 2048}
+          elevation: 0
+        - stableId: 964ebcec47e1433b8c2c8bc6a3eeefbc
+          positionXZ: {x: 12288, y: 2048}
+          elevation: 0
+        - stableId: afe64d75d1a7476f8d769af82d55ba91
+          positionXZ: {x: 0, y: 4096}
+          elevation: 0
+        - stableId: 00154ae068f84ac3a3423e12e4107ee8
+          positionXZ: {x: 2048, y: 4096}
+          elevation: 0
+        - stableId: 27c65d82b2c64837a71ee2edf91e2fda
+          positionXZ: {x: 4096, y: 4096}
+          elevation: 0
+        - stableId: 973e7e0a60c1424c900a8e9bbae9ac5e
+          positionXZ: {x: 6144, y: 4096}
+          elevation: 150
+        - stableId: 4f2e29be91d143a790cc479c20166c27
+          positionXZ: {x: 8192, y: 4096}
+          elevation: 150
+        - stableId: 28273762dc6f42e3ac9f71b0edf810ba
+          positionXZ: {x: 10240, y: 4096}
+          elevation: 0
+        - stableId: 9aa7569023e2470f9c41d639ce87dc0a
+          positionXZ: {x: 12288, y: 4096}
+          elevation: 0
+        - stableId: 02b1b13cbd7d4ce2a0853a37310371dc
+          positionXZ: {x: 0, y: 6144}
+          elevation: 0
+        - stableId: a178018571d6418680a5e6483d4c2d66
+          positionXZ: {x: 2048, y: 6144}
+          elevation: 0
+        - stableId: 431b896418094f819070168dc9dd5a9a
+          positionXZ: {x: 4096, y: 6144}
+          elevation: 100
+        - stableId: 97a718382aeb493694ade61e911d9576
+          positionXZ: {x: 6144, y: 6144}
+          elevation: 100
+        - stableId: 3a65b9c03eab46288359e3a0d392874a
+          positionXZ: {x: 8192, y: 6144}
+          elevation: 100
+        - stableId: e8efc0bd19054eb5b497b018790b6302
+          positionXZ: {x: 10240, y: 6144}
+          elevation: 0
+        - stableId: b4f9d97f06e5488f83e4993281c4a919
+          positionXZ: {x: 12288, y: 6144}
+          elevation: 0
+        - stableId: 4ac8cdf0006243b0a4bf19214c80ceed
+          positionXZ: {x: 0, y: 8192}
+          elevation: 0
+        - stableId: f60806c4f655456a8985b78e9fedb2e1
+          positionXZ: {x: 2048, y: 8192}
+          elevation: 0
+        - stableId: d1dddbf844ec46ceb7ed7ee4acac1c27
+          positionXZ: {x: 4096, y: 8192}
+          elevation: 100
+        - stableId: a46d62478fa14a2b95ad8ea3e4a56738
+          positionXZ: {x: 6144, y: 8192}
+          elevation: 100
+        - stableId: 6d7743302b2b4b5e913496186bf90ee4
+          positionXZ: {x: 8192, y: 8192}
+          elevation: 0
+        - stableId: f447b31e3fd54ed28e6ceb2322584717
+          positionXZ: {x: 10240, y: 8192}
+          elevation: 0
+        - stableId: f7b251e817f7480ab90db318d6dff2a3
+          positionXZ: {x: 12288, y: 8192}
+          elevation: 0
+        - stableId: 2f44818999ad46ce8d0a5137702976fa
+          positionXZ: {x: 0, y: 10240}
+          elevation: 0
+        - stableId: 0babea9f322c4a48988c830cdb4a6f50
+          positionXZ: {x: 2048, y: 10240}
+          elevation: 0
+        - stableId: 7ccf3780c3dd4235a44aaad0cde1ea3a
+          positionXZ: {x: 4096, y: 10240}
+          elevation: 0
+        - stableId: 8f0fd1bc180e4ded9ba3ccf11d32c387
+          positionXZ: {x: 6144, y: 10240}
+          elevation: 0
+        - stableId: a98f8bb69ec743d28f02eda02afaecd0
+          positionXZ: {x: 8192, y: 10240}
+          elevation: 0
+        - stableId: ef04501cd3234128a394ea2d229e0a7e
+          positionXZ: {x: 10240, y: 10240}
+          elevation: 0
+        - stableId: a19e373768014d80ac8ea09f65fd37ab
+          positionXZ: {x: 12288, y: 10240}
+          elevation: 0
+        - stableId: 816cb9d5ac4f4be79808e3735be51f49
+          positionXZ: {x: 0, y: 12288}
+          elevation: 0
+        - stableId: 993050348df943c297067921610ee0cb
+          positionXZ: {x: 2048, y: 12288}
+          elevation: 0
+        - stableId: cf8b135131584064967bac232ec8d399
+          positionXZ: {x: 4096, y: 12288}
+          elevation: 0
+        - stableId: 4cb9d7f608d44f338551d251a892a0b4
+          positionXZ: {x: 6144, y: 12288}
+          elevation: 0
+        - stableId: 176a03fc251d4df9b5f71c02aec55371
+          positionXZ: {x: 8192, y: 12288}
+          elevation: 0
+        - stableId: 42bb572c00124475855820b3cabf28a1
+          positionXZ: {x: 10240, y: 12288}
+          elevation: 0
+        - stableId: 619921a85a0e448587985d1b3bd61bb6
+          positionXZ: {x: 12288, y: 12288}
+          elevation: 0
+    - rid: 3932701523395477625
       type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
       data:
-        stableId: 25a1a003138d4ce39494733422020a72
+        stableId: 48e5f603d21e44909da5d4ce9e02349d
         enabled: 1
         blendMode: 0
-        stampAsset: {fileID: 11400000, guid: 4cfb28d6666ef15f0b00180fa40ee648, type: 2}
-        positionXZ: {x: 6490.0117, y: 5345.6777}
-        sizeXZ: {x: 3165.2798, y: 3165.2798}
+        stampAsset: {fileID: 11400000, guid: 7043998699ccf21f3a1f44690a771848, type: 2}
+        positionXZ: {x: 7470.0493, y: 7200.8267}
+        sizeXZ: {x: 3072, y: 3072}
         rotationDegrees: 0
         flipX: 0
         flipZ: 0
         sourceInputMin: 0
         sourceInputMax: 1
         sourceGamma: 1
-        heightDelta: 120
+        heightDelta: 180
         targetBaseHeight: 0
         targetHeightRange: 10
         falloff: 0.25
         falloffShape: 0
         falloffProfile: 0
-        smoothingRadius: 3
+        smoothingRadius: 8
         smoothingStrength: 1
-    - rid: 3932701523395477573
-      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
-      data:
-        stableId: e75f55be8d2645f283d9309109ee379e
-        enabled: 1
-        blendMode: 3
-        stampAsset: {fileID: 11400000, guid: ffeea23aec65944e0b11e3cd9d352afb, type: 2}
-        positionXZ: {x: 6328.2744, y: 5749.2363}
-        sizeXZ: {x: 1041.3499, y: 1041.3499}
-        rotationDegrees: -66.423416
-        flipX: 0
-        flipZ: 0
-        sourceInputMin: 0
-        sourceInputMax: 1
-        sourceGamma: 1
-        heightDelta: 80
-        targetBaseHeight: 60
-        targetHeightRange: 120
-        falloff: 0.47771582
-        falloffShape: 1
-        falloffProfile: 0
-        smoothingRadius: 2
-        smoothingStrength: 1
-    - rid: 3932701523395477574
-      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
-      data:
-        stableId: daab77029197436db35c42ddb81d5037
-        enabled: 1
-        blendMode: 3
-        stampAsset: {fileID: 11400000, guid: ffeea23aec65944e0b11e3cd9d352afb, type: 2}
-        positionXZ: {x: 7565.933, y: 5693.462}
-        sizeXZ: {x: 1144.4536, y: 1144.4536}
-        rotationDegrees: -81.52113
-        flipX: 0
-        flipZ: 0
-        sourceInputMin: 0
-        sourceInputMax: 1
-        sourceGamma: 1
-        heightDelta: 80
-        targetBaseHeight: 40
-        targetHeightRange: 120
-        falloff: 0.8972735
-        falloffShape: 1
-        falloffProfile: 0
-        smoothingRadius: 2
-        smoothingStrength: 1
-    - rid: 3932701523395477575
-      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
-      data:
-        stableId: a6a887caad364ccbbc8e6ba7c8521e00
-        enabled: 1
-        blendMode: 3
-        stampAsset: {fileID: 11400000, guid: ffeea23aec65944e0b11e3cd9d352afb, type: 2}
-        positionXZ: {x: 6514.1963, y: 5220.2124}
-        sizeXZ: {x: 1041.3499, y: 1041.3499}
-        rotationDegrees: -94.503624
-        flipX: 0
-        flipZ: 0
-        sourceInputMin: 0
-        sourceInputMax: 1
-        sourceGamma: 1
-        heightDelta: 80
-        targetBaseHeight: 80
-        targetHeightRange: 120
-        falloff: 0.804409
-        falloffShape: 1
-        falloffProfile: 0
-        smoothingRadius: 2
-        smoothingStrength: 1
-    - rid: 3932701523395477577
-      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
-      data:
-        stableId: a82fd32a8b544ed89df40367ae1d6dac
-        enabled: 1
-        blendMode: 1
-        stampAsset: {fileID: 11400000, guid: 1c502e8b4b3f65daf802fa42abb20b54, type: 2}
-        positionXZ: {x: 5947.0356, y: 6857.7563}
-        sizeXZ: {x: 3483.977, y: 3483.977}
-        rotationDegrees: 30.769653
-        flipX: 0
-        flipZ: 0
-        sourceInputMin: 0
-        sourceInputMax: 1
-        sourceGamma: 1
-        heightDelta: 80
-        targetBaseHeight: 0
-        targetHeightRange: 80
-        falloff: 0.38412058
-        falloffShape: 0
-        falloffProfile: 0
-        smoothingRadius: 4
-        smoothingStrength: 1
-    - rid: 3932701523395477578
-      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
-      data:
-        stableId: aa2ed4fc7b6b4d139ee678bf44c57d02
-        enabled: 1
-        blendMode: 3
-        stampAsset: {fileID: 11400000, guid: ffeea23aec65944e0b11e3cd9d352afb, type: 2}
-        positionXZ: {x: 6854.9805, y: 7527.255}
-        sizeXZ: {x: 868.5654, y: 818.3368}
-        rotationDegrees: 74.673035
-        flipX: 0
-        flipZ: 0
-        sourceInputMin: 0
-        sourceInputMax: 1
-        sourceGamma: 1
-        heightDelta: 60
-        targetBaseHeight: 20
-        targetHeightRange: 60
-        falloff: 0.5949495
-        falloffShape: 1
-        falloffProfile: 0
-        smoothingRadius: 3
-        smoothingStrength: 1
-    - rid: 3932701523395477579
-      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
-      data:
-        stableId: 3dc58ffb60e84371be4c8446ea1d29f0
-        enabled: 1
-        blendMode: 3
-        stampAsset: {fileID: 11400000, guid: 1491abb90d27d36868594cecf1b0fade, type: 2}
-        positionXZ: {x: 7765.9487, y: 5243.5444}
-        sizeXZ: {x: 860.3365, y: 860.3365}
-        rotationDegrees: -67.01174
-        flipX: 0
-        flipZ: 0
-        sourceInputMin: 0
-        sourceInputMax: 1
-        sourceGamma: 1
-        heightDelta: 40
-        targetBaseHeight: 40
-        targetHeightRange: 80
-        falloff: 0.9110984
-        falloffShape: 1
-        falloffProfile: 0
-        smoothingRadius: 0
-        smoothingStrength: 1
-    - rid: 3932701523395477580
-      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
-      data:
-        stableId: 95a930a5365c42c69e53f3d4aac9e79d
-        enabled: 1
-        blendMode: 3
-        stampAsset: {fileID: 11400000, guid: ffeea23aec65944e0b11e3cd9d352afb, type: 2}
-        positionXZ: {x: 5797.005, y: 7462.0454}
-        sizeXZ: {x: 1344.5806, y: 1344.5806}
-        rotationDegrees: 55.89235
-        flipX: 0
-        flipZ: 0
-        sourceInputMin: 0
-        sourceInputMax: 1
-        sourceGamma: 1
-        heightDelta: 60
-        targetBaseHeight: 20
-        targetHeightRange: 60
-        falloff: 0.9084981
-        falloffShape: 1
-        falloffProfile: 0
-        smoothingRadius: 3
-        smoothingStrength: 1
-    - rid: 3932701523395477581
-      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
-      data:
-        stableId: bbac06c99c554ebd8a0aa7912c8f9f39
-        enabled: 1
-        blendMode: 1
-        stampAsset: {fileID: 11400000, guid: e0c7f5643dd0b7399b5e14daff51b424, type: 2}
-        positionXZ: {x: 8156.3945, y: 6220.153}
-        sizeXZ: {x: 2507.2874, y: 2507.2874}
-        rotationDegrees: -27.4048
-        flipX: 0
-        flipZ: 0
-        sourceInputMin: 0
-        sourceInputMax: 1
-        sourceGamma: 1
-        heightDelta: 30
-        targetBaseHeight: 0
-        targetHeightRange: 35
-        falloff: 0.25
-        falloffShape: 0
-        falloffProfile: 0
-        smoothingRadius: 0
-        smoothingStrength: 1
-    - rid: 3932701523395477582
-      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
-      data:
-        stableId: 32f1241c090f4075941a73471dc1d485
-        enabled: 1
-        blendMode: 3
-        stampAsset: {fileID: 11400000, guid: c7e4eab20a83311298d68620206fc2bf, type: 2}
-        positionXZ: {x: 9019.42, y: 5908.1685}
-        sizeXZ: {x: 967.63855, y: 1226.1475}
-        rotationDegrees: 0
-        flipX: 0
-        flipZ: 0
-        sourceInputMin: 0
-        sourceInputMax: 1
-        sourceGamma: 1
-        heightDelta: 50
-        targetBaseHeight: 10
-        targetHeightRange: 60
-        falloff: 0.36726254
-        falloffShape: 1
-        falloffProfile: 0
-        smoothingRadius: 4
-        smoothingStrength: 1
-    - rid: 3932701523395477583
-      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
-      data:
-        stableId: 24ba822c41d24ddea726c1aa2179de19
-        enabled: 1
-        blendMode: 1
-        stampAsset: {fileID: 11400000, guid: b9ac81c84e9f62ddf9955887a713a9b8, type: 2}
-        positionXZ: {x: 10340.666, y: 6424.098}
-        sizeXZ: {x: 3302.1702, y: 3302.1702}
-        rotationDegrees: 20.000046
-        flipX: 0
-        flipZ: 0
-        sourceInputMin: 0
-        sourceInputMax: 1
-        sourceGamma: 1
-        heightDelta: 10
-        targetBaseHeight: 0
-        targetHeightRange: 80
-        falloff: 0.5734817
-        falloffShape: 1
-        falloffProfile: 0
-        smoothingRadius: 5
-        smoothingStrength: 1
-    - rid: 3932701523395477584
-      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
-      data:
-        stableId: 593b2fb06ae34ce899ae4b8b55be96b8
-        enabled: 1
-        blendMode: 1
-        stampAsset: {fileID: 11400000, guid: b9ac81c84e9f62ddf9955887a713a9b8, type: 2}
-        positionXZ: {x: 10272.898, y: 4570.927}
-        sizeXZ: {x: 3302.1702, y: 3302.1702}
-        rotationDegrees: 128.96613
-        flipX: 0
-        flipZ: 0
-        sourceInputMin: 0
-        sourceInputMax: 1
-        sourceGamma: 1
-        heightDelta: 10
-        targetBaseHeight: 0
-        targetHeightRange: 70
-        falloff: 0.5734817
-        falloffShape: 1
-        falloffProfile: 0
-        smoothingRadius: 5
-        smoothingStrength: 1
-    - rid: 3932701523395477614
-      type: {class: TerrainNodeElevationSource, ns: , asm: Assembly-CSharp}
-      data:
-        nodes:
-        - stableId: da9341dbf1d548b8909a8170b79f83d3
-          positionXZ: {x: 0, y: 0}
-          elevation: 0
-        - stableId: 8ce471e834d54f86882e88baafda40d2
-          positionXZ: {x: 2048, y: 0}
-          elevation: 0
-        - stableId: f9af411759dc4d0da7e8d7bf8f279707
-          positionXZ: {x: 4096, y: 0}
-          elevation: 0
-        - stableId: fb003c09286c4ae5b57c09ee5539d798
-          positionXZ: {x: 6144, y: 0}
-          elevation: 0
-        - stableId: 6902e226095147fd915c21205a7ca8fb
-          positionXZ: {x: 8192, y: 0}
-          elevation: 0
-        - stableId: 12a0d5b6c11041038531e1475eaed947
-          positionXZ: {x: 10240, y: 0}
-          elevation: 0
-        - stableId: 706a5c6da0374f0f951a4aa3f040f156
-          positionXZ: {x: 12288, y: 0}
-          elevation: 0
-        - stableId: 113c082cea16421e9aab4853ae6a1b59
-          positionXZ: {x: 0, y: 2048}
-          elevation: 0
-        - stableId: cf380055c1694cc9a8358d246e463ecd
-          positionXZ: {x: 2048, y: 2048}
-          elevation: 0
-        - stableId: 73bd6b542c504c52929b37208ff37c50
-          positionXZ: {x: 4096, y: 2048}
-          elevation: 0
-        - stableId: f7dad5f8b7004ad288544dd738614965
-          positionXZ: {x: 6144, y: 2048}
-          elevation: 0
-        - stableId: 101518818918452ea5d0b72082097e01
-          positionXZ: {x: 8192, y: 2048}
-          elevation: 0
-        - stableId: fcb3d0ee7f644e00820813fb97abffb0
-          positionXZ: {x: 10240, y: 2048}
-          elevation: 0
-        - stableId: b6e71ea1e8294dbd825d0f46559e61ce
-          positionXZ: {x: 12288, y: 2048}
-          elevation: 0
-        - stableId: af1808b5db7c497fbab0246c74095cf3
-          positionXZ: {x: 0, y: 4096}
-          elevation: 0
-        - stableId: 4917fd3740424c2c8c1ac94bacb33162
-          positionXZ: {x: 2048, y: 4096}
-          elevation: 0
-        - stableId: 7e30555aec6f4966aea9276c618b50ad
-          positionXZ: {x: 4096, y: 4096}
-          elevation: 0
-        - stableId: 0c0ce713850d4621a4d4e49f8bacf9a8
-          positionXZ: {x: 6144, y: 4096}
-          elevation: 0
-        - stableId: f94a5b8c33a349f2a74d6cf2dd2408ba
-          positionXZ: {x: 8295.22, y: 3981.0972}
-          elevation: -101.7959
-        - stableId: 6897f007f621420e98d6187de4e17714
-          positionXZ: {x: 10343.22, y: 3981.0972}
-          elevation: -87.58302
-        - stableId: d70cc1e670124177a7d837974296f7a4
-          positionXZ: {x: 12288, y: 4096}
-          elevation: 0
-        - stableId: d4911445bbe644598e15c45233e46ef5
-          positionXZ: {x: 0, y: 6144}
-          elevation: 0
-        - stableId: c95e0968013f4b669668b065909eb5bc
-          positionXZ: {x: 2048, y: 6144}
-          elevation: 0
-        - stableId: 255bbd6e447243269ec00dd56017d562
-          positionXZ: {x: 4096, y: 6144}
-          elevation: 0
-        - stableId: cfe27c283cbc4c1f88aac78606f918c0
-          positionXZ: {x: 6129.935, y: 6156.5737}
-          elevation: 0
-        - stableId: 36e525d6db184f439b594726904dff2b
-          positionXZ: {x: 8177.935, y: 6156.5737}
-          elevation: 0
-        - stableId: 71ea924d8e804eeca441edba2ed26997
-          positionXZ: {x: 10240, y: 6144}
-          elevation: 0
-        - stableId: 9386b7d9eefb482785e2cd32ff758264
-          positionXZ: {x: 12288, y: 6144}
-          elevation: 0
-        - stableId: 00bba7eeb29a4d628961aebce728b3ea
-          positionXZ: {x: 0, y: 8192}
-          elevation: 0
-        - stableId: b3f8cf424d82433fbd763bafe32a5923
-          positionXZ: {x: 2048, y: 8192}
-          elevation: 200
-        - stableId: e82e82498fc542cf81198468b4863689
-          positionXZ: {x: 4096, y: 8192}
-          elevation: 0
-        - stableId: a47368fc28cd40d6a36c120404acc715
-          positionXZ: {x: 6144, y: 8192}
-          elevation: -104.22922
-        - stableId: d288c3ca4db74c5790479047cce0c482
-          positionXZ: {x: 7057.89, y: 8643.079}
-          elevation: -153.49779
-        - stableId: 833b15ccc80f40e0b39f106b0a6ab59f
-          positionXZ: {x: 10240, y: 8192}
-          elevation: 0
-        - stableId: 385f3c3d1fc24f9795619b0d4a743f24
-          positionXZ: {x: 12288, y: 8192}
-          elevation: 0
-        - stableId: e4f44e4224964bb5a23e21b6adf16159
-          positionXZ: {x: 0, y: 10240}
-          elevation: 0
-        - stableId: 2f34ce2044924d33aba69d3f65f5460b
-          positionXZ: {x: 2048, y: 10240}
-          elevation: 200
-        - stableId: 4a72db80d8b742428d9326368f656e0c
-          positionXZ: {x: 4096, y: 10240}
-          elevation: 0
-        - stableId: 066a0b8573874c029d1deba304933885
-          positionXZ: {x: 6144, y: 10240}
-          elevation: 0
-        - stableId: 4213d30f6cd743e191f64c0a80e22953
-          positionXZ: {x: 8192, y: 10240}
-          elevation: 0
-        - stableId: f553bea289f24852a36c7d4c064604e0
-          positionXZ: {x: 10240, y: 10240}
-          elevation: 0
-        - stableId: aa0ef0e4046044aaa585124a7d237483
-          positionXZ: {x: 12288, y: 10240}
-          elevation: 0
-        - stableId: a8b95300117e41e3a674725d4ea933af
-          positionXZ: {x: 0, y: 12288}
-          elevation: 0
-        - stableId: 19beec33eca54fcba0e348da3d327da8
-          positionXZ: {x: 2048, y: 12288}
-          elevation: 200
-        - stableId: f3280788419a4b638d764e4246865bf2
-          positionXZ: {x: 4096, y: 12288}
-          elevation: 0
-        - stableId: 2c6722739de24f678ce0a664190810f7
-          positionXZ: {x: 6144, y: 12288}
-          elevation: 0
-        - stableId: 8f2bc802baf54e3681838d823a429be4
-          positionXZ: {x: 8192, y: 12288}
-          elevation: 0
-        - stableId: 917a802d28754639bb94d86377cd4900
-          positionXZ: {x: 10240, y: 12288}
-          elevation: 0
-        - stableId: baaf28b8dc3141a9822646ad87088200
-          positionXZ: {x: 12288, y: 12288}
-          elevation: 0

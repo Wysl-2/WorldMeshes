@@ -80,9 +80,6 @@ public static class TerrainRegionalElevationTriangulatedSmoothGpuValidationUtili
         validationRunning ||
         validationScheduled;
 
-    [MenuItem(
-        "WorldMeshes/Validation/Regional Elevation/" +
-        "Triangulated Smooth GPU (I7)")]
     public static void ValidateTriangulatedSmoothGpu()
     {
         if (validationRunning || validationScheduled)

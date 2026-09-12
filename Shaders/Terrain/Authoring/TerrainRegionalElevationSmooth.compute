@@ -213,10 +213,8 @@ bool TryCalculateMacroBarycentric(
 
 bool TryGetExactNodeHeight(
     float2 sampleXZ,
-    out bool matched,
     out float height)
 {
-    matched = false;
     height = 0.0;
 
     [loop]
@@ -229,13 +227,12 @@ bool TryGetExactNodeHeight(
 
         if (all(sampleXZ == vertex.positionXZ))
         {
-            matched = true;
             height = vertex.elevation;
             return true;
         }
     }
 
-    return true;
+    return false;
 }
 
 
@@ -718,25 +715,25 @@ bool TryEvaluateTriangulated(
         triangleIndex < _LinearTriangleCount;
         triangleIndex++)
     {
-        LinearTriangle triangle =
+        LinearTriangle topologyTriangle =
             _LinearTriangles[triangleIndex];
 
         if (
-            !IsValidVertexIndex(triangle.vertexA) ||
-            !IsValidVertexIndex(triangle.vertexB) ||
-            !IsValidVertexIndex(triangle.vertexC))
+            !IsValidVertexIndex(topologyTriangle.vertexA) ||
+            !IsValidVertexIndex(topologyTriangle.vertexB) ||
+            !IsValidVertexIndex(topologyTriangle.vertexC))
         {
             return false;
         }
 
         LinearVertex a =
-            _LinearVertices[triangle.vertexA];
+            _LinearVertices[topologyTriangle.vertexA];
 
         LinearVertex b =
-            _LinearVertices[triangle.vertexB];
+            _LinearVertices[topologyTriangle.vertexB];
 
         LinearVertex c =
-            _LinearVertices[triangle.vertexC];
+            _LinearVertices[topologyTriangle.vertexC];
 
         float3 macroWeights;
 
@@ -771,17 +768,9 @@ bool TryEvaluateSmoothHeight(
         return false;
     }
 
-    bool matchedExactNode;
-
-    if (!TryGetExactNodeHeight(
+    if (TryGetExactNodeHeight(
         sampleXZ,
-        matchedExactNode,
         height))
-    {
-        return false;
-    }
-
-    if (matchedExactNode)
     {
         return true;
     }
