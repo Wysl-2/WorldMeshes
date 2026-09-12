@@ -236,6 +236,17 @@ public sealed partial class TerrainHeightCompositor
         heights = null;
         errorMessage = "";
 
+        if (
+            nodeSource == null ||
+            nodeSource.InterpolationMode !=
+                TerrainNodeElevationInterpolationMode.TriangulatedLinear)
+        {
+            errorMessage =
+                "Triangulated Linear GPU sample evaluation requires a " +
+                "Triangulated Linear source.";
+            return false;
+        }
+
         if (samplePositions == null || samplePositions.Count <= 0)
         {
             errorMessage =
@@ -387,10 +398,12 @@ public sealed partial class TerrainHeightCompositor
 
         if (
             nodeSource.InterpolationMode !=
-            TerrainNodeElevationInterpolationMode.TriangulatedLinear)
+                TerrainNodeElevationInterpolationMode.TriangulatedLinear &&
+            nodeSource.InterpolationMode !=
+                TerrainNodeElevationInterpolationMode.TriangulatedSmooth)
         {
             errorMessage =
-                "Triangulated Linear GPU preparation received interpolation " +
+                "Shared triangulated GPU preparation received interpolation " +
                 "mode '" +
                 TerrainNodeElevationInterpolationModeUtility.GetDisplayName(
                     nodeSource.InterpolationMode) +
@@ -956,9 +969,14 @@ public sealed partial class TerrainHeightCompositor
 
     private void ReleaseTriangulatedLinearGpuResources()
     {
+        ReleaseTriangulatedLinearGpuExecutionResources();
+        triangulatedLinearTopologyCache.Clear();
+    }
+
+    private void ReleaseTriangulatedLinearGpuExecutionResources()
+    {
         ReleaseTriangulatedLinearGpuBuffers();
         ResetTriangulatedLinearShaderState();
-        triangulatedLinearTopologyCache.Clear();
     }
 
     private void ReleaseTriangulatedLinearGpuBuffers()

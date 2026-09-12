@@ -1,8 +1,8 @@
 /*
  * Persistent interpolation-mode identity for node-based regional elevation.
  *
- * CPU and GPU capability are reported separately. Package I6 adds the CPU
- * Triangulated Smooth reference while Smooth GPU composition remains deferred.
+ * CPU and GPU capability are reported separately. Package I7 adds production
+ * Triangulated Smooth GPU composition while preserving the I6 CPU reference.
  */
 public enum TerrainNodeElevationInterpolationMode
 {
@@ -50,6 +50,7 @@ public static class TerrainNodeElevationInterpolationModeUtility
         {
             case TerrainNodeElevationInterpolationMode.InverseDistanceWeighted:
             case TerrainNodeElevationInterpolationMode.TriangulatedLinear:
+            case TerrainNodeElevationInterpolationMode.TriangulatedSmooth:
                 return true;
 
             default:

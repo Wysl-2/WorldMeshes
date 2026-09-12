@@ -233,14 +233,14 @@ public static class TerrainRegionalElevationInterpolationModeValidationUtility
                 TerrainNodeElevationInterpolationMode.InverseDistanceWeighted) &&
             TerrainNodeElevationInterpolationModeUtility.IsImplemented(
                 TerrainNodeElevationInterpolationMode.TriangulatedLinear) &&
-            !TerrainNodeElevationInterpolationModeUtility.IsImplemented(
+            TerrainNodeElevationInterpolationModeUtility.IsImplemented(
                 TerrainNodeElevationInterpolationMode.TriangulatedSmooth);
 
         AddResult(
             "Enum values and existing-source default remain serialized-compatible",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "IDW=0, Linear=1, Smooth=2; the existing default remains IDW, IDW and Linear are production-capable, and Smooth is CPU-ready but remains GPU-pending."
+                ? "IDW=0, Linear=1, Smooth=2; the existing default remains IDW and all three known modes are production-capable after I7."
                 : "Interpolation enum/default/implementation availability did not match the current package contract.");
     }
 
@@ -412,8 +412,8 @@ public static class TerrainRegionalElevationInterpolationModeValidationUtility
                 out string smoothError) &&
             Mathf.Abs(smoothHeight - 50f) <= 0.0001f;
 
-        bool smoothGpuUnsupported =
-            !TerrainNodeElevationInterpolationModeUtility.SupportsGpuComposition(
+        bool smoothGpuSupported =
+            TerrainNodeElevationInterpolationModeUtility.SupportsGpuComposition(
                 TerrainNodeElevationInterpolationMode.TriangulatedSmooth);
 
         bool passed =
@@ -421,13 +421,13 @@ public static class TerrainRegionalElevationInterpolationModeValidationUtility
             linearEvaluationSupported &&
             linearCompositionSupported &&
             smoothCpuSupported &&
-            smoothGpuUnsupported;
+            smoothGpuSupported;
 
         AddResult(
             "Invalid modes fail explicitly while current CPU/GPU interpolation capabilities remain enforced",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "Undefined enum data remains invalid; Linear stays CPU/GPU-ready; Smooth now evaluates on CPU while GPU composition remains unsupported."
+                ? "Undefined enum data remains invalid; Linear and Smooth are CPU/GPU-ready after I7."
                 : linearError + " " + linearCompositionError + " " + smoothError);
 
         ClearFixture(linearData);

@@ -234,15 +234,15 @@ public static class TerrainRegionalElevationSmoothGradientValidationUtility
                 TerrainNodeElevationInterpolationMode.TriangulatedLinear) &&
             TerrainNodeElevationInterpolationModeUtility.SupportsCpuEvaluation(
                 TerrainNodeElevationInterpolationMode.TriangulatedSmooth) &&
-            !TerrainNodeElevationInterpolationModeUtility.SupportsGpuComposition(
+            TerrainNodeElevationInterpolationModeUtility.SupportsGpuComposition(
                 TerrainNodeElevationInterpolationMode.TriangulatedSmooth);
 
         AddResult(
             "Interpolation capability matrix reflects I6 CPU Smooth support",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "IDW and Linear remain CPU/GPU-ready, Smooth is CPU-ready but GPU-pending, and enum values stay 0/1/2."
-                : "Interpolation capability reporting does not match the post-I6 contract.");
+                ? "IDW, Linear, and Smooth are CPU/GPU-ready after I7, and enum values stay 0/1/2."
+                : "Interpolation capability reporting does not match the post-I7 contract.");
     }
 
     private static void ValidateFlatAndPlanarFields()

@@ -1,0 +1,955 @@
+#pragma kernel ComposeTriangulatedSmoothRegionalElevation
+#pragma kernel EvaluateTriangulatedSmoothSamples
+
+RWTexture2DArray<float> _HeightCache;
+
+struct LinearVertex
+{
+    float2 positionXZ;
+    float elevation;
+    float padding;
+};
+
+struct LinearTriangle
+{
+    int vertexA;
+    int vertexB;
+    int vertexC;
+    int padding;
+};
+
+struct LinearHullEdge
+{
+    int vertexA;
+    int vertexB;
+    int padding0;
+    int padding1;
+};
+
+StructuredBuffer<LinearVertex> _LinearVertices;
+StructuredBuffer<LinearTriangle> _LinearTriangles;
+StructuredBuffer<LinearHullEdge> _LinearHullEdges;
+StructuredBuffer<float2> _SmoothGradients;
+StructuredBuffer<float> _SmoothPatchCoefficients;
+
+int _LinearTopologyKind;
+int _LinearVertexCount;
+int _LinearTriangleCount;
+int _LinearHullEdgeCount;
+
+int _TargetSlice;
+int _SamplesPerSide;
+float _SampleSpacing;
+float _TileWorldSize;
+int2 _TileCoordinate;
+float2 _TileWorldOriginXZ;
+float2 _WorldSizeXZ;
+
+StructuredBuffer<float2> _SmoothSamplePositions;
+RWStructuredBuffer<float> _SmoothSampleResults;
+int _SmoothSampleCount;
+
+static const float SMOOTH_MIN_SEGMENT_LENGTH_SQUARED = 0.000001;
+static const float SMOOTH_HULL_DISTANCE_TIE_TOLERANCE_SQUARED = 0.000001;
+static const float SMOOTH_MACRO_BARYCENTRIC_TOLERANCE = 0.000001;
+static const float SMOOTH_SUBPATCH_BARYCENTRIC_TOLERANCE = 0.0001;
+static const float SMOOTH_SUBPATCH_SUM_TOLERANCE = 0.0016;
+
+
+float Orientation(
+    float2 a,
+    float2 b,
+    float2 c)
+{
+    return
+        (b.x - a.x) * (c.y - a.y) -
+        (b.y - a.y) * (c.x - a.x);
+}
+
+
+bool IsValidVertexIndex(
+    int vertexIndex)
+{
+    return
+        vertexIndex >= 0 &&
+        vertexIndex < _LinearVertexCount;
+}
+
+
+bool TryCalculateRawProjection(
+    float2 samplePoint,
+    float2 a,
+    float2 b,
+    out float rawT,
+    out float lengthSquared)
+{
+    rawT = 0.0;
+    lengthSquared = 0.0;
+
+    float2 ab = b - a;
+    lengthSquared = dot(ab, ab);
+
+    if (lengthSquared < SMOOTH_MIN_SEGMENT_LENGTH_SQUARED)
+    {
+        return false;
+    }
+
+    rawT =
+        dot(samplePoint - a, ab) /
+        lengthSquared;
+
+    return true;
+}
+
+
+bool TryProjectPointOntoSegment(
+    float2 samplePoint,
+    float2 a,
+    float2 b,
+    out float t,
+    out float distanceSquared)
+{
+    t = 0.0;
+    distanceSquared = 0.0;
+
+    float rawT;
+    float lengthSquared;
+
+    if (!TryCalculateRawProjection(
+        samplePoint,
+        a,
+        b,
+        rawT,
+        lengthSquared))
+    {
+        return false;
+    }
+
+    t = saturate(rawT);
+
+    float2 projected =
+        a + (b - a) * t;
+
+    float2 delta =
+        samplePoint - projected;
+
+    distanceSquared =
+        dot(delta, delta);
+
+    return true;
+}
+
+
+bool TryNormalizeBarycentric(
+    inout float3 weights,
+    float tolerance,
+    float sumTolerance)
+{
+    if (
+        weights.x < -tolerance ||
+        weights.y < -tolerance ||
+        weights.z < -tolerance ||
+        weights.x > 1.0 + tolerance ||
+        weights.y > 1.0 + tolerance ||
+        weights.z > 1.0 + tolerance)
+    {
+        return false;
+    }
+
+    weights = clamp(weights, 0.0, 1.0);
+
+    float sum =
+        weights.x +
+        weights.y +
+        weights.z;
+
+    if (
+        sum <= 0.0 ||
+        abs(sum - 1.0) > sumTolerance)
+    {
+        return false;
+    }
+
+    weights /= sum;
+    return true;
+}
+
+
+bool TryCalculateMacroBarycentric(
+    float2 samplePoint,
+    float2 a,
+    float2 b,
+    float2 c,
+    out float3 weights)
+{
+    weights = float3(0.0, 0.0, 0.0);
+
+    float denominator =
+        Orientation(a, b, c);
+
+    if (abs(denominator) <= 1e-20)
+    {
+        return false;
+    }
+
+    weights.x =
+        Orientation(b, c, samplePoint) /
+        denominator;
+
+    weights.y =
+        Orientation(c, a, samplePoint) /
+        denominator;
+
+    weights.z =
+        Orientation(a, b, samplePoint) /
+        denominator;
+
+    return TryNormalizeBarycentric(
+        weights,
+        SMOOTH_MACRO_BARYCENTRIC_TOLERANCE,
+        SMOOTH_MACRO_BARYCENTRIC_TOLERANCE * 8.0);
+}
+
+
+bool TryGetExactNodeHeight(
+    float2 sampleXZ,
+    out bool matched,
+    out float height)
+{
+    matched = false;
+    height = 0.0;
+
+    [loop]
+    for (int vertexIndex = 0;
+        vertexIndex < _LinearVertexCount;
+        vertexIndex++)
+    {
+        LinearVertex vertex =
+            _LinearVertices[vertexIndex];
+
+        if (all(sampleXZ == vertex.positionXZ))
+        {
+            matched = true;
+            height = vertex.elevation;
+            return true;
+        }
+    }
+
+    return true;
+}
+
+
+float EvaluateHermite(
+    float hA,
+    float hB,
+    float mA,
+    float mB,
+    float t)
+{
+    float t2 = t * t;
+    float t3 = t2 * t;
+
+    float h00 =
+        2.0 * t3 -
+        3.0 * t2 +
+        1.0;
+
+    float h10 =
+        t3 -
+        2.0 * t2 +
+        t;
+
+    float h01 =
+        -2.0 * t3 +
+        3.0 * t2;
+
+    float h11 =
+        t3 -
+        t2;
+
+    return
+        h00 * hA +
+        h10 * mA +
+        h01 * hB +
+        h11 * mB;
+}
+
+
+bool TryEvaluateHermiteInterval(
+    float2 sampleXZ,
+    int vertexA,
+    int vertexB,
+    bool clampOutside,
+    out float height)
+{
+    height = 0.0;
+
+    if (
+        !IsValidVertexIndex(vertexA) ||
+        !IsValidVertexIndex(vertexB))
+    {
+        return false;
+    }
+
+    LinearVertex a =
+        _LinearVertices[vertexA];
+
+    LinearVertex b =
+        _LinearVertices[vertexB];
+
+    float rawT;
+    float lengthSquared;
+
+    if (!TryCalculateRawProjection(
+        sampleXZ,
+        a.positionXZ,
+        b.positionXZ,
+        rawT,
+        lengthSquared))
+    {
+        return false;
+    }
+
+    if (clampOutside && rawT <= 0.0)
+    {
+        height = a.elevation;
+        return true;
+    }
+
+    if (clampOutside && rawT >= 1.0)
+    {
+        height = b.elevation;
+        return true;
+    }
+
+    float t = saturate(rawT);
+    float2 delta =
+        b.positionXZ -
+        a.positionXZ;
+
+    float mA =
+        dot(
+            _SmoothGradients[vertexA],
+            delta);
+
+    float mB =
+        dot(
+            _SmoothGradients[vertexB],
+            delta);
+
+    height =
+        EvaluateHermite(
+            a.elevation,
+            b.elevation,
+            mA,
+            mB,
+            t);
+
+    return true;
+}
+
+
+bool TryEvaluateCollinear(
+    float2 sampleXZ,
+    out float height)
+{
+    height = 0.0;
+
+    if (_LinearVertexCount < 3)
+    {
+        return false;
+    }
+
+    LinearVertex first =
+        _LinearVertices[0];
+
+    LinearVertex last =
+        _LinearVertices[
+            _LinearVertexCount - 1];
+
+    float2 axis =
+        last.positionXZ -
+        first.positionXZ;
+
+    float axisLengthSquared =
+        dot(axis, axis);
+
+    if (
+        axisLengthSquared <
+        SMOOTH_MIN_SEGMENT_LENGTH_SQUARED)
+    {
+        return false;
+    }
+
+    float sampleParameter =
+        dot(
+            sampleXZ - first.positionXZ,
+            axis) /
+        axisLengthSquared;
+
+    if (sampleParameter <= 0.0)
+    {
+        height = first.elevation;
+        return true;
+    }
+
+    if (sampleParameter >= 1.0)
+    {
+        height = last.elevation;
+        return true;
+    }
+
+    float previousParameter = 0.0;
+
+    [loop]
+    for (int vertexIndex = 1;
+        vertexIndex < _LinearVertexCount;
+        vertexIndex++)
+    {
+        LinearVertex current =
+            _LinearVertices[vertexIndex];
+
+        float currentParameter =
+            dot(
+                current.positionXZ -
+                    first.positionXZ,
+                axis) /
+            axisLengthSquared;
+
+        if (currentParameter <= previousParameter)
+        {
+            return false;
+        }
+
+        if (sampleParameter <= currentParameter)
+        {
+            return TryEvaluateHermiteInterval(
+                sampleXZ,
+                vertexIndex - 1,
+                vertexIndex,
+                false,
+                height);
+        }
+
+        previousParameter = currentParameter;
+    }
+
+    height = last.elevation;
+    return true;
+}
+
+
+float EvaluateCubicBernstein(
+    int triangleIndex,
+    int subpatchIndex,
+    float3 coordinates)
+{
+    int baseIndex =
+        triangleIndex * 30 +
+        subpatchIndex * 10;
+
+    float u = coordinates.x;
+    float v = coordinates.y;
+    float w = coordinates.z;
+
+    float u2 = u * u;
+    float v2 = v * v;
+    float w2 = w * w;
+
+    float b300 =
+        _SmoothPatchCoefficients[
+            baseIndex + 0];
+
+    float b030 =
+        _SmoothPatchCoefficients[
+            baseIndex + 1];
+
+    float b003 =
+        _SmoothPatchCoefficients[
+            baseIndex + 2];
+
+    float b210 =
+        _SmoothPatchCoefficients[
+            baseIndex + 3];
+
+    float b201 =
+        _SmoothPatchCoefficients[
+            baseIndex + 4];
+
+    float b120 =
+        _SmoothPatchCoefficients[
+            baseIndex + 5];
+
+    float b021 =
+        _SmoothPatchCoefficients[
+            baseIndex + 6];
+
+    float b102 =
+        _SmoothPatchCoefficients[
+            baseIndex + 7];
+
+    float b012 =
+        _SmoothPatchCoefficients[
+            baseIndex + 8];
+
+    float b111 =
+        _SmoothPatchCoefficients[
+            baseIndex + 9];
+
+    return
+        b300 * u2 * u +
+        b030 * v2 * v +
+        b003 * w2 * w +
+        3.0 * b210 * u2 * v +
+        3.0 * b201 * u2 * w +
+        3.0 * b120 * u * v2 +
+        3.0 * b021 * v2 * w +
+        3.0 * b102 * u * w2 +
+        3.0 * b012 * v * w2 +
+        6.0 * b111 * u * v * w;
+}
+
+
+bool TryEvaluateTrianglePatch(
+    int triangleIndex,
+    float3 macroWeights,
+    out float height)
+{
+    height = 0.0;
+
+    float alpha = macroWeights.x;
+    float beta = macroWeights.y;
+    float gamma = macroWeights.z;
+
+    int subpatchIndex;
+
+    if (gamma <= alpha && gamma <= beta)
+    {
+        subpatchIndex = 0;
+    }
+    else if (alpha <= beta && alpha <= gamma)
+    {
+        subpatchIndex = 1;
+    }
+    else
+    {
+        subpatchIndex = 2;
+    }
+
+    float3 localCoordinates;
+
+    if (subpatchIndex == 0)
+    {
+        // ABG
+        localCoordinates =
+            float3(
+                alpha - gamma,
+                beta - gamma,
+                3.0 * gamma);
+    }
+    else if (subpatchIndex == 1)
+    {
+        // BCG
+        localCoordinates =
+            float3(
+                beta - alpha,
+                gamma - alpha,
+                3.0 * alpha);
+    }
+    else
+    {
+        // CAG
+        localCoordinates =
+            float3(
+                gamma - beta,
+                alpha - beta,
+                3.0 * beta);
+    }
+
+    if (!TryNormalizeBarycentric(
+        localCoordinates,
+        SMOOTH_SUBPATCH_BARYCENTRIC_TOLERANCE,
+        SMOOTH_SUBPATCH_SUM_TOLERANCE))
+    {
+        return false;
+    }
+
+    height =
+        EvaluateCubicBernstein(
+            triangleIndex,
+            subpatchIndex,
+            localCoordinates);
+
+    return true;
+}
+
+
+bool TryEvaluateHullExterior(
+    float2 sampleXZ,
+    out float height)
+{
+    height = 0.0;
+
+    if (_LinearHullEdgeCount <= 0)
+    {
+        return false;
+    }
+
+    int selectedEdgeIndex = -1;
+    float bestDistanceSquared = 0.0;
+    float bestT = 0.0;
+
+    LinearHullEdge bestEdge;
+    bestEdge.vertexA = 0;
+    bestEdge.vertexB = 0;
+    bestEdge.padding0 = 0;
+    bestEdge.padding1 = 0;
+
+    [loop]
+    for (int edgeIndex = 0;
+        edgeIndex < _LinearHullEdgeCount;
+        edgeIndex++)
+    {
+        LinearHullEdge edge =
+            _LinearHullEdges[edgeIndex];
+
+        if (
+            !IsValidVertexIndex(edge.vertexA) ||
+            !IsValidVertexIndex(edge.vertexB))
+        {
+            return false;
+        }
+
+        LinearVertex a =
+            _LinearVertices[edge.vertexA];
+
+        LinearVertex b =
+            _LinearVertices[edge.vertexB];
+
+        float t;
+        float distanceSquared;
+
+        if (!TryProjectPointOntoSegment(
+            sampleXZ,
+            a.positionXZ,
+            b.positionXZ,
+            t,
+            distanceSquared))
+        {
+            return false;
+        }
+
+        bool better =
+            selectedEdgeIndex < 0 ||
+            distanceSquared <
+                bestDistanceSquared -
+                SMOOTH_HULL_DISTANCE_TIE_TOLERANCE_SQUARED;
+
+        bool tied =
+            selectedEdgeIndex >= 0 &&
+            abs(
+                distanceSquared -
+                bestDistanceSquared) <=
+                SMOOTH_HULL_DISTANCE_TIE_TOLERANCE_SQUARED;
+
+        if (
+            better ||
+            (tied && edgeIndex < selectedEdgeIndex))
+        {
+            selectedEdgeIndex = edgeIndex;
+            bestDistanceSquared = distanceSquared;
+            bestT = t;
+            bestEdge = edge;
+        }
+    }
+
+    if (selectedEdgeIndex < 0)
+    {
+        return false;
+    }
+
+    LinearVertex hullA =
+        _LinearVertices[bestEdge.vertexA];
+
+    LinearVertex hullB =
+        _LinearVertices[bestEdge.vertexB];
+
+    float2 delta =
+        hullB.positionXZ -
+        hullA.positionXZ;
+
+    float mA =
+        dot(
+            _SmoothGradients[bestEdge.vertexA],
+            delta);
+
+    float mB =
+        dot(
+            _SmoothGradients[bestEdge.vertexB],
+            delta);
+
+    height =
+        EvaluateHermite(
+            hullA.elevation,
+            hullB.elevation,
+            mA,
+            mB,
+            bestT);
+
+    return true;
+}
+
+
+bool TryEvaluateTriangulated(
+    float2 sampleXZ,
+    out float height)
+{
+    height = 0.0;
+
+    if (
+        _LinearTriangleCount <= 0 ||
+        _LinearHullEdgeCount <= 0)
+    {
+        return false;
+    }
+
+    [loop]
+    for (int triangleIndex = 0;
+        triangleIndex < _LinearTriangleCount;
+        triangleIndex++)
+    {
+        LinearTriangle triangle =
+            _LinearTriangles[triangleIndex];
+
+        if (
+            !IsValidVertexIndex(triangle.vertexA) ||
+            !IsValidVertexIndex(triangle.vertexB) ||
+            !IsValidVertexIndex(triangle.vertexC))
+        {
+            return false;
+        }
+
+        LinearVertex a =
+            _LinearVertices[triangle.vertexA];
+
+        LinearVertex b =
+            _LinearVertices[triangle.vertexB];
+
+        LinearVertex c =
+            _LinearVertices[triangle.vertexC];
+
+        float3 macroWeights;
+
+        if (TryCalculateMacroBarycentric(
+            sampleXZ,
+            a.positionXZ,
+            b.positionXZ,
+            c.positionXZ,
+            macroWeights))
+        {
+            return TryEvaluateTrianglePatch(
+                triangleIndex,
+                macroWeights,
+                height);
+        }
+    }
+
+    return TryEvaluateHullExterior(
+        sampleXZ,
+        height);
+}
+
+
+bool TryEvaluateSmoothHeight(
+    float2 sampleXZ,
+    out float height)
+{
+    height = 0.0;
+
+    if (_LinearVertexCount <= 0)
+    {
+        return false;
+    }
+
+    bool matchedExactNode;
+
+    if (!TryGetExactNodeHeight(
+        sampleXZ,
+        matchedExactNode,
+        height))
+    {
+        return false;
+    }
+
+    if (matchedExactNode)
+    {
+        return true;
+    }
+
+    if (_LinearTopologyKind == 1)
+    {
+        if (_LinearVertexCount != 1)
+        {
+            return false;
+        }
+
+        height =
+            _LinearVertices[0].elevation;
+
+        return true;
+    }
+
+    if (_LinearTopologyKind == 2)
+    {
+        if (_LinearVertexCount != 2)
+        {
+            return false;
+        }
+
+        return TryEvaluateHermiteInterval(
+            sampleXZ,
+            0,
+            1,
+            true,
+            height);
+    }
+
+    if (_LinearTopologyKind == 3)
+    {
+        return TryEvaluateCollinear(
+            sampleXZ,
+            height);
+    }
+
+    if (_LinearTopologyKind == 4)
+    {
+        return TryEvaluateTriangulated(
+            sampleXZ,
+            height);
+    }
+
+    return false;
+}
+
+
+bool TryGetAuthoringSample(
+    uint3 dispatchThreadId,
+    out uint3 cacheAddress,
+    out float2 sampleWorldXZ)
+{
+    cacheAddress = uint3(0, 0, 0);
+    sampleWorldXZ = float2(0.0, 0.0);
+
+    if (
+        dispatchThreadId.x >= (uint)_SamplesPerSide ||
+        dispatchThreadId.y >= (uint)_SamplesPerSide)
+    {
+        return false;
+    }
+
+    float2 expectedTileOriginXZ =
+        (float2)_TileCoordinate *
+        _TileWorldSize;
+
+    float originTolerance =
+        max(
+            abs(_SampleSpacing) * 0.001,
+            0.00001);
+
+    if (
+        any(
+            abs(
+                expectedTileOriginXZ -
+                _TileWorldOriginXZ) >
+            originTolerance))
+    {
+        return false;
+    }
+
+    sampleWorldXZ =
+        _TileWorldOriginXZ +
+        float2(
+            dispatchThreadId.x,
+            dispatchThreadId.y) *
+        _SampleSpacing;
+
+    float worldTolerance =
+        max(
+            abs(_SampleSpacing) * 0.001,
+            0.00001);
+
+    if (
+        sampleWorldXZ.x < -worldTolerance ||
+        sampleWorldXZ.y < -worldTolerance ||
+        sampleWorldXZ.x >
+            _WorldSizeXZ.x + worldTolerance ||
+        sampleWorldXZ.y >
+            _WorldSizeXZ.y + worldTolerance)
+    {
+        return false;
+    }
+
+    cacheAddress =
+        uint3(
+            dispatchThreadId.x,
+            dispatchThreadId.y,
+            (uint)_TargetSlice);
+
+    return true;
+}
+
+
+[numthreads(8, 8, 1)]
+void ComposeTriangulatedSmoothRegionalElevation(
+    uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint3 cacheAddress;
+    float2 sampleWorldXZ;
+
+    if (!TryGetAuthoringSample(
+        dispatchThreadId,
+        cacheAddress,
+        sampleWorldXZ))
+    {
+        return;
+    }
+
+    float height;
+
+    if (!TryEvaluateSmoothHeight(
+        sampleWorldXZ,
+        height))
+    {
+        return;
+    }
+
+    _HeightCache[cacheAddress] = height;
+}
+
+
+[numthreads(64, 1, 1)]
+void EvaluateTriangulatedSmoothSamples(
+    uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint sampleIndex =
+        dispatchThreadId.x;
+
+    if (
+        sampleIndex >=
+        (uint)_SmoothSampleCount)
+    {
+        return;
+    }
+
+    float height;
+
+    if (!TryEvaluateSmoothHeight(
+        _SmoothSamplePositions[sampleIndex],
+        height))
+    {
+        height = 0.0;
+    }
+
+    _SmoothSampleResults[sampleIndex] =
+        height;
+}

@@ -225,14 +225,14 @@ public static class TerrainRegionalElevationTriangulatedLinearValidationUtility
                 TerrainNodeElevationInterpolationMode.TriangulatedLinear) &&
             TerrainNodeElevationInterpolationModeUtility.SupportsCpuEvaluation(
                 TerrainNodeElevationInterpolationMode.TriangulatedSmooth) &&
-            !TerrainNodeElevationInterpolationModeUtility.SupportsGpuComposition(
+            TerrainNodeElevationInterpolationModeUtility.SupportsGpuComposition(
                 TerrainNodeElevationInterpolationMode.TriangulatedSmooth);
 
         AddResult(
             "CPU/GPU interpolation capability matrix is explicit",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "IDW and Linear are CPU/GPU-ready; Smooth is CPU-ready but remains GPU-pending; serialized enum values are unchanged."
+                ? "IDW, Linear, and Smooth are CPU/GPU-ready after I7; serialized enum values are unchanged."
                 : "Interpolation capability reporting did not match the current package contract.");
     }
 
@@ -773,21 +773,21 @@ public static class TerrainRegionalElevationTriangulatedLinearValidationUtility
             !float.IsNaN(smoothHeight) &&
             !float.IsInfinity(smoothHeight);
 
-        bool smoothGpuUnsupported =
-            !TerrainNodeElevationInterpolationModeUtility.SupportsGpuComposition(
+        bool smoothGpuSupported =
+            TerrainNodeElevationInterpolationModeUtility.SupportsGpuComposition(
                 TerrainNodeElevationInterpolationMode.TriangulatedSmooth);
 
         bool passed =
             linearCpu &&
             linearGpuSupported &&
             smoothCpuSupported &&
-            smoothGpuUnsupported;
+            smoothGpuSupported;
 
         AddResult(
-            "Linear CPU/GPU semantics remain authoritative while Smooth gains CPU-only support",
+            "Linear CPU/GPU semantics remain authoritative after Smooth GPU support",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "Triangulated Linear still evaluates through the Package I3 CPU path and Package I4 GPU composition; Smooth now evaluates on CPU while GPU composition remains deferred."
+                ? "Triangulated Linear still evaluates through the Package I3 CPU path and Package I4 GPU composition; Smooth remains CPU-valid and is GPU-capable after I7."
                 : gpuError + " " + smoothError);
 
         ClearFixture(linearData);

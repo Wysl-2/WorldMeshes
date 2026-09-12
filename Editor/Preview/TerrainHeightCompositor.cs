@@ -692,15 +692,31 @@ public sealed partial class TerrainHeightCompositor :
 
             if (trackRange)
             {
+                bool rangeResolved;
+
                 if (
-                    !TerrainRegionalElevationCompositionUtility
-                        .TryGetNodeElevationRange(
+                    nodeSource.InterpolationMode ==
+                    TerrainNodeElevationInterpolationMode.TriangulatedSmooth)
+                {
+                    rangeResolved =
+                        TryGetTriangulatedSmoothElevationRange(
                             nodeSource,
                             out compositeMinimumHeight,
                             out compositeMaximumHeight,
-                            out errorMessage
-                        )
-                )
+                            out errorMessage);
+                }
+                else
+                {
+                    rangeResolved =
+                        TerrainRegionalElevationCompositionUtility
+                            .TryGetNodeElevationRange(
+                                nodeSource,
+                                out compositeMinimumHeight,
+                                out compositeMaximumHeight,
+                                out errorMessage);
+                }
+
+                if (!rangeResolved)
                 {
                     return false;
                 }
@@ -709,12 +725,13 @@ public sealed partial class TerrainHeightCompositor :
         else
         {
             /*
-             * Do not keep obsolete GPU node data resident after a regional
-             * source is removed. Future regional composition will recreate
-             * the reusable buffer when needed.
+             * Drop only GPU execution resources when the regional source is
+             * absent. Geometry/numerical caches remain reusable if authoring
+             * later returns to a triangulated mode with unchanged data.
              */
             ReleaseRegionalNodeBuffer();
-            ReleaseTriangulatedLinearGpuResources();
+            ReleaseTriangulatedSmoothGpuExecutionResources();
+            ReleaseTriangulatedLinearGpuExecutionResources();
         }
 
         Vector2 tileMinXZ =
@@ -1054,6 +1071,27 @@ public sealed partial class TerrainHeightCompositor :
         }
 
         if (
+            nodeSource.InterpolationMode ==
+            TerrainNodeElevationInterpolationMode.TriangulatedSmooth
+        )
+        {
+            ReleaseRegionalNodeBuffer();
+
+            return TryDispatchTriangulatedSmoothRegionalElevation(
+                heightCache,
+                tileCoordinate,
+                tileWorldOriginXZ,
+                sliceIndex,
+                samplesPerSide,
+                sampleSpacing,
+                tileWorldSize,
+                worldSizeXZ,
+                nodeSource,
+                out errorMessage
+            );
+        }
+
+        if (
             nodeSource.InterpolationMode !=
             TerrainNodeElevationInterpolationMode.InverseDistanceWeighted
         )
@@ -1066,7 +1104,8 @@ public sealed partial class TerrainHeightCompositor :
             return false;
         }
 
-        ReleaseTriangulatedLinearGpuResources();
+        ReleaseTriangulatedSmoothGpuExecutionResources();
+        ReleaseTriangulatedLinearGpuExecutionResources();
 
         if (
             !TryPrepareRegionalNodeBuffer(
@@ -2314,6 +2353,7 @@ public sealed partial class TerrainHeightCompositor :
     private void ResetShaderState()
     {
         ReleaseRegionalNodeBuffer();
+        ReleaseTriangulatedSmoothGpuResources();
         ReleaseTriangulatedLinearGpuResources();
 
         computeShader = null;

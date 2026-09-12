@@ -238,17 +238,17 @@ public static class TerrainRegionalElevationTriangulatedSmoothCpuValidationUtili
                 TerrainNodeElevationInterpolationMode.TriangulatedLinear) &&
             TerrainNodeElevationInterpolationModeUtility.SupportsCpuEvaluation(
                 TerrainNodeElevationInterpolationMode.TriangulatedSmooth) &&
-            !TerrainNodeElevationInterpolationModeUtility.SupportsGpuComposition(
+            TerrainNodeElevationInterpolationModeUtility.SupportsGpuComposition(
                 TerrainNodeElevationInterpolationMode.TriangulatedSmooth) &&
-            !TerrainNodeElevationInterpolationModeUtility.IsImplemented(
+            TerrainNodeElevationInterpolationModeUtility.IsImplemented(
                 TerrainNodeElevationInterpolationMode.TriangulatedSmooth);
 
         AddResult(
-            "Interpolation capability matrix exposes Smooth CPU only",
+            "Interpolation capability matrix exposes production Smooth CPU/GPU support",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "IDW and Linear remain CPU/GPU-ready; Smooth is CPU-ready, GPU-pending, and not yet production-complete."
-                : "Interpolation capability reporting does not match the Package I6 contract.");
+                ? "IDW, Linear, and Smooth are CPU/GPU-ready; I6 remains the authoritative Smooth CPU reference after I7."
+                : "Interpolation capability reporting does not match the post-I7 contract.");
     }
 
     private static void ValidateExactNodeHeightsAndGradients()
