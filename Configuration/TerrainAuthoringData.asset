@@ -30,7 +30,7 @@ MonoBehaviour:
   - rid: 3932701523395477582
   - rid: 3932701523395477583
   - rid: 3932701523395477584
-  authoringRevision: 2248
+  authoringRevision: 2256
   references:
     version: 2
     RefIds:
@@ -369,10 +369,10 @@ MonoBehaviour:
           positionXZ: {x: 6144, y: 4096}
           elevation: 0
         - stableId: f94a5b8c33a349f2a74d6cf2dd2408ba
-          positionXZ: {x: 8192, y: 4096}
+          positionXZ: {x: 8295.22, y: 3981.0972}
           elevation: -101.7959
         - stableId: 6897f007f621420e98d6187de4e17714
-          positionXZ: {x: 10240, y: 4096}
+          positionXZ: {x: 10343.22, y: 3981.0972}
           elevation: -87.58302
         - stableId: d70cc1e670124177a7d837974296f7a4
           positionXZ: {x: 12288, y: 4096}
@@ -387,10 +387,10 @@ MonoBehaviour:
           positionXZ: {x: 4096, y: 6144}
           elevation: 0
         - stableId: cfe27c283cbc4c1f88aac78606f918c0
-          positionXZ: {x: 6144, y: 6144}
+          positionXZ: {x: 6129.935, y: 6156.5737}
           elevation: 0
         - stableId: 36e525d6db184f439b594726904dff2b
-          positionXZ: {x: 8192, y: 6144}
+          positionXZ: {x: 8177.935, y: 6156.5737}
           elevation: 0
         - stableId: 71ea924d8e804eeca441edba2ed26997
           positionXZ: {x: 10240, y: 6144}
@@ -403,7 +403,7 @@ MonoBehaviour:
           elevation: 0
         - stableId: b3f8cf424d82433fbd763bafe32a5923
           positionXZ: {x: 2048, y: 8192}
-          elevation: 0
+          elevation: 200
         - stableId: e82e82498fc542cf81198468b4863689
           positionXZ: {x: 4096, y: 8192}
           elevation: 0
@@ -424,7 +424,7 @@ MonoBehaviour:
           elevation: 0
         - stableId: 2f34ce2044924d33aba69d3f65f5460b
           positionXZ: {x: 2048, y: 10240}
-          elevation: 0
+          elevation: 200
         - stableId: 4a72db80d8b742428d9326368f656e0c
           positionXZ: {x: 4096, y: 10240}
           elevation: 0
@@ -445,7 +445,7 @@ MonoBehaviour:
           elevation: 0
         - stableId: 19beec33eca54fcba0e348da3d327da8
           positionXZ: {x: 2048, y: 12288}
-          elevation: 0
+          elevation: 200
         - stableId: f3280788419a4b638d764e4246865bf2
           positionXZ: {x: 4096, y: 12288}
           elevation: 0

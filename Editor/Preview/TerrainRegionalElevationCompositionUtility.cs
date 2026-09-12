@@ -82,6 +82,21 @@ public static class TerrainRegionalElevationCompositionUtility
         }
 
         if (
+            !TerrainNodeElevationInterpolationModeUtility.IsImplemented(
+                resolvedNodeSource.InterpolationMode
+            )
+        )
+        {
+            errorMessage =
+                TerrainNodeElevationInterpolationModeUtility
+                    .GetNotImplementedMessage(
+                        resolvedNodeSource.InterpolationMode
+                    );
+
+            return false;
+        }
+
+        if (
             resolvedNodeSource.NodeCount <=
             0
         )

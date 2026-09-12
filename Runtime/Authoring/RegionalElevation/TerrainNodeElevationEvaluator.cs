@@ -81,6 +81,21 @@ public static class TerrainNodeElevationEvaluator
             return false;
         }
 
+        if (
+            !TerrainNodeElevationInterpolationModeUtility.IsImplemented(
+                source.InterpolationMode
+            )
+        )
+        {
+            errorMessage =
+                TerrainNodeElevationInterpolationModeUtility
+                    .GetNotImplementedMessage(
+                        source.InterpolationMode
+                    );
+
+            return false;
+        }
+
         IReadOnlyList<TerrainElevationNode> nodes =
             source.Nodes;
 

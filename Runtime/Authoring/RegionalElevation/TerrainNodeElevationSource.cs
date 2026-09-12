@@ -17,12 +17,25 @@ public sealed class TerrainNodeElevationSource :
     TerrainRegionalElevationSource
 {
     [SerializeField]
+    private TerrainNodeElevationInterpolationMode interpolationMode =
+        TerrainNodeElevationInterpolationMode.InverseDistanceWeighted;
+
+    [SerializeField]
     private List<TerrainElevationNode> nodes =
         new List<TerrainElevationNode>();
 
     [NonSerialized]
     private ReadOnlyCollection<TerrainElevationNode>
         readOnlyNodes;
+
+    public TerrainNodeElevationInterpolationMode InterpolationMode
+    {
+        get
+        {
+            return
+                interpolationMode;
+        }
+    }
 
     public IReadOnlyList<TerrainElevationNode> Nodes
     {
@@ -229,6 +242,14 @@ public sealed class TerrainNodeElevationSource :
         nodes.Clear();
     }
 
+    internal void SetInterpolationModeInternal(
+        TerrainNodeElevationInterpolationMode value
+    )
+    {
+        interpolationMode =
+            value;
+    }
+
     // =====================================================
     // OUTPUT VALIDATION / SIGNATURE
     // =====================================================
@@ -241,6 +262,19 @@ public sealed class TerrainNodeElevationSource :
             "";
 
         EnsureNodeList();
+
+        if (
+            !TerrainNodeElevationInterpolationModeUtility.IsKnown(
+                interpolationMode
+            )
+        )
+        {
+            errorMessage =
+                "Terrain node elevation source contains an unsupported " +
+                "interpolation mode.";
+
+            return false;
+        }
 
         for (
             int index = 0;
@@ -277,7 +311,7 @@ public sealed class TerrainNodeElevationSource :
     protected override string GetSignatureTypeId()
     {
         return
-            "TerrainNodeElevationSourceV2";
+            "TerrainNodeElevationSourceV3";
     }
 
     protected override void AppendTypeSpecificSignatureData(
@@ -285,6 +319,11 @@ public sealed class TerrainNodeElevationSource :
     )
     {
         EnsureNodeList();
+
+        AppendInt(
+            builder,
+            (int)interpolationMode
+        );
 
         AppendInt(
             builder,

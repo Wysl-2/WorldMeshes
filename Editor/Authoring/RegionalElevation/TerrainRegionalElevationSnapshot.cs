@@ -20,6 +20,12 @@ internal sealed class TerrainRegionalElevationSnapshot
 
     public string SourceType { get; private set; }
 
+    public TerrainNodeElevationInterpolationMode InterpolationMode
+    {
+        get;
+        private set;
+    }
+
     public IReadOnlyList<NodeSnapshot> Nodes =>
         nodes;
 
@@ -82,6 +88,9 @@ internal sealed class TerrainRegionalElevationSnapshot
 
             return true;
         }
+
+        result.InterpolationMode =
+            nodeSource.InterpolationMode;
 
         if (!nodeSource.TryValidateOutputData(
             out errorMessage
@@ -181,6 +190,9 @@ internal sealed class TerrainRegionalElevationSnapshot
                 other.SourceType,
                 StringComparison.Ordinal
             )
+            ||
+            InterpolationMode !=
+                other.InterpolationMode
             ||
             nodes.Count !=
                 other.nodes.Count
