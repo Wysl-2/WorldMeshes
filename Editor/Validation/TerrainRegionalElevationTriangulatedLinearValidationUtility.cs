@@ -223,7 +223,7 @@ public static class TerrainRegionalElevationTriangulatedLinearValidationUtility
                 TerrainNodeElevationInterpolationMode.TriangulatedLinear) &&
             TerrainNodeElevationInterpolationModeUtility.SupportsGpuComposition(
                 TerrainNodeElevationInterpolationMode.TriangulatedLinear) &&
-            !TerrainNodeElevationInterpolationModeUtility.SupportsCpuEvaluation(
+            TerrainNodeElevationInterpolationModeUtility.SupportsCpuEvaluation(
                 TerrainNodeElevationInterpolationMode.TriangulatedSmooth) &&
             !TerrainNodeElevationInterpolationModeUtility.SupportsGpuComposition(
                 TerrainNodeElevationInterpolationMode.TriangulatedSmooth);
@@ -232,7 +232,7 @@ public static class TerrainRegionalElevationTriangulatedLinearValidationUtility
             "CPU/GPU interpolation capability matrix is explicit",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "IDW and Linear are CPU/GPU-ready after Package I4, Smooth remains unavailable, and serialized enum values are unchanged."
+                ? "IDW and Linear are CPU/GPU-ready; Smooth is CPU-ready but remains GPU-pending; serialized enum values are unchanged."
                 : "Interpolation capability reporting did not match the current package contract.");
     }
 
@@ -764,21 +764,30 @@ public static class TerrainRegionalElevationTriangulatedLinearValidationUtility
         smooth.SetInterpolationModeInternal(
             TerrainNodeElevationInterpolationMode.TriangulatedSmooth);
 
-        bool smoothRejected =
-            !TerrainNodeElevationEvaluator.TryEvaluateHeight(
+        bool smoothCpuSupported =
+            TerrainNodeElevationEvaluator.TryEvaluateHeight(
                 smooth,
                 new Vector2(20f, 20f),
-                out _,
+                out float smoothHeight,
                 out string smoothError) &&
-            smoothError.Contains("CPU");
+            !float.IsNaN(smoothHeight) &&
+            !float.IsInfinity(smoothHeight);
 
-        bool passed = linearCpu && linearGpuSupported && smoothRejected;
+        bool smoothGpuUnsupported =
+            !TerrainNodeElevationInterpolationModeUtility.SupportsGpuComposition(
+                TerrainNodeElevationInterpolationMode.TriangulatedSmooth);
+
+        bool passed =
+            linearCpu &&
+            linearGpuSupported &&
+            smoothCpuSupported &&
+            smoothGpuUnsupported;
 
         AddResult(
-            "Linear CPU semantics remain authoritative while GPU composition is now available",
+            "Linear CPU/GPU semantics remain authoritative while Smooth gains CPU-only support",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "Triangulated Linear still evaluates through the Package I3 CPU path and is now accepted by Package I4 GPU composition, while Smooth remains unsupported."
+                ? "Triangulated Linear still evaluates through the Package I3 CPU path and Package I4 GPU composition; Smooth now evaluates on CPU while GPU composition remains deferred."
                 : gpuError + " " + smoothError);
 
         ClearFixture(linearData);

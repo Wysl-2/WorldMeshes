@@ -242,7 +242,7 @@ public static class TerrainRegionalElevationTriangulatedLinearGpuValidationUtili
                 TerrainNodeElevationInterpolationMode.TriangulatedLinear) &&
             TerrainNodeElevationInterpolationModeUtility.SupportsGpuComposition(
                 TerrainNodeElevationInterpolationMode.TriangulatedLinear) &&
-            !TerrainNodeElevationInterpolationModeUtility.SupportsCpuEvaluation(
+            TerrainNodeElevationInterpolationModeUtility.SupportsCpuEvaluation(
                 TerrainNodeElevationInterpolationMode.TriangulatedSmooth) &&
             !TerrainNodeElevationInterpolationModeUtility.SupportsGpuComposition(
                 TerrainNodeElevationInterpolationMode.TriangulatedSmooth);
@@ -270,7 +270,7 @@ public static class TerrainRegionalElevationTriangulatedLinearGpuValidationUtili
             "CPU/GPU capability matrix and production composition resolution enable Linear",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "IDW and Linear are CPU/GPU-ready, Smooth remains unavailable, and production composition now accepts a Linear node source."
+                ? "IDW and Linear are CPU/GPU-ready, Smooth is CPU-ready but remains GPU-pending, and production composition accepts a Linear node source."
                 : resolverError);
 
         ClearFixture(data);

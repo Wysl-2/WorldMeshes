@@ -140,7 +140,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                 TerrainNodeElevationInterpolationMode.TriangulatedLinear));
 
         menu.AddDisabledItem(
-            new GUIContent("Triangulated Smooth (Not Implemented)"),
+            new GUIContent("Triangulated Smooth (CPU Ready - GPU Pending)"),
             currentMode ==
                 TerrainNodeElevationInterpolationMode.TriangulatedSmooth);
 

@@ -848,13 +848,14 @@ public static class TerrainRegionalElevationTriangulationValidationUtility
         smooth.SetInterpolationModeInternal(
             TerrainNodeElevationInterpolationMode.TriangulatedSmooth);
 
-        bool smoothStillUnsupported =
-            !TerrainNodeElevationEvaluator.TryEvaluateHeight(
+        bool smoothCpuSupported =
+            TerrainNodeElevationEvaluator.TryEvaluateHeight(
                 smooth,
                 new Vector2(20f, 20f),
-                out _,
+                out float smoothHeight,
                 out string smoothError) &&
-            smoothError.Contains("CPU");
+            !float.IsNaN(smoothHeight) &&
+            !float.IsInfinity(smoothHeight);
 
         bool passed =
             oneNode &&
@@ -864,13 +865,13 @@ public static class TerrainRegionalElevationTriangulationValidationUtility
             arbitrary &&
             topologyAvailableForLinear &&
             linearCpuSupported &&
-            smoothStillUnsupported;
+            smoothCpuSupported;
 
         AddResult(
-            "Package I2 topology remains compatible with IDW and Linear CPU evaluation",
+            "Package I2 topology remains compatible with IDW, Linear, and Smooth CPU evaluation",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "Package I1 IDW regression samples are unchanged; Package I2 topology is reusable by Linear CPU evaluation, while Smooth remains explicitly unsupported."
+                ? "Package I1 IDW regression samples are unchanged; Package I2 topology remains reusable by both Linear and Package I6 Smooth CPU evaluation."
                 : linearError + " " + smoothError);
     }
 

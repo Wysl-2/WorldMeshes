@@ -24,12 +24,40 @@ public static class TerrainNodeElevationEvaluator
         triangulatedLinearTopologyCache =
             new TerrainNodeElevationTopologyCache();
 
+    private static readonly TerrainNodeElevationTopologyCache
+        triangulatedSmoothTopologyCache =
+            new TerrainNodeElevationTopologyCache();
+
+    private static readonly TerrainNodeElevationGradientCache
+        triangulatedSmoothGradientCache =
+            new TerrainNodeElevationGradientCache();
+
+    private static readonly TerrainNodeElevationSmoothPatchCache
+        triangulatedSmoothPatchCache =
+            new TerrainNodeElevationSmoothPatchCache();
+
     internal static int TriangulatedLinearTopologyRebuildCount =>
         triangulatedLinearTopologyCache.RebuildCount;
+
+    internal static int TriangulatedSmoothTopologyRebuildCount =>
+        triangulatedSmoothTopologyCache.RebuildCount;
+
+    internal static int TriangulatedSmoothGradientRebuildCount =>
+        triangulatedSmoothGradientCache.RebuildCount;
+
+    internal static int TriangulatedSmoothPatchRebuildCount =>
+        triangulatedSmoothPatchCache.RebuildCount;
 
     internal static void ClearTriangulatedLinearTopologyCache()
     {
         triangulatedLinearTopologyCache.Clear();
+    }
+
+    internal static void ClearTriangulatedSmoothCaches()
+    {
+        triangulatedSmoothTopologyCache.Clear();
+        triangulatedSmoothGradientCache.Clear();
+        triangulatedSmoothPatchCache.Clear();
     }
 
     public static bool TryEvaluateHeight(
@@ -112,11 +140,61 @@ public static class TerrainNodeElevationEvaluator
                         out errorMessage);
 
             case TerrainNodeElevationInterpolationMode.TriangulatedSmooth:
-                errorMessage =
-                    TerrainNodeElevationInterpolationModeUtility
-                        .GetCpuNotImplementedMessage(
-                            source.InterpolationMode);
-                return false;
+                if (!TerrainNodeElevationInterpolationModeUtility
+                    .SupportsCpuEvaluation(source.InterpolationMode))
+                {
+                    errorMessage =
+                        TerrainNodeElevationInterpolationModeUtility
+                            .GetCpuNotImplementedMessage(
+                                source.InterpolationMode);
+                    return false;
+                }
+
+                if (!triangulatedSmoothTopologyCache.TryGetOrBuild(
+                    source,
+                    out TerrainNodeElevationTopology smoothTopology,
+                    out string smoothTopologyError))
+                {
+                    errorMessage =
+                        "Triangulated Smooth topology could not be built. " +
+                        smoothTopologyError;
+                    return false;
+                }
+
+                if (!triangulatedSmoothGradientCache.TryGetOrBuild(
+                    source,
+                    smoothTopology,
+                    out TerrainNodeElevationGradientData smoothGradients,
+                    out string smoothGradientError))
+                {
+                    errorMessage =
+                        "Triangulated Smooth gradients could not be built. " +
+                        smoothGradientError;
+                    return false;
+                }
+
+                if (!triangulatedSmoothPatchCache.TryGetOrBuild(
+                    source,
+                    smoothTopology,
+                    smoothGradients,
+                    out TerrainNodeElevationSmoothPatchData smoothPatches,
+                    out string smoothPatchError))
+                {
+                    errorMessage =
+                        "Triangulated Smooth patches could not be built. " +
+                        smoothPatchError;
+                    return false;
+                }
+
+                return TerrainNodeElevationSmoothInterpolationUtility
+                    .TryEvaluateHeight(
+                        source,
+                        smoothTopology,
+                        smoothGradients,
+                        smoothPatches,
+                        worldPositionXZ,
+                        out height,
+                        out errorMessage);
 
             default:
                 errorMessage =
