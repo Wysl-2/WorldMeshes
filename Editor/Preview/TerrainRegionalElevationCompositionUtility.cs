@@ -82,14 +82,14 @@ public static class TerrainRegionalElevationCompositionUtility
         }
 
         if (
-            !TerrainNodeElevationInterpolationModeUtility.IsImplemented(
+            !TerrainNodeElevationInterpolationModeUtility.SupportsGpuComposition(
                 resolvedNodeSource.InterpolationMode
             )
         )
         {
             errorMessage =
                 TerrainNodeElevationInterpolationModeUtility
-                    .GetNotImplementedMessage(
+                    .GetGpuNotImplementedMessage(
                         resolvedNodeSource.InterpolationMode
                     );
 

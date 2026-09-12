@@ -375,13 +375,13 @@ public static class TerrainRegionalElevationInterpolationModeValidationUtility
         linear.SetInterpolationModeInternal(
             TerrainNodeElevationInterpolationMode.TriangulatedLinear);
 
-        bool linearEvaluationRejected =
-            !TerrainNodeElevationEvaluator.TryEvaluateHeight(
+        bool linearEvaluationSupported =
+            TerrainNodeElevationEvaluator.TryEvaluateHeight(
                 linear,
                 new Vector2(50f, 0f),
-                out _,
+                out float linearHeight,
                 out string linearError) &&
-            linearError.Contains("not implemented");
+            Mathf.Abs(linearHeight - 50f) <= 0.0001f;
 
         TerrainAuthoringData linearData =
             CreateDataFromSource(linear);
@@ -392,7 +392,7 @@ public static class TerrainRegionalElevationInterpolationModeValidationUtility
                 out _,
                 out _,
                 out string linearCompositionError) &&
-            linearCompositionError.Contains("not implemented");
+            linearCompositionError.Contains("GPU");
 
         TerrainNodeElevationSource smooth =
             CreateSource(
@@ -408,19 +408,19 @@ public static class TerrainRegionalElevationInterpolationModeValidationUtility
                 new Vector2(50f, 0f),
                 out _,
                 out string smoothError) &&
-            smoothError.Contains("not implemented");
+            smoothError.Contains("CPU");
 
         bool passed =
             invalidRejected &&
-            linearEvaluationRejected &&
+            linearEvaluationSupported &&
             linearCompositionRejected &&
             smoothRejected;
 
         AddResult(
-            "Invalid and future interpolation modes fail explicitly instead of falling back to IDW",
+            "Invalid modes fail explicitly while CPU/GPU interpolation capability boundaries remain enforced",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "Undefined enum data is invalid, while known future modes retain signature identity but CPU/GPU preparation reports that they are not implemented."
+                ? "Undefined enum data remains invalid; Linear now evaluates on CPU but is rejected by GPU composition, while Smooth remains CPU-unsupported."
                 : linearError + " " + linearCompositionError + " " + smoothError);
 
         ClearFixture(linearData);

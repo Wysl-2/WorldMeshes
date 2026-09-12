@@ -833,13 +833,13 @@ public static class TerrainRegionalElevationTriangulationValidationUtility
             TerrainNodeElevationInterpolationMode.TriangulatedLinear);
 
         bool topologyAvailableForLinear = TryBuild(linear, out _);
-        bool linearStillUnsupported =
-            !TerrainNodeElevationEvaluator.TryEvaluateHeight(
+        bool linearCpuSupported =
+            TerrainNodeElevationEvaluator.TryEvaluateHeight(
                 linear,
                 new Vector2(20f, 20f),
-                out _,
+                out float linearHeight,
                 out string linearError) &&
-            linearError.Contains("not implemented");
+            Mathf.Abs(linearHeight - 30f) <= 0.0001f;
 
         TerrainNodeElevationSource smooth = CreateSource(
             new NodeSpec(Vector2.zero, 0f),
@@ -854,7 +854,7 @@ public static class TerrainRegionalElevationTriangulationValidationUtility
                 new Vector2(20f, 20f),
                 out _,
                 out string smoothError) &&
-            smoothError.Contains("not implemented");
+            smoothError.Contains("CPU");
 
         bool passed =
             oneNode &&
@@ -863,14 +863,14 @@ public static class TerrainRegionalElevationTriangulationValidationUtility
             coincident &&
             arbitrary &&
             topologyAvailableForLinear &&
-            linearStillUnsupported &&
+            linearCpuSupported &&
             smoothStillUnsupported;
 
         AddResult(
-            "Package I2 leaves IDW mathematics unchanged and future terrain modes unsupported",
+            "Package I2 topology remains compatible with IDW and Linear CPU evaluation",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "Package I1 IDW regression samples are unchanged; topology can be derived independently of mode, but Linear/Smooth terrain evaluation still fails explicitly as not implemented."
+                ? "Package I1 IDW regression samples are unchanged; Package I2 topology is reusable by Linear CPU evaluation, while Smooth remains explicitly unsupported."
                 : linearError + " " + smoothError);
     }
 

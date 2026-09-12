@@ -1,9 +1,9 @@
 /*
  * Persistent interpolation-mode identity for node-based regional elevation.
  *
- * Package I1 establishes the source-level mode contract only. IDW remains the
- * only production evaluator/compositor in this package; later interpolation
- * packages activate the triangulated modes without changing serialized values.
+ * CPU and GPU capability are reported separately. Package I3 enables CPU
+ * Triangulated Linear evaluation while GPU terrain composition remains IDW-only
+ * until Package I4.
  */
 public enum TerrainNodeElevationInterpolationMode
 {
@@ -29,11 +29,36 @@ public static class TerrainNodeElevationInterpolationModeUtility
         }
     }
 
-    public static bool IsImplemented(
+    public static bool SupportsCpuEvaluation(
+        TerrainNodeElevationInterpolationMode mode)
+    {
+        switch (mode)
+        {
+            case TerrainNodeElevationInterpolationMode.InverseDistanceWeighted:
+            case TerrainNodeElevationInterpolationMode.TriangulatedLinear:
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
+    public static bool SupportsGpuComposition(
         TerrainNodeElevationInterpolationMode mode)
     {
         return mode ==
             TerrainNodeElevationInterpolationMode.InverseDistanceWeighted;
+    }
+
+    /*
+     * Backward-compatible production-readiness query retained for existing
+     * callers. A mode is fully implemented only when the current GPU terrain
+     * composition pipeline can render it.
+     */
+    public static bool IsImplemented(
+        TerrainNodeElevationInterpolationMode mode)
+    {
+        return SupportsGpuComposition(mode);
     }
 
     public static string GetDisplayName(
@@ -55,14 +80,62 @@ public static class TerrainNodeElevationInterpolationModeUtility
         }
     }
 
-    public static string GetNotImplementedMessage(
+    public static string GetCpuNotImplementedMessage(
         TerrainNodeElevationInterpolationMode mode)
     {
+        if (!IsKnown(mode))
+        {
+            return
+                "Regional elevation interpolation mode '" +
+                GetDisplayName(mode) +
+                "' is invalid.";
+        }
+
         return
             "Regional elevation interpolation mode '" +
             GetDisplayName(mode) +
-            "' is not implemented yet. " +
-            "Package I1 supports production evaluation/composition through " +
-            "Inverse Distance Weighted only.";
+            "' does not have CPU evaluation support yet.";
+    }
+
+    public static string GetGpuNotImplementedMessage(
+        TerrainNodeElevationInterpolationMode mode)
+    {
+        if (!IsKnown(mode))
+        {
+            return
+                "Regional elevation interpolation mode '" +
+                GetDisplayName(mode) +
+                "' is invalid.";
+        }
+
+        if (
+            mode ==
+            TerrainNodeElevationInterpolationMode.TriangulatedLinear
+        )
+        {
+            return
+                "Triangulated Linear CPU evaluation is implemented, but GPU " +
+                "regional terrain composition is not available until Package I4.";
+        }
+
+        return
+            "Regional elevation interpolation mode '" +
+            GetDisplayName(mode) +
+            "' does not have GPU regional terrain composition support yet.";
+    }
+
+    /*
+     * Backward-compatible message for callers that require full production
+     * composition support rather than CPU evaluation alone.
+     */
+    public static string GetNotImplementedMessage(
+        TerrainNodeElevationInterpolationMode mode)
+    {
+        if (!SupportsCpuEvaluation(mode))
+        {
+            return GetCpuNotImplementedMessage(mode);
+        }
+
+        return GetGpuNotImplementedMessage(mode);
     }
 }

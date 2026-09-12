@@ -52,8 +52,13 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         bool knownMode =
             TerrainNodeElevationInterpolationModeUtility.IsKnown(mode);
 
-        bool implementedMode =
-            TerrainNodeElevationInterpolationModeUtility.IsImplemented(mode);
+        bool cpuSupported =
+            TerrainNodeElevationInterpolationModeUtility
+                .SupportsCpuEvaluation(mode);
+
+        bool gpuSupported =
+            TerrainNodeElevationInterpolationModeUtility
+                .SupportsGpuComposition(mode);
 
         EditorGUILayout.LabelField(
             "Current Mode",
@@ -88,18 +93,27 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                 "The serialized interpolation mode is invalid. Production evaluation and deterministic output signatures intentionally reject this source.",
                 MessageType.Error);
         }
-        else if (!implementedMode)
+        else if (!cpuSupported)
         {
             EditorGUILayout.HelpBox(
-                TerrainNodeElevationInterpolationModeUtility.GetNotImplementedMessage(mode) +
+                TerrainNodeElevationInterpolationModeUtility
+                    .GetCpuNotImplementedMessage(mode) +
                 " Use the selector to return the source to Inverse Distance Weighted.",
+                MessageType.Warning);
+        }
+        else if (!gpuSupported)
+        {
+            EditorGUILayout.HelpBox(
+                TerrainNodeElevationInterpolationModeUtility
+                    .GetGpuNotImplementedMessage(mode) +
+                " The live production selector keeps this mode disabled until CPU/GPU parity is completed.",
                 MessageType.Warning);
         }
         else
         {
             EditorGUILayout.HelpBox(
-                "Inverse Distance Weighted is the currently implemented regional interpolation mode. " +
-                "Triangulated Linear and Triangulated Smooth are reserved for later interpolation packages.",
+                "Inverse Distance Weighted is available for both CPU evaluation and GPU terrain composition. " +
+                "Triangulated Linear CPU evaluation is implemented, but live GPU composition is deferred to Package I4.",
                 MessageType.Info);
         }
 
@@ -119,7 +133,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                 TerrainNodeElevationInterpolationMode.InverseDistanceWeighted));
 
         menu.AddDisabledItem(
-            new GUIContent("Triangulated Linear (Not Implemented)"),
+            new GUIContent("Triangulated Linear (CPU Ready - GPU Pending I4)"),
             currentMode ==
                 TerrainNodeElevationInterpolationMode.TriangulatedLinear);
 
@@ -136,6 +150,16 @@ public partial class WorldMeshesEditorWindow : EditorWindow
     {
         if (worldSettings == null || terrainAuthoringData == null)
         {
+            return;
+        }
+
+        if (!TerrainNodeElevationInterpolationModeUtility
+            .SupportsGpuComposition(mode))
+        {
+            Debug.LogError(
+                "Regional elevation interpolation mode edit failed.\n\n" +
+                TerrainNodeElevationInterpolationModeUtility
+                    .GetGpuNotImplementedMessage(mode));
             return;
         }
 

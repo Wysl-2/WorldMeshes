@@ -4,16 +4,14 @@ using UnityEngine;
 /*
  * Pure CPU evaluator for node-based regional elevation.
  *
- * Package 3 defines the mathematical field only. It does not mutate authoring
- * data and is not connected to terrain composition, preview, or runtime
- * streaming yet.
+ * Package I3 adds Triangulated Linear CPU evaluation over Package I2 derived
+ * topology. IDW mathematics remain unchanged. No authoring state is mutated.
  */
 public static class TerrainNodeElevationEvaluator
 {
     /*
      * Samples within one millimetre of a node position are treated as exact
-     * matches. This avoids singular IDW weights while remaining small relative
-     * to normal terrain-authoring scales.
+     * matches by the legacy IDW path. This constant and behavior are preserved.
      */
     public const float ExactNodeDistance =
         0.001f;
@@ -22,14 +20,18 @@ public static class TerrainNodeElevationEvaluator
         ExactNodeDistance *
         ExactNodeDistance;
 
-    /*
-     * Evaluates the global regional-elevation field using inverse-distance
-     * weighting with fixed power 2.
-     *
-     * Zero nodes are structurally valid source data but do not define a
-     * mathematical surface, so evaluation fails instead of inventing a 0m
-     * fallback. Stable IDs are intentionally not inspected.
-     */
+    private static readonly TerrainNodeElevationTopologyCache
+        triangulatedLinearTopologyCache =
+            new TerrainNodeElevationTopologyCache();
+
+    internal static int TriangulatedLinearTopologyRebuildCount =>
+        triangulatedLinearTopologyCache.RebuildCount;
+
+    internal static void ClearTriangulatedLinearTopologyCache()
+    {
+        triangulatedLinearTopologyCache.Clear();
+    }
+
     public static bool TryEvaluateHeight(
         TerrainNodeElevationSource source,
         Vector2 worldPositionXZ,
@@ -37,34 +39,24 @@ public static class TerrainNodeElevationEvaluator
         out string errorMessage
     )
     {
-        height =
-            0f;
-
-        errorMessage =
-            "";
+        height = 0f;
+        errorMessage = "";
 
         if (source == null)
         {
             errorMessage =
                 "TerrainNodeElevationSource is null.";
-
             return false;
         }
 
         if (
-            !IsFinite(
-                worldPositionXZ.x
-            )
-            ||
-            !IsFinite(
-                worldPositionXZ.y
-            )
+            !IsFinite(worldPositionXZ.x) ||
+            !IsFinite(worldPositionXZ.y)
         )
         {
             errorMessage =
                 "Regional elevation sample position contains a non-finite " +
                 "value.";
-
             return false;
         }
 
@@ -77,38 +69,90 @@ public static class TerrainNodeElevationEvaluator
             errorMessage =
                 "Regional elevation source output data is invalid. " +
                 sourceError;
-
             return false;
         }
 
-        if (
-            !TerrainNodeElevationInterpolationModeUtility.IsImplemented(
-                source.InterpolationMode
-            )
-        )
+        switch (source.InterpolationMode)
         {
-            errorMessage =
-                TerrainNodeElevationInterpolationModeUtility
-                    .GetNotImplementedMessage(
-                        source.InterpolationMode
-                    );
+            case TerrainNodeElevationInterpolationMode.InverseDistanceWeighted:
+                return TryEvaluateInverseDistanceWeighted(
+                    source,
+                    worldPositionXZ,
+                    out height,
+                    out errorMessage);
 
-            return false;
+            case TerrainNodeElevationInterpolationMode.TriangulatedLinear:
+                if (!TerrainNodeElevationInterpolationModeUtility
+                    .SupportsCpuEvaluation(source.InterpolationMode))
+                {
+                    errorMessage =
+                        TerrainNodeElevationInterpolationModeUtility
+                            .GetCpuNotImplementedMessage(
+                                source.InterpolationMode);
+                    return false;
+                }
+
+                if (!triangulatedLinearTopologyCache.TryGetOrBuild(
+                    source,
+                    out TerrainNodeElevationTopology topology,
+                    out string topologyError))
+                {
+                    errorMessage =
+                        "Triangulated Linear topology could not be built. " +
+                        topologyError;
+                    return false;
+                }
+
+                return TerrainNodeElevationLinearInterpolationUtility
+                    .TryEvaluateHeight(
+                        source,
+                        topology,
+                        worldPositionXZ,
+                        out height,
+                        out errorMessage);
+
+            case TerrainNodeElevationInterpolationMode.TriangulatedSmooth:
+                errorMessage =
+                    TerrainNodeElevationInterpolationModeUtility
+                        .GetCpuNotImplementedMessage(
+                            source.InterpolationMode);
+                return false;
+
+            default:
+                errorMessage =
+                    "Terrain node elevation source contains an unsupported " +
+                    "interpolation mode.";
+                return false;
         }
+    }
+
+    /*
+     * Existing global inverse-distance weighting with fixed power 2.
+     *
+     * This method is the pre-I3 algorithm moved behind explicit mode dispatch;
+     * its numerical behavior is intentionally unchanged.
+     */
+    private static bool TryEvaluateInverseDistanceWeighted(
+        TerrainNodeElevationSource source,
+        Vector2 worldPositionXZ,
+        out float height,
+        out string errorMessage
+    )
+    {
+        height = 0f;
+        errorMessage = "";
 
         IReadOnlyList<TerrainElevationNode> nodes =
             source.Nodes;
 
         if (
-            nodes == null
-            ||
+            nodes == null ||
             nodes.Count == 0
         )
         {
             errorMessage =
                 "TerrainNodeElevationSource contains no elevation nodes and " +
                 "does not define an evaluable regional surface.";
-
             return false;
         }
 
@@ -117,40 +161,24 @@ public static class TerrainNodeElevationEvaluator
             float singleHeight =
                 nodes[0].Elevation;
 
-            if (!IsFinite(
-                singleHeight
-            ))
+            if (!IsFinite(singleHeight))
             {
                 errorMessage =
                     "Single-node regional elevation produced a non-finite " +
                     "height.";
-
                 return false;
             }
 
-            height =
-                singleHeight;
-
+            height = singleHeight;
             return true;
         }
 
-        double exactHeightSum =
-            0.0;
+        double exactHeightSum = 0.0;
+        int exactMatchCount = 0;
+        double weightedHeightSum = 0.0;
+        double weightSum = 0.0;
 
-        int exactMatchCount =
-            0;
-
-        double weightedHeightSum =
-            0.0;
-
-        double weightSum =
-            0.0;
-
-        for (
-            int index = 0;
-            index < nodes.Count;
-            index++
-        )
+        for (int index = 0; index < nodes.Count; index++)
         {
             TerrainElevationNode node =
                 nodes[index];
@@ -170,20 +198,14 @@ public static class TerrainNodeElevationEvaluator
                 nodePosition.y;
 
             double distanceSquared =
-                deltaX *
-                    deltaX
-                +
-                deltaZ *
-                    deltaZ;
+                deltaX * deltaX +
+                deltaZ * deltaZ;
 
-            if (!IsFinite(
-                distanceSquared
-            ))
+            if (!IsFinite(distanceSquared))
             {
                 errorMessage =
                     $"Regional elevation distance calculation failed for " +
                     $"node index {index}.";
-
                 return false;
             }
 
@@ -194,9 +216,7 @@ public static class TerrainNodeElevationEvaluator
             {
                 exactHeightSum +=
                     nodeElevation;
-
                 exactMatchCount++;
-
                 continue;
             }
 
@@ -205,17 +225,13 @@ public static class TerrainNodeElevationEvaluator
                 distanceSquared;
 
             if (
-                !IsFinite(
-                    weight
-                )
-                ||
+                !IsFinite(weight) ||
                 weight <= 0.0
             )
             {
                 errorMessage =
                     $"Regional elevation weight calculation failed for " +
                     $"node index {index}.";
-
                 return false;
             }
 
@@ -227,19 +243,13 @@ public static class TerrainNodeElevationEvaluator
                 weight;
 
             if (
-                !IsFinite(
-                    weightedHeightSum
-                )
-                ||
-                !IsFinite(
-                    weightSum
-                )
+                !IsFinite(weightedHeightSum) ||
+                !IsFinite(weightSum)
             )
             {
                 errorMessage =
                     "Regional elevation weighted accumulation became " +
                     "non-finite.";
-
                 return false;
             }
         }
@@ -255,17 +265,13 @@ public static class TerrainNodeElevationEvaluator
         else
         {
             if (
-                weightSum <= 0.0
-                ||
-                !IsFinite(
-                    weightSum
-                )
+                weightSum <= 0.0 ||
+                !IsFinite(weightSum)
             )
             {
                 errorMessage =
                     "Regional elevation interpolation produced an invalid " +
                     "weight sum.";
-
                 return false;
             }
 
@@ -275,67 +281,43 @@ public static class TerrainNodeElevationEvaluator
         }
 
         if (
-            !IsFinite(
-                evaluatedHeight
-            )
-            ||
-            evaluatedHeight > float.MaxValue
-            ||
+            !IsFinite(evaluatedHeight) ||
+            evaluatedHeight > float.MaxValue ||
             evaluatedHeight < -float.MaxValue
         )
         {
             errorMessage =
                 "Regional elevation interpolation produced a non-finite or " +
                 "out-of-range height.";
-
             return false;
         }
 
         float evaluatedHeightFloat =
             (float)evaluatedHeight;
 
-        if (!IsFinite(
-            evaluatedHeightFloat
-        ))
+        if (!IsFinite(evaluatedHeightFloat))
         {
             errorMessage =
                 "Regional elevation interpolation could not be represented " +
                 "as a finite float height.";
-
             return false;
         }
 
-        height =
-            evaluatedHeightFloat;
-
+        height = evaluatedHeightFloat;
         return true;
     }
 
-    private static bool IsFinite(
-        float value
-    )
+    private static bool IsFinite(float value)
     {
         return
-            !float.IsNaN(
-                value
-            )
-            &&
-            !float.IsInfinity(
-                value
-            );
+            !float.IsNaN(value) &&
+            !float.IsInfinity(value);
     }
 
-    private static bool IsFinite(
-        double value
-    )
+    private static bool IsFinite(double value)
     {
         return
-            !double.IsNaN(
-                value
-            )
-            &&
-            !double.IsInfinity(
-                value
-            );
+            !double.IsNaN(value) &&
+            !double.IsInfinity(value);
     }
 }
