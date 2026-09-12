@@ -20,35 +20,42 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             TerrainRegionalElevationSceneTool.SetEnabled(requestedEnabled);
         }
 
-        string selectedStableId =
-            TerrainRegionalElevationSelectionState.GetSelectedNodeStableId(
-                terrainAuthoringData);
+        int selectedCount =
+            TerrainRegionalElevationSelectionState.GetSelectedCount(terrainAuthoringData);
+        string primaryStableId =
+            TerrainRegionalElevationSelectionState.GetPrimaryStableId(terrainAuthoringData);
 
         EditorGUILayout.LabelField(
             "Status",
             TerrainRegionalElevationSceneTool.ContextStatus);
 
         EditorGUILayout.LabelField(
-            "Selected Node",
-            string.IsNullOrEmpty(selectedStableId)
+            "Selected Nodes",
+            selectedCount.ToString("N0"));
+
+        EditorGUILayout.LabelField(
+            "Primary Node",
+            string.IsNullOrEmpty(primaryStableId)
                 ? "None"
-                : ShortStableId(selectedStableId));
+                : ShortStableId(primaryStableId));
 
         EditorGUILayout.LabelField(
             "Active Drag",
             TerrainRegionalElevationSceneTool.ActiveDragMode.ToString());
 
+        EditorGUILayout.LabelField(
+            "Marquee",
+            TerrainRegionalElevationSceneTool.HasActiveMarquee
+                ? "Active"
+                : "Inactive");
+
         GUILayout.Space(5f);
 
         EditorGUILayout.HelpBox(
-            "When enabled, every active regional elevation node is drawn in the Scene view. " +
-            "Click a node to select it. The selected node has an XZ planar movement handle " +
-            "and a separate vertical elevation handle. XZ Scene dragging is constrained to " +
-            "the logical world bounds; Package 5 numeric editing remains permissive for " +
-            "finite out-of-world coordinates.\n\n" +
-            "A complete handle drag is one Package 5 interactive transaction. Terrain preview " +
-            "can recompose during the drag, while authoringRevision and runtime invalidation " +
-            "are finalized only when the gesture commits.",
+            "Selection: click = select one, Shift-click = add, Ctrl/Command-click = toggle. " +
+            "Drag from empty Scene space to marquee-select nodes; the same modifiers add or toggle the marquee result.\n\n" +
+            "A single selected node keeps the Package 6 XZ and elevation handles. Multiple selected nodes use one group XZ handle at the average selection pivot. Group movement applies one common world-bounded delta so relative node spacing is preserved.\n\n" +
+            "A complete group drag is one regional interactive transaction. Node data updates on drag samples, full-world terrain preview remains throttled, and revision/runtime invalidation are finalized only at commit.",
             MessageType.Info);
 
         GUILayout.EndVertical();

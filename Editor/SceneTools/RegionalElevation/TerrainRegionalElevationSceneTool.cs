@@ -3,10 +3,11 @@ using UnityEditor;
 using UnityEngine;
 
 /*
- * Package 6 SceneView authoring layer for TerrainNodeElevationSource.
+ * Package 7 SceneView authoring layer for TerrainNodeElevationSource.
  *
- * This class owns visualization, selection and handle lifecycle only. All
- * output-affecting node mutation is delegated to TerrainRegionalElevationService.
+ * Selection is a transient StableId set with one primary node. One selected
+ * node retains the Package 6 XZ/elevation handles; multiple selected nodes use
+ * one group XZ handle. All terrain mutation remains service-owned.
  */
 [InitializeOnLoad]
 public static class TerrainRegionalElevationSceneTool
@@ -15,7 +16,15 @@ public static class TerrainRegionalElevationSceneTool
     {
         None,
         MoveXZ,
-        Elevation
+        Elevation,
+        GroupMoveXZ
+    }
+
+    private enum MarqueeSelectionMode
+    {
+        Replace,
+        Add,
+        Toggle
     }
 
     private const string EnabledEditorPrefsKey =
@@ -27,6 +36,7 @@ public static class TerrainRegionalElevationSceneTool
     private const float ElevationHandleSizeMultiplier = 0.11f;
     private const float ElevationHandleOffsetMultiplier = 0.45f;
     private const float LabelOffsetMultiplier = 0.18f;
+    private const float MarqueeDragThresholdPixels = 4f;
 
     private static bool callbackAttached;
     private static bool enabled;
@@ -34,7 +44,27 @@ public static class TerrainRegionalElevationSceneTool
     private static TerrainAuthoringData authoringData;
     private static DragMode activeDragMode;
     private static string activeDragStableId = "";
+    private static Vector2 activeGroupGestureDelta = Vector2.zero;
     private static string contextStatus = "No authoring context is assigned.";
+
+    private static bool marqueeActive;
+    private static bool marqueeDragged;
+    private static int marqueeControlId;
+    private static Vector2 marqueeStartGui;
+    private static Vector2 marqueeCurrentGui;
+    private static MarqueeSelectionMode marqueeMode;
+    private static readonly List<string> marqueeSelectionBefore =
+        new List<string>();
+    private static string marqueePrimaryBefore = "";
+
+    private static readonly List<TerrainElevationNode> selectedNodesBuffer =
+        new List<TerrainElevationNode>();
+    private static readonly List<string> selectedIdsBuffer =
+        new List<string>();
+    private static readonly HashSet<string> selectedIdSetBuffer =
+        new HashSet<string>();
+    private static readonly List<string> marqueeIdsBuffer =
+        new List<string>();
 
     static TerrainRegionalElevationSceneTool()
     {
@@ -59,6 +89,7 @@ public static class TerrainRegionalElevationSceneTool
 
     public static DragMode ActiveDragMode => activeDragMode;
     public static string ActiveDragStableId => activeDragStableId;
+    public static bool HasActiveMarquee => marqueeActive;
     public static bool HasValidContext => TryResolveNodeSource(out _, out _);
     public static string ContextStatus => contextStatus;
 
@@ -71,7 +102,7 @@ public static class TerrainRegionalElevationSceneTool
 
         if (!value)
         {
-            CancelActiveDrag();
+            CancelActiveInteraction();
         }
 
         enabled = value;
@@ -94,7 +125,7 @@ public static class TerrainRegionalElevationSceneTool
             return;
         }
 
-        CancelActiveDrag();
+        CancelActiveInteraction();
         worldSettings = newWorldSettings;
         authoringData = newAuthoringData;
         TerrainRegionalElevationSelectionState.ValidateSelection(authoringData);
@@ -104,29 +135,21 @@ public static class TerrainRegionalElevationSceneTool
 
     public static void ClearContext()
     {
-        CancelActiveDrag();
+        CancelActiveInteraction();
         worldSettings = null;
         authoringData = null;
         contextStatus = "No authoring context is assigned.";
         SceneView.RepaintAll();
     }
 
-    internal static Vector3 GetNodeScenePosition(
-        Vector2 positionXZ,
-        float elevation)
+    internal static Vector3 GetNodeScenePosition(Vector2 positionXZ, float elevation)
     {
-        return new Vector3(
-            positionXZ.x,
-            elevation,
-            positionXZ.y);
+        return new Vector3(positionXZ.x, elevation, positionXZ.y);
     }
 
-    internal static Vector2 GetPositionXZFromScenePosition(
-        Vector3 scenePosition)
+    internal static Vector2 GetPositionXZFromScenePosition(Vector3 scenePosition)
     {
-        return new Vector2(
-            scenePosition.x,
-            scenePosition.z);
+        return new Vector2(scenePosition.x, scenePosition.z);
     }
 
     internal static Vector2 ClampPositionXZToWorld(
@@ -138,9 +161,7 @@ public static class TerrainRegionalElevationSceneTool
             return positionXZ;
         }
 
-        Vector2 worldSize =
-            TerrainClipmapLayoutUtility.CalculateWorldSizeXZ(settings);
-
+        Vector2 worldSize = TerrainClipmapLayoutUtility.CalculateWorldSizeXZ(settings);
         return new Vector2(
             Mathf.Clamp(positionXZ.x, 0f, worldSize.x),
             Mathf.Clamp(positionXZ.y, 0f, worldSize.y));
@@ -155,9 +176,10 @@ public static class TerrainRegionalElevationSceneTool
     {
         bool hadActiveEdit =
             activeDragMode != DragMode.None ||
+            marqueeActive ||
             TerrainRegionalElevationService.HasActiveInteractiveEdit;
 
-        CancelActiveDrag();
+        CancelActiveInteraction();
         return hadActiveEdit;
     }
 
@@ -223,8 +245,7 @@ public static class TerrainRegionalElevationSceneTool
 
         if (!(source is TerrainNodeElevationSource nodeSource))
         {
-            contextStatus =
-                "The active regional elevation source is not TerrainNodeElevationSource.";
+            contextStatus = "The active regional elevation source is not TerrainNodeElevationSource.";
             return;
         }
 
@@ -315,15 +336,28 @@ public static class TerrainRegionalElevationSceneTool
         {
             if (TerrainRegionalElevationService.HasActiveInteractiveEdit)
             {
-                CancelActiveDrag();
+                CancelActiveInteraction();
             }
             return;
         }
 
-        string selectedStableId =
-            TerrainRegionalElevationSelectionState.GetSelectedNodeStableId(authoringData);
+        TerrainRegionalElevationSelectionState.ValidateSelection(authoringData);
 
-        TerrainElevationNode selectedNode = null;
+        int defaultControlId = GUIUtility.GetControlID(FocusType.Passive);
+        if (Event.current != null && Event.current.type == EventType.Layout)
+        {
+            HandleUtility.AddDefaultControl(defaultControlId);
+        }
+
+        string primaryStableId =
+            TerrainRegionalElevationSelectionState.GetPrimaryStableId(authoringData);
+
+        selectedIdSetBuffer.Clear();
+        TerrainRegionalElevationSelectionState.CopySelectedStableIds(
+            authoringData,
+            selectedIdSetBuffer);
+
+        selectedNodesBuffer.Clear();
         IReadOnlyList<TerrainElevationNode> nodes = source.Nodes;
 
         for (int index = 0; index < nodes.Count; index++)
@@ -334,42 +368,51 @@ public static class TerrainRegionalElevationSceneTool
                 continue;
             }
 
-            bool selected = node.StableId == selectedStableId;
-            DrawNodeMarker(node, selected);
+            bool selected = selectedIdSetBuffer.Contains(node.StableId);
+            bool primary = selected && node.StableId == primaryStableId;
 
+            DrawNodeMarker(node, selected, primary);
             if (selected)
             {
-                selectedNode = node;
+                selectedNodesBuffer.Add(node);
             }
         }
 
-        if (selectedNode == null && !string.IsNullOrEmpty(selectedStableId))
+        if (selectedNodesBuffer.Count == 1)
         {
-            if (TerrainRegionalElevationService.HasActiveInteractiveEdit)
-            {
-                CancelActiveDrag();
-            }
-            TerrainRegionalElevationSelectionState.ForceClearSelection(authoringData);
+            DrawSingleNodeHandles(selectedNodesBuffer[0]);
+        }
+        else if (selectedNodesBuffer.Count > 1)
+        {
+            DrawGroupMoveHandle(selectedNodesBuffer);
         }
 
-        if (selectedNode != null)
-        {
-            DrawSelectedNodeHandles(selectedNode);
-        }
-
+        HandleMarqueeInput(source, defaultControlId);
         HandleActiveDragLifecycle();
+        DrawMarqueeOverlay();
     }
 
     private static void DrawNodeMarker(
         TerrainElevationNode node,
-        bool selected)
+        bool selected,
+        bool primary)
     {
-        Vector3 scenePosition =
-            GetNodeScenePosition(node.PositionXZ, node.Elevation);
-
+        Vector3 scenePosition = GetNodeScenePosition(node.PositionXZ, node.Elevation);
         float handleSize = HandleUtility.GetHandleSize(scenePosition);
         Color previousColor = Handles.color;
-        Handles.color = selected ? Handles.selectedColor : Handles.centerColor;
+
+        if (primary)
+        {
+            Handles.color = Handles.selectedColor;
+        }
+        else if (selected)
+        {
+            Handles.color = Handles.yAxisColor;
+        }
+        else
+        {
+            Handles.color = Handles.centerColor;
+        }
 
         bool drawFullVisualization =
             activeDragMode == DragMode.None || selected;
@@ -381,44 +424,22 @@ public static class TerrainRegionalElevationSceneTool
                 scenePosition);
         }
 
-        /*
-         * Always allocate the node selection control, even while another
-         * regional handle owns the active drag. Unity IMGUI control IDs are
-         * order-dependent; conditionally removing every node button after a
-         * drag begins shifts the selected Slider2D/Slider control ID and can
-         * cause GUIUtility.hotControl to lose the gesture after one sample.
-         *
-         * Selection is suppressed while dragging, but the control itself stays
-         * in the Layout/Repaint/control-ID sequence.
-         */
-        bool nodePressed =
-            Handles.Button(
-                scenePosition,
-                Quaternion.identity,
-                handleSize * MarkerSizeMultiplier,
-                handleSize * MarkerPickSizeMultiplier,
-                Handles.SphereHandleCap);
+        /* Keep every node button in the IMGUI control sequence during drags. */
+        bool nodePressed = Handles.Button(
+            scenePosition,
+            Quaternion.identity,
+            handleSize * MarkerSizeMultiplier,
+            handleSize * MarkerPickSizeMultiplier,
+            Handles.SphereHandleCap);
 
-        if (
+        if (!marqueeActive &&
             activeDragMode == DragMode.None &&
+            !TerrainRegionalElevationService.HasActiveInteractiveEdit &&
             nodePressed)
         {
-            if (TerrainRegionalElevationSelectionState.TrySelectNode(
-                authoringData,
-                node.StableId,
-                out _))
-            {
-                RepaintWorldMeshesWindows();
-                SceneView.RepaintAll();
-            }
+            ApplyNodeClickSelection(node.StableId, Event.current);
         }
 
-        /*
-         * Labels and long reference lines are visual-only. During an active
-         * drag keep them for the selected node but suppress them for the other
-         * nodes to reduce SceneView repaint cost without changing control-ID
-         * allocation.
-         */
         if (drawFullVisualization)
         {
             Handles.Label(
@@ -429,12 +450,44 @@ public static class TerrainRegionalElevationSceneTool
         Handles.color = previousColor;
     }
 
-    private static void DrawSelectedNodeHandles(
-        TerrainElevationNode node)
+    private static void ApplyNodeClickSelection(string stableId, Event current)
     {
-        Vector3 nodePosition =
-            GetNodeScenePosition(node.PositionXZ, node.Elevation);
+        bool shift = current != null && current.shift;
+        bool toggle = current != null && (current.control || current.command);
+        bool success;
 
+        if (toggle)
+        {
+            success = TerrainRegionalElevationSelectionState.ToggleNode(
+                authoringData,
+                stableId,
+                out _);
+        }
+        else if (shift)
+        {
+            success = TerrainRegionalElevationSelectionState.AddNode(
+                authoringData,
+                stableId,
+                out _);
+        }
+        else
+        {
+            success = TerrainRegionalElevationSelectionState.SelectOnly(
+                authoringData,
+                stableId,
+                out _);
+        }
+
+        if (success)
+        {
+            RepaintWorldMeshesWindows();
+            SceneView.RepaintAll();
+        }
+    }
+
+    private static void DrawSingleNodeHandles(TerrainElevationNode node)
+    {
+        Vector3 nodePosition = GetNodeScenePosition(node.PositionXZ, node.Elevation);
         float handleSize = HandleUtility.GetHandleSize(nodePosition);
 
         EditorGUI.BeginChangeCheck();
@@ -451,7 +504,10 @@ public static class TerrainRegionalElevationSceneTool
 
         if (moveChanged)
         {
-            if (BeginDragIfNeeded(node.StableId, DragMode.MoveXZ, "Move Regional Elevation Node"))
+            if (BeginSingleDragIfNeeded(
+                node.StableId,
+                DragMode.MoveXZ,
+                "Move Regional Elevation Node"))
             {
                 Vector2 requestedXZ = ClampPositionXZToWorld(
                     worldSettings,
@@ -462,14 +518,13 @@ public static class TerrainRegionalElevationSceneTool
                     out string moveError))
                 {
                     Debug.LogError("Regional elevation Scene move failed.\n\n" + moveError);
-                    CancelActiveDrag();
+                    CancelActiveInteraction();
                 }
             }
         }
 
         float elevationOffset = handleSize * ElevationHandleOffsetMultiplier;
-        Vector3 elevationHandlePosition =
-            nodePosition + Vector3.up * elevationOffset;
+        Vector3 elevationHandlePosition = nodePosition + Vector3.up * elevationOffset;
 
         EditorGUI.BeginChangeCheck();
         Vector3 requestedElevationPosition = Handles.Slider(
@@ -482,7 +537,10 @@ public static class TerrainRegionalElevationSceneTool
 
         if (elevationChanged)
         {
-            if (BeginDragIfNeeded(node.StableId, DragMode.Elevation, "Set Regional Elevation Node Height"))
+            if (BeginSingleDragIfNeeded(
+                node.StableId,
+                DragMode.Elevation,
+                "Set Regional Elevation Node Height"))
             {
                 float requestedElevation =
                     SanitizeSceneElevation(requestedElevationPosition.y - elevationOffset);
@@ -492,13 +550,60 @@ public static class TerrainRegionalElevationSceneTool
                     out string elevationError))
                 {
                     Debug.LogError("Regional elevation Scene height edit failed.\n\n" + elevationError);
-                    CancelActiveDrag();
+                    CancelActiveInteraction();
                 }
             }
         }
     }
 
-    private static bool BeginDragIfNeeded(
+    private static void DrawGroupMoveHandle(IReadOnlyList<TerrainElevationNode> selectedNodes)
+    {
+        Vector2 pivotXZ = TerrainRegionalElevationGroupUtility.CalculateAveragePositionXZ(selectedNodes);
+        float pivotElevation = TerrainRegionalElevationGroupUtility.CalculateAverageElevation(selectedNodes);
+        Vector3 pivot = GetNodeScenePosition(pivotXZ, pivotElevation);
+        float handleSize = HandleUtility.GetHandleSize(pivot);
+
+        EditorGUI.BeginChangeCheck();
+        Vector3 requestedScenePosition = Handles.Slider2D(
+            pivot,
+            Vector3.up,
+            Vector3.right,
+            Vector3.forward,
+            handleSize * MoveHandleSizeMultiplier,
+            Handles.RectangleHandleCap,
+            Vector2.zero,
+            true);
+        bool changed = EditorGUI.EndChangeCheck();
+
+        if (!changed)
+        {
+            return;
+        }
+
+        if (!BeginGroupDragIfNeeded())
+        {
+            return;
+        }
+
+        Vector2 requestedPivotXZ = GetPositionXZFromScenePosition(requestedScenePosition);
+        Vector2 requestedIncrement = requestedPivotXZ - pivotXZ;
+        Vector2 legalIncrement = TerrainRegionalElevationGroupUtility.ClampCommonDeltaToWorld(
+            worldSettings,
+            selectedNodes,
+            requestedIncrement);
+
+        activeGroupGestureDelta += legalIncrement;
+
+        if (!TerrainRegionalElevationService.UpdateInteractiveNodeGroupPositionDelta(
+            activeGroupGestureDelta,
+            out string groupError))
+        {
+            Debug.LogError("Regional elevation Scene group move failed.\n\n" + groupError);
+            CancelActiveInteraction();
+        }
+    }
+
+    private static bool BeginSingleDragIfNeeded(
         string stableId,
         DragMode requestedMode,
         string undoLabel)
@@ -523,7 +628,277 @@ public static class TerrainRegionalElevationSceneTool
 
         activeDragMode = requestedMode;
         activeDragStableId = stableId;
+        activeGroupGestureDelta = Vector2.zero;
         return true;
+    }
+
+    private static bool BeginGroupDragIfNeeded()
+    {
+        if (activeDragMode != DragMode.None)
+        {
+            return activeDragMode == DragMode.GroupMoveXZ;
+        }
+
+        selectedIdsBuffer.Clear();
+        TerrainRegionalElevationSelectionState.CopySelectedStableIds(
+            authoringData,
+            selectedIdsBuffer);
+
+        if (selectedIdsBuffer.Count < 2)
+        {
+            return false;
+        }
+
+        if (!TerrainRegionalElevationService.BeginInteractiveNodeGroupEdit(
+            authoringData,
+            worldSettings,
+            selectedIdsBuffer,
+            "Move Regional Elevation Nodes",
+            out string errorMessage))
+        {
+            Debug.LogError("Could not begin regional elevation group drag.\n\n" + errorMessage);
+            return false;
+        }
+
+        activeDragMode = DragMode.GroupMoveXZ;
+        activeDragStableId = "";
+        activeGroupGestureDelta = Vector2.zero;
+        return true;
+    }
+
+    private static void HandleMarqueeInput(
+        TerrainNodeElevationSource source,
+        int defaultControlId)
+    {
+        Event current = Event.current;
+        if (current == null)
+        {
+            return;
+        }
+
+        if (marqueeActive)
+        {
+            if (current.type == EventType.KeyDown && current.keyCode == KeyCode.Escape)
+            {
+                CancelMarquee();
+                current.Use();
+                return;
+            }
+
+            if (current.rawType == EventType.MouseDrag && current.button == 0)
+            {
+                marqueeCurrentGui = current.mousePosition;
+                marqueeDragged =
+                    marqueeDragged ||
+                    (marqueeCurrentGui - marqueeStartGui).sqrMagnitude >=
+                        MarqueeDragThresholdPixels * MarqueeDragThresholdPixels;
+                SceneView.RepaintAll();
+                current.Use();
+                return;
+            }
+
+            if (current.rawType == EventType.MouseUp && current.button == 0)
+            {
+                marqueeCurrentGui = current.mousePosition;
+                CompleteMarquee(source);
+                GUIUtility.hotControl = 0;
+                current.Use();
+                return;
+            }
+
+            return;
+        }
+
+        if (activeDragMode != DragMode.None ||
+            TerrainRegionalElevationService.HasActiveInteractiveEdit)
+        {
+            return;
+        }
+
+        if (current.type != EventType.MouseDown ||
+            current.button != 0 ||
+            current.alt)
+        {
+            return;
+        }
+
+        if (HandleUtility.nearestControl != defaultControlId)
+        {
+            return;
+        }
+
+        marqueeActive = true;
+        marqueeDragged = false;
+        marqueeControlId = defaultControlId;
+        marqueeStartGui = current.mousePosition;
+        marqueeCurrentGui = current.mousePosition;
+        marqueeMode = GetMarqueeMode(current);
+
+        marqueeSelectionBefore.Clear();
+        TerrainRegionalElevationSelectionState.CopySelectedStableIds(
+            authoringData,
+            marqueeSelectionBefore);
+        marqueePrimaryBefore =
+            TerrainRegionalElevationSelectionState.GetPrimaryStableId(authoringData);
+
+        GUIUtility.hotControl = marqueeControlId;
+        current.Use();
+    }
+
+    private static MarqueeSelectionMode GetMarqueeMode(Event current)
+    {
+        if (current != null && (current.control || current.command))
+        {
+            return MarqueeSelectionMode.Toggle;
+        }
+
+        if (current != null && current.shift)
+        {
+            return MarqueeSelectionMode.Add;
+        }
+
+        return MarqueeSelectionMode.Replace;
+    }
+
+    private static void CompleteMarquee(TerrainNodeElevationSource source)
+    {
+        if (!marqueeDragged)
+        {
+            if (marqueeMode == MarqueeSelectionMode.Replace)
+            {
+                TerrainRegionalElevationSelectionState.ClearSelection(authoringData, out _);
+            }
+
+            ClearMarqueeState();
+            RepaintWorldMeshesWindows();
+            SceneView.RepaintAll();
+            return;
+        }
+
+        Rect rectangle = TerrainRegionalElevationGroupUtility.NormalizeGuiRect(
+            marqueeStartGui,
+            marqueeCurrentGui);
+
+        marqueeIdsBuffer.Clear();
+        IReadOnlyList<TerrainElevationNode> nodes = source.Nodes;
+        for (int index = 0; index < nodes.Count; index++)
+        {
+            TerrainElevationNode node = nodes[index];
+            if (node == null)
+            {
+                continue;
+            }
+
+            Vector2 guiPoint = HandleUtility.WorldToGUIPoint(
+                GetNodeScenePosition(node.PositionXZ, node.Elevation));
+
+            if (TerrainRegionalElevationGroupUtility.ContainsGuiPoint(rectangle, guiPoint))
+            {
+                marqueeIdsBuffer.Add(node.StableId);
+            }
+        }
+
+        if (marqueeIdsBuffer.Count > 0)
+        {
+            if (marqueeMode == MarqueeSelectionMode.Replace)
+            {
+                TerrainRegionalElevationSelectionState.SetSelection(
+                    authoringData,
+                    marqueeIdsBuffer,
+                    marqueeIdsBuffer[marqueeIdsBuffer.Count - 1],
+                    out _);
+            }
+            else
+            {
+                HashSet<string> combined =
+                    new HashSet<string>(selectedIdSetBuffer);
+                string requestedPrimary =
+                    TerrainRegionalElevationSelectionState.GetPrimaryStableId(authoringData);
+
+                for (int index = 0; index < marqueeIdsBuffer.Count; index++)
+                {
+                    string stableId = marqueeIdsBuffer[index];
+                    if (marqueeMode == MarqueeSelectionMode.Add)
+                    {
+                        combined.Add(stableId);
+                        requestedPrimary = stableId;
+                    }
+                    else if (combined.Contains(stableId))
+                    {
+                        combined.Remove(stableId);
+                        if (requestedPrimary == stableId)
+                        {
+                            requestedPrimary = "";
+                        }
+                    }
+                    else
+                    {
+                        combined.Add(stableId);
+                        requestedPrimary = stableId;
+                    }
+                }
+
+                TerrainRegionalElevationSelectionState.SetSelection(
+                    authoringData,
+                    combined,
+                    requestedPrimary,
+                    out _);
+            }
+        }
+        else if (marqueeMode == MarqueeSelectionMode.Replace)
+        {
+            TerrainRegionalElevationSelectionState.ClearSelection(authoringData, out _);
+        }
+
+        ClearMarqueeState();
+        RepaintWorldMeshesWindows();
+        SceneView.RepaintAll();
+    }
+
+    private static void CancelMarquee()
+    {
+        TerrainRegionalElevationSelectionState.SetSelection(
+            authoringData,
+            marqueeSelectionBefore,
+            marqueePrimaryBefore,
+            out _);
+
+        if (GUIUtility.hotControl == marqueeControlId)
+        {
+            GUIUtility.hotControl = 0;
+        }
+
+        ClearMarqueeState();
+        RepaintWorldMeshesWindows();
+        SceneView.RepaintAll();
+    }
+
+    private static void ClearMarqueeState()
+    {
+        marqueeActive = false;
+        marqueeDragged = false;
+        marqueeControlId = 0;
+        marqueeStartGui = Vector2.zero;
+        marqueeCurrentGui = Vector2.zero;
+        marqueeSelectionBefore.Clear();
+        marqueePrimaryBefore = "";
+    }
+
+    private static void DrawMarqueeOverlay()
+    {
+        if (!marqueeActive || !marqueeDragged || Event.current == null ||
+            Event.current.type != EventType.Repaint)
+        {
+            return;
+        }
+
+        Rect rect = TerrainRegionalElevationGroupUtility.NormalizeGuiRect(
+            marqueeStartGui,
+            marqueeCurrentGui);
+
+        Handles.BeginGUI();
+        GUI.Box(rect, GUIContent.none, EditorStyles.helpBox);
+        Handles.EndGUI();
     }
 
     private static void HandleActiveDragLifecycle()
@@ -539,9 +914,7 @@ public static class TerrainRegionalElevationSceneTool
             return;
         }
 
-        if (
-            current.type == EventType.KeyDown &&
-            current.keyCode == KeyCode.Escape)
+        if (current.type == EventType.KeyDown && current.keyCode == KeyCode.Escape)
         {
             CancelActiveDrag();
             current.Use();
@@ -561,10 +934,24 @@ public static class TerrainRegionalElevationSceneTool
             return;
         }
 
-        if (!TerrainRegionalElevationService.CommitInteractiveNodeEdit(out string errorMessage))
+        bool success;
+        string errorMessage;
+
+        if (activeDragMode == DragMode.GroupMoveXZ)
+        {
+            success = TerrainRegionalElevationService.CommitInteractiveNodeGroupEdit(
+                out errorMessage);
+        }
+        else
+        {
+            success = TerrainRegionalElevationService.CommitInteractiveNodeEdit(
+                out errorMessage);
+        }
+
+        if (!success)
         {
             Debug.LogError("Regional elevation Scene drag commit failed.\n\n" + errorMessage);
-            TerrainRegionalElevationService.CancelInteractiveNodeEdit(out _);
+            CancelServiceEditForCurrentMode();
         }
 
         ClearDragState();
@@ -574,9 +961,10 @@ public static class TerrainRegionalElevationSceneTool
 
     private static void CancelActiveDrag()
     {
-        if (TerrainRegionalElevationService.HasActiveInteractiveEdit)
+        if (activeDragMode != DragMode.None ||
+            TerrainRegionalElevationService.HasActiveInteractiveEdit)
         {
-            TerrainRegionalElevationService.CancelInteractiveNodeEdit(out _);
+            CancelServiceEditForCurrentMode();
         }
 
         ClearDragState();
@@ -584,10 +972,34 @@ public static class TerrainRegionalElevationSceneTool
         SceneView.RepaintAll();
     }
 
+    private static void CancelServiceEditForCurrentMode()
+    {
+        if (activeDragMode == DragMode.GroupMoveXZ ||
+            TerrainRegionalElevationService.HasActiveInteractiveGroupEdit)
+        {
+            TerrainRegionalElevationService.CancelInteractiveNodeGroupEdit(out _);
+        }
+        else
+        {
+            TerrainRegionalElevationService.CancelInteractiveNodeEdit(out _);
+        }
+    }
+
+    private static void CancelActiveInteraction()
+    {
+        if (marqueeActive)
+        {
+            CancelMarquee();
+        }
+
+        CancelActiveDrag();
+    }
+
     private static void ClearDragState()
     {
         activeDragMode = DragMode.None;
         activeDragStableId = "";
+        activeGroupGestureDelta = Vector2.zero;
     }
 
     private static string FormatElevationLabel(float elevation)
@@ -604,6 +1016,7 @@ public static class TerrainRegionalElevationSceneTool
     private static void OnSelectionChanged()
     {
         SceneView.RepaintAll();
+        RepaintWorldMeshesWindows();
     }
 
     private static void RepaintWorldMeshesWindows()
@@ -622,7 +1035,7 @@ public static class TerrainRegionalElevationSceneTool
 
     private static void OnBeforeAssemblyReload()
     {
-        CancelActiveDrag();
+        CancelActiveInteraction();
 
         if (callbackAttached)
         {
@@ -633,14 +1046,14 @@ public static class TerrainRegionalElevationSceneTool
 
     private static void OnEditorQuitting()
     {
-        CancelActiveDrag();
+        CancelActiveInteraction();
     }
 
     private static void OnPlayModeStateChanged(PlayModeStateChange change)
     {
         if (change == PlayModeStateChange.ExitingEditMode)
         {
-            CancelActiveDrag();
+            CancelActiveInteraction();
         }
     }
 }

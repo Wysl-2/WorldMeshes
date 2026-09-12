@@ -50,7 +50,9 @@ public static class TerrainRegionalElevationSceneToolValidationUtility
     private static string realCommittedBefore = "";
     private static string realOverallBefore = "";
     private static TerrainRegionalElevationSource realRegionalBefore;
-    private static string realSelectedStableIdBefore = "";
+    private static readonly List<string> realSelectedStableIdsBefore =
+        new List<string>();
+    private static string realPrimaryStableIdBefore = "";
     private static bool sceneToolEnabledBefore;
     private static bool baselineCaptured;
 
@@ -173,8 +175,12 @@ public static class TerrainRegionalElevationSceneToolValidationUtility
             worldSettings,
             realAuthoringData);
         realRegionalBefore = realAuthoringData.RegionalElevationSource;
-        realSelectedStableIdBefore =
-            TerrainRegionalElevationSelectionState.GetSelectedNodeStableId(realAuthoringData);
+        realSelectedStableIdsBefore.Clear();
+        TerrainRegionalElevationSelectionState.CopySelectedStableIds(
+            realAuthoringData,
+            realSelectedStableIdsBefore);
+        realPrimaryStableIdBefore =
+            TerrainRegionalElevationSelectionState.GetPrimaryStableId(realAuthoringData);
         sceneToolEnabledBefore = TerrainRegionalElevationSceneTool.Enabled;
         baselineCaptured = true;
     }
@@ -743,7 +749,11 @@ public static class TerrainRegionalElevationSceneToolValidationUtility
 
     private static void CancelInteractiveIfNeeded()
     {
-        if (TerrainRegionalElevationService.HasActiveInteractiveEdit)
+        if (TerrainRegionalElevationService.HasActiveInteractiveGroupEdit)
+        {
+            TerrainRegionalElevationService.CancelInteractiveNodeGroupEdit(out _);
+        }
+        else if (TerrainRegionalElevationService.HasActiveInteractiveEdit)
         {
             TerrainRegionalElevationService.CancelInteractiveNodeEdit(out _);
         }
@@ -771,11 +781,12 @@ public static class TerrainRegionalElevationSceneToolValidationUtility
         TerrainRegionalElevationSelectionState.ForceClearSelection(null);
         if (
             realAuthoringData != null &&
-            !string.IsNullOrEmpty(realSelectedStableIdBefore))
+            realSelectedStableIdsBefore.Count > 0)
         {
-            TerrainRegionalElevationSelectionState.TrySelectNode(
+            TerrainRegionalElevationSelectionState.SetSelection(
                 realAuthoringData,
-                realSelectedStableIdBefore,
+                realSelectedStableIdsBefore,
+                realPrimaryStableIdBefore,
                 out _);
         }
 

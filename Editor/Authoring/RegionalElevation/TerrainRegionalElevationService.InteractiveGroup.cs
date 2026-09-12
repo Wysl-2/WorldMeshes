@@ -4,22 +4,17 @@ using UnityEngine;
 
 public static partial class TerrainRegionalElevationService
 {
-    /*
-     * Regional node interpolation currently dirties the complete logical
-     * height world. Re-requesting that GPU composition for every SceneView
-     * mouse sample makes the handle itself contend with terrain recomposition,
-     * especially as the node count grows. Keep node state updates unthrottled
-     * while limiting live terrain preview requests to a useful interactive
-     * cadence. Commit/cancel always force the final/restored preview state.
-     */
-    private const double InteractivePreviewMinimumIntervalSeconds =
-        0.1;
+    private sealed class InteractiveGroupNodeStart
+    {
+        public string StableId;
+        public Vector2 PositionXZ;
+        public float Elevation;
+    }
 
-    private sealed class InteractiveNodeEditState
+    private sealed class InteractiveNodeGroupEditState
     {
         public TerrainAuthoringData AuthoringData;
         public WorldSettings WorldSettings;
-        public string StableId;
         public string Operation;
         public int UndoGroup;
         public int RevisionBefore;
@@ -33,49 +28,40 @@ public static partial class TerrainRegionalElevationService
         public string OverallSignatureBefore;
         public TerrainRegionalElevationSnapshot InitialSnapshot;
 
+        public readonly List<InteractiveGroupNodeStart> Nodes =
+            new List<InteractiveGroupNodeStart>();
+
         public readonly HashSet<Vector2Int> InteractiveDirtyTiles =
             new HashSet<Vector2Int>();
     }
 
-    private static InteractiveNodeEditState activeInteractiveEdit;
-    private static int lastInteractivePreviewDirtyTileCount;
-    private static int lastInteractivePreviewNotificationCount;
-    private static int lastInteractiveRuntimeInvalidationCount;
+    private static InteractiveNodeGroupEditState activeInteractiveGroupEdit;
 
-    static TerrainRegionalElevationService()
-    {
-        AssemblyReloadEvents.beforeAssemblyReload += OnBeforeAssemblyReload;
-        EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
-        EditorApplication.quitting += OnEditorQuitting;
-    }
+    public static bool HasActiveInteractiveGroupEdit =>
+        activeInteractiveGroupEdit != null;
 
-    public static bool HasActiveInteractiveEdit =>
-        activeInteractiveEdit != null || activeInteractiveGroupEdit != null;
-    public static string ActiveInteractiveNodeStableId =>
-        activeInteractiveEdit != null ? activeInteractiveEdit.StableId : "";
-
-    internal static int ActiveInteractiveDirtyTileCount =>
-        activeInteractiveEdit != null
-            ? activeInteractiveEdit.InteractiveDirtyTiles.Count
+    public static int ActiveInteractiveGroupNodeCount =>
+        activeInteractiveGroupEdit != null
+            ? activeInteractiveGroupEdit.Nodes.Count
             : 0;
 
-    internal static bool ActiveInteractiveHasChanges =>
-        activeInteractiveEdit != null &&
-        activeInteractiveEdit.HasInteractiveChanges;
+    public static void CopyActiveInteractiveGroupStableIds(ICollection<string> output)
+    {
+        if (output == null || activeInteractiveGroupEdit == null)
+        {
+            return;
+        }
 
-    internal static int LastInteractivePreviewDirtyTileCount =>
-        lastInteractivePreviewDirtyTileCount;
+        for (int index = 0; index < activeInteractiveGroupEdit.Nodes.Count; index++)
+        {
+            output.Add(activeInteractiveGroupEdit.Nodes[index].StableId);
+        }
+    }
 
-    internal static int LastInteractivePreviewNotificationCount =>
-        lastInteractivePreviewNotificationCount;
-
-    internal static int LastInteractiveRuntimeInvalidationCount =>
-        lastInteractiveRuntimeInvalidationCount;
-
-    public static bool BeginInteractiveNodeEdit(
+    public static bool BeginInteractiveNodeGroupEdit(
         TerrainAuthoringData authoringData,
         WorldSettings worldSettings,
-        string stableId,
+        IEnumerable<string> stableIds,
         string undoLabel,
         out string errorMessage)
     {
@@ -89,12 +75,19 @@ public static partial class TerrainRegionalElevationService
 
         if (authoringData == null || worldSettings == null)
         {
-            errorMessage = "Regional elevation interactive edit received an invalid context.";
+            errorMessage = "Regional elevation group interactive edit received an invalid context.";
             return false;
         }
 
-        if (!TryFindNode(authoringData, stableId, out _, out _, out _, out errorMessage))
+        List<TerrainElevationNode> nodes = new List<TerrainElevationNode>();
+        if (!TryResolveUniqueNodes(authoringData, stableIds, nodes, out errorMessage))
         {
+            return false;
+        }
+
+        if (nodes.Count < 2)
+        {
+            errorMessage = "Regional elevation group interactive editing requires at least two nodes.";
             return false;
         }
 
@@ -124,7 +117,7 @@ public static partial class TerrainRegionalElevationService
 
         string operation =
             string.IsNullOrWhiteSpace(undoLabel)
-                ? "Edit Regional Elevation Node"
+                ? "Move Regional Elevation Nodes"
                 : undoLabel.Trim();
 
         Undo.IncrementCurrentGroup();
@@ -132,12 +125,11 @@ public static partial class TerrainRegionalElevationService
         Undo.SetCurrentGroupName(operation);
         Undo.RegisterCompleteObjectUndo(authoringData, operation);
 
-        InteractiveNodeEditState state =
-            new InteractiveNodeEditState
+        InteractiveNodeGroupEditState state =
+            new InteractiveNodeGroupEditState
             {
                 AuthoringData = authoringData,
                 WorldSettings = worldSettings,
-                StableId = stableId,
                 Operation = operation,
                 UndoGroup = undoGroup,
                 RevisionBefore = authoringData.authoringRevision,
@@ -154,6 +146,18 @@ public static partial class TerrainRegionalElevationService
                 InitialSnapshot = initialSnapshot
             };
 
+        for (int index = 0; index < nodes.Count; index++)
+        {
+            TerrainElevationNode node = nodes[index];
+            state.Nodes.Add(
+                new InteractiveGroupNodeStart
+                {
+                    StableId = node.StableId,
+                    PositionXZ = node.PositionXZ,
+                    Elevation = node.Elevation
+                });
+        }
+
         if (!string.IsNullOrEmpty(committedBefore))
         {
             TerrainRegionalElevationCompositionUtility.CollectAllHeightTiles(
@@ -161,121 +165,101 @@ public static partial class TerrainRegionalElevationService
                 state.InteractiveDirtyTiles);
         }
 
-        activeInteractiveEdit = state;
+        activeInteractiveGroupEdit = state;
         lastInteractivePreviewDirtyTileCount = 0;
         lastInteractivePreviewNotificationCount = 0;
         lastInteractiveRuntimeInvalidationCount = 0;
-
         return true;
     }
 
-    public static bool UpdateInteractiveNodePosition(
-        Vector2 positionXZ,
-        out string errorMessage)
-    {
-        if (!ValidateFinite(positionXZ, 0f, out errorMessage))
-        {
-            return false;
-        }
-
-        if (!TryGetActiveInteractiveNode(
-            out InteractiveNodeEditState state,
-            out TerrainElevationNode node,
-            out errorMessage))
-        {
-            return false;
-        }
-
-        if (node.PositionXZ == positionXZ)
-        {
-            return true;
-        }
-
-        node.SetPositionXZInternal(positionXZ);
-        NotifyInteractiveNodeChanged(state);
-        return true;
-    }
-
-    public static bool UpdateInteractiveNodeElevation(
-        float elevation,
+    public static bool UpdateInteractiveNodeGroupPositionDelta(
+        Vector2 deltaXZ,
         out string errorMessage)
     {
         errorMessage = "";
-        if (!IsFinite(elevation))
-        {
-            errorMessage = "Regional elevation node height must be finite.";
-            return false;
-        }
-
-        if (!TryGetActiveInteractiveNode(
-            out InteractiveNodeEditState state,
-            out TerrainElevationNode node,
-            out errorMessage))
+        if (!ValidateFinite(deltaXZ, 0f, out errorMessage))
         {
             return false;
         }
 
-        if (node.Elevation == elevation)
-        {
-            return true;
-        }
-
-        node.SetElevationInternal(elevation);
-        NotifyInteractiveNodeChanged(state);
-        return true;
-    }
-
-    public static bool UpdateInteractiveNode(
-        Vector2 positionXZ,
-        float elevation,
-        out string errorMessage)
-    {
-        if (!ValidateFinite(positionXZ, elevation, out errorMessage))
-        {
-            return false;
-        }
-
-        if (!TryGetActiveInteractiveNode(
-            out InteractiveNodeEditState state,
-            out TerrainElevationNode node,
-            out errorMessage))
-        {
-            return false;
-        }
-
-        if (node.PositionXZ == positionXZ && node.Elevation == elevation)
-        {
-            return true;
-        }
-
-        node.SetPositionXZInternal(positionXZ);
-        node.SetElevationInternal(elevation);
-        NotifyInteractiveNodeChanged(state);
-        return true;
-    }
-
-    public static bool CommitInteractiveNodeEdit(out string errorMessage)
-    {
-        errorMessage = "";
-        InteractiveNodeEditState state = activeInteractiveEdit;
-
+        InteractiveNodeGroupEditState state = activeInteractiveGroupEdit;
         if (state == null)
         {
-            errorMessage = "No regional elevation interactive edit is active.";
+            errorMessage = "No regional elevation group interactive edit is active.";
             return false;
         }
 
         if (state.AuthoringData == null || state.WorldSettings == null)
         {
-            activeInteractiveEdit = null;
-            errorMessage = "The active regional elevation interactive edit lost its context.";
+            errorMessage = "The active regional elevation group edit lost its context.";
+            return false;
+        }
+
+        TerrainElevationNode[] resolved = new TerrainElevationNode[state.Nodes.Count];
+        Vector2[] targets = new Vector2[state.Nodes.Count];
+        bool anyChanged = false;
+
+        for (int index = 0; index < state.Nodes.Count; index++)
+        {
+            InteractiveGroupNodeStart start = state.Nodes[index];
+            if (!TryFindNode(
+                state.AuthoringData,
+                start.StableId,
+                out _,
+                out TerrainElevationNode node,
+                out _,
+                out errorMessage))
+            {
+                return false;
+            }
+
+            Vector2 target = start.PositionXZ + deltaXZ;
+            if (!ValidateFinite(target, start.Elevation, out errorMessage))
+            {
+                errorMessage = "Regional elevation group drag would produce a non-finite node position.";
+                return false;
+            }
+
+            resolved[index] = node;
+            targets[index] = target;
+            anyChanged |= node.PositionXZ != target;
+        }
+
+        if (!anyChanged)
+        {
+            return true;
+        }
+
+        for (int index = 0; index < resolved.Length; index++)
+        {
+            resolved[index].SetPositionXZInternal(targets[index]);
+        }
+
+        NotifyInteractiveGroupChanged(state);
+        return true;
+    }
+
+    public static bool CommitInteractiveNodeGroupEdit(out string errorMessage)
+    {
+        errorMessage = "";
+        InteractiveNodeGroupEditState state = activeInteractiveGroupEdit;
+        if (state == null)
+        {
+            errorMessage = "No regional elevation group interactive edit is active.";
+            return false;
+        }
+
+        if (state.AuthoringData == null || state.WorldSettings == null)
+        {
+            activeInteractiveGroupEdit = null;
+            errorMessage = "The active regional elevation group edit lost its context.";
             return false;
         }
 
         if (state.AuthoringData.authoringRevision != state.RevisionBefore)
         {
-            errorMessage = "Terrain authoring revision changed during the regional interactive edit.";
-            CancelInteractiveNodeEdit(out _);
+            errorMessage = "Terrain authoring revision changed during the regional group edit.";
+            CancelInteractiveNodeGroupEdit(out _);
             return false;
         }
 
@@ -285,7 +269,7 @@ public static partial class TerrainRegionalElevationService
                 out TerrainRegionalElevationSnapshot finalSnapshot,
                 out errorMessage))
         {
-            CancelInteractiveNodeEdit(out _);
+            CancelInteractiveNodeGroupEdit(out _);
             return false;
         }
 
@@ -294,12 +278,12 @@ public static partial class TerrainRegionalElevationService
             int noOpGroup = state.UndoGroup;
             TerrainAuthoringData data = state.AuthoringData;
             WorldSettings world = state.WorldSettings;
-            string operation = state.Operation;
             bool notifyPreview = state.NotifyPreview;
             bool notifyRuntime = state.NotifyRuntime;
-            bool hadInteractiveChanges = state.HasInteractiveChanges;
+            bool hadChanges = state.HasInteractiveChanges;
+            string operation = state.Operation;
 
-            activeInteractiveEdit = null;
+            activeInteractiveGroupEdit = null;
             Undo.RevertAllDownToGroup(noOpGroup);
 
             if (TerrainRegionalElevationSnapshot.TryCapture(
@@ -315,16 +299,8 @@ public static partial class TerrainRegionalElevationService
                     notifyRuntime);
             }
 
-            if (
-                notifyPreview &&
-                hadInteractiveChanges &&
-                state.InteractiveDirtyTiles.Count > 0)
+            if (notifyPreview && hadChanges && state.InteractiveDirtyTiles.Count > 0)
             {
-                /*
-                 * The gesture may have returned to its starting value after a
-                 * throttled preview sample. Recompose the restored state rather
-                 * than issuing metadata-only acknowledgement.
-                 */
                 TerrainAuthoringPreviewService.NotifyCompositeAuthoringStateChanged(
                     state.InteractiveDirtyTiles);
             }
@@ -333,14 +309,7 @@ public static partial class TerrainRegionalElevationService
             return true;
         }
 
-        /*
-         * If the most recent mouse sample was throttled, make sure the final
-         * node value has a whole-world preview request queued before the
-         * revision/signature acknowledgement below.
-         */
-        TryNotifyInteractivePreview(
-            state,
-            true);
+        TryNotifyInteractiveGroupPreview(state, true);
 
         bool revisionWillAdvance =
             !string.IsNullOrEmpty(state.CommittedSignatureBefore);
@@ -348,7 +317,7 @@ public static partial class TerrainRegionalElevationService
         if (revisionWillAdvance && state.RevisionBefore == int.MaxValue)
         {
             errorMessage = "TerrainAuthoringData.authoringRevision reached Int32.MaxValue.";
-            CancelInteractiveNodeEdit(out _);
+            CancelInteractiveNodeGroupEdit(out _);
             return false;
         }
 
@@ -373,15 +342,9 @@ public static partial class TerrainRegionalElevationService
                 state.WorldSettings,
                 state.AuthoringData,
                 state.InteractiveDirtyTiles);
-
             lastInteractiveRuntimeInvalidationCount++;
         }
 
-        /*
-         * Live drag samples already requested the final preview pixels. Once
-         * revision advances, only acknowledge the new overall authoring
-         * identity instead of redundantly scheduling every tile again.
-         */
         if (state.NotifyPreview)
         {
             TerrainAuthoringPreviewService.NotifyCompositeAuthoringStateChanged(null);
@@ -406,10 +369,10 @@ public static partial class TerrainRegionalElevationService
                 OverallSignatureBefore = state.OverallSignatureBefore,
                 OverallSignatureAfter = overallAfter,
                 PreviewNotificationMode = state.NotifyPreview
-                    ? "InteractiveLivePreviewThenMetadata"
+                    ? "InteractiveGroupLivePreviewThenMetadata"
                     : "Suppressed",
                 RuntimeInvalidationMode = state.NotifyRuntime
-                    ? "InteractiveCommitWholeWorld"
+                    ? "InteractiveGroupCommitWholeWorld"
                     : "Suppressed",
                 NodeCountBefore = state.InitialSnapshot.NodeCount,
                 NodeCountAfter = finalSnapshot.NodeCount
@@ -419,16 +382,16 @@ public static partial class TerrainRegionalElevationService
         LastMutationDiagnostics = diagnostics;
 
         int committedGroup = state.UndoGroup;
-        activeInteractiveEdit = null;
+        activeInteractiveGroupEdit = null;
         Undo.FlushUndoRecordObjects();
         Undo.CollapseUndoOperations(committedGroup);
         return true;
     }
 
-    public static bool CancelInteractiveNodeEdit(out string errorMessage)
+    public static bool CancelInteractiveNodeGroupEdit(out string errorMessage)
     {
         errorMessage = "";
-        InteractiveNodeEditState state = activeInteractiveEdit;
+        InteractiveNodeGroupEditState state = activeInteractiveGroupEdit;
         if (state == null)
         {
             return true;
@@ -439,14 +402,14 @@ public static partial class TerrainRegionalElevationService
         int undoGroup = state.UndoGroup;
         bool notifyPreview = state.NotifyPreview;
         bool notifyRuntime = state.NotifyRuntime;
+        bool hadChanges = state.HasInteractiveChanges;
         string operation = state.Operation;
-        bool hadInteractiveChanges = state.HasInteractiveChanges;
 
-        activeInteractiveEdit = null;
+        activeInteractiveGroupEdit = null;
 
         if (data == null || world == null)
         {
-            errorMessage = "The active regional elevation interactive edit lost its context.";
+            errorMessage = "The active regional elevation group edit lost its context.";
             return false;
         }
 
@@ -465,10 +428,7 @@ public static partial class TerrainRegionalElevationService
                 notifyRuntime);
         }
 
-        if (
-            notifyPreview &&
-            hadInteractiveChanges &&
-            state.InteractiveDirtyTiles.Count > 0)
+        if (notifyPreview && hadChanges && state.InteractiveDirtyTiles.Count > 0)
         {
             TerrainAuthoringPreviewService.NotifyCompositeAuthoringStateChanged(
                 state.InteractiveDirtyTiles);
@@ -478,8 +438,7 @@ public static partial class TerrainRegionalElevationService
         return true;
     }
 
-    private static void NotifyInteractiveNodeChanged(
-        InteractiveNodeEditState state)
+    private static void NotifyInteractiveGroupChanged(InteractiveNodeGroupEditState state)
     {
         if (state == null || state.AuthoringData == null)
         {
@@ -489,21 +448,15 @@ public static partial class TerrainRegionalElevationService
         state.HasInteractiveChanges = true;
         state.PreviewRefreshPending = true;
         EditorUtility.SetDirty(state.AuthoringData);
-
-        lastInteractivePreviewDirtyTileCount =
-            state.InteractiveDirtyTiles.Count;
-
-        TryNotifyInteractivePreview(
-            state,
-            false);
+        lastInteractivePreviewDirtyTileCount = state.InteractiveDirtyTiles.Count;
+        TryNotifyInteractiveGroupPreview(state, false);
     }
 
-    private static bool TryNotifyInteractivePreview(
-        InteractiveNodeEditState state,
+    private static bool TryNotifyInteractiveGroupPreview(
+        InteractiveNodeGroupEditState state,
         bool force)
     {
-        if (
-            state == null ||
+        if (state == null ||
             !state.NotifyPreview ||
             !state.PreviewRefreshPending ||
             state.InteractiveDirtyTiles.Count <= 0)
@@ -511,14 +464,10 @@ public static partial class TerrainRegionalElevationService
             return false;
         }
 
-        double now =
-            EditorApplication.timeSinceStartup;
-
-        if (
-            !force &&
+        double now = EditorApplication.timeSinceStartup;
+        if (!force &&
             state.HasPreviewNotification &&
-            now - state.LastPreviewNotificationTime <
-                InteractivePreviewMinimumIntervalSeconds)
+            now - state.LastPreviewNotificationTime < InteractivePreviewMinimumIntervalSeconds)
         {
             return false;
         }
@@ -531,79 +480,5 @@ public static partial class TerrainRegionalElevationService
         state.LastPreviewNotificationTime = now;
         lastInteractivePreviewNotificationCount++;
         return true;
-    }
-
-    private static bool TryGetActiveInteractiveNode(
-        out InteractiveNodeEditState state,
-        out TerrainElevationNode node,
-        out string errorMessage)
-    {
-        state = activeInteractiveEdit;
-        node = null;
-        errorMessage = "";
-
-        if (state == null)
-        {
-            errorMessage = "No regional elevation interactive edit is active.";
-            return false;
-        }
-
-        if (state.AuthoringData == null || state.WorldSettings == null)
-        {
-            errorMessage = "The active regional elevation interactive edit lost its context.";
-            return false;
-        }
-
-        return TryFindNode(
-            state.AuthoringData,
-            state.StableId,
-            out _,
-            out node,
-            out _,
-            out errorMessage);
-    }
-
-    private static void OnBeforeAssemblyReload()
-    {
-        if (activeInteractiveEdit != null)
-        {
-            CancelInteractiveNodeEdit(out _);
-        }
-
-        if (activeInteractiveGroupEdit != null)
-        {
-            CancelInteractiveNodeGroupEdit(out _);
-        }
-    }
-
-    private static void OnEditorQuitting()
-    {
-        if (activeInteractiveEdit != null)
-        {
-            CancelInteractiveNodeEdit(out _);
-        }
-
-        if (activeInteractiveGroupEdit != null)
-        {
-            CancelInteractiveNodeGroupEdit(out _);
-        }
-    }
-
-    private static void OnPlayModeStateChanged(PlayModeStateChange change)
-    {
-        if (change != PlayModeStateChange.ExitingEditMode)
-        {
-            return;
-        }
-
-        if (activeInteractiveEdit != null)
-        {
-            CancelInteractiveNodeEdit(out _);
-        }
-
-        if (activeInteractiveGroupEdit != null)
-        {
-            CancelInteractiveNodeGroupEdit(out _);
-        }
     }
 }
