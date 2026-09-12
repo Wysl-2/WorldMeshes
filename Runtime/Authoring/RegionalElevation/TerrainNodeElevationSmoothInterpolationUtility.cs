@@ -9,7 +9,16 @@ using UnityEngine;
  */
 public static class TerrainNodeElevationSmoothInterpolationUtility
 {
-    private const double BarycentricTolerance = 1e-9;
+    private const double MacroBarycentricTolerance = 1e-9;
+
+    /*
+     * HCT seam samples originate as float Vector2 values. Reconstructing a
+     * point that is mathematically on a centroid spoke or shared triangle edge
+     * can therefore place one local subpatch barycentric coordinate a few
+     * ulps outside [0,1]. Use a slightly wider tolerance only for the derived
+     * subpatch domain so valid seam samples are snapped instead of rejected.
+     */
+    private const double SubpatchBarycentricTolerance = 1e-4;
 
     private static readonly double HullDistanceTieToleranceSquared =
         (double)TerrainNodeElevationGeometryUtility
@@ -1018,9 +1027,9 @@ public static class TerrainNodeElevationSmoothInterpolationUtility
     {
         errorMessage = "";
 
-        if (!TrySnapBarycentric(ref alpha) ||
-            !TrySnapBarycentric(ref beta) ||
-            !TrySnapBarycentric(ref gamma))
+        if (!TrySnapBarycentric(ref alpha, MacroBarycentricTolerance) ||
+            !TrySnapBarycentric(ref beta, MacroBarycentricTolerance) ||
+            !TrySnapBarycentric(ref gamma, MacroBarycentricTolerance))
         {
             errorMessage =
                 "Smooth sample is materially outside the selected macro-triangle.";
@@ -1032,7 +1041,7 @@ public static class TerrainNodeElevationSmoothInterpolationUtility
 
         if (
             !IsFinite(sum) ||
-            Math.Abs(sum - 1.0) > BarycentricTolerance * 8.0)
+            Math.Abs(sum - 1.0) > MacroBarycentricTolerance * 8.0)
         {
             errorMessage =
                 "Smooth macro barycentric coordinates do not sum to one.";
@@ -1132,9 +1141,9 @@ public static class TerrainNodeElevationSmoothInterpolationUtility
     {
         errorMessage = "";
 
-        if (!TrySnapBarycentric(ref u) ||
-            !TrySnapBarycentric(ref v) ||
-            !TrySnapBarycentric(ref w))
+        if (!TrySnapBarycentric(ref u, SubpatchBarycentricTolerance) ||
+            !TrySnapBarycentric(ref v, SubpatchBarycentricTolerance) ||
+            !TrySnapBarycentric(ref w, SubpatchBarycentricTolerance))
         {
             errorMessage =
                 "Smooth sample is materially outside the selected HCT subpatch.";
@@ -1146,7 +1155,7 @@ public static class TerrainNodeElevationSmoothInterpolationUtility
 
         if (
             !IsFinite(sum) ||
-            Math.Abs(sum - 1.0) > BarycentricTolerance * 16.0)
+            Math.Abs(sum - 1.0) > SubpatchBarycentricTolerance * 16.0)
         {
             errorMessage =
                 "Smooth subpatch barycentric coordinates do not sum to one.";
@@ -1163,7 +1172,9 @@ public static class TerrainNodeElevationSmoothInterpolationUtility
         return true;
     }
 
-    private static bool TrySnapBarycentric(ref double value)
+    private static bool TrySnapBarycentric(
+        ref double value,
+        double tolerance)
     {
         if (!IsFinite(value))
         {
@@ -1172,7 +1183,7 @@ public static class TerrainNodeElevationSmoothInterpolationUtility
 
         if (value < 0.0)
         {
-            if (value < -BarycentricTolerance)
+            if (value < -tolerance)
             {
                 return false;
             }
@@ -1181,7 +1192,7 @@ public static class TerrainNodeElevationSmoothInterpolationUtility
         }
         else if (value > 1.0)
         {
-            if (value > 1.0 + BarycentricTolerance)
+            if (value > 1.0 + tolerance)
             {
                 return false;
             }

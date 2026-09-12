@@ -49,8 +49,7 @@ public static partial class TerrainRegionalElevationService
         EditorApplication.quitting += OnEditorQuitting;
     }
 
-    public static bool HasActiveInteractiveEdit =>
-        activeInteractiveEdit != null || activeInteractiveGroupEdit != null;
+    public static bool HasActiveInteractiveEdit => activeInteractiveEdit != null;
     public static string ActiveInteractiveNodeStableId =>
         activeInteractiveEdit != null ? activeInteractiveEdit.StableId : "";
 
@@ -81,7 +80,7 @@ public static partial class TerrainRegionalElevationService
     {
         errorMessage = "";
 
-        if (HasActiveInteractiveEdit)
+        if (activeInteractiveEdit != null)
         {
             errorMessage = "Another regional elevation interactive edit is already active.";
             return false;
@@ -569,11 +568,6 @@ public static partial class TerrainRegionalElevationService
         {
             CancelInteractiveNodeEdit(out _);
         }
-
-        if (activeInteractiveGroupEdit != null)
-        {
-            CancelInteractiveNodeGroupEdit(out _);
-        }
     }
 
     private static void OnEditorQuitting()
@@ -582,28 +576,13 @@ public static partial class TerrainRegionalElevationService
         {
             CancelInteractiveNodeEdit(out _);
         }
-
-        if (activeInteractiveGroupEdit != null)
-        {
-            CancelInteractiveNodeGroupEdit(out _);
-        }
     }
 
     private static void OnPlayModeStateChanged(PlayModeStateChange change)
     {
-        if (change != PlayModeStateChange.ExitingEditMode)
-        {
-            return;
-        }
-
-        if (activeInteractiveEdit != null)
+        if (change == PlayModeStateChange.ExitingEditMode && activeInteractiveEdit != null)
         {
             CancelInteractiveNodeEdit(out _);
-        }
-
-        if (activeInteractiveGroupEdit != null)
-        {
-            CancelInteractiveNodeGroupEdit(out _);
         }
     }
 }
