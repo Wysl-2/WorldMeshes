@@ -168,6 +168,36 @@ public sealed class TerrainElevationNode
         return true;
     }
 
+    internal bool TryGetStoredPositionXZInternal(
+        out Vector2 value,
+        out string errorMessage
+    )
+    {
+        value =
+            positionXZ;
+
+        errorMessage =
+            "";
+
+        if (
+            !IsFinite(
+                positionXZ.x
+            )
+            ||
+            !IsFinite(
+                positionXZ.y
+            )
+        )
+        {
+            errorMessage =
+                "Elevation node position contains a non-finite value.";
+
+            return false;
+        }
+
+        return true;
+    }
+
     internal void SetPositionXZInternal(
         Vector2 value
     )
