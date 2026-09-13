@@ -1,8 +1,27 @@
 using UnityEditor;
+using UnityEngine;
 
 public partial class WorldMeshesEditorWindow :
     EditorWindow
 {
+    [SerializeField]
+    private bool showAuthoringDiagnostics;
+
+    [SerializeField]
+    private bool showRegionalElevationDiagnostics;
+
+    [SerializeField]
+    private bool showCompositionDiagnostics;
+
+    [SerializeField]
+    private bool showStampDiagnostics;
+
+    [SerializeField]
+    private bool showRuntimeBakeDiagnostics;
+
+    [SerializeField]
+    private bool showRuntimeOutputDiagnostics;
+
     private void DrawDiagnosticsWorkspace()
     {
         DrawWorkspaceHeader(
@@ -11,13 +30,102 @@ public partial class WorldMeshesEditorWindow :
             "composition, preview responsiveness, and runtime systems."
         );
 
+        DrawDiagnosticsToolbar();
+
+        DrawWorkspaceSectionGap();
+
+        DrawAuthoringDiagnosticsGroup();
+
+        DrawWorkspaceSectionGap();
+
+        DrawRegionalElevationDiagnosticsGroup();
+
+        DrawWorkspaceSectionGap();
+
+        DrawCompositionDiagnosticsGroup();
+
+        DrawWorkspaceSectionGap();
+
+        DrawStampDiagnosticsGroup();
+
+        DrawWorkspaceSectionGap();
+
+        DrawRuntimeBakeDiagnosticsGroup();
+
+        DrawWorkspaceSectionGap();
+
+        DrawRuntimeOutputDiagnosticsGroup();
+    }
+
+    private void DrawDiagnosticsToolbar()
+    {
+        GUILayout.BeginHorizontal();
+
+        if (GUILayout.Button("Expand All"))
+        {
+            showAuthoringDiagnostics = true;
+            showRegionalElevationDiagnostics = true;
+            showCompositionDiagnostics = true;
+            showStampDiagnostics = true;
+            showRuntimeBakeDiagnostics = true;
+            showRuntimeOutputDiagnostics = true;
+        }
+
+        if (GUILayout.Button("Collapse All"))
+        {
+            showAuthoringDiagnostics = false;
+            showRegionalElevationDiagnostics = false;
+            showCompositionDiagnostics = false;
+            showStampDiagnostics = false;
+            showRuntimeBakeDiagnostics = false;
+            showRuntimeOutputDiagnostics = false;
+        }
+
+        GUILayout.EndHorizontal();
+    }
+
+    private void DrawAuthoringDiagnosticsGroup()
+    {
+        showAuthoringDiagnostics =
+            EditorGUILayout.Foldout(
+                showAuthoringDiagnostics,
+                "Authoring & Preview",
+                true
+            );
+
+        if (!showAuthoringDiagnostics)
+        {
+            return;
+        }
+
+        GUILayout.Space(5f);
+
         DrawPreviewResponsivenessValidationSettings();
 
         DrawWorkspaceSectionGap();
 
-        DrawModifierDataFoundationSettings();
+        DrawAuthoringChangePipelineSettings();
 
         DrawWorkspaceSectionGap();
+
+        DrawGpuCompositorFoundationSettings();
+    }
+
+    private void DrawRegionalElevationDiagnosticsGroup()
+    {
+        showRegionalElevationDiagnostics =
+            EditorGUILayout.Foldout(
+                showRegionalElevationDiagnostics,
+                "Regional Elevation",
+                true
+            );
+
+        if (!showRegionalElevationDiagnostics)
+        {
+            return;
+        }
+
+        GUILayout.Space(5f);
 
         DrawRegionalElevationFoundationSettings();
 
@@ -72,6 +180,25 @@ public partial class WorldMeshesEditorWindow :
         DrawWorkspaceSectionGap();
 
         DrawRegionalElevationTriangulatedSmoothGpuValidationSettings();
+    }
+
+    private void DrawCompositionDiagnosticsGroup()
+    {
+        showCompositionDiagnostics =
+            EditorGUILayout.Foldout(
+                showCompositionDiagnostics,
+                "Modifier Composition & Blending",
+                true
+            );
+
+        if (!showCompositionDiagnostics)
+        {
+            return;
+        }
+
+        GUILayout.Space(5f);
+
+        DrawModifierDataFoundationSettings();
 
         DrawWorkspaceSectionGap();
 
@@ -84,16 +211,23 @@ public partial class WorldMeshesEditorWindow :
         DrawWorkspaceSectionGap();
 
         DrawReplaceBlendValidationSettings();
+    }
 
-        DrawWorkspaceSectionGap();
+    private void DrawStampDiagnosticsGroup()
+    {
+        showStampDiagnostics =
+            EditorGUILayout.Foldout(
+                showStampDiagnostics,
+                "Stamps & Library",
+                true
+            );
 
-        DrawAuthoringChangePipelineSettings();
+        if (!showStampDiagnostics)
+        {
+            return;
+        }
 
-        DrawWorkspaceSectionGap();
-
-        DrawGpuCompositorFoundationSettings();
-
-        DrawWorkspaceSectionGap();
+        GUILayout.Space(5f);
 
         DrawStampRotationFoundationValidationSettings();
 
@@ -132,8 +266,23 @@ public partial class WorldMeshesEditorWindow :
         DrawWorkspaceSectionGap();
 
         DrawLiveStampValidationSettings();
+    }
 
-        DrawWorkspaceSectionGap();
+    private void DrawRuntimeBakeDiagnosticsGroup()
+    {
+        showRuntimeBakeDiagnostics =
+            EditorGUILayout.Foldout(
+                showRuntimeBakeDiagnostics,
+                "Runtime Bake Pipeline",
+                true
+            );
+
+        if (!showRuntimeBakeDiagnostics)
+        {
+            return;
+        }
+
+        GUILayout.Space(5f);
 
         DrawRuntimeHeightCompositionValidationSettings();
 
@@ -168,14 +317,29 @@ public partial class WorldMeshesEditorWindow :
         DrawWorkspaceSectionGap();
 
         DrawRuntimeEquivalenceValidationDiagnostics();
+    }
 
-        DrawWorkspaceSectionGap();
+    private void DrawRuntimeOutputDiagnosticsGroup()
+    {
+        showRuntimeOutputDiagnostics =
+            EditorGUILayout.Foldout(
+                showRuntimeOutputDiagnostics,
+                "Runtime Outputs & Integration",
+                true
+            );
+
+        if (!showRuntimeOutputDiagnostics)
+        {
+            return;
+        }
+
+        GUILayout.Space(5f);
 
         DrawRuntimeHeightIncrementalDiagnostics();
 
         DrawWorkspaceSectionGap();
 
-        DrawRuntimeSceneSynchronizationDiagnostics();
+        DrawRuntimeSurfaceIncrementalDiagnostics();
 
         DrawWorkspaceSectionGap();
 
@@ -183,7 +347,7 @@ public partial class WorldMeshesEditorWindow :
 
         DrawWorkspaceSectionGap();
 
-        DrawRuntimeSurfaceIncrementalDiagnostics();
+        DrawRuntimeSceneSynchronizationDiagnostics();
 
         DrawWorkspaceSectionGap();
 
