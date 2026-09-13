@@ -9,11 +9,7 @@ public partial class WorldMeshesEditorWindow :
     private void DrawRuntimeBakePlanDiagnostics()
     {
         TerrainRuntimeBakePlan plan =
-            TerrainRuntimeBakePlanner
-                .BuildPlan(
-                    worldSettings,
-                    terrainAuthoringData
-                );
+            GetRuntimeBakeDiagnosticsPlan();
 
         GUILayout.BeginVertical(
             EditorStyles.helpBox,

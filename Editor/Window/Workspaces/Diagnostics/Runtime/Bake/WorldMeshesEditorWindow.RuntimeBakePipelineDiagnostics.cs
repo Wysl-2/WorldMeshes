@@ -10,10 +10,7 @@ public partial class WorldMeshesEditorWindow :
     private void DrawRuntimeBakePipelineDiagnostics()
     {
         TerrainRuntimeBakePlan currentPlan =
-            TerrainRuntimeBakePlanner.BuildPlan(
-                worldSettings,
-                terrainAuthoringData
-            );
+            GetRuntimeBakeDiagnosticsPlan();
 
         TerrainRuntimeBakePlan initialPlan =
             TerrainRuntimeBakePipeline.InitialPlan;

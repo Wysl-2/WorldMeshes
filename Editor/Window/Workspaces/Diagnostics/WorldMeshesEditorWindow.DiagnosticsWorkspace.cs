@@ -20,6 +20,39 @@ public partial class WorldMeshesEditorWindow :
     private bool showRuntimeBakeDiagnostics;
 
     [SerializeField]
+    private bool showRuntimeHeightCompositionDiagnostics;
+
+    [SerializeField]
+    private bool showRuntimeBakeStateDiagnostics;
+
+    [SerializeField]
+    private bool showRuntimeBakePlanDiagnostics;
+
+    [SerializeField]
+    private bool showRuntimeBakePipelineDiagnostics;
+
+    [SerializeField]
+    private bool showRuntimePipelineValidationDiagnostics;
+
+    [SerializeField]
+    private bool showRuntimePersistenceResumeDiagnostics;
+
+    [SerializeField]
+    private bool showRuntimeInvalidationDiagnostics;
+
+    private TerrainRuntimeBakePlan
+        runtimeBakeDiagnosticsPlan;
+
+    private bool
+        runtimeBakeDiagnosticsPlanEvaluated;
+
+    private TerrainRuntimeBakeStateSnapshot
+        runtimeBakeDiagnosticsSnapshot;
+
+    private bool
+        runtimeBakeDiagnosticsSnapshotEvaluated;
+
+    [SerializeField]
     private bool showRuntimeOutputDiagnostics;
 
     private void DrawDiagnosticsWorkspace()
@@ -277,6 +310,8 @@ public partial class WorldMeshesEditorWindow :
                 true
             );
 
+        ResetRuntimeBakeDiagnosticsFrameCache();
+
         if (!showRuntimeBakeDiagnostics)
         {
             return;
@@ -284,31 +319,108 @@ public partial class WorldMeshesEditorWindow :
 
         GUILayout.Space(5f);
 
-        DrawRuntimeHeightCompositionValidationSettings();
+        showRuntimeHeightCompositionDiagnostics =
+            EditorGUILayout.Foldout(
+                showRuntimeHeightCompositionDiagnostics,
+                "Height Composition Validation",
+                true
+            );
+
+        if (showRuntimeHeightCompositionDiagnostics)
+        {
+            GUILayout.Space(5f);
+            DrawRuntimeHeightCompositionValidationSettings();
+        }
 
         DrawWorkspaceSectionGap();
 
-        DrawRuntimeBakeStateDiagnostics();
+        showRuntimeBakeStateDiagnostics =
+            EditorGUILayout.Foldout(
+                showRuntimeBakeStateDiagnostics,
+                "Bake State",
+                true
+            );
+
+        if (showRuntimeBakeStateDiagnostics)
+        {
+            GUILayout.Space(5f);
+            DrawRuntimeBakeStateDiagnostics();
+        }
 
         DrawWorkspaceSectionGap();
 
-        DrawRuntimeBakePlanDiagnostics();
+        showRuntimeBakePlanDiagnostics =
+            EditorGUILayout.Foldout(
+                showRuntimeBakePlanDiagnostics,
+                "Bake Plan",
+                true
+            );
+
+        if (showRuntimeBakePlanDiagnostics)
+        {
+            GUILayout.Space(5f);
+            DrawRuntimeBakePlanDiagnostics();
+        }
 
         DrawWorkspaceSectionGap();
 
-        DrawRuntimeBakePipelineDiagnostics();
+        showRuntimeBakePipelineDiagnostics =
+            EditorGUILayout.Foldout(
+                showRuntimeBakePipelineDiagnostics,
+                "Unified Runtime Bake Pipeline",
+                true
+            );
+
+        if (showRuntimeBakePipelineDiagnostics)
+        {
+            GUILayout.Space(5f);
+            DrawRuntimeBakePipelineDiagnostics();
+        }
 
         DrawWorkspaceSectionGap();
 
-        DrawRuntimePipelineValidationDiagnostics();
+        showRuntimePipelineValidationDiagnostics =
+            EditorGUILayout.Foldout(
+                showRuntimePipelineValidationDiagnostics,
+                "Runtime Pipeline Validation",
+                true
+            );
+
+        if (showRuntimePipelineValidationDiagnostics)
+        {
+            GUILayout.Space(5f);
+            DrawRuntimePipelineValidationDiagnostics();
+        }
 
         DrawWorkspaceSectionGap();
 
-        DrawRuntimePersistenceResumeValidationDiagnostics();
+        showRuntimePersistenceResumeDiagnostics =
+            EditorGUILayout.Foldout(
+                showRuntimePersistenceResumeDiagnostics,
+                "Persistence + Resume Validation",
+                true
+            );
+
+        if (showRuntimePersistenceResumeDiagnostics)
+        {
+            GUILayout.Space(5f);
+            DrawRuntimePersistenceResumeValidationDiagnostics();
+        }
 
         DrawWorkspaceSectionGap();
 
-        DrawRuntimeInvalidationValidationDiagnostics();
+        showRuntimeInvalidationDiagnostics =
+            EditorGUILayout.Foldout(
+                showRuntimeInvalidationDiagnostics,
+                "Invalidation Scenario Validation",
+                true
+            );
+
+        if (showRuntimeInvalidationDiagnostics)
+        {
+            GUILayout.Space(5f);
+            DrawRuntimeInvalidationValidationDiagnostics();
+        }
 
         DrawWorkspaceSectionGap();
 
@@ -317,6 +429,58 @@ public partial class WorldMeshesEditorWindow :
         DrawWorkspaceSectionGap();
 
         DrawRuntimeEquivalenceValidationDiagnostics();
+    }
+
+    private void ResetRuntimeBakeDiagnosticsFrameCache()
+    {
+        runtimeBakeDiagnosticsPlan =
+            null;
+
+        runtimeBakeDiagnosticsPlanEvaluated =
+            false;
+
+        runtimeBakeDiagnosticsSnapshot =
+            null;
+
+        runtimeBakeDiagnosticsSnapshotEvaluated =
+            false;
+    }
+
+    private TerrainRuntimeBakePlan
+        GetRuntimeBakeDiagnosticsPlan()
+    {
+        if (!runtimeBakeDiagnosticsPlanEvaluated)
+        {
+            runtimeBakeDiagnosticsPlan =
+                TerrainRuntimeBakePlanner
+                    .BuildPlan(
+                        worldSettings,
+                        terrainAuthoringData
+                    );
+
+            runtimeBakeDiagnosticsPlanEvaluated =
+                true;
+        }
+
+        return
+            runtimeBakeDiagnosticsPlan;
+    }
+
+    private TerrainRuntimeBakeStateSnapshot
+        GetRuntimeBakeDiagnosticsSnapshot()
+    {
+        if (!runtimeBakeDiagnosticsSnapshotEvaluated)
+        {
+            runtimeBakeDiagnosticsSnapshot =
+                TerrainRuntimeBakeStateService
+                    .GetSnapshot();
+
+            runtimeBakeDiagnosticsSnapshotEvaluated =
+                true;
+        }
+
+        return
+            runtimeBakeDiagnosticsSnapshot;
     }
 
     private void DrawRuntimeOutputDiagnosticsGroup()

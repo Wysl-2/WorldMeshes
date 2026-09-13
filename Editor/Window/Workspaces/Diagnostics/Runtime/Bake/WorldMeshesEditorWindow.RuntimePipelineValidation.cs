@@ -11,10 +11,7 @@ public partial class WorldMeshesEditorWindow :
     private void DrawRuntimePipelineValidationDiagnostics()
     {
         TerrainRuntimeBakePlan currentPlan =
-            TerrainRuntimeBakePlanner.BuildPlan(
-                worldSettings,
-                terrainAuthoringData
-            );
+            GetRuntimeBakeDiagnosticsPlan();
 
         GUILayout.BeginVertical(
             EditorStyles.helpBox,

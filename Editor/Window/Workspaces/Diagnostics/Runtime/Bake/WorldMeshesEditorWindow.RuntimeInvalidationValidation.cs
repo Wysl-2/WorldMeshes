@@ -38,7 +38,7 @@ public partial class WorldMeshesEditorWindow :
         );
 
         TerrainRuntimeBakePlan currentPlan =
-            TerrainRuntimeBakePlanner.BuildCurrentPlan();
+            GetRuntimeBakeDiagnosticsPlan();
 
         EditorGUILayout.LabelField(
             "Current Runtime State",

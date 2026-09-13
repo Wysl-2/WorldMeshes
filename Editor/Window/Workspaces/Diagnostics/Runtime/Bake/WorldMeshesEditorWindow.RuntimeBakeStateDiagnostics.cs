@@ -9,8 +9,7 @@ public partial class WorldMeshesEditorWindow :
     private void DrawRuntimeBakeStateDiagnostics()
     {
         TerrainRuntimeBakeStateSnapshot snapshot =
-            TerrainRuntimeBakeStateService
-                .GetSnapshot();
+            GetRuntimeBakeDiagnosticsSnapshot();
 
         GUILayout.BeginVertical(
             EditorStyles.helpBox,
