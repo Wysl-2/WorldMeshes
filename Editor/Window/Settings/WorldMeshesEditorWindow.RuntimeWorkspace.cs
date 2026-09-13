@@ -32,6 +32,17 @@ public partial class WorldMeshesEditorWindow :
     // PRODUCTION RUNTIME WORKSPACE
     // =====================================================
 
+    private void DrawRuntimeWorkspace()
+    {
+        DrawWorkspaceHeader(
+            "Runtime",
+            "Prepare generated terrain data for runtime streaming with a " +
+            "single dependency-aware bake workflow."
+        );
+
+        DrawRuntimeBakeWorkspace();
+    }
+
     private void DrawRuntimeBakeWorkspace()
     {
         if (
