@@ -36,6 +36,9 @@ public static class TerrainRuntimeBakePlanner
         TerrainAuthoringData authoringData
     )
     {
+        using var profilerScope =
+            WorldMeshesProfiler.RuntimeBakeBuildPlan.Auto();
+
         TerrainRuntimeBakeStateSnapshot snapshot =
             TerrainRuntimeBakeStateService
                 .GetSnapshot();
@@ -85,12 +88,17 @@ public static class TerrainRuntimeBakePlanner
                 );
         }
 
-        string currentAuthoringSignature =
-            TerrainAuthoringStateUtility
-                .GetOverallAuthoringSignature(
-                    worldSettings,
-                    authoringData
-                );
+        string currentAuthoringSignature;
+
+        using (WorldMeshesProfiler.AuthoringSignature.Auto())
+        {
+            currentAuthoringSignature =
+                TerrainAuthoringStateUtility
+                    .GetOverallAuthoringSignature(
+                        worldSettings,
+                        authoringData
+                    );
+        }
 
         TerrainSurfaceSettings surfaceSettings =
             AssetDatabase

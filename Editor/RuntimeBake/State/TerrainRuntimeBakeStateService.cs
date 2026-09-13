@@ -23,6 +23,9 @@ public static class TerrainRuntimeBakeStateService
 
     public static TerrainRuntimeBakeStateSnapshot GetSnapshot()
     {
+        using var profilerScope =
+            WorldMeshesProfiler.RuntimeBakeStateSnapshot.Auto();
+
         TerrainRuntimeBakeState state =
             GetState();
 
