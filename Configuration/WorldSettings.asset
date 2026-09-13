@@ -29,11 +29,11 @@ MonoBehaviour:
   clipmapLevelCount: 6
   clipmapBaseSampleStep: 1
   clipmapLODOuterResolutions: 0002000000020000000200000002000080010000
-  lastGeneratedHeightSignature: a7da0d88b250d02006553512d74b79849313d50e8c75b5ca1f35fe113dae173b
-  heightmapGenerationRevision: 11
-  lastGeneratedSurfaceSignature: caca99c1691dce744f67464aff376ba98095d2c47550751af1e79c65dd412646
-  surfaceMaskGenerationRevision: 10
-  surfaceSourceHeightmapGenerationRevision: 11
+  lastGeneratedHeightSignature: e18b0ac9376e39f6cccd7624790d0cca909360a5ed0a7dcc8e2b36b08cc395c3
+  heightmapGenerationRevision: 12
+  lastGeneratedSurfaceSignature: a863f982602a4c84bd0d8e45518e8da7d831c309d26a7668ca78312ebbec367d
+  surfaceMaskGenerationRevision: 11
+  surfaceSourceHeightmapGenerationRevision: 12
   lastGeneratedCollisionSignature: 46c0e58363a83436f8fa31c42c8eb54eff5429b15a9089b8371340a8461e10c3
-  collisionMeshGenerationRevision: 10
-  collisionSourceHeightmapGenerationRevision: 11
+  collisionMeshGenerationRevision: 11
+  collisionSourceHeightmapGenerationRevision: 12
