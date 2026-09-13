@@ -6,99 +6,27 @@ public partial class WorldMeshesEditorWindow :
 {
     private void DrawStampSourceOrientationValidationSettings()
     {
-        GUILayout.BeginVertical(
-            EditorStyles.helpBox,
-            GUILayout.ExpandWidth(true)
-        );
-
-        GUILayout.Label(
-            "Stamp Source Orientation Validation",
-            EditorStyles.boldLabel
-        );
-
-        bool busy =
-            TerrainStampSourceOrientationValidationUtility
-                .IsScheduled
-            ||
-            TerrainStampSourceOrientationValidationUtility
-                .IsRunning;
-
-        string status =
-            TerrainStampSourceOrientationValidationUtility
-                .IsScheduled
-                ? "Scheduled"
-                :
+        bool requested =
+            DrawValidationResultAction(
+                "Stamp Source Orientation Validation",
                 TerrainStampSourceOrientationValidationUtility
-                    .IsRunning
-                    ? "Running"
-                    :
-                    TerrainStampSourceOrientationValidationUtility
-                        .LastFailedCount > 0
-                        ? "Failed"
-                        :
-                        TerrainStampSourceOrientationValidationUtility
-                            .LastPassedCount > 0
-                            ? "Passed"
-                            : "Ready";
-
-        EditorGUILayout.LabelField(
-            "Status",
-            status
-        );
-
-        EditorGUILayout.LabelField(
-            "Passed",
-            TerrainStampSourceOrientationValidationUtility
-                .LastPassedCount
-                .ToString()
-        );
-
-        EditorGUILayout.LabelField(
-            "Failed",
-            TerrainStampSourceOrientationValidationUtility
-                .LastFailedCount
-                .ToString()
-        );
-
-        GUILayout.Space(
-            5f
-        );
-
-        EditorGUI.BeginDisabledGroup(
-            busy
-            ||
-            Application.isPlaying
-            ||
-            EditorApplication
-                .isPlayingOrWillChangePlaymode
-        );
-
-        if (
-            GUILayout.Button(
+                    .IsScheduled,
+                TerrainStampSourceOrientationValidationUtility
+                    .IsRunning,
+                TerrainStampSourceOrientationValidationUtility
+                    .LastPassedCount,
+                TerrainStampSourceOrientationValidationUtility
+                    .LastFailedCount,
                 "Validate Stamp Source Orientation",
-                GUILayout.ExpandWidth(true)
-            )
-        )
+                TerrainStampSourceOrientationValidationUtility
+                    .LastSummary,
+                null
+            );
+
+        if (requested)
         {
             TerrainStampSourceOrientationValidationUtility
                 .RequestValidation();
         }
-
-        EditorGUI.EndDisabledGroup();
-
-        GUILayout.Space(
-            5f
-        );
-
-        EditorGUILayout.HelpBox(
-            TerrainStampSourceOrientationValidationUtility
-                .LastSummary,
-            TerrainStampSourceOrientationValidationUtility
-                .LastFailedCount > 0
-                ? MessageType.Error
-                : MessageType.Info
-        );
-
-        GUILayout.EndVertical();
     }
 }

@@ -6,108 +6,27 @@ public partial class WorldMeshesEditorWindow :
 {
     private void DrawBlendModeAuthoringUXDefaultsValidationSettings()
     {
-        GUILayout.BeginVertical(
-            EditorStyles.helpBox,
-            GUILayout.ExpandWidth(true)
-        );
-
-        GUILayout.Label(
-            "Blend Mode Authoring UX + Defaults Validation",
-            EditorStyles.boldLabel
-        );
-
-        bool busy =
-            TerrainBlendModeAuthoringUXDefaultsValidationUtility
-                .IsScheduled
-            ||
-            TerrainBlendModeAuthoringUXDefaultsValidationUtility
-                .IsRunning;
-
-        string status =
-            TerrainBlendModeAuthoringUXDefaultsValidationUtility
-                .IsScheduled
-                ? "Scheduled"
-                :
+        bool requested =
+            DrawValidationResultAction(
+                "Blend Mode Authoring UX + Defaults Validation",
                 TerrainBlendModeAuthoringUXDefaultsValidationUtility
-                    .IsRunning
-                    ? "Running"
-                    :
-                    TerrainBlendModeAuthoringUXDefaultsValidationUtility
-                        .LastFailedCount > 0
-                        ? "Failed"
-                        :
-                        TerrainBlendModeAuthoringUXDefaultsValidationUtility
-                            .LastPassedCount > 0
-                            ? "Passed"
-                            : "Ready";
-
-        EditorGUILayout.LabelField(
-            "Status",
-            status
-        );
-
-        EditorGUILayout.LabelField(
-            "Passed",
-            TerrainBlendModeAuthoringUXDefaultsValidationUtility
-                .LastPassedCount
-                .ToString()
-        );
-
-        EditorGUILayout.LabelField(
-            "Failed",
-            TerrainBlendModeAuthoringUXDefaultsValidationUtility
-                .LastFailedCount
-                .ToString()
-        );
-
-        GUILayout.Space(
-            5f
-        );
-
-        EditorGUI.BeginDisabledGroup(
-            busy
-            ||
-            Application.isPlaying
-            ||
-            EditorApplication
-                .isPlayingOrWillChangePlaymode
-        );
-
-        if (
-            GUILayout.Button(
+                    .IsScheduled,
+                TerrainBlendModeAuthoringUXDefaultsValidationUtility
+                    .IsRunning,
+                TerrainBlendModeAuthoringUXDefaultsValidationUtility
+                    .LastPassedCount,
+                TerrainBlendModeAuthoringUXDefaultsValidationUtility
+                    .LastFailedCount,
                 "Validate Blend Mode UX + Defaults",
-                GUILayout.ExpandWidth(true)
-            )
-        )
+                TerrainBlendModeAuthoringUXDefaultsValidationUtility
+                    .LastSummary,
+                "Validates Version 1 creation-default compatibility, Version 2 blend/target defaults, mode-aware field rules, all four default creation modes, copy-on-placement independence, Stamp Asset reassignment, duplication, mode switching, signatures, dirty regions, and Undo/Redo."
+            );
+
+        if (requested)
         {
             TerrainBlendModeAuthoringUXDefaultsValidationUtility
                 .RequestValidation();
         }
-
-        EditorGUI.EndDisabledGroup();
-
-        GUILayout.Space(
-            5f
-        );
-
-        EditorGUILayout.HelpBox(
-            TerrainBlendModeAuthoringUXDefaultsValidationUtility
-                .LastSummary,
-            TerrainBlendModeAuthoringUXDefaultsValidationUtility
-                .LastFailedCount > 0
-                ? MessageType.Error
-                : MessageType.Info
-        );
-
-        EditorGUILayout.HelpBox(
-            "Validates Version 1 creation-default compatibility, Version 2 " +
-            "blend/target defaults, mode-aware field rules, all four default " +
-            "creation modes, copy-on-placement independence, Stamp Asset " +
-            "reassignment, duplication, mode switching, signatures, dirty " +
-            "regions, and Undo/Redo.",
-            MessageType.None
-        );
-
-        GUILayout.EndVertical();
     }
 }
