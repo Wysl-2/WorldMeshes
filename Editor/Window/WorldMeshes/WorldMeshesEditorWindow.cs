@@ -23,62 +23,6 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         );
     }
 
-    private void OnEnable()
-    {
-        // -------------------------------------------------
-        // WorldSettings
-        // -------------------------------------------------
-
-        if (worldSettings == null)
-        {
-            worldSettings =
-                AssetDatabase.LoadAssetAtPath<WorldSettings>(
-                    DefaultWorldSettingsPath
-                );
-        }
-
-        // -------------------------------------------------
-        // TerrainAuthoringData
-        // -------------------------------------------------
-
-        if (terrainAuthoringData == null)
-        {
-            terrainAuthoringData =
-                AssetDatabase
-                    .LoadAssetAtPath<TerrainAuthoringData>(
-                        DefaultTerrainAuthoringDataPath
-                    );
-        }
-
-        // -------------------------------------------------
-        // Load temporary editor inputs
-        // -------------------------------------------------
-
-        if (worldSettings != null)
-        {
-            LoadWorldSettingsIntoEditor();
-        }
-
-        if (terrainAuthoringData != null)
-        {
-            LoadTerrainAuthoringDataIntoEditor();
-        }
-
-        InitializeStampLibraryBrowser();
-
-        TerrainRegionalElevationSceneTool
-            .SetContext(
-                worldSettings,
-                terrainAuthoringData
-            );
-    }
-
-    // private void OnDisable()
-    // {
-    //     TerrainRegionalElevationSceneTool
-    //         .ClearContext();
-    // }
-
     private void OnGUI()
     {
         Rect marker =

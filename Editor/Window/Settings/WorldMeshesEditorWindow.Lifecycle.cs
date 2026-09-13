@@ -3,18 +3,71 @@ using UnityEditor;
 public partial class WorldMeshesEditorWindow :
     EditorWindow
 {
+    private void OnEnable()
+    {
+        LoadDefaultEditorAssets();
+
+        LoadEditorState();
+
+        InitializeStampLibraryBrowser();
+
+        TerrainRegionalElevationSceneTool
+            .SetContext(
+                worldSettings,
+                terrainAuthoringData
+            );
+    }
+
     private void OnDisable()
     {
-        CancelStampSmoothingInteractionOnDisable();
-
-        CancelStampSourceRemapInteractionOnDisable();
+        CancelActiveInteractions();
 
         ShutdownStampLibraryBrowser();
 
         TerrainRegionalElevationSceneTool
             .ClearContext();
     }
-    
+
+    private void LoadDefaultEditorAssets()
+    {
+        if (worldSettings == null)
+        {
+            worldSettings =
+                AssetDatabase.LoadAssetAtPath<WorldSettings>(
+                    DefaultWorldSettingsPath
+                );
+        }
+
+        if (terrainAuthoringData == null)
+        {
+            terrainAuthoringData =
+                AssetDatabase
+                    .LoadAssetAtPath<TerrainAuthoringData>(
+                        DefaultTerrainAuthoringDataPath
+                    );
+        }
+    }
+
+    private void LoadEditorState()
+    {
+        if (worldSettings != null)
+        {
+            LoadWorldSettingsIntoEditor();
+        }
+
+        if (terrainAuthoringData != null)
+        {
+            LoadTerrainAuthoringDataIntoEditor();
+        }
+    }
+
+    private void CancelActiveInteractions()
+    {
+        CancelStampSmoothingInteractionOnDisable();
+
+        CancelStampSourceRemapInteractionOnDisable();
+    }
+
     private void CancelStampSmoothingInteractionOnDisable()
     {
         if (
