@@ -126,6 +126,9 @@ public static class TerrainRuntimeIntegrityAuditUtility
         WorldSettings worldSettings
     )
     {
+        using var profilerScope =
+            WorldMeshesProfiler.ValidationRun.Auto();
+
         InvalidateCachedAudit();
         return GetCachedAudit(worldSettings);
     }

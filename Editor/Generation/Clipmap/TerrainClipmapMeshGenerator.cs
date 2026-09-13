@@ -412,7 +412,10 @@ public static class TerrainClipmapMeshGenerator
 
         if (cancelled)
         {
-            AssetDatabase.SaveAssets();
+            using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
+            {
+                AssetDatabase.SaveAssets();
+            }
 
             Debug.LogWarning(
                 "Clipmap mesh generation cancelled.\n\n" +
@@ -443,8 +446,15 @@ public static class TerrainClipmapMeshGenerator
         // Save
         // -------------------------------------------------
 
-        AssetDatabase.SaveAssets();
-        AssetDatabase.Refresh();
+        using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
+        {
+            AssetDatabase.SaveAssets();
+        }
+
+        using (WorldMeshesProfiler.AssetDatabaseRefresh.Auto())
+        {
+            AssetDatabase.Refresh();
+        }
 
         TerrainAuthoringWireframeRenderer
             .InvalidateBindings();

@@ -214,6 +214,9 @@ public static class TerrainCollisionMeshGenerator
             TerrainRuntimeBakePlan sourcePlan
         )
     {
+        using var profilerScope =
+            WorldMeshesProfiler.RuntimeBakeGeneration.Auto();
+
         int revisionBefore =
             worldSettings != null
                 ? worldSettings
@@ -1176,7 +1179,10 @@ public static class TerrainCollisionMeshGenerator
                 finalMutation
             );
 
-        AssetDatabase.SaveAssets();
+        using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
+        {
+            AssetDatabase.SaveAssets();
+        }
 
         return
             CreateResult(

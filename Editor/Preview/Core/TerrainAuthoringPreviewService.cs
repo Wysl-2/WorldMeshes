@@ -1154,6 +1154,9 @@ public static class TerrainAuthoringPreviewService
 
     private static void ExecuteRefresh()
     {
+        using var profilerScope =
+            WorldMeshesProfiler.PreviewUpdate.Auto();
+
         if (!Enabled)
         {
             ReleaseBinding();
@@ -1330,6 +1333,9 @@ public static class TerrainAuthoringPreviewService
 
         if (cacheNeedsBuild)
         {
+            using var rebuildProfilerScope =
+                WorldMeshesProfiler.PreviewRebuild.Auto();
+
             /*
              * Full committed rebuilds replace the RenderTexture object,
              * so stop the clipmap sampling the previous cache before the

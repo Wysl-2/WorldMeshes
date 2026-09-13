@@ -312,6 +312,9 @@ public static class TerrainRuntimeHeightCompiler
         string plannedAuthoringSignature
     )
     {
+        using var profilerScope =
+            WorldMeshesProfiler.RuntimeBakeGeneration.Auto();
+
         int revisionBefore =
             worldSettings != null
                 ? worldSettings.heightmapGenerationRevision
@@ -1225,7 +1228,10 @@ public static class TerrainRuntimeHeightCompiler
                 target.AuthoringSignature
             );
 
-        AssetDatabase.SaveAssets();
+        using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
+        {
+            AssetDatabase.SaveAssets();
+        }
 
         if (
             workMode ==

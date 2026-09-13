@@ -1331,7 +1331,10 @@ public static class TerrainRuntimeAddressablesUtility
          * avoids broad reimport/refresh churn; SaveAssets is sufficient before
          * Unity's normal Addressables builder runs.
          */
-        AssetDatabase.SaveAssets();
+        using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
+        {
+            AssetDatabase.SaveAssets();
+        }
 
         Debug.Log(
             "Building Addressables player content..."

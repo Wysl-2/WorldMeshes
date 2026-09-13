@@ -1572,6 +1572,9 @@ public static class TerrainSurfaceMaskCompiler
                 return;
             }
 
+            using var profilerScope =
+                WorldMeshesProfiler.RuntimeBakeGeneration.Auto();
+
             if (!TargetStillCurrent())
             {
                 FinishTerminal(
@@ -1897,7 +1900,10 @@ public static class TerrainSurfaceMaskCompiler
             PersistentDirtyTransition dirtyTransition =
                 ApplyMutationAndMeasureDirtyTransition(mutation);
 
-            AssetDatabase.SaveAssets();
+            using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
+            {
+                AssetDatabase.SaveAssets();
+            }
 
             FinishTerminalWithResult(
                 new TerrainSurfaceMaskGenerationResult(

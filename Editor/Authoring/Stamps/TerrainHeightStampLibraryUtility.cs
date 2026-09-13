@@ -1108,11 +1108,14 @@ public static class TerrainHeightStampLibraryUtility
                  * source file while still ensuring all TextureImporters exist
                  * before canonical configuration.
                  */
-                AssetDatabase.Refresh(
-                    ImportAssetOptions.ForceSynchronousImport
-                    |
-                    ImportAssetOptions.ForceUpdate
-                );
+                using (WorldMeshesProfiler.AssetDatabaseRefresh.Auto())
+                {
+                    AssetDatabase.Refresh(
+                        ImportAssetOptions.ForceSynchronousImport
+                        |
+                        ImportAssetOptions.ForceUpdate
+                    );
+                }
 
                 List<Texture2D> importedTextures =
                     new List<Texture2D>();
@@ -1201,7 +1204,10 @@ public static class TerrainHeightStampLibraryUtility
             EditorUtility.ClearProgressBar();
         }
 
-        AssetDatabase.SaveAssets();
+        using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
+        {
+            AssetDatabase.SaveAssets();
+        }
 
         FinalizeReport(
             report,
@@ -1662,12 +1668,15 @@ public static class TerrainHeightStampLibraryUtility
                 copiedAssetPath
             );
 
-        AssetDatabase.ImportAsset(
-            copiedAssetPath,
-            ImportAssetOptions.ForceSynchronousImport
-            |
-            ImportAssetOptions.ForceUpdate
-        );
+        using (WorldMeshesProfiler.AssetDatabaseImportAsset.Auto())
+        {
+            AssetDatabase.ImportAsset(
+                copiedAssetPath,
+                ImportAssetOptions.ForceSynchronousImport
+                |
+                ImportAssetOptions.ForceUpdate
+            );
+        }
 
         ProcessImportedHeightmap(
             copiedAssetPath,
@@ -1675,7 +1684,10 @@ public static class TerrainHeightStampLibraryUtility
             report
         );
 
-        AssetDatabase.SaveAssets();
+        using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
+        {
+            AssetDatabase.SaveAssets();
+        }
 
         FinalizeReport(
             report,
@@ -2201,7 +2213,10 @@ public static class TerrainHeightStampLibraryUtility
             report
         );
 
-        AssetDatabase.SaveAssets();
+        using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
+        {
+            AssetDatabase.SaveAssets();
+        }
 
         FinalizeReport(
             report,
