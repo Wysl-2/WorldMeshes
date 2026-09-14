@@ -34,23 +34,17 @@ public partial class WorldMeshesEditorWindow :
 
         GUILayout.Space(5f);
 
+        TerrainGenerationStateEvaluationResult generationState =
+            GetRuntimeBakeDiagnosticsGenerationState();
+
         TerrainGenerationStateUtility.GenerationStatus heightStatus =
-            TerrainGenerationStateUtility
-                .GetHeightmapStatus(
-                    worldSettings
-                );
+            generationState.HeightmapStatus;
 
         TerrainGenerationStateUtility.GenerationStatus surfaceStatus =
-            TerrainGenerationStateUtility
-                .GetSurfaceMaskStatus(
-                    worldSettings
-                );
+            generationState.SurfaceMaskStatus;
 
         TerrainGenerationStateUtility.GenerationStatus collisionStatus =
-            TerrainGenerationStateUtility
-                .GetCollisionMeshStatus(
-                    worldSettings
-                );
+            generationState.CollisionMeshStatus;
 
         EditorGUILayout.LabelField(
             "Runtime Height Manifest",

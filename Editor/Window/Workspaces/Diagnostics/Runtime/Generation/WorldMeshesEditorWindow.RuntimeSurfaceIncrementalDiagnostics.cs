@@ -23,10 +23,11 @@ public partial class WorldMeshesEditorWindow :
                 WorldMeshesPaths.TerrainSurfaceSettingsAssetPath
             );
 
+        TerrainGenerationStateEvaluationResult generationState =
+            GetRuntimeBakeDiagnosticsGenerationState();
+
         TerrainGenerationStateUtility.GenerationStatus surfaceStatus =
-            TerrainGenerationStateUtility.GetSurfaceMaskStatus(
-                worldSettings
-            );
+            generationState.SurfaceMaskStatus;
 
         GUILayout.BeginVertical(
             EditorStyles.helpBox,

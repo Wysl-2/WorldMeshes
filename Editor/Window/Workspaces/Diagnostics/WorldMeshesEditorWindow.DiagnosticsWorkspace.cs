@@ -52,6 +52,12 @@ public partial class WorldMeshesEditorWindow :
     private bool
         runtimeBakeDiagnosticsSummaryEvaluated;
 
+    private TerrainGenerationStateEvaluationResult
+        runtimeBakeDiagnosticsGenerationState;
+
+    private bool
+        runtimeBakeDiagnosticsGenerationStateEvaluated;
+
     private WorldSettings
         runtimeBakeDiagnosticsTrackedWorldSettings;
 
@@ -512,6 +518,12 @@ public partial class WorldMeshesEditorWindow :
 
         runtimeBakeDiagnosticsSummaryEvaluated =
             false;
+
+        runtimeBakeDiagnosticsGenerationState =
+            default(TerrainGenerationStateEvaluationResult);
+
+        runtimeBakeDiagnosticsGenerationStateEvaluated =
+            false;
     }
 
     private void ResetRuntimeBakeDiagnosticsInputTracking()
@@ -630,6 +642,34 @@ public partial class WorldMeshesEditorWindow :
 
         return
             runtimeBakeDiagnosticsSummary;
+    }
+
+    /*
+     * Routine Diagnostics display code shares one short-lived generation-state
+     * evaluation, then retains only the immutable status results. Repaint and
+     * Layout passes therefore do not recalculate authoring signatures until
+     * the existing Diagnostics invalidation path observes a real input change.
+     */
+    private TerrainGenerationStateEvaluationResult
+        GetRuntimeBakeDiagnosticsGenerationState()
+    {
+        RefreshRuntimeBakeDiagnosticsInputState();
+
+        if (!runtimeBakeDiagnosticsGenerationStateEvaluated)
+        {
+            runtimeBakeDiagnosticsGenerationState =
+                TerrainGenerationStateUtility
+                    .EvaluateGenerationState(
+                        worldSettings,
+                        terrainAuthoringData
+                    );
+
+            runtimeBakeDiagnosticsGenerationStateEvaluated =
+                true;
+        }
+
+        return
+            runtimeBakeDiagnosticsGenerationState;
     }
 
     private void DrawRuntimeOutputDiagnosticsGroup()

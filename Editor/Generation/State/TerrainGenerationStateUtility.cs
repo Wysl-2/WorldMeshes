@@ -40,68 +40,16 @@ public static partial class TerrainGenerationStateUtility
         TerrainAuthoringData authoringData
     )
     {
-        if (
-            worldSettings == null
-            ||
-            authoringData == null
-            ||
-            authoringData.authoringRevision <= 0
-        )
-        {
-            return
-                GenerationStatus.NotGenerated;
-        }
-
-        TerrainAuthoringHeightManifest manifest =
-            TerrainAuthoringStateUtility
-                .LoadAuthoringHeightManifest();
-
-        if (manifest == null)
-        {
-            return
-                GenerationStatus.NotGenerated;
-        }
-
-        if (
-            !manifest.isComplete
-            ||
-            manifest.manifestVersion !=
-                TerrainAuthoringHeightManifest.CurrentVersion
-            ||
-            manifest.committedHeightRevision <= 0
-            ||
-            !manifest.HasValidCommittedHeightRange
-            ||
-            !TerrainAuthoringStateUtility
-                .ManifestMatchesWorldSettings(
-                    manifest,
-                    worldSettings
-                )
-        )
-        {
-            return
-                GenerationStatus.OutOfDate;
-        }
-
-        string signature =
-            TerrainAuthoringStateUtility
-                .GetOverallAuthoringSignature(
-                    worldSettings,
-                    authoringData
-                );
-
-        if (
-            string.IsNullOrEmpty(
-                signature
-            )
-        )
-        {
-            return
-                GenerationStatus.OutOfDate;
-        }
+        TerrainGenerationStateEvaluationContext context =
+            new TerrainGenerationStateEvaluationContext(
+                worldSettings,
+                authoringData
+            );
 
         return
-            GenerationStatus.Current;
+            GetAuthoringHeightfieldStatus(
+                context
+            );
     }
 
     // =====================================================
@@ -112,120 +60,15 @@ public static partial class TerrainGenerationStateUtility
         WorldSettings worldSettings
     )
     {
-        if (worldSettings == null)
-        {
-            return
-                GenerationStatus.NotGenerated;
-        }
-
-        if (
-            worldSettings.heightmapGenerationRevision <= 0
-            ||
-            string.IsNullOrEmpty(
-                worldSettings.lastGeneratedHeightSignature
-            )
-        )
-        {
-            return
-                GenerationStatus.NotGenerated;
-        }
-
-        TerrainHeightmapManifest runtimeManifest =
-            AssetDatabase
-                .LoadAssetAtPath<TerrainHeightmapManifest>(
-                    TerrainRuntimeHeightAssetUtility
-                        .HeightmapManifestPath
-                );
-
-        if (runtimeManifest == null)
-        {
-            return
-                GenerationStatus.NotGenerated;
-        }
-
-        if (
-            !runtimeManifest.isComplete
-            ||
-            runtimeManifest.compilerVersion !=
-                RuntimeHeightCompilerVersion
-            ||
-            !runtimeManifest.HasCompleteTileHeightRanges
-            ||
-            !runtimeManifest.HasValidHeightRange
-        )
-        {
-            return
-                GenerationStatus.OutOfDate;
-        }
-
-        TerrainAuthoringData authoringData =
-            AssetDatabase
-                .LoadAssetAtPath<TerrainAuthoringData>(
-                    WorldMeshesPaths
-                        .TerrainAuthoringDataAssetPath
-                );
-
-        if (
-            GetAuthoringHeightfieldStatus(
-                worldSettings,
-                authoringData
-            )
-            !=
-            GenerationStatus.Current
-        )
-        {
-            return
-                GenerationStatus.OutOfDate;
-        }
-
-        TerrainAuthoringHeightManifest authoringManifest =
-            TerrainAuthoringStateUtility
-                .LoadAuthoringHeightManifest();
-
-        string currentAuthoringSignature =
-            TerrainAuthoringStateUtility
-                .GetOverallAuthoringSignature(
-                    worldSettings,
-                    authoringData
-                );
-
-        if (
-            runtimeManifest.sourceAuthoringRevision !=
-                authoringData.authoringRevision
-            ||
-            runtimeManifest.sourceAuthoringSignature !=
-                currentAuthoringSignature
-            ||
-            runtimeManifest.sourceAuthoringContentHash !=
-                authoringManifest.committedContentHash
-            ||
-            worldSettings.lastGeneratedHeightSignature !=
-                currentAuthoringSignature
-        )
-        {
-            return
-                GenerationStatus.OutOfDate;
-        }
-
-        TerrainRuntimeGeneratedDataIntegrityResult heightIntegrity =
-            TerrainRuntimeIntegrityAuditUtility
-                .GetCachedGeneratedDataAudit(
-                    worldSettings
-                )
-                .Height;
-
-        if (
-            heightIntegrity == null
-            ||
-            !heightIntegrity.IsValid
-        )
-        {
-            return
-                GenerationStatus.OutOfDate;
-        }
+        TerrainGenerationStateEvaluationContext context =
+            new TerrainGenerationStateEvaluationContext(
+                worldSettings
+            );
 
         return
-            GenerationStatus.Current;
+            GetHeightmapStatus(
+                context
+            );
     }
 
     // =====================================================
@@ -236,98 +79,15 @@ public static partial class TerrainGenerationStateUtility
         WorldSettings worldSettings
     )
     {
-        if (worldSettings == null)
-        {
-            return
-                GenerationStatus.NotGenerated;
-        }
-
-        if (
-            worldSettings.collisionMeshGenerationRevision <= 0
-            ||
-            string.IsNullOrEmpty(
-                worldSettings.lastGeneratedCollisionSignature
-            )
-            ||
-            worldSettings
-                .collisionSourceHeightmapGenerationRevision <
-                0
-        )
-        {
-            return
-                GenerationStatus.NotGenerated;
-        }
-
-        if (
-            !AssetDatabase.IsValidFolder(
-                TerrainCollisionMeshGenerator
-                    .CollisionMeshFolder
-            )
-        )
-        {
-            return
-                GenerationStatus.NotGenerated;
-        }
-
-        if (
-            GetHeightmapStatus(
-                worldSettings
-            )
-            !=
-            GenerationStatus.Current
-        )
-        {
-            return
-                GenerationStatus.OutOfDate;
-        }
-
-        if (
-            worldSettings
-                .collisionSourceHeightmapGenerationRevision
-            !=
-            worldSettings
-                .heightmapGenerationRevision
-        )
-        {
-            return
-                GenerationStatus.OutOfDate;
-        }
-
-        string currentSignature =
-            GetCurrentCollisionSettingsSignature(
+        TerrainGenerationStateEvaluationContext context =
+            new TerrainGenerationStateEvaluationContext(
                 worldSettings
             );
 
-        if (
-            worldSettings
-                .lastGeneratedCollisionSignature
-            !=
-            currentSignature
-        )
-        {
-            return
-                GenerationStatus.OutOfDate;
-        }
-
-        TerrainRuntimeGeneratedDataIntegrityResult collisionIntegrity =
-            TerrainRuntimeIntegrityAuditUtility
-                .GetCachedGeneratedDataAudit(
-                    worldSettings
-                )
-                .Collision;
-
-        if (
-            collisionIntegrity == null
-            ||
-            !collisionIntegrity.IsValid
-        )
-        {
-            return
-                GenerationStatus.OutOfDate;
-        }
-
         return
-            GenerationStatus.Current;
+            GetCollisionMeshStatus(
+                context
+            );
     }
 
     // =====================================================

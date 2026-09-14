@@ -88,19 +88,17 @@ public static class TerrainRuntimeBakePlanner
                 );
         }
 
+        TerrainGenerationStateEvaluationContext generationState =
+            new TerrainGenerationStateEvaluationContext(
+                worldSettings,
+                authoringData
+            );
+
         string currentAuthoringSignature =
-            TerrainAuthoringStateUtility
-                .GetOverallAuthoringSignature(
-                    worldSettings,
-                    authoringData
-                );
+            generationState.AuthoringSignature;
 
         TerrainSurfaceSettings surfaceSettings =
-            AssetDatabase
-                .LoadAssetAtPath<TerrainSurfaceSettings>(
-                    WorldMeshesPaths
-                        .TerrainSurfaceSettingsAssetPath
-                );
+            generationState.SurfaceSettings;
 
         string currentSurfaceSettingsSignature =
             TerrainSurfaceSignatureUtility
@@ -118,8 +116,7 @@ public static class TerrainRuntimeBakePlanner
             authoringStatus =
                 TerrainGenerationStateUtility
                     .GetAuthoringHeightfieldStatus(
-                        worldSettings,
-                        authoringData
+                        generationState
                     );
 
         bool authoringReady =
@@ -140,17 +137,13 @@ public static class TerrainRuntimeBakePlanner
         // =================================================
 
         TerrainHeightmapManifest heightManifest =
-            AssetDatabase
-                .LoadAssetAtPath<TerrainHeightmapManifest>(
-                    TerrainRuntimeHeightAssetUtility
-                        .HeightmapManifestPath
-                );
+            generationState.HeightmapManifest;
 
         TerrainGenerationStateUtility.GenerationStatus
             heightStatus =
                 TerrainGenerationStateUtility
                     .GetHeightmapStatus(
-                        worldSettings
+                        generationState
                     );
 
         bool heightGenerated =
@@ -309,17 +302,13 @@ public static class TerrainRuntimeBakePlanner
         // =================================================
 
         TerrainSurfaceMaskManifest surfaceManifest =
-            AssetDatabase
-                .LoadAssetAtPath<TerrainSurfaceMaskManifest>(
-                    TerrainRuntimeSurfaceMaskAssetUtility
-                        .SurfaceMaskManifestPath
-                );
+            generationState.SurfaceMaskManifest;
 
         TerrainGenerationStateUtility.GenerationStatus
             surfaceStatus =
                 TerrainGenerationStateUtility
                     .GetSurfaceMaskStatus(
-                        worldSettings
+                        generationState
                     );
 
         bool surfaceGenerated =
@@ -508,7 +497,7 @@ public static class TerrainRuntimeBakePlanner
             collisionStatus =
                 TerrainGenerationStateUtility
                     .GetCollisionMeshStatus(
-                        worldSettings
+                        generationState
                     );
 
         bool collisionFolderExists =
