@@ -215,7 +215,7 @@ public static class TerrainCollisionMeshGenerator
         )
     {
         using var profilerScope =
-            WorldMeshesProfiler.RuntimeBakeGeneration.Auto();
+            WorldMeshesProfiler.RuntimeBakeCollisionGeneration.Auto();
 
         int revisionBefore =
             worldSettings != null

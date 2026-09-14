@@ -380,6 +380,9 @@ public static class TerrainAuthoringStateUtility
         TerrainAuthoringData authoringData
     )
     {
+        using var profilerScope =
+            WorldMeshesProfiler.AuthoringSignature.Auto();
+
         if (
             worldSettings == null
             ||
@@ -389,146 +392,157 @@ public static class TerrainAuthoringStateUtility
             return "";
         }
 
-        TerrainAuthoringHeightManifest manifest =
-            LoadAuthoringHeightManifest();
+        string signatureInput;
 
-        if (
-            manifest == null
-            ||
-            !manifest.isComplete
-            ||
-            manifest.manifestVersion !=
-                TerrainAuthoringHeightManifest.CurrentVersion
-            ||
-            manifest.committedHeightRevision <= 0
-            ||
-            !ManifestMatchesWorldSettings(
-                manifest,
-                worldSettings
-            )
-            ||
-            string.IsNullOrEmpty(
-                manifest.committedContentHash
-            )
-        )
+        using (WorldMeshesProfiler.AuthoringSignatureCollectInputs.Auto())
         {
-            return "";
-        }
+            TerrainAuthoringHeightManifest manifest =
+                LoadAuthoringHeightManifest();
 
-        StringBuilder builder =
-            new StringBuilder();
-
-        builder.Append(
-            "WorldMeshesTerrainAuthoringState"
-        );
-
-        AppendValue(
-            builder,
-            AuthoringStateVersion
-        );
-
-        AppendValue(
-            builder,
-            manifest.manifestVersion
-        );
-
-        AppendValue(
-            builder,
-            authoringData.authoringRevision
-        );
-
-        AppendValue(
-            builder,
-            manifest.committedHeightRevision
-        );
-
-        AppendValue(
-            builder,
-            worldSettings.gridWidth
-        );
-
-        AppendValue(
-            builder,
-            worldSettings.gridHeight
-        );
-
-        AppendValue(
-            builder,
-            worldSettings.chunkSize
-        );
-
-        AppendValue(
-            builder,
-            worldSettings.heightfieldResolutionPerChunk
-        );
-
-        AppendValue(
-            builder,
-            worldSettings.heightTileChunkSpan
-        );
-
-        AppendValue(
-            builder,
-            worldSettings.HeightTileGridWidth
-        );
-
-        AppendValue(
-            builder,
-            worldSettings.HeightTileGridHeight
-        );
-
-        AppendValue(
-            builder,
-            worldSettings.HeightTileSamplesPerSide
-        );
-
-        builder.Append('|');
-
-        builder.Append(
-            manifest.committedContentHash
-        );
-
-        /*
-         * Preserve legacy overall-signature behavior while regional
-         * elevation is absent. Merely installing the regional-elevation
-         * data model must not make existing generated terrain stale.
-         */
-        if (
-            authoringData.RegionalElevationSource !=
-            null
-        )
-        {
             if (
-                !AppendRegionalElevationSignatureData(
-                    builder,
-                    authoringData.RegionalElevationSource
+                manifest == null
+                ||
+                !manifest.isComplete
+                ||
+                manifest.manifestVersion !=
+                    TerrainAuthoringHeightManifest.CurrentVersion
+                ||
+                manifest.committedHeightRevision <= 0
+                ||
+                !ManifestMatchesWorldSettings(
+                    manifest,
+                    worldSettings
+                )
+                ||
+                string.IsNullOrEmpty(
+                    manifest.committedContentHash
                 )
             )
             {
                 return "";
             }
+
+            StringBuilder builder =
+                new StringBuilder();
+
+            builder.Append(
+                "WorldMeshesTerrainAuthoringState"
+            );
+
+            AppendValue(
+                builder,
+                AuthoringStateVersion
+            );
+
+            AppendValue(
+                builder,
+                manifest.manifestVersion
+            );
+
+            AppendValue(
+                builder,
+                authoringData.authoringRevision
+            );
+
+            AppendValue(
+                builder,
+                manifest.committedHeightRevision
+            );
+
+            AppendValue(
+                builder,
+                worldSettings.gridWidth
+            );
+
+            AppendValue(
+                builder,
+                worldSettings.gridHeight
+            );
+
+            AppendValue(
+                builder,
+                worldSettings.chunkSize
+            );
+
+            AppendValue(
+                builder,
+                worldSettings.heightfieldResolutionPerChunk
+            );
+
+            AppendValue(
+                builder,
+                worldSettings.heightTileChunkSpan
+            );
+
+            AppendValue(
+                builder,
+                worldSettings.HeightTileGridWidth
+            );
+
+            AppendValue(
+                builder,
+                worldSettings.HeightTileGridHeight
+            );
+
+            AppendValue(
+                builder,
+                worldSettings.HeightTileSamplesPerSide
+            );
+
+            builder.Append('|');
+
+            builder.Append(
+                manifest.committedContentHash
+            );
+
+            /*
+             * Preserve legacy overall-signature behavior while regional
+             * elevation is absent. Merely installing the regional-elevation
+             * data model must not make existing generated terrain stale.
+             */
+            if (
+                authoringData.RegionalElevationSource !=
+                null
+            )
+            {
+                if (
+                    !AppendRegionalElevationSignatureData(
+                        builder,
+                        authoringData.RegionalElevationSource
+                    )
+                )
+                {
+                    return "";
+                }
+            }
+
+            /*
+             * Preserve the pre-Stage-11 overall signature exactly while
+             * the modifier stack is empty and no regional source exists.
+             * Once modifiers exist, their ordered output-relevant state is
+             * appended to the overall authoring signature.
+             */
+            if (
+                authoringData.HeightModifierCount >
+                0
+            )
+            {
+                AppendModifierStackSignatureData(
+                    builder,
+                    authoringData
+                );
+            }
+
+            signatureInput =
+                builder.ToString();
         }
 
-        /*
-         * Preserve the pre-Stage-11 overall signature exactly while
-         * the modifier stack is empty and no regional source exists.
-         * Once modifiers exist, their ordered output-relevant state is
-         * appended to the overall authoring signature.
-         */
-        if (
-            authoringData.HeightModifierCount >
-            0
-        )
+        using (WorldMeshesProfiler.AuthoringSignatureHash.Auto())
         {
-            AppendModifierStackSignatureData(
-                builder,
-                authoringData
+            return ComputeSHA256(
+                signatureInput
             );
         }
-
-        return ComputeSHA256(
-            builder.ToString()
-        );
     }
 
     /*

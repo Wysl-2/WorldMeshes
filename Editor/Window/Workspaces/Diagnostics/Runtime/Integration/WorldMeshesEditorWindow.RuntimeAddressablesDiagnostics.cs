@@ -10,13 +10,10 @@ public partial class WorldMeshesEditorWindow :
     private void DrawRuntimeAddressablesDiagnostics()
     {
         TerrainRuntimeBakePlan plan =
-            TerrainRuntimeBakePlanner.BuildPlan(
-                worldSettings,
-                terrainAuthoringData
-            );
+            GetRuntimeBakeDiagnosticsPlan();
 
-        TerrainRuntimeBakeStateSnapshot snapshot =
-            TerrainRuntimeBakeStateService.GetSnapshot();
+        TerrainRuntimeBakeStateSummary snapshot =
+            GetRuntimeBakeDiagnosticsSummary();
 
         TerrainRuntimeAddressablesOperationMode operationMode =
             TerrainRuntimeAddressablesUtility.GetOperationMode(

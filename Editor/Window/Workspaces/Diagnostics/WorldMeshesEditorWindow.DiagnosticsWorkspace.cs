@@ -46,17 +46,37 @@ public partial class WorldMeshesEditorWindow :
     private bool
         runtimeBakeDiagnosticsPlanEvaluated;
 
-    private TerrainRuntimeBakeStateSnapshot
-        runtimeBakeDiagnosticsSnapshot;
+    private TerrainRuntimeBakeStateSummary
+        runtimeBakeDiagnosticsSummary;
 
     private bool
-        runtimeBakeDiagnosticsSnapshotEvaluated;
+        runtimeBakeDiagnosticsSummaryEvaluated;
+
+    private WorldSettings
+        runtimeBakeDiagnosticsTrackedWorldSettings;
+
+    private TerrainAuthoringData
+        runtimeBakeDiagnosticsTrackedAuthoringData;
+
+    private int
+        runtimeBakeDiagnosticsWorldSettingsDirtyCount =
+            int.MinValue;
+
+    private int
+        runtimeBakeDiagnosticsAuthoringDataDirtyCount =
+            int.MinValue;
+
+    private long
+        runtimeBakeDiagnosticsAuthoringRevision =
+            long.MinValue;
 
     [SerializeField]
     private bool showRuntimeOutputDiagnostics;
 
     private void DrawDiagnosticsWorkspace()
     {
+        RefreshRuntimeBakeDiagnosticsInputState();
+
         DrawWorkspaceHeader(
             "Diagnostics",
             "Validation and implementation diagnostics for authoring, " +
@@ -310,8 +330,6 @@ public partial class WorldMeshesEditorWindow :
                 true
             );
 
-        ResetRuntimeBakeDiagnosticsFrameCache();
-
         if (!showRuntimeBakeDiagnostics)
         {
             return;
@@ -431,7 +449,57 @@ public partial class WorldMeshesEditorWindow :
         DrawRuntimeEquivalenceValidationDiagnostics();
     }
 
-    private void ResetRuntimeBakeDiagnosticsFrameCache()
+    /*
+     * Diagnostics data persists across IMGUI Layout/Repaint/input passes.
+     * It is invalidated by authoritative bake-state changes, Undo/Redo,
+     * project changes, or inexpensive input revision/dirty checks.
+     */
+    private void InitializeRuntimeBakeDiagnosticsCache()
+    {
+        TerrainRuntimeBakeStateService.StateChanged -=
+            HandleRuntimeBakeDiagnosticsInvalidated;
+
+        TerrainRuntimeBakeStateService.StateChanged +=
+            HandleRuntimeBakeDiagnosticsInvalidated;
+
+        Undo.undoRedoPerformed -=
+            HandleRuntimeBakeDiagnosticsInvalidated;
+
+        Undo.undoRedoPerformed +=
+            HandleRuntimeBakeDiagnosticsInvalidated;
+
+        EditorApplication.projectChanged -=
+            HandleRuntimeBakeDiagnosticsInvalidated;
+
+        EditorApplication.projectChanged +=
+            HandleRuntimeBakeDiagnosticsInvalidated;
+
+        ResetRuntimeBakeDiagnosticsInputTracking();
+        InvalidateRuntimeBakeDiagnostics();
+    }
+
+    private void ShutdownRuntimeBakeDiagnosticsCache()
+    {
+        TerrainRuntimeBakeStateService.StateChanged -=
+            HandleRuntimeBakeDiagnosticsInvalidated;
+
+        Undo.undoRedoPerformed -=
+            HandleRuntimeBakeDiagnosticsInvalidated;
+
+        EditorApplication.projectChanged -=
+            HandleRuntimeBakeDiagnosticsInvalidated;
+
+        InvalidateRuntimeBakeDiagnostics();
+        ResetRuntimeBakeDiagnosticsInputTracking();
+    }
+
+    private void HandleRuntimeBakeDiagnosticsInvalidated()
+    {
+        InvalidateRuntimeBakeDiagnostics();
+        Repaint();
+    }
+
+    private void InvalidateRuntimeBakeDiagnostics()
     {
         runtimeBakeDiagnosticsPlan =
             null;
@@ -439,16 +507,95 @@ public partial class WorldMeshesEditorWindow :
         runtimeBakeDiagnosticsPlanEvaluated =
             false;
 
-        runtimeBakeDiagnosticsSnapshot =
+        runtimeBakeDiagnosticsSummary =
             null;
 
-        runtimeBakeDiagnosticsSnapshotEvaluated =
+        runtimeBakeDiagnosticsSummaryEvaluated =
             false;
+    }
+
+    private void ResetRuntimeBakeDiagnosticsInputTracking()
+    {
+        runtimeBakeDiagnosticsTrackedWorldSettings =
+            null;
+
+        runtimeBakeDiagnosticsTrackedAuthoringData =
+            null;
+
+        runtimeBakeDiagnosticsWorldSettingsDirtyCount =
+            int.MinValue;
+
+        runtimeBakeDiagnosticsAuthoringDataDirtyCount =
+            int.MinValue;
+
+        runtimeBakeDiagnosticsAuthoringRevision =
+            long.MinValue;
+    }
+
+    private void RefreshRuntimeBakeDiagnosticsInputState()
+    {
+        int worldSettingsDirtyCount =
+            worldSettings != null
+                ? EditorUtility.GetDirtyCount(
+                    worldSettings
+                )
+                : -1;
+
+        int authoringDataDirtyCount =
+            terrainAuthoringData != null
+                ? EditorUtility.GetDirtyCount(
+                    terrainAuthoringData
+                )
+                : -1;
+
+        long authoringRevision =
+            terrainAuthoringData != null
+                ? terrainAuthoringData.authoringRevision
+                : long.MinValue;
+
+        if (
+            runtimeBakeDiagnosticsTrackedWorldSettings ==
+                worldSettings
+            &&
+            runtimeBakeDiagnosticsTrackedAuthoringData ==
+                terrainAuthoringData
+            &&
+            runtimeBakeDiagnosticsWorldSettingsDirtyCount ==
+                worldSettingsDirtyCount
+            &&
+            runtimeBakeDiagnosticsAuthoringDataDirtyCount ==
+                authoringDataDirtyCount
+            &&
+            runtimeBakeDiagnosticsAuthoringRevision ==
+                authoringRevision
+        )
+        {
+            return;
+        }
+
+        runtimeBakeDiagnosticsTrackedWorldSettings =
+            worldSettings;
+
+        runtimeBakeDiagnosticsTrackedAuthoringData =
+            terrainAuthoringData;
+
+        runtimeBakeDiagnosticsWorldSettingsDirtyCount =
+            worldSettingsDirtyCount;
+
+        runtimeBakeDiagnosticsAuthoringDataDirtyCount =
+            authoringDataDirtyCount;
+
+        runtimeBakeDiagnosticsAuthoringRevision =
+            authoringRevision;
+
+        InvalidateRuntimeBakeDiagnostics();
     }
 
     private TerrainRuntimeBakePlan
         GetRuntimeBakeDiagnosticsPlan()
     {
+        RefreshRuntimeBakeDiagnosticsInputState();
+
         if (!runtimeBakeDiagnosticsPlanEvaluated)
         {
             runtimeBakeDiagnosticsPlan =
@@ -466,21 +613,23 @@ public partial class WorldMeshesEditorWindow :
             runtimeBakeDiagnosticsPlan;
     }
 
-    private TerrainRuntimeBakeStateSnapshot
-        GetRuntimeBakeDiagnosticsSnapshot()
+    private TerrainRuntimeBakeStateSummary
+        GetRuntimeBakeDiagnosticsSummary()
     {
-        if (!runtimeBakeDiagnosticsSnapshotEvaluated)
-        {
-            runtimeBakeDiagnosticsSnapshot =
-                TerrainRuntimeBakeStateService
-                    .GetSnapshot();
+        RefreshRuntimeBakeDiagnosticsInputState();
 
-            runtimeBakeDiagnosticsSnapshotEvaluated =
+        if (!runtimeBakeDiagnosticsSummaryEvaluated)
+        {
+            runtimeBakeDiagnosticsSummary =
+                TerrainRuntimeBakeStateService
+                    .GetSummary();
+
+            runtimeBakeDiagnosticsSummaryEvaluated =
                 true;
         }
 
         return
-            runtimeBakeDiagnosticsSnapshot;
+            runtimeBakeDiagnosticsSummary;
     }
 
     private void DrawRuntimeOutputDiagnosticsGroup()

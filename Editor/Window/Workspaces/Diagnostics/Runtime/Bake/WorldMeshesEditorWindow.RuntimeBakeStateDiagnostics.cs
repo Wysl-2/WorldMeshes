@@ -8,8 +8,8 @@ public partial class WorldMeshesEditorWindow :
 {
     private void DrawRuntimeBakeStateDiagnostics()
     {
-        TerrainRuntimeBakeStateSnapshot snapshot =
-            GetRuntimeBakeDiagnosticsSnapshot();
+        TerrainRuntimeBakeStateSummary summary =
+            GetRuntimeBakeDiagnosticsSummary();
 
         GUILayout.BeginVertical(
             EditorStyles.helpBox,
@@ -29,14 +29,14 @@ public partial class WorldMeshesEditorWindow :
 
         EditorGUILayout.LabelField(
             "State Version",
-            snapshot
+            summary
                 .SerializedVersion
                 .ToString()
         );
 
         EditorGUILayout.LabelField(
             "State Revision",
-            snapshot
+            summary
                 .StateRevision
                 .ToString()
         );
@@ -44,15 +44,15 @@ public partial class WorldMeshesEditorWindow :
         EditorGUILayout.LabelField(
             "Observed Authoring Signature",
             string.IsNullOrEmpty(
-                snapshot.LastObservedAuthoringSignature
+                summary.LastObservedAuthoringSignature
             )
                 ? "Not Recorded"
-                : snapshot.LastObservedAuthoringSignature
+                : summary.LastObservedAuthoringSignature
         );
 
         EditorGUILayout.LabelField(
             "Has Pending Work",
-            snapshot.HasPendingWork
+            summary.HasPendingWork
                 ? "Yes"
                 : "No"
         );
@@ -68,21 +68,21 @@ public partial class WorldMeshesEditorWindow :
 
         EditorGUILayout.LabelField(
             "Height Tiles",
-            snapshot
+            summary
                 .PendingHeightTileCount
                 .ToString()
         );
 
         EditorGUILayout.LabelField(
             "Surface Tiles",
-            snapshot
+            summary
                 .PendingSurfaceTileCount
                 .ToString()
         );
 
         EditorGUILayout.LabelField(
             "Collision Chunks",
-            snapshot
+            summary
                 .PendingCollisionChunkCount
                 .ToString()
         );
@@ -99,7 +99,7 @@ public partial class WorldMeshesEditorWindow :
         EditorGUILayout.LabelField(
             "Height",
             GetRuntimeBakeStateYesNo(
-                snapshot
+                summary
                     .FullHeightRebuildRequired
             )
         );
@@ -107,7 +107,7 @@ public partial class WorldMeshesEditorWindow :
         EditorGUILayout.LabelField(
             "Surface Masks",
             GetRuntimeBakeStateYesNo(
-                snapshot
+                summary
                     .FullSurfaceRebuildRequired
             )
         );
@@ -115,7 +115,7 @@ public partial class WorldMeshesEditorWindow :
         EditorGUILayout.LabelField(
             "Collision",
             GetRuntimeBakeStateYesNo(
-                snapshot
+                summary
                     .FullCollisionRebuildRequired
             )
         );
@@ -132,7 +132,7 @@ public partial class WorldMeshesEditorWindow :
         EditorGUILayout.LabelField(
             "Addressables Config",
             GetRuntimeBakeStateCleanDirty(
-                snapshot
+                summary
                     .AddressablesConfigurationDirty
             )
         );
@@ -140,7 +140,7 @@ public partial class WorldMeshesEditorWindow :
         EditorGUILayout.LabelField(
             "Addressables Content",
             GetRuntimeBakeStateCleanDirty(
-                snapshot
+                summary
                     .AddressablesContentDirty
             )
         );
@@ -148,7 +148,7 @@ public partial class WorldMeshesEditorWindow :
         EditorGUILayout.LabelField(
             "Runtime Scene",
             GetRuntimeBakeStateCleanDirty(
-                snapshot
+                summary
                     .RuntimeSceneMetadataDirty
             )
         );
@@ -164,15 +164,19 @@ public partial class WorldMeshesEditorWindow :
             )
         )
         {
+            TerrainRuntimeBakeStateSnapshot detailedSnapshot =
+                TerrainRuntimeBakeStateService
+                    .GetSnapshot();
+
             Debug.Log(
                 BuildRuntimeBakeStateDiagnosticReport(
-                    snapshot
+                    detailedSnapshot
                 )
             );
         }
 
         EditorGUI.BeginDisabledGroup(
-            !snapshot.HasPendingWork
+            !summary.HasPendingWork
         );
 
         if (

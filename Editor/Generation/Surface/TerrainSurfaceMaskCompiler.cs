@@ -1573,7 +1573,7 @@ public static class TerrainSurfaceMaskCompiler
             }
 
             using var profilerScope =
-                WorldMeshesProfiler.RuntimeBakeGeneration.Auto();
+                WorldMeshesProfiler.RuntimeBakeSurfaceGeneration.Auto();
 
             if (!TargetStillCurrent())
             {

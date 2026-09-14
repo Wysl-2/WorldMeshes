@@ -88,17 +88,12 @@ public static class TerrainRuntimeBakePlanner
                 );
         }
 
-        string currentAuthoringSignature;
-
-        using (WorldMeshesProfiler.AuthoringSignature.Auto())
-        {
-            currentAuthoringSignature =
-                TerrainAuthoringStateUtility
-                    .GetOverallAuthoringSignature(
-                        worldSettings,
-                        authoringData
-                    );
-        }
+        string currentAuthoringSignature =
+            TerrainAuthoringStateUtility
+                .GetOverallAuthoringSignature(
+                    worldSettings,
+                    authoringData
+                );
 
         TerrainSurfaceSettings surfaceSettings =
             AssetDatabase

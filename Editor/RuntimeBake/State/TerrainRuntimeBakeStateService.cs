@@ -46,6 +46,35 @@ public static class TerrainRuntimeBakeStateService
             );
     }
 
+    /*
+     * Scalar-only state view for diagnostics/status consumers. Unlike
+     * GetSnapshot(), this does not copy any pending-coordinate collection.
+     */
+    public static TerrainRuntimeBakeStateSummary GetSummary()
+    {
+        using var profilerScope =
+            WorldMeshesProfiler.RuntimeBakeStateSummary.Auto();
+
+        TerrainRuntimeBakeState state =
+            GetState();
+
+        return
+            new TerrainRuntimeBakeStateSummary(
+                state.PendingHeightTiles.Count,
+                state.PendingSurfaceTiles.Count,
+                state.PendingCollisionChunks.Count,
+                state.FullHeightRebuildRequired,
+                state.FullSurfaceRebuildRequired,
+                state.FullCollisionRebuildRequired,
+                state.AddressablesConfigurationDirty,
+                state.AddressablesContentDirty,
+                state.RuntimeSceneMetadataDirty,
+                state.LastObservedAuthoringSignature,
+                state.SerializedVersion,
+                state.StateRevision
+            );
+    }
+
     // =====================================================
     // ATOMIC BATCH MUTATION
     // =====================================================

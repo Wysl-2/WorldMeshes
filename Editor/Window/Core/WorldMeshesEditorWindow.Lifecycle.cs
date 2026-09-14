@@ -16,10 +16,14 @@ public partial class WorldMeshesEditorWindow :
                 worldSettings,
                 terrainAuthoringData
             );
+
+        InitializeRuntimeBakeDiagnosticsCache();
     }
 
     private void OnDisable()
     {
+        ShutdownRuntimeBakeDiagnosticsCache();
+
         CancelActiveInteractions();
 
         ShutdownStampLibraryBrowser();

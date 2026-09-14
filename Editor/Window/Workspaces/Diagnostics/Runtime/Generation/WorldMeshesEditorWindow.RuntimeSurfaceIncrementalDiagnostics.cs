@@ -8,13 +8,10 @@ public partial class WorldMeshesEditorWindow :
     private void DrawRuntimeSurfaceIncrementalDiagnostics()
     {
         TerrainRuntimeBakePlan plan =
-            TerrainRuntimeBakePlanner.BuildPlan(
-                worldSettings,
-                terrainAuthoringData
-            );
+            GetRuntimeBakeDiagnosticsPlan();
 
-        TerrainRuntimeBakeStateSnapshot snapshot =
-            TerrainRuntimeBakeStateService.GetSnapshot();
+        TerrainRuntimeBakeStateSummary snapshot =
+            GetRuntimeBakeDiagnosticsSummary();
 
         TerrainSurfaceMaskManifest manifest =
             AssetDatabase.LoadAssetAtPath<TerrainSurfaceMaskManifest>(

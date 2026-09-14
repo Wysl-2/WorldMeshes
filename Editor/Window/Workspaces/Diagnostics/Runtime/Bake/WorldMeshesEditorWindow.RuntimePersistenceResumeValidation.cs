@@ -11,8 +11,8 @@ public partial class WorldMeshesEditorWindow : EditorWindow
 
     private void DrawRuntimePersistenceResumeValidationDiagnostics()
     {
-        TerrainRuntimeBakeStateSnapshot snapshot =
-            GetRuntimeBakeDiagnosticsSnapshot();
+        TerrainRuntimeBakeStateSummary snapshot =
+            GetRuntimeBakeDiagnosticsSummary();
 
         GUILayout.BeginVertical(
             EditorStyles.helpBox,

@@ -76,13 +76,16 @@ public static class TerrainRuntimeIntegrityAuditUtility
             || cachedKey != key
         )
         {
-            cachedGeneratedAudit =
-                new TerrainRuntimeIntegrityAuditResult
-                {
-                    Height = ValidateHeight(worldSettings),
-                    Surface = ValidateSurface(worldSettings),
-                    Collision = ValidateCollision(worldSettings)
-                };
+            using (WorldMeshesProfiler.ValidationInspectOutputs.Auto())
+            {
+                cachedGeneratedAudit =
+                    new TerrainRuntimeIntegrityAuditResult
+                    {
+                        Height = ValidateHeight(worldSettings),
+                        Surface = ValidateSurface(worldSettings),
+                        Collision = ValidateCollision(worldSettings)
+                    };
+            }
 
             cachedKey = key;
             cachedAddressablesValidation = null;

@@ -313,7 +313,7 @@ public static class TerrainRuntimeHeightCompiler
     )
     {
         using var profilerScope =
-            WorldMeshesProfiler.RuntimeBakeGeneration.Auto();
+            WorldMeshesProfiler.RuntimeBakeHeightGeneration.Auto();
 
         int revisionBefore =
             worldSettings != null

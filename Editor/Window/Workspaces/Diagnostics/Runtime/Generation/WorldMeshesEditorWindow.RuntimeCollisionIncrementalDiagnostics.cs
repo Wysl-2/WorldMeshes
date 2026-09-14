@@ -8,15 +8,10 @@ public partial class WorldMeshesEditorWindow :
     private void DrawRuntimeCollisionIncrementalDiagnostics()
     {
         TerrainRuntimeBakePlan plan =
-            TerrainRuntimeBakePlanner
-                .BuildPlan(
-                    worldSettings,
-                    terrainAuthoringData
-                );
+            GetRuntimeBakeDiagnosticsPlan();
 
-        TerrainRuntimeBakeStateSnapshot snapshot =
-            TerrainRuntimeBakeStateService
-                .GetSnapshot();
+        TerrainRuntimeBakeStateSummary snapshot =
+            GetRuntimeBakeDiagnosticsSummary();
 
         GUILayout.BeginVertical(
             EditorStyles.helpBox,
