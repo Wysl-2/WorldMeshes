@@ -1856,17 +1856,24 @@ public static class TerrainRuntimeHeightCompiler
                     false
                 );
 
-                AssetDatabase.CreateAsset(
-                    texture,
-                    assetPath
-                );
+                using (WorldMeshesProfiler.AssetDatabaseCreateAsset.Auto())
+                {
+                    AssetDatabase.CreateAsset(
+                        texture,
+                        assetPath
+                    );
+                }
 
                 outputMayHaveChanged =
                     true;
 
-                AssetDatabase.SaveAssetIfDirty(
-                    texture
-                );
+                using (WorldMeshesProfiler.RuntimeBakeHeightSaveTile.Auto())
+                using (WorldMeshesProfiler.AssetDatabaseSaveAssetIfDirty.Auto())
+                {
+                    AssetDatabase.SaveAssetIfDirty(
+                        texture
+                    );
+                }
 
                 return
                     TileWriteOutcome.Created;
@@ -1957,9 +1964,13 @@ public static class TerrainRuntimeHeightCompiler
                 existingTexture
             );
 
-            AssetDatabase.SaveAssetIfDirty(
-                existingTexture
-            );
+            using (WorldMeshesProfiler.RuntimeBakeHeightSaveTile.Auto())
+            using (WorldMeshesProfiler.AssetDatabaseSaveAssetIfDirty.Auto())
+            {
+                AssetDatabase.SaveAssetIfDirty(
+                    existingTexture
+                );
+            }
 
             return
                 TileWriteOutcome.Updated;
@@ -2004,15 +2015,22 @@ public static class TerrainRuntimeHeightCompiler
         manifest.name =
             "HeightmapManifest";
 
-        AssetDatabase.CreateAsset(
-            manifest,
-            TerrainRuntimeHeightAssetUtility
-                .HeightmapManifestPath
-        );
+        using (WorldMeshesProfiler.AssetDatabaseCreateAsset.Auto())
+        {
+            AssetDatabase.CreateAsset(
+                manifest,
+                TerrainRuntimeHeightAssetUtility
+                    .HeightmapManifestPath
+            );
+        }
 
-        AssetDatabase.SaveAssetIfDirty(
-            manifest
-        );
+        using (WorldMeshesProfiler.RuntimeBakeHeightSaveManifest.Auto())
+        using (WorldMeshesProfiler.AssetDatabaseSaveAssetIfDirty.Auto())
+        {
+            AssetDatabase.SaveAssetIfDirty(
+                manifest
+            );
+        }
 
         return manifest;
     }
@@ -2254,9 +2272,13 @@ public static class TerrainRuntimeHeightCompiler
                 manifest
             );
 
-            AssetDatabase.SaveAssetIfDirty(
-                manifest
-            );
+            using (WorldMeshesProfiler.RuntimeBakeHeightSaveManifest.Auto())
+            using (WorldMeshesProfiler.AssetDatabaseSaveAssetIfDirty.Auto())
+            {
+                AssetDatabase.SaveAssetIfDirty(
+                    manifest
+                );
+            }
 
             return true;
         }

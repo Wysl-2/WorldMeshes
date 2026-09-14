@@ -520,6 +520,9 @@ public static class TerrainRuntimeAddressablesUtility
             TerrainRuntimeBakePlan plan
         )
     {
+        using var profilerScope =
+            WorldMeshesProfiler.RuntimeBakeAddressables.Auto();
+
         TerrainAddressablesOperationStats stats =
             new TerrainAddressablesOperationStats();
 

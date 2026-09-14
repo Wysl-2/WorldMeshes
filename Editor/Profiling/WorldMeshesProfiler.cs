@@ -35,6 +35,51 @@ public static class WorldMeshesProfiler
     public static readonly ProfilerMarker RuntimeBakeCollisionGeneration =
         new("WorldMeshes.RuntimeBake.Generation.Collision");
 
+    public static readonly ProfilerMarker RuntimeBakeHeightSaveTile =
+        new("WorldMeshes.RuntimeBake.Generation.Height.SaveTile");
+
+    public static readonly ProfilerMarker RuntimeBakeHeightSaveManifest =
+        new("WorldMeshes.RuntimeBake.Generation.Height.SaveManifest");
+
+    public static readonly ProfilerMarker RuntimeBakeSurfaceSaveTile =
+        new("WorldMeshes.RuntimeBake.Generation.Surface.SaveTile");
+
+    public static readonly ProfilerMarker RuntimeBakeSurfaceSaveManifest =
+        new("WorldMeshes.RuntimeBake.Generation.Surface.SaveManifest");
+
+    public static readonly ProfilerMarker RuntimeBakeCollisionSaveMesh =
+        new("WorldMeshes.RuntimeBake.Generation.Collision.SaveMesh");
+
+    public static readonly ProfilerMarker RuntimeBakeAddressables =
+        new("WorldMeshes.RuntimeBake.Addressables");
+
+    public static readonly ProfilerMarker AddressablesHeightReconcile =
+        new("WorldMeshes.Addressables.Reconcile.Height");
+
+    public static readonly ProfilerMarker AddressablesSurfaceReconcile =
+        new("WorldMeshes.Addressables.Reconcile.Surface");
+
+    public static readonly ProfilerMarker AddressablesCollisionReconcile =
+        new("WorldMeshes.Addressables.Reconcile.Collision");
+
+    public static readonly ProfilerMarker AddressablesCreateOrMoveEntry =
+        new("WorldMeshes.Addressables.CreateOrMoveEntry");
+
+    public static readonly ProfilerMarker AddressablesSetAddress =
+        new("WorldMeshes.Addressables.SetAddress");
+
+    public static readonly ProfilerMarker AddressablesSetLabel =
+        new("WorldMeshes.Addressables.SetLabel");
+
+    public static readonly ProfilerMarker AddressablesRemoveEntry =
+        new("WorldMeshes.Addressables.RemoveEntry");
+
+    public static readonly ProfilerMarker AssetDatabaseCreateAsset =
+        new("WorldMeshes.AssetDatabase.CreateAsset");
+
+    public static readonly ProfilerMarker AssetDatabaseSaveAssetIfDirty =
+        new("WorldMeshes.AssetDatabase.SaveAssetIfDirty");
+
     public static readonly ProfilerMarker AssetDatabaseSaveAssets =
         new("WorldMeshes.AssetDatabase.SaveAssets");
 
@@ -43,6 +88,9 @@ public static class WorldMeshesProfiler
 
     public static readonly ProfilerMarker AssetDatabaseImportAsset =
         new("WorldMeshes.AssetDatabase.ImportAsset");
+
+    public static readonly ProfilerMarker PrefabSaveAsPrefabAsset =
+        new("WorldMeshes.PrefabUtility.SaveAsPrefabAsset");
 
     public static readonly ProfilerMarker ValidationRun =
         new("WorldMeshes.Validation.Run");

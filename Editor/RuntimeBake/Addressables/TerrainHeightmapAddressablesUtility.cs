@@ -173,6 +173,9 @@ public static class TerrainHeightmapAddressablesUtility
         out string errorMessage
     )
     {
+        using var profilerScope =
+            WorldMeshesProfiler.AddressablesHeightReconcile.Auto();
+
         cancelled = false;
         errorMessage = "";
 
@@ -364,13 +367,16 @@ public static class TerrainHeightmapAddressablesUtility
 
                     if (existingEntry == null)
                     {
-                        entry =
-                            settings.CreateOrMoveEntry(
-                                guid,
-                                group,
-                                false,
-                                true
-                            );
+                        using (WorldMeshesProfiler.AddressablesCreateOrMoveEntry.Auto())
+                        {
+                            entry =
+                                settings.CreateOrMoveEntry(
+                                    guid,
+                                    group,
+                                    false,
+                                    true
+                                );
+                        }
 
                         if (entry == null)
                         {
@@ -386,13 +392,16 @@ public static class TerrainHeightmapAddressablesUtility
                     }
                     else if (existingEntry.parentGroup != group)
                     {
-                        entry =
-                            settings.CreateOrMoveEntry(
-                                guid,
-                                group,
-                                false,
-                                true
-                            );
+                        using (WorldMeshesProfiler.AddressablesCreateOrMoveEntry.Auto())
+                        {
+                            entry =
+                                settings.CreateOrMoveEntry(
+                                    guid,
+                                    group,
+                                    false,
+                                    true
+                                );
+                        }
 
                         if (entry == null)
                         {
@@ -409,10 +418,13 @@ public static class TerrainHeightmapAddressablesUtility
 
                     if (entry.address != expectedAddress)
                     {
-                        entry.SetAddress(
-                            expectedAddress,
-                            true
-                        );
+                        using (WorldMeshesProfiler.AddressablesSetAddress.Auto())
+                        {
+                            entry.SetAddress(
+                                expectedAddress,
+                                true
+                            );
+                        }
 
                         stats.addressesUpdated++;
                         configurationChanged = true;
@@ -438,7 +450,10 @@ public static class TerrainHeightmapAddressablesUtility
             {
                 stats.heightConfigurationChanged = true;
                 EditorUtility.SetDirty(settings);
-                AssetDatabase.SaveAssets();
+                using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
+                {
+                    AssetDatabase.SaveAssets();
+                }
             }
 
             return false;
@@ -459,10 +474,13 @@ public static class TerrainHeightmapAddressablesUtility
 
         foreach (AddressableAssetEntry obsoleteEntry in obsoleteEntries)
         {
-            group.RemoveAssetEntry(
-                obsoleteEntry,
-                true
-            );
+            using (WorldMeshesProfiler.AddressablesRemoveEntry.Auto())
+            {
+                group.RemoveAssetEntry(
+                    obsoleteEntry,
+                    true
+                );
+            }
 
             stats.entriesRemoved++;
             configurationChanged = true;
@@ -476,7 +494,10 @@ public static class TerrainHeightmapAddressablesUtility
                 settings
             );
 
-            AssetDatabase.SaveAssets();
+            using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
+            {
+                AssetDatabase.SaveAssets();
+            }
         }
 
         return true;

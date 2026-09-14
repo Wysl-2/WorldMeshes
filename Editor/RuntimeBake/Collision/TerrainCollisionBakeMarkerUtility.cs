@@ -201,7 +201,10 @@ public static class TerrainCollisionBakeMarkerUtility
 
         if (cancelled)
         {
-            AssetDatabase.SaveAssets();
+            using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
+            {
+                AssetDatabase.SaveAssets();
+            }
             return false;
         }
 
@@ -250,7 +253,10 @@ public static class TerrainCollisionBakeMarkerUtility
             removedCount++;
         }
 
-        AssetDatabase.SaveAssets();
+        using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
+        {
+            AssetDatabase.SaveAssets();
+        }
 
         return true;
     }
@@ -728,12 +734,18 @@ public static class TerrainCollisionBakeMarkerUtility
                 return false;
             }
 
-            GameObject savedPrefab =
-                PrefabUtility.SaveAsPrefabAsset(
-                    root,
-                    markerPath,
-                    out bool savedSuccessfully
-                );
+            GameObject savedPrefab;
+            bool savedSuccessfully;
+
+            using (WorldMeshesProfiler.PrefabSaveAsPrefabAsset.Auto())
+            {
+                savedPrefab =
+                    PrefabUtility.SaveAsPrefabAsset(
+                        root,
+                        markerPath,
+                        out savedSuccessfully
+                    );
+            }
 
             if (
                 !savedSuccessfully

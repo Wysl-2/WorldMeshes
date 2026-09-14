@@ -299,6 +299,9 @@ public static class TerrainCollisionAddressablesUtility
         out string errorMessage
     )
     {
+        using var profilerScope =
+            WorldMeshesProfiler.AddressablesCollisionReconcile.Auto();
+
         cancelled = false;
         errorMessage = "";
 
@@ -395,7 +398,10 @@ public static class TerrainCollisionAddressablesUtility
         {
             manifest.isComplete = false;
             EditorUtility.SetDirty(manifest);
-            AssetDatabase.SaveAssetIfDirty(manifest);
+            using (WorldMeshesProfiler.AssetDatabaseSaveAssetIfDirty.Auto())
+            {
+                AssetDatabase.SaveAssetIfDirty(manifest);
+            }
         }
 
         AddressableAssetSettings settings =
@@ -530,10 +536,13 @@ public static class TerrainCollisionAddressablesUtility
                 continue;
             }
 
-            settings.AddLabel(
-                regionLabel,
-                true
-            );
+            using (WorldMeshesProfiler.AddressablesSetLabel.Auto())
+            {
+                settings.AddLabel(
+                    regionLabel,
+                    true
+                );
+            }
 
             registeredLabels.Add(
                 regionLabel
@@ -661,7 +670,10 @@ public static class TerrainCollisionAddressablesUtility
             if (settingsChanged)
             {
                 EditorUtility.SetDirty(settings);
-                AssetDatabase.SaveAssets();
+                using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
+                {
+                    AssetDatabase.SaveAssets();
+                }
             }
 
             return false;
@@ -682,10 +694,13 @@ public static class TerrainCollisionAddressablesUtility
 
         foreach (AddressableAssetEntry obsoleteEntry in obsoleteEntries)
         {
-            group.RemoveAssetEntry(
-                obsoleteEntry,
-                true
-            );
+            using (WorldMeshesProfiler.AddressablesRemoveEntry.Auto())
+            {
+                group.RemoveAssetEntry(
+                    obsoleteEntry,
+                    true
+                );
+            }
 
             stats.entriesRemoved++;
             configurationChanged = true;
@@ -716,10 +731,13 @@ public static class TerrainCollisionAddressablesUtility
 
         foreach (string staleRegionLabel in staleRegionLabels)
         {
-            settings.RemoveLabel(
-                staleRegionLabel,
-                true
-            );
+            using (WorldMeshesProfiler.AddressablesSetLabel.Auto())
+            {
+                settings.RemoveLabel(
+                    staleRegionLabel,
+                    true
+                );
+            }
 
             stats.labelsUpdated++;
             configurationChanged = true;
@@ -737,7 +755,10 @@ public static class TerrainCollisionAddressablesUtility
                 settings
             );
 
-            AssetDatabase.SaveAssets();
+            using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
+            {
+                AssetDatabase.SaveAssets();
+            }
         }
 
         return true;
@@ -870,9 +891,12 @@ public static class TerrainCollisionAddressablesUtility
                 manifest
             );
 
-            AssetDatabase.SaveAssetIfDirty(
-                manifest
-            );
+            using (WorldMeshesProfiler.AssetDatabaseSaveAssetIfDirty.Auto())
+            {
+                AssetDatabase.SaveAssetIfDirty(
+                    manifest
+                );
+            }
         }
 
         return true;
@@ -1171,13 +1195,16 @@ public static class TerrainCollisionAddressablesUtility
 
         if (existingEntry == null)
         {
-            entry =
-                settings.CreateOrMoveEntry(
-                    guid,
-                    group,
-                    false,
-                    true
-                );
+            using (WorldMeshesProfiler.AddressablesCreateOrMoveEntry.Auto())
+            {
+                entry =
+                    settings.CreateOrMoveEntry(
+                        guid,
+                        group,
+                        false,
+                        true
+                    );
+            }
 
             if (entry == null)
             {
@@ -1194,13 +1221,16 @@ public static class TerrainCollisionAddressablesUtility
         }
         else if (existingEntry.parentGroup != group)
         {
-            entry =
-                settings.CreateOrMoveEntry(
-                    guid,
-                    group,
-                    false,
-                    true
-                );
+            using (WorldMeshesProfiler.AddressablesCreateOrMoveEntry.Auto())
+            {
+                entry =
+                    settings.CreateOrMoveEntry(
+                        guid,
+                        group,
+                        false,
+                        true
+                    );
+            }
 
             if (entry == null)
             {
@@ -1218,10 +1248,13 @@ public static class TerrainCollisionAddressablesUtility
 
         if (entry.address != expectedAddress)
         {
-            entry.SetAddress(
-                expectedAddress,
-                true
-            );
+            using (WorldMeshesProfiler.AddressablesSetAddress.Auto())
+            {
+                entry.SetAddress(
+                    expectedAddress,
+                    true
+                );
+            }
 
             stats.addressesUpdated++;
             configurationChanged = true;
@@ -1242,22 +1275,25 @@ public static class TerrainCollisionAddressablesUtility
                     entry.labels
                 );
 
-            foreach (string existingLabel in existingLabels)
+            using (WorldMeshesProfiler.AddressablesSetLabel.Auto())
             {
+                foreach (string existingLabel in existingLabels)
+                {
+                    entry.SetLabel(
+                        existingLabel,
+                        false,
+                        false,
+                        true
+                    );
+                }
+
                 entry.SetLabel(
-                    existingLabel,
-                    false,
+                    expectedRegionLabel,
+                    true,
                     false,
                     true
                 );
             }
-
-            entry.SetLabel(
-                expectedRegionLabel,
-                true,
-                false,
-                true
-            );
 
             stats.labelsUpdated++;
             configurationChanged = true;
@@ -1310,14 +1346,20 @@ public static class TerrainCollisionAddressablesUtility
         manifest.isComplete =
             false;
 
-        AssetDatabase.CreateAsset(
-            manifest,
-            CollisionManifestPath
-        );
+        using (WorldMeshesProfiler.AssetDatabaseCreateAsset.Auto())
+        {
+            AssetDatabase.CreateAsset(
+                manifest,
+                CollisionManifestPath
+            );
+        }
 
-        AssetDatabase.SaveAssetIfDirty(
-            manifest
-        );
+        using (WorldMeshesProfiler.AssetDatabaseSaveAssetIfDirty.Auto())
+        {
+            AssetDatabase.SaveAssetIfDirty(
+                manifest
+            );
+        }
 
         created = true;
 

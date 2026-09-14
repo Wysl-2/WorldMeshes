@@ -713,7 +713,11 @@ public static class TerrainSurfaceMaskCompiler
             surfaceManifest.isComplete = false;
 
             EditorUtility.SetDirty(surfaceManifest);
-            AssetDatabase.SaveAssetIfDirty(surfaceManifest);
+            using (WorldMeshesProfiler.RuntimeBakeSurfaceSaveManifest.Auto())
+            using (WorldMeshesProfiler.AssetDatabaseSaveAssetIfDirty.Auto())
+            {
+                AssetDatabase.SaveAssetIfDirty(surfaceManifest);
+            }
         }
         else
         {
@@ -1013,10 +1017,13 @@ public static class TerrainSurfaceMaskCompiler
 
         try
         {
-            AssetDatabase.CreateAsset(
-                manifest,
-                TerrainRuntimeSurfaceMaskAssetUtility.SurfaceMaskManifestPath
-            );
+            using (WorldMeshesProfiler.AssetDatabaseCreateAsset.Auto())
+            {
+                AssetDatabase.CreateAsset(
+                    manifest,
+                    TerrainRuntimeSurfaceMaskAssetUtility.SurfaceMaskManifestPath
+                );
+            }
         }
         catch (Exception exception)
         {
@@ -1174,11 +1181,18 @@ public static class TerrainSurfaceMaskCompiler
 
             if (AssetDatabase.GetAssetPath(texture) != path)
             {
-                AssetDatabase.CreateAsset(texture, path);
+                using (WorldMeshesProfiler.AssetDatabaseCreateAsset.Auto())
+                {
+                    AssetDatabase.CreateAsset(texture, path);
+                }
             }
 
             EditorUtility.SetDirty(texture);
-            AssetDatabase.SaveAssetIfDirty(texture);
+            using (WorldMeshesProfiler.RuntimeBakeSurfaceSaveTile.Auto())
+            using (WorldMeshesProfiler.AssetDatabaseSaveAssetIfDirty.Auto())
+            {
+                AssetDatabase.SaveAssetIfDirty(texture);
+            }
         }
         catch (Exception exception)
         {
@@ -1987,7 +2001,11 @@ public static class TerrainSurfaceMaskCompiler
             manifest.isComplete = true;
 
             EditorUtility.SetDirty(manifest);
-            AssetDatabase.SaveAssetIfDirty(manifest);
+            using (WorldMeshesProfiler.RuntimeBakeSurfaceSaveManifest.Auto())
+            using (WorldMeshesProfiler.AssetDatabaseSaveAssetIfDirty.Auto())
+            {
+                AssetDatabase.SaveAssetIfDirty(manifest);
+            }
         }
 
         private bool TargetStillCurrent()
@@ -2288,7 +2306,11 @@ public static class TerrainSurfaceMaskCompiler
                 surfaceManifest.isComplete = false;
 
                 EditorUtility.SetDirty(surfaceManifest);
-                AssetDatabase.SaveAssetIfDirty(surfaceManifest);
+                using (WorldMeshesProfiler.RuntimeBakeSurfaceSaveManifest.Auto())
+                using (WorldMeshesProfiler.AssetDatabaseSaveAssetIfDirty.Auto())
+                {
+                    AssetDatabase.SaveAssetIfDirty(surfaceManifest);
+                }
             }
 
             activeBuild = null;

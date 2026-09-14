@@ -1721,10 +1721,13 @@ public static class TerrainCollisionMeshGenerator
         {
             try
             {
-                AssetDatabase.CreateAsset(
-                    mesh,
-                    assetPath
-                );
+                using (WorldMeshesProfiler.AssetDatabaseCreateAsset.Auto())
+                {
+                    AssetDatabase.CreateAsset(
+                        mesh,
+                        assetPath
+                    );
+                }
             }
             catch (Exception exception)
             {
@@ -1776,9 +1779,13 @@ public static class TerrainCollisionMeshGenerator
             mesh
         );
 
-        AssetDatabase.SaveAssetIfDirty(
-            mesh
-        );
+        using (WorldMeshesProfiler.RuntimeBakeCollisionSaveMesh.Auto())
+        using (WorldMeshesProfiler.AssetDatabaseSaveAssetIfDirty.Auto())
+        {
+            AssetDatabase.SaveAssetIfDirty(
+                mesh
+            );
+        }
 
         return
             isNew
