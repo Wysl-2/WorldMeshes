@@ -50,6 +50,12 @@ public static class WorldMeshesProfiler
     public static readonly ProfilerMarker RuntimeBakeCollisionSaveMesh =
         new("WorldMeshes.RuntimeBake.Generation.Collision.SaveMesh");
 
+    public static readonly ProfilerMarker RuntimeBakeCollisionSaveBatch =
+        new("WorldMeshes.RuntimeBake.Generation.Collision.SaveBatch");
+
+    public static readonly ProfilerMarker RuntimeBakeCollisionBakePhysics =
+        new("WorldMeshes.RuntimeBake.Generation.Collision.BakePhysics");
+
     public static readonly ProfilerMarker RuntimeBakeAddressables =
         new("WorldMeshes.RuntimeBake.Addressables");
 

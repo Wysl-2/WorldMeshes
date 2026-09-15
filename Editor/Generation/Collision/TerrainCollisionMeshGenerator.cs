@@ -32,10 +32,29 @@ public static class TerrainCollisionMeshGenerator
         public int collisionResolution;
     }
 
+    private sealed class PreparedCollisionMesh
+    {
+        public readonly Vector2Int coordinate;
+        public readonly Mesh mesh;
+        public readonly TerrainCollisionMeshWriteOutcome outcome;
+
+        public PreparedCollisionMesh(
+            Vector2Int coordinate,
+            Mesh mesh,
+            TerrainCollisionMeshWriteOutcome outcome
+        )
+        {
+            this.coordinate = coordinate;
+            this.mesh = mesh;
+            this.outcome = outcome;
+        }
+    }
+
     private struct PersistentDirtyTransition
     {
         public bool configurationBecameDirty;
         public bool contentBecameDirty;
+        public long stateRevisionAfter;
     }
 
     // =====================================================
@@ -576,6 +595,21 @@ public static class TerrainCollisionMeshGenerator
         bool addressablesConfigurationRequired =
             false;
 
+        long expectedStateRevision =
+            startSnapshot.StateRevision;
+
+        bool operationConfigurationBecameDirty =
+            false;
+
+        bool operationContentBecameDirty =
+            false;
+
+        bool staleDuringGeneration =
+            false;
+
+        string staleMessage =
+            "";
+
         try
         {
             // =================================================
@@ -757,6 +791,9 @@ public static class TerrainCollisionMeshGenerator
                             tileCoordinate
                         ];
 
+                    List<PreparedCollisionMesh> preparedBatch =
+                        new List<PreparedCollisionMesh>();
+
                     foreach (
                         Vector2Int coordinate
                         in chunks
@@ -809,7 +846,8 @@ public static class TerrainCollisionMeshGenerator
                                     heightSampleStep,
                                     collisionVertexSpacing,
                                     samplesPerTile,
-                                    heightData
+                                    heightData,
+                                    out Mesh preparedMesh
                                 );
 
                         if (
@@ -832,8 +870,12 @@ public static class TerrainCollisionMeshGenerator
                             break;
                         }
 
-                        succeeded.Add(
-                            coordinate
+                        preparedBatch.Add(
+                            new PreparedCollisionMesh(
+                                coordinate,
+                                preparedMesh,
+                                writeOutcome
+                            )
                         );
 
                         anyPhysicalContentChange =
@@ -845,19 +887,119 @@ public static class TerrainCollisionMeshGenerator
                                 .Created
                         )
                         {
-                            createdCount++;
-
                             addressablesConfigurationRequired =
                                 true;
                         }
-                        else
-                        {
-                            updatedCount++;
-                        }
 
                         completedChunkOperations++;
+                    }
+
+                    /*
+                     * SaveAssets is global rather than Mesh-specific. If a
+                     * later chunk failed after earlier chunks were prepared,
+                     * do not try to persist only that prefix: the failing Mesh
+                     * may also have been mutated in memory. Leave the complete
+                     * prepared prefix pending and stop conservatively.
+                     */
+                    if (
+                        !string.IsNullOrEmpty(
+                            failureMessage
+                        )
+                    )
+                    {
+                        break;
+                    }
+
+                    if (preparedBatch.Count > 0)
+                    {
+                        if (
+                            !TryPersistCollisionBatch(
+                                preparedBatch,
+                                out string persistenceError
+                            )
+                        )
+                        {
+                            foreach (
+                                PreparedCollisionMesh prepared
+                                in preparedBatch
+                            )
+                            {
+                                failed.Add(
+                                    prepared.coordinate
+                                );
+                            }
+
+                            cancelled = false;
+                            failureMessage =
+                                persistenceError;
+
+                            break;
+                        }
+
+                        bool batchCreatedAsset =
+                            false;
+
+                        foreach (
+                            PreparedCollisionMesh prepared
+                            in preparedBatch
+                        )
+                        {
+                            succeeded.Add(
+                                prepared.coordinate
+                            );
+
+                            if (
+                                prepared.outcome ==
+                                TerrainCollisionMeshWriteOutcome
+                                    .Created
+                            )
+                            {
+                                createdCount++;
+                                batchCreatedAsset = true;
+                            }
+                            else
+                            {
+                                updatedCount++;
+                            }
+                        }
 
                         if (
+                            workMode ==
+                            TerrainRuntimeBakeWorkMode
+                                .Incremental
+                        )
+                        {
+                            if (
+                                !TryAcknowledgeDurableIncrementalBatch(
+                                    worldSettings,
+                                    target,
+                                    preparedBatch,
+                                    batchCreatedAsset,
+                                    ref expectedStateRevision,
+                                    out PersistentDirtyTransition batchDirtyTransition,
+                                    out string batchStaleMessage
+                                )
+                            )
+                            {
+                                staleDuringGeneration = true;
+                                staleMessage =
+                                    batchStaleMessage;
+                            }
+                            else
+                            {
+                                AccumulateDirtyTransition(
+                                    batchDirtyTransition,
+                                    ref operationConfigurationBecameDirty,
+                                    ref operationContentBecameDirty
+                                );
+                            }
+                        }
+
+                        if (
+                            !cancelled
+                            &&
+                            !staleDuringGeneration
+                            &&
                             TerrainRuntimeBakeValidationHooks.ShouldCancelCoordinateStage(
                                 TerrainRuntimeBakePipelineState.Collision,
                                 succeeded.Count,
@@ -866,12 +1008,13 @@ public static class TerrainCollisionMeshGenerator
                         )
                         {
                             cancelled = true;
-                            break;
                         }
                     }
 
                     if (
                         cancelled
+                        ||
+                        staleDuringGeneration
                         ||
                         !string.IsNullOrEmpty(
                             failureMessage
@@ -897,55 +1040,28 @@ public static class TerrainCollisionMeshGenerator
             );
 
         // =====================================================
-        // CANCELLED / FAILED PARTIAL OUTPUT
+        // CANCELLED / FAILED / STALE PARTIAL OUTPUT
         // =====================================================
 
         if (
             cancelled
+            ||
+            staleDuringGeneration
             ||
             !string.IsNullOrEmpty(
                 failureMessage
             )
         )
         {
-            bool targetStillMatches =
-                TargetStillMatches(
-                    worldSettings,
-                    target
-                );
-
-            bool stateStillMatches =
-                TerrainRuntimeBakeStateService
-                    .GetSummary()
-                    .StateRevision ==
-                startSnapshot.StateRevision;
-
             TerrainRuntimeBakeStateMutation mutation =
                 new TerrainRuntimeBakeStateMutation();
 
-            bool acknowledgeSucceededIncremental =
-                workMode ==
-                    TerrainRuntimeBakeWorkMode
-                        .Incremental
-                &&
-                succeeded.Count > 0
-                &&
-                targetStillMatches
-                &&
-                stateStillMatches;
-
-            if (acknowledgeSucceededIncremental)
-            {
-                /*
-                 * Incremental partial work is intentionally durable. Remove
-                 * only the chunks that reached a fully saved + PhysX-baked
-                 * state. Failed/unprocessed chunks remain pending.
-                 */
-                mutation.RemoveCollisionChunks(
-                    succeeded
-                );
-            }
-
+            /*
+             * Incremental durable batches were already acknowledged at their
+             * persistence boundary. This terminal mutation only preserves
+             * conservative dirty state for physical changes that may not have
+             * reached an acknowledgement boundary.
+             */
             if (anyPhysicalContentChange)
             {
                 mutation
@@ -963,29 +1079,46 @@ public static class TerrainCollisionMeshGenerator
                     mutation
                 );
 
-            string additionalSafety =
-                "";
-
-            if (
-                workMode ==
-                    TerrainRuntimeBakeWorkMode
-                        .Incremental
-                &&
-                succeeded.Count > 0
-                &&
-                !acknowledgeSucceededIncremental
-            )
-            {
-                additionalSafety =
-                    " Successful physical chunks were left pending because the target or persistent bake-state revision changed during generation.";
-            }
+            AccumulateDirtyTransition(
+                dirtyTransition,
+                ref operationConfigurationBecameDirty,
+                ref operationContentBecameDirty
+            );
 
             TerrainCollisionGenerationOutcome outcome =
-                cancelled
+                staleDuringGeneration
                     ? TerrainCollisionGenerationOutcome
-                        .Cancelled
-                    : TerrainCollisionGenerationOutcome
-                        .Failed;
+                        .StalePlan
+                    : cancelled
+                        ? TerrainCollisionGenerationOutcome
+                            .Cancelled
+                        : TerrainCollisionGenerationOutcome
+                            .Failed;
+
+            string errorMessage =
+                staleDuringGeneration
+                    ? staleMessage
+                    : cancelled
+                        ? ""
+                        : failureMessage;
+
+            string summary;
+
+            if (staleDuringGeneration)
+            {
+                summary =
+                    "Collision generation stopped because the target or persistent bake state changed at a durability boundary. Durable physical chunks remain persisted; any batch that could not be safely acknowledged remains pending.";
+            }
+            else if (cancelled)
+            {
+                summary =
+                    "Collision generation was cancelled at a durability-safe boundary. Completed incremental batches were already persisted and acknowledged.";
+            }
+            else
+            {
+                summary =
+                    "Collision generation stopped after a failure. Earlier durable incremental batches remain persisted and acknowledged; undurable work remains pending.";
+            }
 
             return
                 CreateResult(
@@ -1005,18 +1138,10 @@ public static class TerrainCollisionMeshGenerator
                     sourceHeightRevisionBefore,
                     worldSettings
                         .collisionSourceHeightmapGenerationRevision,
-                    dirtyTransition
-                        .configurationBecameDirty,
-                    dirtyTransition
-                        .contentBecameDirty,
-                    cancelled
-                        ? ""
-                        : failureMessage,
-                    cancelled
-                        ? "Collision generation was cancelled. Completed incremental chunks were preserved when it was safe to acknowledge them." +
-                          additionalSafety
-                        : "Collision generation stopped after a failure. Completed incremental chunks were preserved when it was safe to acknowledge them." +
-                          additionalSafety
+                    operationConfigurationBecameDirty,
+                    operationContentBecameDirty,
+                    errorMessage,
+                    summary
                 );
         }
 
@@ -1033,7 +1158,7 @@ public static class TerrainCollisionMeshGenerator
             TerrainRuntimeBakeStateService
                 .GetSummary()
                 .StateRevision !=
-                startSnapshot.StateRevision
+                expectedStateRevision
         )
         {
             TerrainRuntimeBakeStateMutation dirtyMutation =
@@ -1056,6 +1181,12 @@ public static class TerrainCollisionMeshGenerator
                     dirtyMutation
                 );
 
+            AccumulateDirtyTransition(
+                dirtyTransition,
+                ref operationConfigurationBecameDirty,
+                ref operationContentBecameDirty
+            );
+
             return
                 CreateResult(
                     TerrainCollisionGenerationOutcome.StalePlan,
@@ -1074,10 +1205,8 @@ public static class TerrainCollisionMeshGenerator
                     sourceHeightRevisionBefore,
                     worldSettings
                         .collisionSourceHeightmapGenerationRevision,
-                    dirtyTransition
-                        .configurationBecameDirty,
-                    dirtyTransition
-                        .contentBecameDirty,
+                    operationConfigurationBecameDirty,
+                    operationContentBecameDirty,
                     "Height generation, collision settings/layout, or persistent bake state changed before collision finalization.",
                     "Physical collision outputs were preserved, but collision generation was not marked current."
                 );
@@ -1111,6 +1240,12 @@ public static class TerrainCollisionMeshGenerator
                     dirtyMutation
                 );
 
+            AccumulateDirtyTransition(
+                dirtyTransition,
+                ref operationConfigurationBecameDirty,
+                ref operationContentBecameDirty
+            );
+
             return
                 CreateResult(
                     TerrainCollisionGenerationOutcome.Failed,
@@ -1129,10 +1264,8 @@ public static class TerrainCollisionMeshGenerator
                     sourceHeightRevisionBefore,
                     worldSettings
                         .collisionSourceHeightmapGenerationRevision,
-                    dirtyTransition
-                        .configurationBecameDirty,
-                    dirtyTransition
-                        .contentBecameDirty,
+                    operationConfigurationBecameDirty,
+                    operationContentBecameDirty,
                     "Collision meshes were generated, but collision generation state could not be recorded.",
                     "Physical collision outputs were preserved and remain conservatively pending."
                 );
@@ -1142,42 +1275,44 @@ public static class TerrainCollisionMeshGenerator
         // FINAL PERSISTENT ACKNOWLEDGEMENT
         // =====================================================
 
-        TerrainRuntimeBakeStateMutation finalMutation =
-            new TerrainRuntimeBakeStateMutation();
-
         if (
             workMode ==
             TerrainRuntimeBakeWorkMode.Full
         )
         {
-            finalMutation
-                .ClearAllCollisionChunks()
-                .ClearFullCollision();
-        }
-        else
-        {
-            finalMutation
-                .RemoveCollisionChunks(
-                    succeeded
-                );
-        }
+            TerrainRuntimeBakeStateMutation finalMutation =
+                new TerrainRuntimeBakeStateMutation()
+                    .ClearAllCollisionChunks()
+                    .ClearFullCollision();
 
-        if (anyPhysicalContentChange)
-        {
-            finalMutation
-                .DirtyAddressablesContent();
-        }
-
-        if (addressablesConfigurationRequired)
-        {
-            finalMutation
-                .DirtyAddressablesConfiguration();
-        }
-
-        PersistentDirtyTransition finalDirtyTransition =
-            ApplyMutationAndMeasureDirtyTransition(
+            if (anyPhysicalContentChange)
+            {
                 finalMutation
+                    .DirtyAddressablesContent();
+            }
+
+            if (addressablesConfigurationRequired)
+            {
+                finalMutation
+                    .DirtyAddressablesConfiguration();
+            }
+
+            PersistentDirtyTransition finalDirtyTransition =
+                ApplyMutationAndMeasureDirtyTransition(
+                    finalMutation
+                );
+
+            AccumulateDirtyTransition(
+                finalDirtyTransition,
+                ref operationConfigurationBecameDirty,
+                ref operationContentBecameDirty
             );
+        }
+        /*
+         * Incremental durable batches already removed their own pending
+         * coordinates and dirtied Addressables at each persistence boundary.
+         * Avoid a redundant final persistent-state mutation.
+         */
 
         using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
         {
@@ -1202,10 +1337,8 @@ public static class TerrainCollisionMeshGenerator
                 sourceHeightRevisionBefore,
                 worldSettings
                     .collisionSourceHeightmapGenerationRevision,
-                finalDirtyTransition
-                    .configurationBecameDirty,
-                finalDirtyTransition
-                    .contentBecameDirty,
+                operationConfigurationBecameDirty,
+                operationContentBecameDirty,
                 "",
                 workMode ==
                     TerrainRuntimeBakeWorkMode.Full
@@ -1411,9 +1544,13 @@ public static class TerrainCollisionMeshGenerator
             int heightSampleStep,
             float collisionVertexSpacing,
             int heightSamplesPerTile,
-            NativeArray<float> heightData
+            NativeArray<float> heightData,
+            out Mesh preparedMesh
         )
     {
+        preparedMesh =
+            null;
+
         int verticesPerSide =
             collisionResolution +
             1;
@@ -1779,13 +1916,8 @@ public static class TerrainCollisionMeshGenerator
             mesh
         );
 
-        using (WorldMeshesProfiler.RuntimeBakeCollisionSaveMesh.Auto())
-        using (WorldMeshesProfiler.AssetDatabaseSaveAssetIfDirty.Auto())
-        {
-            AssetDatabase.SaveAssetIfDirty(
-                mesh
-            );
-        }
+        preparedMesh =
+            mesh;
 
         return
             isNew
@@ -1793,6 +1925,163 @@ public static class TerrainCollisionMeshGenerator
                     .Created
                 : TerrainCollisionMeshWriteOutcome
                     .Updated;
+    }
+
+    private static bool TryPersistCollisionBatch(
+        IReadOnlyList<PreparedCollisionMesh> preparedBatch,
+        out string errorMessage
+    )
+    {
+        errorMessage =
+            "";
+
+        if (
+            preparedBatch == null
+            ||
+            preparedBatch.Count == 0
+        )
+        {
+            return true;
+        }
+
+        for (
+            int index = 0;
+            index < preparedBatch.Count;
+            index++
+        )
+        {
+            if (
+                preparedBatch[index] == null
+                ||
+                preparedBatch[index].mesh == null
+            )
+            {
+                errorMessage =
+                    "Cannot persist a collision batch containing a null prepared Mesh.";
+
+                return false;
+            }
+        }
+
+        try
+        {
+            using (WorldMeshesProfiler.RuntimeBakeCollisionSaveBatch.Auto())
+            using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
+            {
+                AssetDatabase.SaveAssets();
+            }
+        }
+        catch (Exception exception)
+        {
+            errorMessage =
+                "Could not persist the prepared collision mesh batch.\n\n" +
+                exception.Message;
+
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryAcknowledgeDurableIncrementalBatch(
+        WorldSettings worldSettings,
+        CollisionGenerationTarget target,
+        IReadOnlyList<PreparedCollisionMesh> durableBatch,
+        bool batchCreatedAsset,
+        ref long expectedStateRevision,
+        out PersistentDirtyTransition dirtyTransition,
+        out string staleMessage
+    )
+    {
+        dirtyTransition =
+            default;
+
+        staleMessage =
+            "";
+
+        if (
+            !TargetStillMatches(
+                worldSettings,
+                target
+            )
+        )
+        {
+            staleMessage =
+                "Height generation or collision settings/layout changed after a collision batch was persisted. The durable batch was left pending.";
+
+            return false;
+        }
+
+        TerrainRuntimeBakeStateSummary summary =
+            TerrainRuntimeBakeStateService
+                .GetSummary();
+
+        if (
+            summary.StateRevision !=
+            expectedStateRevision
+        )
+        {
+            staleMessage =
+                "Persistent runtime bake state changed after a collision batch was persisted. The durable batch was left pending.";
+
+            return false;
+        }
+
+        List<Vector2Int> durableCoordinates =
+            new List<Vector2Int>(
+                durableBatch.Count
+            );
+
+        for (
+            int index = 0;
+            index < durableBatch.Count;
+            index++
+        )
+        {
+            durableCoordinates.Add(
+                durableBatch[index]
+                    .coordinate
+            );
+        }
+
+        TerrainRuntimeBakeStateMutation mutation =
+            new TerrainRuntimeBakeStateMutation()
+                .RemoveCollisionChunks(
+                    durableCoordinates
+                )
+                .DirtyAddressablesContent();
+
+        if (batchCreatedAsset)
+        {
+            mutation
+                .DirtyAddressablesConfiguration();
+        }
+
+        dirtyTransition =
+            ApplyMutationAndMeasureDirtyTransition(
+                mutation
+            );
+
+        expectedStateRevision =
+            dirtyTransition
+                .stateRevisionAfter;
+
+        return true;
+    }
+
+    private static void AccumulateDirtyTransition(
+        PersistentDirtyTransition transition,
+        ref bool configurationBecameDirty,
+        ref bool contentBecameDirty
+    )
+    {
+        configurationBecameDirty |=
+            transition
+                .configurationBecameDirty;
+
+        contentBecameDirty |=
+            transition
+                .contentBecameDirty;
     }
 
     private static bool BakeCollisionMesh(
@@ -1818,11 +2107,14 @@ public static class TerrainCollisionMeshGenerator
 
         try
         {
-            Physics.BakeMesh(
-                mesh.GetInstanceID(),
-                TerrainCollisionPhysicsSettings.Convex,
-                TerrainCollisionPhysicsSettings.CookingOptions
-            );
+            using (WorldMeshesProfiler.RuntimeBakeCollisionBakePhysics.Auto())
+            {
+                Physics.BakeMesh(
+                    mesh.GetInstanceID(),
+                    TerrainCollisionPhysicsSettings.Convex,
+                    TerrainCollisionPhysicsSettings.CookingOptions
+                );
+            }
         }
         catch (Exception exception)
         {
@@ -2039,7 +2331,11 @@ public static class TerrainCollisionMeshGenerator
                         .AddressablesContentDirty
                     &&
                     after
-                        .AddressablesContentDirty
+                        .AddressablesContentDirty,
+
+                stateRevisionAfter =
+                    after
+                        .StateRevision
             };
     }
 
