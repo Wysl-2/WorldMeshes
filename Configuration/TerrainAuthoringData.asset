@@ -25,7 +25,7 @@ MonoBehaviour:
   - rid: 3932701602959851587
   - rid: 3932701602959851588
   - rid: 3932701602959851589
-  authoringRevision: 2599
+  authoringRevision: 2600
   references:
     version: 2
     RefIds:
@@ -353,8 +353,8 @@ MonoBehaviour:
         enabled: 1
         blendMode: 3
         stampAsset: {fileID: 11400000, guid: 1491abb90d27d36868594cecf1b0fade, type: 2}
-        positionXZ: {x: 8537.711, y: 7637.485}
-        sizeXZ: {x: 1736.7029, y: 2096.129}
+        positionXZ: {x: 8551.767, y: 7629.415}
+        sizeXZ: {x: 1709.6763, y: 2078.2312}
         rotationDegrees: -3.6527252
         flipX: 0
         flipZ: 0

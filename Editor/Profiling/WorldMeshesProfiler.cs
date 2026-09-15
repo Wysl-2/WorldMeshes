@@ -97,4 +97,13 @@ public static class WorldMeshesProfiler
 
     public static readonly ProfilerMarker ValidationInspectOutputs =
         new("WorldMeshes.Validation.InspectOutputs");
+
+    public static readonly ProfilerMarker ValidationInspectOutputsHeight =
+        new("WorldMeshes.Validation.InspectOutputs.Height");
+
+    public static readonly ProfilerMarker ValidationInspectOutputsSurface =
+        new("WorldMeshes.Validation.InspectOutputs.Surface");
+
+    public static readonly ProfilerMarker ValidationInspectOutputsCollision =
+        new("WorldMeshes.Validation.InspectOutputs.Collision");
 }

@@ -171,6 +171,9 @@ public static class TerrainRuntimeIntegrityAuditUtility
         WorldSettings worldSettings
     )
     {
+        using var profilerScope =
+            WorldMeshesProfiler.ValidationInspectOutputsHeight.Auto();
+
         TerrainRuntimeGeneratedDataIntegrityResult result =
             NewResult("Height");
 
@@ -227,9 +230,6 @@ public static class TerrainRuntimeIntegrityAuditUtility
                     TerrainRuntimeHeightAssetUtility
                         .GetHeightTilePath(x, z);
 
-                Object main =
-                    AssetDatabase.LoadMainAssetAtPath(path);
-
                 Texture2D texture =
                     AssetDatabase.LoadAssetAtPath<Texture2D>(path);
 
@@ -240,6 +240,9 @@ public static class TerrainRuntimeIntegrityAuditUtility
                 }
 
                 result.MissingCoordinates.Add(new Vector2Int(x, z));
+
+                Object main =
+                    AssetDatabase.LoadMainAssetAtPath(path);
 
                 if (main == null)
                 {
@@ -261,6 +264,9 @@ public static class TerrainRuntimeIntegrityAuditUtility
         WorldSettings worldSettings
     )
     {
+        using var profilerScope =
+            WorldMeshesProfiler.ValidationInspectOutputsSurface.Auto();
+
         TerrainRuntimeGeneratedDataIntegrityResult result =
             NewResult("Surface");
 
@@ -319,9 +325,6 @@ public static class TerrainRuntimeIntegrityAuditUtility
                     TerrainRuntimeSurfaceMaskAssetUtility
                         .GetSurfaceTilePath(x, z);
 
-                Object main =
-                    AssetDatabase.LoadMainAssetAtPath(path);
-
                 Texture2D texture =
                     AssetDatabase.LoadAssetAtPath<Texture2D>(path);
 
@@ -332,6 +335,9 @@ public static class TerrainRuntimeIntegrityAuditUtility
                 }
 
                 result.MissingCoordinates.Add(new Vector2Int(x, z));
+
+                Object main =
+                    AssetDatabase.LoadMainAssetAtPath(path);
 
                 if (main == null)
                 {
@@ -353,6 +359,9 @@ public static class TerrainRuntimeIntegrityAuditUtility
         WorldSettings worldSettings
     )
     {
+        using var profilerScope =
+            WorldMeshesProfiler.ValidationInspectOutputsCollision.Auto();
+
         TerrainRuntimeGeneratedDataIntegrityResult result =
             NewResult("Collision");
 
@@ -402,9 +411,6 @@ public static class TerrainRuntimeIntegrityAuditUtility
                     TerrainCollisionMeshGenerator
                         .GetCollisionMeshPath(x, z);
 
-                Object main =
-                    AssetDatabase.LoadMainAssetAtPath(path);
-
                 Mesh mesh =
                     AssetDatabase.LoadAssetAtPath<Mesh>(path);
 
@@ -415,6 +421,9 @@ public static class TerrainRuntimeIntegrityAuditUtility
                 }
 
                 result.MissingCoordinates.Add(new Vector2Int(x, z));
+
+                Object main =
+                    AssetDatabase.LoadMainAssetAtPath(path);
 
                 if (main == null)
                 {
