@@ -737,9 +737,10 @@ public static class TerrainRuntimeBakePlanner
 
         /*
          * Persistent dirty state records changes WorldMeshes observed.
-         * Package 10.4 must also detect external Addressables damage. Only
-         * perform the structural audit when generated datasets themselves are
-         * current and no generator work is pending.
+         * External Addressables damage is folded into routine planning only
+         * when a validation result for the current generated target is already
+         * cached. Planning must not synchronously launch whole-dataset
+         * validation merely to discover unobserved external damage.
          */
         bool externalAddressablesRepairRequired =
             false;
@@ -762,22 +763,26 @@ public static class TerrainRuntimeBakePlanner
                     .GenerationStatus.Current
         )
         {
-            TerrainRuntimeAddressablesValidationResult addressablesValidation =
+            if (
                 TerrainRuntimeIntegrityAuditUtility
-                    .GetCachedAddressablesValidation(
-                        worldSettings
-                    );
-
-            externalAddressablesRepairRequired =
-                addressablesValidation == null
-                ||
-                !addressablesValidation.IsValid;
-
-            if (externalAddressablesRepairRequired)
+                    .TryGetCachedAddressablesValidation(
+                        worldSettings,
+                        out TerrainRuntimeAddressablesValidationResult
+                            addressablesValidation
+                    )
+            )
             {
-                safetyReasons.Add(
-                    "Runtime Addressables structure is damaged or incomplete; Configuration and Content require reconciliation."
-                );
+                externalAddressablesRepairRequired =
+                    addressablesValidation == null
+                    ||
+                    !addressablesValidation.IsValid;
+
+                if (externalAddressablesRepairRequired)
+                {
+                    safetyReasons.Add(
+                        "Runtime Addressables structure is damaged or incomplete; Configuration and Content require reconciliation."
+                    );
+                }
             }
         }
 

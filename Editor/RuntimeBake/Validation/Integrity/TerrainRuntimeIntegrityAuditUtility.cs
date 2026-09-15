@@ -51,7 +51,8 @@ public static class TerrainRuntimeIntegrityAuditUtility
 {
     private static TerrainRuntimeIntegrityAuditResult cachedGeneratedAudit;
     private static TerrainRuntimeAddressablesValidationResult cachedAddressablesValidation;
-    private static string cachedKey = "";
+    private static string cachedGeneratedAuditKey = "";
+    private static string cachedAddressablesValidationKey = "";
 
     static TerrainRuntimeIntegrityAuditUtility()
     {
@@ -62,7 +63,8 @@ public static class TerrainRuntimeIntegrityAuditUtility
     {
         cachedGeneratedAudit = null;
         cachedAddressablesValidation = null;
-        cachedKey = "";
+        cachedGeneratedAuditKey = "";
+        cachedAddressablesValidationKey = "";
     }
 
     public static TerrainRuntimeIntegrityAuditResult GetCachedGeneratedDataAudit(
@@ -73,7 +75,7 @@ public static class TerrainRuntimeIntegrityAuditUtility
 
         if (
             cachedGeneratedAudit == null
-            || cachedKey != key
+            || cachedGeneratedAuditKey != key
         )
         {
             using (WorldMeshesProfiler.ValidationInspectOutputs.Auto())
@@ -87,26 +89,55 @@ public static class TerrainRuntimeIntegrityAuditUtility
                     };
             }
 
-            cachedKey = key;
-            cachedAddressablesValidation = null;
+            cachedGeneratedAuditKey = key;
         }
 
         return cachedGeneratedAudit;
+    }
+
+    public static bool TryGetCachedAddressablesValidation(
+        WorldSettings worldSettings,
+        out TerrainRuntimeAddressablesValidationResult validation
+    )
+    {
+        string key = BuildKey(worldSettings);
+
+        if (
+            cachedAddressablesValidation != null
+            &&
+            cachedAddressablesValidationKey == key
+        )
+        {
+            validation =
+                cachedAddressablesValidation;
+
+            return true;
+        }
+
+        validation = null;
+        return false;
     }
 
     public static TerrainRuntimeAddressablesValidationResult GetCachedAddressablesValidation(
         WorldSettings worldSettings
     )
     {
-        GetCachedGeneratedDataAudit(worldSettings);
+        string key = BuildKey(worldSettings);
 
-        if (cachedAddressablesValidation == null)
+        if (
+            cachedAddressablesValidation == null
+            ||
+            cachedAddressablesValidationKey != key
+        )
         {
             cachedAddressablesValidation =
                 TerrainRuntimeAddressablesUtility
                     .ValidateExistingRuntimeConfiguration(
                         worldSettings
                     );
+
+            cachedAddressablesValidationKey =
+                key;
         }
 
         return cachedAddressablesValidation;
