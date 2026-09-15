@@ -916,7 +916,7 @@ public static class TerrainCollisionMeshGenerator
 
             bool stateStillMatches =
                 TerrainRuntimeBakeStateService
-                    .GetSnapshot()
+                    .GetSummary()
                     .StateRevision ==
                 startSnapshot.StateRevision;
 
@@ -1031,7 +1031,7 @@ public static class TerrainCollisionMeshGenerator
             )
             ||
             TerrainRuntimeBakeStateService
-                .GetSnapshot()
+                .GetSummary()
                 .StateRevision !=
                 startSnapshot.StateRevision
         )
