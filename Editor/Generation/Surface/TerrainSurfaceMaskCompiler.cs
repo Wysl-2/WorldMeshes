@@ -776,7 +776,7 @@ public static class TerrainSurfaceMaskCompiler
         if (
             sourcePlan != null
             &&
-            TerrainRuntimeBakeStateService.GetSnapshot().StateRevision
+            TerrainRuntimeBakeStateService.GetSummary().StateRevision
                 != sourcePlan.SourceStateRevision
         )
         {
@@ -1825,7 +1825,7 @@ public static class TerrainSurfaceMaskCompiler
             if (
                 !TargetStillCurrent()
                 ||
-                TerrainRuntimeBakeStateService.GetSnapshot().StateRevision
+                TerrainRuntimeBakeStateService.GetSummary().StateRevision
                     != sourceBakeStateRevision
             )
             {
@@ -2171,7 +2171,7 @@ public static class TerrainSurfaceMaskCompiler
                 );
 
             bool stateStillMatches =
-                TerrainRuntimeBakeStateService.GetSnapshot().StateRevision
+                TerrainRuntimeBakeStateService.GetSummary().StateRevision
                     == sourceBakeStateRevision;
 
             bool targetStillMatches = TargetStillCurrent();
@@ -2399,13 +2399,13 @@ public static class TerrainSurfaceMaskCompiler
             TerrainRuntimeBakeStateMutation mutation
         )
     {
-        TerrainRuntimeBakeStateSnapshot before =
-            TerrainRuntimeBakeStateService.GetSnapshot();
+        TerrainRuntimeBakeStateSummary before =
+            TerrainRuntimeBakeStateService.GetSummary();
 
         TerrainRuntimeBakeStateService.ApplyMutation(mutation);
 
-        TerrainRuntimeBakeStateSnapshot after =
-            TerrainRuntimeBakeStateService.GetSnapshot();
+        TerrainRuntimeBakeStateSummary after =
+            TerrainRuntimeBakeStateService.GetSummary();
 
         return new PersistentDirtyTransition
         {

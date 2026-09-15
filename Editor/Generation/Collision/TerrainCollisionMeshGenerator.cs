@@ -500,7 +500,7 @@ public static class TerrainCollisionMeshGenerator
             sourcePlan != null
             &&
             TerrainRuntimeBakeStateService
-                .GetSnapshot()
+                .GetSummary()
                 .StateRevision !=
                 sourcePlan.SourceStateRevision
         )
@@ -2011,18 +2011,18 @@ public static class TerrainCollisionMeshGenerator
             TerrainRuntimeBakeStateMutation mutation
         )
     {
-        TerrainRuntimeBakeStateSnapshot before =
+        TerrainRuntimeBakeStateSummary before =
             TerrainRuntimeBakeStateService
-                .GetSnapshot();
+                .GetSummary();
 
         TerrainRuntimeBakeStateService
             .ApplyMutation(
                 mutation
             );
 
-        TerrainRuntimeBakeStateSnapshot after =
+        TerrainRuntimeBakeStateSummary after =
             TerrainRuntimeBakeStateService
-                .GetSnapshot();
+                .GetSummary();
 
         return
             new PersistentDirtyTransition
