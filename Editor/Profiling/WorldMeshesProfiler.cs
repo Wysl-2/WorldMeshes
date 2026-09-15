@@ -44,6 +44,9 @@ public static class WorldMeshesProfiler
     public static readonly ProfilerMarker RuntimeBakeSurfaceSaveTile =
         new("WorldMeshes.RuntimeBake.Generation.Surface.SaveTile");
 
+    public static readonly ProfilerMarker RuntimeBakeSurfaceSaveBatch =
+        new("WorldMeshes.RuntimeBake.Generation.Surface.SaveBatch");
+
     public static readonly ProfilerMarker RuntimeBakeSurfaceSaveManifest =
         new("WorldMeshes.RuntimeBake.Generation.Surface.SaveManifest");
 

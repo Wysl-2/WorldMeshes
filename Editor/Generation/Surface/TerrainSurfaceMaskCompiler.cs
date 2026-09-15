@@ -1188,11 +1188,6 @@ public static class TerrainSurfaceMaskCompiler
             }
 
             EditorUtility.SetDirty(texture);
-            using (WorldMeshesProfiler.RuntimeBakeSurfaceSaveTile.Auto())
-            using (WorldMeshesProfiler.AssetDatabaseSaveAssetIfDirty.Auto())
-            {
-                AssetDatabase.SaveAssetIfDirty(texture);
-            }
         }
         catch (Exception exception)
         {
@@ -1617,6 +1612,12 @@ public static class TerrainSurfaceMaskCompiler
             Dictionary<Vector2Int, TerrainAnalysisTileData> curvatureByTile =
                 BuildTileDictionary(curvatureBatch);
 
+            List<Vector2Int> preparedCoordinates =
+                new List<Vector2Int>();
+
+            int preparedCreatedCount = 0;
+            int preparedUpdatedCount = 0;
+
             for (
                 int batchIndex = 0;
                 batchIndex < currentBatch.Count;
@@ -1780,17 +1781,40 @@ public static class TerrainSurfaceMaskCompiler
                     return;
                 }
 
-                succeeded.Add(coordinate);
+                preparedCoordinates.Add(coordinate);
 
                 if (writeOutcome == SurfaceTileWriteOutcome.Created)
                 {
-                    createdCount++;
+                    preparedCreatedCount++;
                 }
                 else
                 {
-                    updatedCount++;
+                    preparedUpdatedCount++;
                 }
             }
+
+            try
+            {
+                using (WorldMeshesProfiler.RuntimeBakeSurfaceSaveBatch.Auto())
+                using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
+                {
+                    AssetDatabase.SaveAssets();
+                }
+            }
+            catch (Exception exception)
+            {
+                FinishTerminal(
+                    TerrainSurfaceMaskGenerationOutcome.Failed,
+                    "Surface tile batch persistence failed.\n\n" +
+                    exception.Message
+                );
+
+                return;
+            }
+
+            succeeded.AddRange(preparedCoordinates);
+            createdCount += preparedCreatedCount;
+            updatedCount += preparedUpdatedCount;
 
             nextTileIndex += currentBatch.Count;
 
