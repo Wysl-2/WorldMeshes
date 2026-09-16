@@ -475,6 +475,11 @@ public static class TerrainRuntimeBakePipeline
         run.heightPlan =
             plan;
 
+        run.diagnostics?.RecordExecutionPlan(
+            TerrainRuntimeBakePipelineState.Heightmaps,
+            plan
+        );
+
         if (!ValidateStagePlan(run, plan))
         {
             return;
@@ -512,18 +517,28 @@ public static class TerrainRuntimeBakePipeline
             )
             {
                 result =
-                    TerrainRuntimeHeightCompiler.RebuildAllRuntimeHeightmaps(
-                        run.worldSettings,
-                        run.authoringData
+                    TraceExecutionCall(
+                        run,
+                        TerrainRuntimeBakePipelineState.Heightmaps,
+                        "TerrainRuntimeHeightCompiler.RebuildAllRuntimeHeightmaps",
+                        () => TerrainRuntimeHeightCompiler.RebuildAllRuntimeHeightmaps(
+                            run.worldSettings,
+                            run.authoringData
+                        )
                     );
             }
             else
             {
                 result =
-                    TerrainRuntimeHeightCompiler.CompilePlannedHeightWork(
-                        run.worldSettings,
-                        run.authoringData,
-                        plan
+                    TraceExecutionCall(
+                        run,
+                        TerrainRuntimeBakePipelineState.Heightmaps,
+                        "TerrainRuntimeHeightCompiler.CompilePlannedHeightWork",
+                        () => TerrainRuntimeHeightCompiler.CompilePlannedHeightWork(
+                            run.worldSettings,
+                            run.authoringData,
+                            plan
+                        )
                     );
             }
         }
@@ -539,6 +554,10 @@ public static class TerrainRuntimeBakePipeline
 
         run.heightResult =
             result;
+
+        run.diagnostics?.RecordHeightExecution(
+            result
+        );
 
         if (result == null)
         {
@@ -627,6 +646,11 @@ public static class TerrainRuntimeBakePipeline
         run.surfacePlan =
             plan;
 
+        run.diagnostics?.RecordExecutionPlan(
+            TerrainRuntimeBakePipelineState.SurfaceMasks,
+            plan
+        );
+
         if (!ValidateStagePlan(run, plan))
         {
             return;
@@ -682,26 +706,36 @@ public static class TerrainRuntimeBakePipeline
             )
             {
                 started =
-                    TerrainSurfaceMaskCompiler.RebuildAllSurfaceMasks(
-                        run.worldSettings,
-                        result =>
-                            OnSurfaceStageCompleted(
-                                run,
-                                result
-                            )
+                    TraceExecutionCall(
+                        run,
+                        TerrainRuntimeBakePipelineState.SurfaceMasks,
+                        "TerrainSurfaceMaskCompiler.RebuildAllSurfaceMasks.Start",
+                        () => TerrainSurfaceMaskCompiler.RebuildAllSurfaceMasks(
+                            run.worldSettings,
+                            result =>
+                                OnSurfaceStageCompleted(
+                                    run,
+                                    result
+                                )
+                        )
                     );
             }
             else
             {
                 started =
-                    TerrainSurfaceMaskCompiler.GeneratePlannedSurfaceMasks(
-                        run.worldSettings,
-                        plan,
-                        result =>
-                            OnSurfaceStageCompleted(
-                                run,
-                                result
-                            )
+                    TraceExecutionCall(
+                        run,
+                        TerrainRuntimeBakePipelineState.SurfaceMasks,
+                        "TerrainSurfaceMaskCompiler.GeneratePlannedSurfaceMasks.Start",
+                        () => TerrainSurfaceMaskCompiler.GeneratePlannedSurfaceMasks(
+                            run.worldSettings,
+                            plan,
+                            result =>
+                                OnSurfaceStageCompleted(
+                                    run,
+                                    result
+                                )
+                        )
                     );
             }
         }
@@ -808,6 +842,10 @@ public static class TerrainRuntimeBakePipeline
         run.surfaceResult =
             result;
 
+        run.diagnostics?.RecordSurfaceExecution(
+            result
+        );
+
         if (result == null)
         {
             FinishFailed(
@@ -895,6 +933,11 @@ public static class TerrainRuntimeBakePipeline
         run.collisionPlan =
             plan;
 
+        run.diagnostics?.RecordExecutionPlan(
+            TerrainRuntimeBakePipelineState.Collision,
+            plan
+        );
+
         if (!ValidateStagePlan(run, plan))
         {
             return;
@@ -947,16 +990,26 @@ public static class TerrainRuntimeBakePipeline
             )
             {
                 result =
-                    TerrainCollisionMeshGenerator.RebuildAllCollisionMeshes(
-                        run.worldSettings
+                    TraceExecutionCall(
+                        run,
+                        TerrainRuntimeBakePipelineState.Collision,
+                        "TerrainCollisionMeshGenerator.RebuildAllCollisionMeshes",
+                        () => TerrainCollisionMeshGenerator.RebuildAllCollisionMeshes(
+                            run.worldSettings
+                        )
                     );
             }
             else
             {
                 result =
-                    TerrainCollisionMeshGenerator.GeneratePlannedCollisionMeshes(
-                        run.worldSettings,
-                        plan
+                    TraceExecutionCall(
+                        run,
+                        TerrainRuntimeBakePipelineState.Collision,
+                        "TerrainCollisionMeshGenerator.GeneratePlannedCollisionMeshes",
+                        () => TerrainCollisionMeshGenerator.GeneratePlannedCollisionMeshes(
+                            run.worldSettings,
+                            plan
+                        )
                     );
             }
         }
@@ -972,6 +1025,10 @@ public static class TerrainRuntimeBakePipeline
 
         run.collisionResult =
             result;
+
+        run.diagnostics?.RecordCollisionExecution(
+            result
+        );
 
         if (result == null)
         {
@@ -1060,6 +1117,11 @@ public static class TerrainRuntimeBakePipeline
         run.addressablesPlan =
             plan;
 
+        run.diagnostics?.RecordExecutionPlan(
+            TerrainRuntimeBakePipelineState.Addressables,
+            plan
+        );
+
         if (!ValidateStagePlan(run, plan))
         {
             return;
@@ -1119,9 +1181,14 @@ public static class TerrainRuntimeBakePipeline
         try
         {
             result =
-                TerrainRuntimeAddressablesUtility.ProcessPlannedRuntimeContent(
-                    run.worldSettings,
-                    plan
+                TraceExecutionCall(
+                    run,
+                    TerrainRuntimeBakePipelineState.Addressables,
+                    "TerrainRuntimeAddressablesUtility.ProcessPlannedRuntimeContent",
+                    () => TerrainRuntimeAddressablesUtility.ProcessPlannedRuntimeContent(
+                        run.worldSettings,
+                        plan
+                    )
                 );
         }
         finally
@@ -1136,6 +1203,10 @@ public static class TerrainRuntimeBakePipeline
 
         run.addressablesResult =
             result;
+
+        run.diagnostics?.RecordAddressablesExecution(
+            result
+        );
 
         if (result == null)
         {
@@ -1232,6 +1303,11 @@ public static class TerrainRuntimeBakePipeline
         run.sceneSyncPlan =
             plan;
 
+        run.diagnostics?.RecordExecutionPlan(
+            TerrainRuntimeBakePipelineState.SceneSync,
+            plan
+        );
+
         if (!ValidateStagePlan(run, plan))
         {
             return;
@@ -1278,13 +1354,21 @@ public static class TerrainRuntimeBakePipeline
         try
         {
             result =
-                run.mode == TerrainRuntimeBakePipelineMode.RebuildAll
-                    ? TerrainRuntimeSceneSynchronizer.SynchronizeExistingHierarchy(
-                        run.worldSettings
-                    )
-                    : TerrainRuntimeSceneSynchronizer.SynchronizePending(
-                        run.worldSettings
-                    );
+                TraceExecutionCall(
+                    run,
+                    TerrainRuntimeBakePipelineState.SceneSync,
+                    run.mode == TerrainRuntimeBakePipelineMode.RebuildAll
+                        ? "TerrainRuntimeSceneSynchronizer.SynchronizeExistingHierarchy"
+                        : "TerrainRuntimeSceneSynchronizer.SynchronizePending",
+                    () =>
+                        run.mode == TerrainRuntimeBakePipelineMode.RebuildAll
+                            ? TerrainRuntimeSceneSynchronizer.SynchronizeExistingHierarchy(
+                                run.worldSettings
+                            )
+                            : TerrainRuntimeSceneSynchronizer.SynchronizePending(
+                                run.worldSettings
+                            )
+                );
         }
         finally
         {
@@ -1298,6 +1382,10 @@ public static class TerrainRuntimeBakePipeline
 
         run.sceneSyncResult =
             result;
+
+        run.diagnostics?.RecordSceneSyncExecution(
+            result
+        );
 
         if (result == null)
         {
@@ -1733,6 +1821,43 @@ public static class TerrainRuntimeBakePipeline
 
             default:
                 return fallback;
+        }
+    }
+
+    private static T TraceExecutionCall<T>(
+        ActiveRun run,
+        TerrainRuntimeBakePipelineState stage,
+        string name,
+        Func<T> action
+    )
+    {
+        TerrainRuntimeBakeTraceScope trace =
+            run != null
+                ? run.diagnostics?.BeginTrace(
+                    name,
+                    stage
+                )
+                : null;
+
+        try
+        {
+            T result =
+                action();
+
+            trace?.Complete();
+            return result;
+        }
+        catch (Exception exception)
+        {
+            trace?.Fail(
+                exception.Message
+            );
+
+            throw;
+        }
+        finally
+        {
+            trace?.Dispose();
         }
     }
 

@@ -487,6 +487,10 @@ internal sealed partial class TerrainRuntimeBakeDiagnosticsSession
             completedSnapshot
         );
 
+        AttachExecutionDataTo(
+            completedSnapshot
+        );
+
         completed =
             true;
 
