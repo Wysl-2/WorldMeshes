@@ -91,7 +91,8 @@ public static class TerrainRuntimeBakePlanner
         TerrainGenerationStateEvaluationContext generationState =
             new TerrainGenerationStateEvaluationContext(
                 worldSettings,
-                authoringData
+                authoringData,
+                TerrainGenerationStateEvaluationMode.Operational
             );
 
         string currentAuthoringSignature =
