@@ -1343,9 +1343,14 @@ public static class TerrainRuntimeAddressablesUtility
             "Building Addressables player content..."
         );
 
-        AddressableAssetSettings.BuildPlayerContent(
-            out AddressablesPlayerBuildResult result
-        );
+        AddressablesPlayerBuildResult result;
+
+        using (WorldMeshesProfiler.AddressablesBuildPlayerContent.Auto())
+        {
+            AddressableAssetSettings.BuildPlayerContent(
+                out result
+            );
+        }
 
         if (result == null)
         {

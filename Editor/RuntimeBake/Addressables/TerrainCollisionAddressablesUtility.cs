@@ -324,17 +324,26 @@ public static class TerrainCollisionAddressablesUtility
             return false;
         }
 
-        if (
-            !TryCollectCollisionAssetRecords(
-                worldSettings,
-                true,
-                out List<CollisionAssetRecord> records,
-                out HashSet<string> meshGuids,
-                out HashSet<string> expectedRegionLabels,
-                out cancelled,
-                out errorMessage
-            )
-        )
+        bool collisionAssetsCollected;
+        List<CollisionAssetRecord> records;
+        HashSet<string> meshGuids;
+        HashSet<string> expectedRegionLabels;
+
+        using (WorldMeshesProfiler.AddressablesCollisionCollectAssets.Auto())
+        {
+            collisionAssetsCollected =
+                TryCollectCollisionAssetRecords(
+                    worldSettings,
+                    true,
+                    out records,
+                    out meshGuids,
+                    out expectedRegionLabels,
+                    out cancelled,
+                    out errorMessage
+                );
+        }
+
+        if (!collisionAssetsCollected)
         {
             return false;
         }

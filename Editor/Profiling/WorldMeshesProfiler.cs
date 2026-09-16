@@ -74,6 +74,12 @@ public static class WorldMeshesProfiler
     public static readonly ProfilerMarker AddressablesCollisionReconcile =
         new("WorldMeshes.Addressables.Reconcile.Collision");
 
+    public static readonly ProfilerMarker AddressablesCollisionCollectAssets =
+        new("WorldMeshes.Addressables.Reconcile.Collision.CollectAssets");
+
+    public static readonly ProfilerMarker AddressablesBuildPlayerContent =
+        new("WorldMeshes.Addressables.BuildPlayerContent");
+
     public static readonly ProfilerMarker AddressablesCreateOrMoveEntry =
         new("WorldMeshes.Addressables.CreateOrMoveEntry");
 
