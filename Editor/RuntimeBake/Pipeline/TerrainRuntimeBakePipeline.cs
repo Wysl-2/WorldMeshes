@@ -15,6 +15,7 @@ public static class TerrainRuntimeBakePipeline
     private sealed class ActiveRun
     {
         public TerrainRuntimeBakePipelineMode mode;
+        public TerrainRuntimeBakeDiagnosticsSession diagnostics;
 
         public WorldSettings worldSettings;
         public TerrainAuthoringData authoringData;
@@ -249,12 +250,32 @@ public static class TerrainRuntimeBakePipeline
         Action<TerrainRuntimeBakePipelineResult> onCompleted
     )
     {
+        DateTime startedAtUtc =
+            DateTime.UtcNow;
+
+        double startedAtEditorTime =
+            EditorApplication.timeSinceStartup;
+
+        TerrainRuntimeBakeDiagnosticsSession diagnostics =
+            TerrainRuntimeBakeDiagnostics.BeginSession(
+                mode,
+                startedAtUtc,
+                startedAtEditorTime
+            );
+
+        using var trace =
+            diagnostics?.BeginTrace(
+                "TerrainRuntimeBakePipeline.TryStart",
+                TerrainRuntimeBakePipelineState.Preflight
+            );
+
         if (IsRunning)
         {
             InvokeRejectedCallback(
                 mode,
                 onCompleted,
-                "A unified runtime bake pipeline is already running."
+                "A unified runtime bake pipeline is already running.",
+                diagnostics
             );
 
             Debug.LogWarning(
@@ -271,7 +292,8 @@ public static class TerrainRuntimeBakePipeline
             PublishImmediateBlockedResult(
                 mode,
                 onCompleted,
-                "Unified runtime baking cannot start while entering or running Play Mode."
+                "Unified runtime baking cannot start while entering or running Play Mode.",
+                diagnostics
             );
 
             return false;
@@ -282,7 +304,8 @@ public static class TerrainRuntimeBakePipeline
             PublishImmediateBlockedResult(
                 mode,
                 onCompleted,
-                "Unified runtime baking cannot start while an independent runtime surface-mask generation operation is already running."
+                "Unified runtime baking cannot start while an independent runtime surface-mask generation operation is already running.",
+                diagnostics
             );
 
             return false;
@@ -292,8 +315,9 @@ public static class TerrainRuntimeBakePipeline
             new ActiveRun
             {
                 mode = mode,
-                startedAtUtc = DateTime.UtcNow,
-                startedAtEditorTime = EditorApplication.timeSinceStartup,
+                diagnostics = diagnostics,
+                startedAtUtc = startedAtUtc,
+                startedAtEditorTime = startedAtEditorTime,
                 completionCallback = onCompleted
             };
 
@@ -716,6 +740,42 @@ public static class TerrainRuntimeBakePipeline
     }
 
     private static void OnSurfaceStageCompleted(
+        ActiveRun run,
+        TerrainSurfaceMaskGenerationResult result
+    )
+    {
+        TerrainRuntimeBakeTraceScope trace =
+            run != null
+                ? run.diagnostics?.BeginTrace(
+                    "TerrainRuntimeBakePipeline.OnSurfaceStageCompleted",
+                    TerrainRuntimeBakePipelineState.SurfaceMasks
+                )
+                : null;
+
+        try
+        {
+            OnSurfaceStageCompletedCore(
+                run,
+                result
+            );
+
+            trace?.Complete();
+        }
+        catch (Exception exception)
+        {
+            trace?.Fail(
+                exception.Message
+            );
+
+            throw;
+        }
+        finally
+        {
+            trace?.Dispose();
+        }
+    }
+
+    private static void OnSurfaceStageCompletedCore(
         ActiveRun run,
         TerrainSurfaceMaskGenerationResult result
     )
@@ -1501,14 +1561,26 @@ public static class TerrainRuntimeBakePipeline
                     return;
                 }
 
+                TerrainRuntimeBakeTraceScope trace =
+                    BeginScheduledTrace(
+                        run,
+                        action
+                    );
+
                 try
                 {
                     action(
                         run
                     );
+
+                    trace?.Complete();
                 }
                 catch (Exception exception)
                 {
+                    trace?.Fail(
+                        exception.Message
+                    );
+
                     Debug.LogException(
                         exception
                     );
@@ -1520,7 +1592,76 @@ public static class TerrainRuntimeBakePipeline
                         exception.Message
                     );
                 }
+                finally
+                {
+                    trace?.Dispose();
+                }
             };
+    }
+
+    private static TerrainRuntimeBakeTraceScope BeginScheduledTrace(
+        ActiveRun run,
+        Action<ActiveRun> action
+    )
+    {
+        if (
+            run == null
+            ||
+            run.diagnostics == null
+            ||
+            !run.diagnostics.IsTraceEnabled
+            ||
+            action == null
+        )
+        {
+            return null;
+        }
+
+        string methodName =
+            action.Method.Name;
+
+        return
+            run.diagnostics.BeginTrace(
+                "TerrainRuntimeBakePipeline." +
+                methodName,
+                GetScheduledTraceStage(
+                    methodName,
+                    run.lastStage
+                )
+            );
+    }
+
+    private static TerrainRuntimeBakePipelineState GetScheduledTraceStage(
+        string methodName,
+        TerrainRuntimeBakePipelineState fallback
+    )
+    {
+        switch (methodName)
+        {
+            case nameof(ExecutePreflight):
+                return TerrainRuntimeBakePipelineState.Preflight;
+
+            case nameof(ExecuteHeightStage):
+                return TerrainRuntimeBakePipelineState.Heightmaps;
+
+            case nameof(ExecuteSurfaceStage):
+                return TerrainRuntimeBakePipelineState.SurfaceMasks;
+
+            case nameof(ExecuteCollisionStage):
+                return TerrainRuntimeBakePipelineState.Collision;
+
+            case nameof(ExecuteAddressablesStage):
+                return TerrainRuntimeBakePipelineState.Addressables;
+
+            case nameof(ExecuteSceneSyncStage):
+                return TerrainRuntimeBakePipelineState.SceneSync;
+
+            case nameof(FinalizeSuccessfulRun):
+                return TerrainRuntimeBakePipelineState.Finalizing;
+
+            default:
+                return fallback;
+        }
     }
 
     private static bool IsActive(
@@ -1555,6 +1696,10 @@ public static class TerrainRuntimeBakePipeline
         currentMode =
             run.mode;
 
+        run.diagnostics?.RecordStageEntered(
+            state
+        );
+
         if (markAsLastStage)
         {
             run.lastStage =
@@ -1573,6 +1718,14 @@ public static class TerrainRuntimeBakePipeline
         string message
     )
     {
+        using var trace =
+            run != null
+                ? run.diagnostics?.BeginTrace(
+                    "TerrainRuntimeBakePipeline.FinishCancelled",
+                    stage
+                )
+                : null;
+
         Finish(
             run,
             TerrainRuntimeBakePipelineOutcome.Cancelled,
@@ -1589,6 +1742,14 @@ public static class TerrainRuntimeBakePipeline
         string message
     )
     {
+        using var trace =
+            run != null
+                ? run.diagnostics?.BeginTrace(
+                    "TerrainRuntimeBakePipeline.FinishBlocked",
+                    stage
+                )
+                : null;
+
         Finish(
             run,
             TerrainRuntimeBakePipelineOutcome.Blocked,
@@ -1605,6 +1766,14 @@ public static class TerrainRuntimeBakePipeline
         string message
     )
     {
+        using var trace =
+            run != null
+                ? run.diagnostics?.BeginTrace(
+                    "TerrainRuntimeBakePipeline.FinishFailed",
+                    stage
+                )
+                : null;
+
         Finish(
             run,
             TerrainRuntimeBakePipelineOutcome.Failed,
@@ -1626,6 +1795,16 @@ public static class TerrainRuntimeBakePipeline
         string summaryMessage
     )
     {
+        using var trace =
+            run != null
+                ? run.diagnostics?.BeginTrace(
+                    "TerrainRuntimeBakePipeline.Finish",
+                    failedStage != TerrainRuntimeBakePipelineState.Idle
+                        ? failedStage
+                        : run.lastStage
+                )
+                : null;
+
         if (!IsActive(run))
         {
             return;
@@ -1665,6 +1844,22 @@ public static class TerrainRuntimeBakePipeline
                 run.startedAtEditorTime
             );
 
+        TerrainRuntimeBakeDiagnosticsSnapshot diagnostics =
+            run.diagnostics?.Complete(
+                outcome,
+                terminalState,
+                run.lastStage,
+                failedStage,
+                run.heightStageExecuted,
+                run.surfaceStageExecuted,
+                run.collisionStageExecuted,
+                run.addressablesStageExecuted,
+                run.sceneSyncStageExecuted,
+                run.warnings,
+                errorMessage,
+                summaryMessage
+            );
+
         TerrainRuntimeBakePipelineResult result =
             new TerrainRuntimeBakePipelineResult(
                 outcome,
@@ -1698,7 +1893,8 @@ public static class TerrainRuntimeBakePipeline
                 duration,
                 run.warnings,
                 errorMessage,
-                summaryMessage
+                summaryMessage,
+                diagnostics
             );
 
         Action<TerrainRuntimeBakePipelineResult> callback =
@@ -1737,13 +1933,15 @@ public static class TerrainRuntimeBakePipeline
     private static void PublishImmediateBlockedResult(
         TerrainRuntimeBakePipelineMode mode,
         Action<TerrainRuntimeBakePipelineResult> callback,
-        string errorMessage
+        string errorMessage,
+        TerrainRuntimeBakeDiagnosticsSession diagnostics
     )
     {
         TerrainRuntimeBakePipelineResult result =
             CreateImmediateBlockedResult(
                 mode,
-                errorMessage
+                errorMessage,
+                diagnostics
             );
 
         currentMode =
@@ -1776,7 +1974,8 @@ public static class TerrainRuntimeBakePipeline
     private static void InvokeRejectedCallback(
         TerrainRuntimeBakePipelineMode mode,
         Action<TerrainRuntimeBakePipelineResult> callback,
-        string errorMessage
+        string errorMessage,
+        TerrainRuntimeBakeDiagnosticsSession diagnostics
     )
     {
         if (callback == null)
@@ -1789,7 +1988,8 @@ public static class TerrainRuntimeBakePipeline
             callback(
                 CreateImmediateBlockedResult(
                     mode,
-                    errorMessage
+                    errorMessage,
+                    diagnostics
                 )
             );
         }
@@ -1803,9 +2003,26 @@ public static class TerrainRuntimeBakePipeline
 
     private static TerrainRuntimeBakePipelineResult CreateImmediateBlockedResult(
         TerrainRuntimeBakePipelineMode mode,
-        string errorMessage
+        string errorMessage,
+        TerrainRuntimeBakeDiagnosticsSession diagnostics
     )
     {
+        TerrainRuntimeBakeDiagnosticsSnapshot diagnosticsSnapshot =
+            diagnostics?.Complete(
+                TerrainRuntimeBakePipelineOutcome.Blocked,
+                TerrainRuntimeBakePipelineState.Blocked,
+                TerrainRuntimeBakePipelineState.Preflight,
+                TerrainRuntimeBakePipelineState.Preflight,
+                false,
+                false,
+                false,
+                false,
+                false,
+                null,
+                errorMessage,
+                "Unified runtime bake start was blocked."
+            );
+
         return
             new TerrainRuntimeBakePipelineResult(
                 TerrainRuntimeBakePipelineOutcome.Blocked,
@@ -1839,7 +2056,8 @@ public static class TerrainRuntimeBakePipeline
                 0d,
                 null,
                 errorMessage,
-                "Unified runtime bake start was blocked."
+                "Unified runtime bake start was blocked.",
+                diagnosticsSnapshot
             );
     }
 

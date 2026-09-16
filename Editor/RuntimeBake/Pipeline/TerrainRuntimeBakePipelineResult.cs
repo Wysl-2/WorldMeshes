@@ -86,6 +86,7 @@ public sealed class TerrainRuntimeBakePipelineResult
 
     public string ErrorMessage { get; private set; }
     public string SummaryMessage { get; private set; }
+    public TerrainRuntimeBakeDiagnosticsSnapshot Diagnostics { get; private set; }
 
     internal TerrainRuntimeBakePipelineResult(
         TerrainRuntimeBakePipelineOutcome outcome,
@@ -119,7 +120,8 @@ public sealed class TerrainRuntimeBakePipelineResult
         double durationSeconds,
         IEnumerable<string> warningMessages,
         string errorMessage,
-        string summaryMessage
+        string summaryMessage,
+        TerrainRuntimeBakeDiagnosticsSnapshot diagnostics = null
     )
     {
         Outcome = outcome;
@@ -165,6 +167,7 @@ public sealed class TerrainRuntimeBakePipelineResult
 
         ErrorMessage = errorMessage ?? "";
         SummaryMessage = summaryMessage ?? "";
+        Diagnostics = diagnostics;
     }
 
     public string BuildDiagnosticReport()
@@ -176,6 +179,12 @@ public sealed class TerrainRuntimeBakePipelineResult
         builder.AppendLine("Mode: " + Mode);
         builder.AppendLine("Final State: " + FinalState);
         builder.AppendLine("Last Stage: " + LastStage);
+
+        if (Diagnostics != null)
+        {
+            builder.AppendLine("Diagnostics Run ID: " + Diagnostics.RunId);
+            builder.AppendLine("Diagnostics Level: " + Diagnostics.Level);
+        }
 
         if (FailedStage != TerrainRuntimeBakePipelineState.Idle)
         {
