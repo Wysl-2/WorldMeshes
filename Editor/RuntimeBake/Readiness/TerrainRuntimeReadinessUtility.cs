@@ -39,6 +39,25 @@ public static class TerrainRuntimeReadinessUtility
         );
     }
 
+    public static TerrainRuntimeReadinessResult
+        EvaluateOperationalReadiness()
+    {
+        return Evaluate(false);
+    }
+
+    public static TerrainRuntimeReadinessResult
+        EvaluateOperationalReadiness(
+            WorldSettings worldSettings,
+            TerrainAuthoringData authoringData
+        )
+    {
+        return Evaluate(
+            worldSettings,
+            authoringData,
+            false
+        );
+    }
+
     public static TerrainRuntimeReadinessResult Evaluate(
         WorldSettings worldSettings,
         TerrainAuthoringData authoringData,
@@ -61,12 +80,35 @@ public static class TerrainRuntimeReadinessUtility
             return result;
         }
 
-        TerrainRuntimeIntegrityAuditResult audit =
-            forceFreshAudit
-                ? TerrainRuntimeIntegrityAuditUtility
-                    .ForceFreshAudit(worldSettings)
-                : TerrainRuntimeIntegrityAuditUtility
-                    .GetCachedAudit(worldSettings);
+        TerrainRuntimeIntegrityAuditResult audit = null;
+        TerrainRuntimeAddressablesValidationResult
+            addressablesValidation = null;
+
+        if (forceFreshAudit)
+        {
+            audit =
+                TerrainRuntimeIntegrityAuditUtility
+                    .ForceFreshAudit(worldSettings);
+
+            addressablesValidation =
+                audit != null
+                    ? audit.Addressables
+                    : null;
+        }
+        else
+        {
+            TerrainRuntimeIntegrityAuditUtility
+                .TryGetCachedGeneratedDataAudit(
+                    worldSettings,
+                    out audit
+                );
+
+            TerrainRuntimeIntegrityAuditUtility
+                .TryGetCachedAddressablesValidation(
+                    worldSettings,
+                    out addressablesValidation
+                );
+        }
 
         result.IntegrityAudit = audit;
 
@@ -96,9 +138,17 @@ public static class TerrainRuntimeReadinessUtility
                 );
 
         result.AddressablesValidation =
+            addressablesValidation;
+
+        if (
             audit != null
-                ? audit.Addressables
-                : null;
+            &&
+            addressablesValidation != null
+        )
+        {
+            audit.Addressables =
+                addressablesValidation;
+        }
 
         result.HierarchyReadiness =
             TerrainRuntimeHierarchyReadinessUtility
@@ -111,6 +161,22 @@ public static class TerrainRuntimeReadinessUtility
                     authoringData
                 );
 
+        bool integrityReady =
+            forceFreshAudit
+                ? audit != null
+                    && audit.GeneratedDataValid
+                    && result.AddressablesValidation != null
+                    && result.AddressablesValidation.IsValid
+                : (
+                    audit == null
+                    || audit.GeneratedDataValid
+                )
+                &&
+                (
+                    result.AddressablesValidation == null
+                    || result.AddressablesValidation.IsValid
+                );
+
         result.IsReady =
             result.AuthoringStatus ==
                 TerrainGenerationStateUtility.GenerationStatus.Current
@@ -120,10 +186,7 @@ public static class TerrainRuntimeReadinessUtility
                 TerrainGenerationStateUtility.GenerationStatus.Current
             && result.CollisionStatus ==
                 TerrainGenerationStateUtility.GenerationStatus.Current
-            && audit != null
-            && audit.GeneratedDataValid
-            && result.AddressablesValidation != null
-            && result.AddressablesValidation.IsValid
+            && integrityReady
             && result.HierarchyReadiness != null
             && result.HierarchyReadiness.IsReady
             && result.Plan != null

@@ -95,6 +95,29 @@ public static class TerrainRuntimeIntegrityAuditUtility
         return cachedGeneratedAudit;
     }
 
+    public static bool TryGetCachedGeneratedDataAudit(
+        WorldSettings worldSettings,
+        out TerrainRuntimeIntegrityAuditResult audit
+    )
+    {
+        string key = BuildKey(worldSettings);
+
+        if (
+            cachedGeneratedAudit != null
+            &&
+            cachedGeneratedAuditKey == key
+        )
+        {
+            audit =
+                cachedGeneratedAudit;
+
+            return true;
+        }
+
+        audit = null;
+        return false;
+    }
+
     public static bool TryGetCachedAddressablesValidation(
         WorldSettings worldSettings,
         out TerrainRuntimeAddressablesValidationResult validation
