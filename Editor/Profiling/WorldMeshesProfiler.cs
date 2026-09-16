@@ -77,6 +77,21 @@ public static class WorldMeshesProfiler
     public static readonly ProfilerMarker AddressablesCollisionCollectAssets =
         new("WorldMeshes.Addressables.Reconcile.Collision.CollectAssets");
 
+    public static readonly ProfilerMarker AddressablesValidateExistingRuntimeConfiguration =
+        new("WorldMeshes.Addressables.ValidateExistingRuntimeConfiguration");
+
+    public static readonly ProfilerMarker AddressablesValidateHeight =
+        new("WorldMeshes.Addressables.Validate.Height");
+
+    public static readonly ProfilerMarker AddressablesValidateSurface =
+        new("WorldMeshes.Addressables.Validate.Surface");
+
+    public static readonly ProfilerMarker AddressablesValidateCollision =
+        new("WorldMeshes.Addressables.Validate.Collision");
+
+    public static readonly ProfilerMarker AddressablesPreBuildSaveAssets =
+        new("WorldMeshes.Addressables.PreBuildSaveAssets");
+
     public static readonly ProfilerMarker AddressablesBuildPlayerContent =
         new("WorldMeshes.Addressables.BuildPlayerContent");
 

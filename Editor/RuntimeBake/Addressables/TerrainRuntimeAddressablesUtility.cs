@@ -1186,6 +1186,11 @@ public static class TerrainRuntimeAddressablesUtility
             WorldSettings worldSettings
         )
     {
+        using var validationProfilerScope =
+            WorldMeshesProfiler
+                .AddressablesValidateExistingRuntimeConfiguration
+                .Auto();
+
         TerrainHeightmapManifest heightManifest =
             AssetDatabase.LoadAssetAtPath<TerrainHeightmapManifest>(
                 TerrainRuntimeHeightAssetUtility.HeightmapManifestPath
@@ -1196,17 +1201,29 @@ public static class TerrainRuntimeAddressablesUtility
                 TerrainRuntimeSurfaceMaskAssetUtility.SurfaceMaskManifestPath
             );
 
-        bool heightValid =
-            TerrainHeightmapAddressablesUtility.ValidateExistingConfiguration(
-                heightManifest,
-                out string heightError
-            );
+        bool heightValid;
+        string heightError;
 
-        bool surfaceValid =
-            TerrainSurfaceMaskAddressablesUtility.ValidateExistingConfiguration(
-                surfaceManifest,
-                out string surfaceError
-            );
+        using (WorldMeshesProfiler.AddressablesValidateHeight.Auto())
+        {
+            heightValid =
+                TerrainHeightmapAddressablesUtility.ValidateExistingConfiguration(
+                    heightManifest,
+                    out heightError
+                );
+        }
+
+        bool surfaceValid;
+        string surfaceError;
+
+        using (WorldMeshesProfiler.AddressablesValidateSurface.Auto())
+        {
+            surfaceValid =
+                TerrainSurfaceMaskAddressablesUtility.ValidateExistingConfiguration(
+                    surfaceManifest,
+                    out surfaceError
+                );
+        }
 
         bool markerValid =
             TerrainCollisionBakeMarkerUtility.ValidateExistingBakeMarkers(
@@ -1225,13 +1242,16 @@ public static class TerrainRuntimeAddressablesUtility
 
         if (markerValid)
         {
-            collisionValid =
-                TerrainCollisionAddressablesUtility
-                    .ValidateExistingConfiguration(
-                        worldSettings,
-                        markerRecords,
-                        out collisionError
-                    );
+            using (WorldMeshesProfiler.AddressablesValidateCollision.Auto())
+            {
+                collisionValid =
+                    TerrainCollisionAddressablesUtility
+                        .ValidateExistingConfiguration(
+                            worldSettings,
+                            markerRecords,
+                            out collisionError
+                        );
+            }
         }
         else
         {
@@ -1334,9 +1354,12 @@ public static class TerrainRuntimeAddressablesUtility
          * avoids broad reimport/refresh churn; SaveAssets is sufficient before
          * Unity's normal Addressables builder runs.
          */
-        using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
+        using (WorldMeshesProfiler.AddressablesPreBuildSaveAssets.Auto())
         {
-            AssetDatabase.SaveAssets();
+            using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
+            {
+                AssetDatabase.SaveAssets();
+            }
         }
 
         Debug.Log(

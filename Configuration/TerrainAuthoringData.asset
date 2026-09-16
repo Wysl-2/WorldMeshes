@@ -25,7 +25,7 @@ MonoBehaviour:
   - rid: 3932701602959851587
   - rid: 3932701602959851588
   - rid: 3932701602959851589
-  authoringRevision: 2605
+  authoringRevision: 2618
   references:
     version: 2
     RefIds:
@@ -205,7 +205,7 @@ MonoBehaviour:
           elevation: 62.93612
         - stableId: bce4dae1f26646b09d627dfd09b3a325
           positionXZ: {x: 7680, y: 6144}
-          elevation: -100
+          elevation: -150
         - stableId: 24dac4d832b14abca52a5ba02e54bdae
           positionXZ: {x: 9216, y: 6144}
           elevation: 180
@@ -353,8 +353,8 @@ MonoBehaviour:
         enabled: 1
         blendMode: 3
         stampAsset: {fileID: 11400000, guid: 1491abb90d27d36868594cecf1b0fade, type: 2}
-        positionXZ: {x: 8536.241, y: 7663.196}
-        sizeXZ: {x: 1736.362, y: 2147.632}
+        positionXZ: {x: 8519.065, y: 7930.0605}
+        sizeXZ: {x: 1758.404, y: 2199.9282}
         rotationDegrees: -3.6527252
         flipX: 0
         flipZ: 0
