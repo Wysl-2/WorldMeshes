@@ -12,6 +12,37 @@ public static class TerrainRuntimeHeightCompiler
         Updated
     }
 
+    private const int HeightPersistenceBatchTileCount =
+        4;
+
+    private struct PreparedHeightTile
+    {
+        public Vector2Int coordinate;
+        public TileWriteOutcome outcome;
+        public float minimumHeight;
+        public float maximumHeight;
+
+        public PreparedHeightTile(
+            Vector2Int coordinate,
+            TileWriteOutcome outcome,
+            float minimumHeight,
+            float maximumHeight
+        )
+        {
+            this.coordinate =
+                coordinate;
+
+            this.outcome =
+                outcome;
+
+            this.minimumHeight =
+                minimumHeight;
+
+            this.maximumHeight =
+                maximumHeight;
+        }
+    }
+
     private struct CompileTarget
     {
         public int AuthoringRevision;
@@ -66,9 +97,9 @@ public static class TerrainRuntimeHeightCompiler
                 );
         }
 
-        TerrainRuntimeBakeStateSnapshot stateSnapshot =
+        TerrainRuntimeBakeStateSummary stateSnapshot =
             TerrainRuntimeBakeStateService
-                .GetSnapshot();
+                .GetSummary();
 
         if (
             stateSnapshot.StateRevision !=
@@ -481,7 +512,7 @@ public static class TerrainRuntimeHeightCompiler
             enforcePlanIdentity
             &&
             TerrainRuntimeBakeStateService
-                .GetSnapshot()
+                .GetSummary()
                 .StateRevision !=
                     planStateRevision
         )
@@ -668,6 +699,24 @@ public static class TerrainRuntimeHeightCompiler
         bool manifestBecameUnsafe =
             false;
 
+        long expectedStateRevision =
+            enforcePlanIdentity
+                ? planStateRevision
+                : TerrainRuntimeBakeStateService
+                    .GetSummary()
+                    .StateRevision;
+
+        bool staleDuringGeneration =
+            false;
+
+        string staleError =
+            "";
+
+        List<PreparedHeightTile> preparedBatch =
+            new List<PreparedHeightTile>(
+                HeightPersistenceBatchTileCount
+            );
+
         try
         {
             for (
@@ -679,27 +728,36 @@ public static class TerrainRuntimeHeightCompiler
                 Vector2Int coordinate =
                     requestedTiles[requestIndex];
 
-                cancelled =
-                    ShowProgress(
-                        workMode ==
-                            TerrainRuntimeBakeWorkMode.Incremental
-                            ? "Compiling planned runtime height tiles"
-                            : "Rebuilding runtime heightmap tiles",
-                        $"Tile ({coordinate.x}, {coordinate.y}) " +
-                        $"{requestIndex + 1} / {requestedTiles.Count}",
-                        currentOperation,
-                        totalOperations
-                    );
-
-                if (cancelled)
+                /*
+                 * User cancellation is honored only before a new durability
+                 * batch starts. Once a batch contains prepared dirty assets,
+                 * finish its checkpoint before exposing another cancel point.
+                 */
+                if (preparedBatch.Count == 0)
                 {
-                    AddRemainingCoordinates(
-                        requestedTiles,
-                        requestIndex,
-                        unprocessedTiles
-                    );
+                    cancelled =
+                        ShowProgress(
+                            workMode ==
+                                TerrainRuntimeBakeWorkMode.Incremental
+                                ? "Compiling planned runtime height tiles"
+                                : "Rebuilding runtime heightmap tiles",
+                            $"Tiles {requestIndex + 1} - " +
+                            $"{Mathf.Min(requestIndex + HeightPersistenceBatchTileCount, requestedTiles.Count)} " +
+                            $"/ {requestedTiles.Count}",
+                            currentOperation,
+                            totalOperations
+                        );
 
-                    break;
+                    if (cancelled)
+                    {
+                        AddRemainingCoordinates(
+                            requestedTiles,
+                            requestIndex,
+                            unprocessedTiles
+                        );
+
+                        break;
+                    }
                 }
 
                 TileWriteOutcome writeOutcome =
@@ -730,7 +788,17 @@ public static class TerrainRuntimeHeightCompiler
                             tileError;
                     }
 
-                    if (outputMayHaveChanged)
+                    /*
+                     * A prepared prefix already contains dirty Height assets.
+                     * Do not persist only that prefix after a later failure:
+                     * SaveAssets is global and the failing tile may also have
+                     * been partially mutated. Make manifest safety explicit.
+                     */
+                    if (
+                        outputMayHaveChanged
+                        ||
+                        preparedBatch.Count > 0
+                    )
                     {
                         manifestBecameUnsafe =
                             true;
@@ -742,6 +810,16 @@ public static class TerrainRuntimeHeightCompiler
                             runtimeManifest,
                             out _
                         );
+
+                        foreach (
+                            PreparedHeightTile prepared
+                            in preparedBatch
+                        )
+                        {
+                            unprocessedTiles.Add(
+                                prepared.coordinate
+                            );
+                        }
 
                         AddRemainingCoordinates(
                             requestedTiles,
@@ -757,23 +835,85 @@ public static class TerrainRuntimeHeightCompiler
                 }
 
                 if (
-                    !runtimeManifest.SetTileHeightRange(
-                        coordinate.x,
-                        coordinate.y,
+                    writeOutcome ==
+                    TileWriteOutcome.Created
+                )
+                {
+                    /*
+                     * CreateAsset may already have established physical
+                     * topology before the batch durability boundary. Keep
+                     * configuration dirtiness conservative on later failure.
+                     */
+                    addressablesConfigurationDirty =
+                        true;
+                }
+
+                preparedBatch.Add(
+                    new PreparedHeightTile(
+                        coordinate,
+                        writeOutcome,
                         tileMinimumHeight,
                         tileMaximumHeight
                     )
+                );
+
+                currentOperation++;
+
+                bool batchBoundaryReached =
+                    preparedBatch.Count >=
+                        HeightPersistenceBatchTileCount
+                    ||
+                    requestIndex ==
+                        requestedTiles.Count - 1;
+
+                if (!batchBoundaryReached)
+                {
+                    continue;
+                }
+
+                bool rangeMetadataValid =
+                    true;
+
+                foreach (
+                    PreparedHeightTile prepared
+                    in preparedBatch
                 )
                 {
-                    failedTiles.Add(
-                        coordinate
-                    );
+                    if (
+                        runtimeManifest.SetTileHeightRange(
+                            prepared.coordinate.x,
+                            prepared.coordinate.y,
+                            prepared.minimumHeight,
+                            prepared.maximumHeight
+                        )
+                    )
+                    {
+                        continue;
+                    }
+
+                    rangeMetadataValid =
+                        false;
 
                     if (string.IsNullOrEmpty(firstError))
                     {
                         firstError =
                             $"Could not store height range metadata for " +
-                            $"runtime tile ({coordinate.x}, {coordinate.y}).";
+                            $"runtime tile ({prepared.coordinate.x}, {prepared.coordinate.y}).";
+                    }
+
+                    break;
+                }
+
+                if (!rangeMetadataValid)
+                {
+                    foreach (
+                        PreparedHeightTile prepared
+                        in preparedBatch
+                    )
+                    {
+                        failedTiles.Add(
+                            prepared.coordinate
+                        );
                     }
 
                     runtimeManifest.isComplete =
@@ -799,88 +939,190 @@ public static class TerrainRuntimeHeightCompiler
                 if (
                     workMode ==
                     TerrainRuntimeBakeWorkMode.Incremental
+                    &&
+                    !runtimeManifest
+                        .TryRecalculateGlobalHeightRange(
+                            out _,
+                            out _
+                        )
                 )
                 {
-                    string rangeSaveError =
-                        "";
-
-                    bool rangeValid =
-                        runtimeManifest
-                            .TryRecalculateGlobalHeightRange(
-                                out _,
-                                out _
-                            );
-
-                    bool rangeSaved =
-                        rangeValid
-                        &&
-                        TrySaveManifest(
-                            runtimeManifest,
-                            out rangeSaveError
-                        );
-
-                    if (
-                        !rangeValid
-                        ||
-                        !rangeSaved
+                    foreach (
+                        PreparedHeightTile prepared
+                        in preparedBatch
                     )
                     {
                         failedTiles.Add(
-                            coordinate
+                            prepared.coordinate
                         );
+                    }
 
-                        if (string.IsNullOrEmpty(firstError))
-                        {
-                            firstError =
-                                string.IsNullOrEmpty(rangeSaveError)
-                                    ? "Could not recalculate the runtime " +
-                                      "height global range."
-                                    : rangeSaveError;
-                        }
+                    if (string.IsNullOrEmpty(firstError))
+                    {
+                        firstError =
+                            "Could not recalculate the runtime height global range.";
+                    }
 
-                        runtimeManifest.isComplete =
-                            false;
+                    runtimeManifest.isComplete =
+                        false;
 
-                        TrySaveManifest(
-                            runtimeManifest,
+                    TrySaveManifest(
+                        runtimeManifest,
+                        out _
+                    );
+
+                    manifestBecameUnsafe =
+                        true;
+
+                    AddRemainingCoordinates(
+                        requestedTiles,
+                        requestIndex + 1,
+                        unprocessedTiles
+                    );
+
+                    break;
+                }
+
+                if (
+                    workMode ==
+                    TerrainRuntimeBakeWorkMode.Full
+                    &&
+                    runtimeManifest.HasCompleteTileHeightRanges
+                    &&
+                    !runtimeManifest
+                        .TryRecalculateGlobalHeightRange(
+                            out _,
                             out _
+                        )
+                )
+                {
+                    foreach (
+                        PreparedHeightTile prepared
+                        in preparedBatch
+                    )
+                    {
+                        failedTiles.Add(
+                            prepared.coordinate
                         );
+                    }
 
-                        manifestBecameUnsafe =
-                            true;
+                    if (string.IsNullOrEmpty(firstError))
+                    {
+                        firstError =
+                            "Could not recalculate the runtime height global range at the final Full persistence batch.";
+                    }
 
-                        AddRemainingCoordinates(
-                            requestedTiles,
-                            requestIndex + 1,
-                            unprocessedTiles
+                    runtimeManifest.isComplete =
+                        false;
+
+                    TrySaveManifest(
+                        runtimeManifest,
+                        out _
+                    );
+
+                    manifestBecameUnsafe =
+                        true;
+
+                    AddRemainingCoordinates(
+                        requestedTiles,
+                        requestIndex + 1,
+                        unprocessedTiles
+                    );
+
+                    break;
+                }
+
+                if (
+                    !TryPersistHeightBatch(
+                        runtimeManifest,
+                        out string persistenceError
+                    )
+                )
+                {
+                    foreach (
+                        PreparedHeightTile prepared
+                        in preparedBatch
+                    )
+                    {
+                        failedTiles.Add(
+                            prepared.coordinate
                         );
+                    }
 
-                        break;
+                    if (string.IsNullOrEmpty(firstError))
+                    {
+                        firstError =
+                            persistenceError;
+                    }
+
+                    runtimeManifest.isComplete =
+                        false;
+
+                    TrySaveManifest(
+                        runtimeManifest,
+                        out _
+                    );
+
+                    manifestBecameUnsafe =
+                        true;
+
+                    AddRemainingCoordinates(
+                        requestedTiles,
+                        requestIndex + 1,
+                        unprocessedTiles
+                    );
+
+                    break;
+                }
+
+                bool batchCreatedAsset =
+                    false;
+
+                foreach (
+                    PreparedHeightTile prepared
+                    in preparedBatch
+                )
+                {
+                    succeededTiles.Add(
+                        prepared.coordinate
+                    );
+
+                    if (
+                        prepared.outcome ==
+                        TileWriteOutcome.Created
+                    )
+                    {
+                        createdCount++;
+                        batchCreatedAsset = true;
+                    }
+                    else
+                    {
+                        updatedCount++;
                     }
                 }
 
-                succeededTiles.Add(
-                    coordinate
-                );
-
                 if (
-                    writeOutcome ==
-                    TileWriteOutcome.Created
+                    workMode ==
+                    TerrainRuntimeBakeWorkMode.Incremental
+                    &&
+                    !TryAcknowledgeDurableIncrementalHeightBatch(
+                        worldSettings,
+                        authoringData,
+                        target,
+                        preparedBatch,
+                        batchCreatedAsset,
+                        ref expectedStateRevision,
+                        out staleError
+                    )
                 )
                 {
-                    createdCount++;
-
-                    addressablesConfigurationDirty =
+                    staleDuringGeneration =
                         true;
                 }
-                else
-                {
-                    updatedCount++;
-                }
-
-                currentOperation++;
 
                 if (
+                    !staleDuringGeneration
+                    &&
                     TerrainRuntimeBakeValidationHooks.ShouldCancelCoordinateStage(
                         TerrainRuntimeBakePipelineState.Heightmaps,
                         succeededTiles.Count,
@@ -888,8 +1130,18 @@ public static class TerrainRuntimeHeightCompiler
                     )
                 )
                 {
-                    cancelled = true;
+                    cancelled =
+                        true;
+                }
 
+                preparedBatch.Clear();
+
+                if (
+                    staleDuringGeneration
+                    ||
+                    cancelled
+                )
+                {
                     AddRemainingCoordinates(
                         requestedTiles,
                         requestIndex + 1,
@@ -905,6 +1157,8 @@ public static class TerrainRuntimeHeightCompiler
                     TerrainRuntimeBakeWorkMode.Full
                 &&
                 !cancelled
+                &&
+                !staleDuringGeneration
                 &&
                 failedTiles.Count == 0
                 &&
@@ -989,6 +1243,8 @@ public static class TerrainRuntimeHeightCompiler
         if (
             cancelled
             ||
+            staleDuringGeneration
+            ||
             failedTiles.Count > 0
             ||
             manifestBecameUnsafe
@@ -996,22 +1252,17 @@ public static class TerrainRuntimeHeightCompiler
             obsoleteCleanupFailed
         )
         {
+            /*
+             * Incremental durable batches are acknowledged at their own
+             * persistence boundary. Full/unsafe/stale physical changes still
+             * conservatively dirty downstream outputs here.
+             */
             if (
-                workMode ==
-                    TerrainRuntimeBakeWorkMode.Incremental
-                &&
-                !manifestBecameUnsafe
-            )
-            {
-                AcknowledgePartialIncrementalSuccess(
-                    succeededTiles,
-                    createdCount > 0
-                );
-            }
-            else if (
                 succeededTiles.Count > 0
                 ||
                 removedCount > 0
+                ||
+                manifestBecameUnsafe
             )
             {
                 MarkHeightOutputsDirty(
@@ -1020,9 +1271,23 @@ public static class TerrainRuntimeHeightCompiler
             }
 
             TerrainRuntimeHeightCompileOutcome outcome =
-                cancelled
-                    ? TerrainRuntimeHeightCompileOutcome.Cancelled
-                    : TerrainRuntimeHeightCompileOutcome.Failed;
+                staleDuringGeneration
+                    ? TerrainRuntimeHeightCompileOutcome.StalePlan
+                    : cancelled
+                        ? TerrainRuntimeHeightCompileOutcome.Cancelled
+                        : TerrainRuntimeHeightCompileOutcome.Failed;
+
+            string terminalError =
+                staleDuringGeneration
+                    ? staleError
+                    : firstError;
+
+            string terminalSummary =
+                staleDuringGeneration
+                    ? "Height generation stopped at a durability boundary because the target or persistent bake state changed. Durable physical tiles remain on disk, and any batch that could not be safely acknowledged remains pending."
+                    : cancelled
+                        ? "Runtime height compilation was cancelled at a durability-safe boundary. Completed incremental batches were already persisted and acknowledged."
+                        : "Runtime height compilation did not complete. Earlier durable incremental batches remain persisted and acknowledged; undurable work remains pending or the manifest was made incomplete conservatively.";
 
             return
                 new TerrainRuntimeHeightCompileResult(
@@ -1038,14 +1303,8 @@ public static class TerrainRuntimeHeightCompiler
                     false,
                     revisionBefore,
                     worldSettings.heightmapGenerationRevision,
-                    firstError,
-                    cancelled
-                        ? "Runtime height compilation was cancelled. " +
-                          "Successfully committed incremental tiles remain " +
-                          "usable and acknowledged."
-                        : "Runtime height compilation did not complete. " +
-                          "Successfully committed incremental tiles remain " +
-                          "usable when the manifest stayed structurally valid."
+                    terminalError,
+                    terminalSummary
                 );
         }
 
@@ -1077,9 +1336,9 @@ public static class TerrainRuntimeHeightCompiler
             enforcePlanIdentity
             &&
             TerrainRuntimeBakeStateService
-                .GetSnapshot()
+                .GetSummary()
                 .StateRevision !=
-                    planStateRevision
+                    expectedStateRevision
         )
         {
             MarkHeightOutputsDirty(
@@ -1256,27 +1515,11 @@ public static class TerrainRuntimeHeightCompiler
                     mutation
                 );
         }
-        else
-        {
-            TerrainRuntimeBakeStateMutation mutation =
-                new TerrainRuntimeBakeStateMutation()
-                    .RemoveHeightTiles(
-                        succeededTiles
-                    )
-                    .DirtyAddressablesContent()
-                    .DirtyRuntimeSceneMetadata();
-
-            if (addressablesConfigurationDirty)
-            {
-                mutation
-                    .DirtyAddressablesConfiguration();
-            }
-
-            TerrainRuntimeBakeStateService
-                .ApplyMutation(
-                    mutation
-                );
-        }
+        /*
+         * Incremental durable batches already removed their own pending Height
+         * coordinates and dirtied downstream state at each checkpoint. Avoid
+         * a redundant final persistent-state mutation.
+         */
 
         Selection.activeObject =
             runtimeManifest;
@@ -1306,32 +1549,127 @@ public static class TerrainRuntimeHeightCompiler
     }
 
     // =====================================================
-    // INCREMENTAL PARTIAL ACKNOWLEDGEMENT
+    // HEIGHT BATCH DURABILITY / INCREMENTAL ACKNOWLEDGEMENT
     // =====================================================
 
-    private static void AcknowledgePartialIncrementalSuccess(
-        IReadOnlyList<Vector2Int> succeededTiles,
-        bool addressablesConfigurationDirty
+    private static bool TryPersistHeightBatch(
+        TerrainHeightmapManifest runtimeManifest,
+        out string errorMessage
     )
     {
+        errorMessage =
+            "";
+
+        if (runtimeManifest == null)
+        {
+            errorMessage =
+                "Runtime height persistence batch has no manifest.";
+
+            return false;
+        }
+
+        try
+        {
+            EditorUtility.SetDirty(
+                runtimeManifest
+            );
+
+            using (WorldMeshesProfiler.RuntimeBakeHeightSaveBatch.Auto())
+            using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
+            {
+                AssetDatabase.SaveAssets();
+            }
+
+            return true;
+        }
+        catch (Exception exception)
+        {
+            errorMessage =
+                "Could not persist the runtime height tile batch and manifest checkpoint.\n\n" +
+                exception.Message;
+
+            return false;
+        }
+    }
+
+    private static bool TryAcknowledgeDurableIncrementalHeightBatch(
+        WorldSettings worldSettings,
+        TerrainAuthoringData authoringData,
+        CompileTarget target,
+        IReadOnlyList<PreparedHeightTile> preparedBatch,
+        bool batchCreatedAsset,
+        ref long expectedStateRevision,
+        out string errorMessage
+    )
+    {
+        errorMessage =
+            "";
+
         if (
-            succeededTiles == null
+            preparedBatch == null
             ||
-            succeededTiles.Count == 0
+            preparedBatch.Count == 0
         )
         {
-            return;
+            errorMessage =
+                "Incremental Height acknowledgement received an empty durable batch.";
+
+            return false;
+        }
+
+        if (
+            !TargetStillCurrent(
+                worldSettings,
+                authoringData,
+                target,
+                out string targetError
+            )
+        )
+        {
+            errorMessage =
+                targetError;
+
+            return false;
+        }
+
+        TerrainRuntimeBakeStateSummary summary =
+            TerrainRuntimeBakeStateService.GetSummary();
+
+        if (
+            summary.StateRevision !=
+            expectedStateRevision
+        )
+        {
+            errorMessage =
+                "Persistent runtime bake state changed after a Height batch became durable. The durable batch was left pending rather than being acknowledged against newer state.";
+
+            return false;
+        }
+
+        List<Vector2Int> durableCoordinates =
+            new List<Vector2Int>(
+                preparedBatch.Count
+            );
+
+        foreach (
+            PreparedHeightTile prepared
+            in preparedBatch
+        )
+        {
+            durableCoordinates.Add(
+                prepared.coordinate
+            );
         }
 
         TerrainRuntimeBakeStateMutation mutation =
             new TerrainRuntimeBakeStateMutation()
                 .RemoveHeightTiles(
-                    succeededTiles
+                    durableCoordinates
                 )
                 .DirtyAddressablesContent()
                 .DirtyRuntimeSceneMetadata();
 
-        if (addressablesConfigurationDirty)
+        if (batchCreatedAsset)
         {
             mutation
                 .DirtyAddressablesConfiguration();
@@ -1341,6 +1679,13 @@ public static class TerrainRuntimeHeightCompiler
             .ApplyMutation(
                 mutation
             );
+
+        expectedStateRevision =
+            TerrainRuntimeBakeStateService
+                .GetSummary()
+                .StateRevision;
+
+        return true;
     }
 
     private static void MarkHeightOutputsDirty(
@@ -1867,13 +2212,9 @@ public static class TerrainRuntimeHeightCompiler
                 outputMayHaveChanged =
                     true;
 
-                using (WorldMeshesProfiler.RuntimeBakeHeightSaveTile.Auto())
-                using (WorldMeshesProfiler.AssetDatabaseSaveAssetIfDirty.Auto())
-                {
-                    AssetDatabase.SaveAssetIfDirty(
-                        texture
-                    );
-                }
+                EditorUtility.SetDirty(
+                    texture
+                );
 
                 return
                     TileWriteOutcome.Created;
@@ -1963,14 +2304,6 @@ public static class TerrainRuntimeHeightCompiler
             EditorUtility.SetDirty(
                 existingTexture
             );
-
-            using (WorldMeshesProfiler.RuntimeBakeHeightSaveTile.Auto())
-            using (WorldMeshesProfiler.AssetDatabaseSaveAssetIfDirty.Auto())
-            {
-                AssetDatabase.SaveAssetIfDirty(
-                    existingTexture
-                );
-            }
 
             return
                 TileWriteOutcome.Updated;

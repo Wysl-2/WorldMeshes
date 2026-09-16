@@ -38,6 +38,9 @@ public static class WorldMeshesProfiler
     public static readonly ProfilerMarker RuntimeBakeHeightSaveTile =
         new("WorldMeshes.RuntimeBake.Generation.Height.SaveTile");
 
+    public static readonly ProfilerMarker RuntimeBakeHeightSaveBatch =
+        new("WorldMeshes.RuntimeBake.Generation.Height.SaveBatch");
+
     public static readonly ProfilerMarker RuntimeBakeHeightSaveManifest =
         new("WorldMeshes.RuntimeBake.Generation.Height.SaveManifest");
 
