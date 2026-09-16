@@ -658,7 +658,7 @@ public static class TerrainRuntimeAddressablesUtility
         }
 
         if (
-            !GeneratedDatasetsAreCurrent(
+            !GeneratedDatasetsAreOperationallyCurrent(
                 worldSettings,
                 out string generationError
             )
@@ -1432,6 +1432,56 @@ public static class TerrainRuntimeAddressablesUtility
             TerrainRuntimeAddressablesOperationMode.None;
     }
 
+    private static bool GeneratedDatasetsAreOperationallyCurrent(
+        WorldSettings worldSettings,
+        out string errorMessage
+    )
+    {
+        errorMessage = "";
+
+        TerrainGenerationStateEvaluationResult generationState =
+            TerrainGenerationStateUtility
+                .EvaluateOperationalGenerationState(
+                    worldSettings,
+                    null
+                );
+
+        if (
+            generationState.HeightmapStatus !=
+            TerrainGenerationStateUtility.GenerationStatus.Current
+        )
+        {
+            errorMessage =
+                "Runtime Heightmaps are not current.";
+
+            return false;
+        }
+
+        if (
+            generationState.SurfaceMaskStatus !=
+            TerrainGenerationStateUtility.GenerationStatus.Current
+        )
+        {
+            errorMessage =
+                "Runtime Surface Masks are not current.";
+
+            return false;
+        }
+
+        if (
+            generationState.CollisionMeshStatus !=
+            TerrainGenerationStateUtility.GenerationStatus.Current
+        )
+        {
+            errorMessage =
+                "Runtime Collision Meshes are not current.";
+
+            return false;
+        }
+
+        return true;
+    }
+
     private static bool GeneratedDatasetsAreCurrent(
         WorldSettings worldSettings,
         out string errorMessage
@@ -1565,7 +1615,7 @@ public static class TerrainRuntimeAddressablesUtility
         }
 
         if (
-            !GeneratedDatasetsAreCurrent(
+            !GeneratedDatasetsAreOperationallyCurrent(
                 worldSettings,
                 out _
             )

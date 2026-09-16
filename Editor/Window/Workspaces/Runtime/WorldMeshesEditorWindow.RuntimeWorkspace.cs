@@ -703,34 +703,28 @@ public partial class WorldMeshesEditorWindow :
             EditorStyles.boldLabel
         );
 
+        TerrainGenerationStateEvaluationResult generationState =
+            TerrainGenerationStateUtility
+                .EvaluateOperationalGenerationState(
+                    worldSettings,
+                    terrainAuthoringData
+                );
+
         TerrainGenerationStateUtility.GenerationStatus
             authoringStatus =
-                TerrainGenerationStateUtility
-                    .GetAuthoringHeightfieldStatus(
-                        worldSettings,
-                        terrainAuthoringData
-                    );
+                generationState.AuthoringHeightfieldStatus;
 
         TerrainGenerationStateUtility.GenerationStatus
             heightStatus =
-                TerrainGenerationStateUtility
-                    .GetHeightmapStatus(
-                        worldSettings
-                    );
+                generationState.HeightmapStatus;
 
         TerrainGenerationStateUtility.GenerationStatus
             surfaceStatus =
-                TerrainGenerationStateUtility
-                    .GetSurfaceMaskStatus(
-                        worldSettings
-                    );
+                generationState.SurfaceMaskStatus;
 
         TerrainGenerationStateUtility.GenerationStatus
             collisionStatus =
-                TerrainGenerationStateUtility
-                    .GetCollisionMeshStatus(
-                        worldSettings
-                    );
+                generationState.CollisionMeshStatus;
 
         EditorGUILayout.LabelField(
             "Authoring Heightfield",

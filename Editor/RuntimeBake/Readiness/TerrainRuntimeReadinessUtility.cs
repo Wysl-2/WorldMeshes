@@ -112,30 +112,30 @@ public static class TerrainRuntimeReadinessUtility
 
         result.IntegrityAudit = audit;
 
+        TerrainGenerationStateEvaluationResult generationState =
+            forceFreshAudit
+                ? TerrainGenerationStateUtility
+                    .EvaluateGenerationState(
+                        worldSettings,
+                        authoringData
+                    )
+                : TerrainGenerationStateUtility
+                    .EvaluateOperationalGenerationState(
+                        worldSettings,
+                        authoringData
+                    );
+
         result.AuthoringStatus =
-            TerrainGenerationStateUtility
-                .GetAuthoringHeightfieldStatus(
-                    worldSettings,
-                    authoringData
-                );
+            generationState.AuthoringHeightfieldStatus;
 
         result.HeightStatus =
-            TerrainGenerationStateUtility
-                .GetHeightmapStatus(
-                    worldSettings
-                );
+            generationState.HeightmapStatus;
 
         result.SurfaceStatus =
-            TerrainGenerationStateUtility
-                .GetSurfaceMaskStatus(
-                    worldSettings
-                );
+            generationState.SurfaceMaskStatus;
 
         result.CollisionStatus =
-            TerrainGenerationStateUtility
-                .GetCollisionMeshStatus(
-                    worldSettings
-                );
+            generationState.CollisionMeshStatus;
 
         result.AddressablesValidation =
             addressablesValidation;

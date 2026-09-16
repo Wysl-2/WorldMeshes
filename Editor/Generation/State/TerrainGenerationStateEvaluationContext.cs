@@ -7,9 +7,16 @@ using UnityEditor;
  * Expensive shared inputs are evaluated lazily, reused by nested status
  * checks, and then discarded with the owning operation.
  */
+internal enum TerrainGenerationStateEvaluationMode
+{
+    IntegrityVerified,
+    Operational
+}
+
 internal sealed class TerrainGenerationStateEvaluationContext
 {
     private readonly WorldSettings worldSettings;
+    private readonly TerrainGenerationStateEvaluationMode evaluationMode;
 
     private TerrainAuthoringData authoringData;
     private bool authoringDataEvaluated;
@@ -51,14 +58,41 @@ internal sealed class TerrainGenerationStateEvaluationContext
     internal TerrainGenerationStateEvaluationContext(
         WorldSettings worldSettings
     )
+        : this(
+            worldSettings,
+            TerrainGenerationStateEvaluationMode.IntegrityVerified
+        )
+    {
+    }
+
+    internal TerrainGenerationStateEvaluationContext(
+        WorldSettings worldSettings,
+        TerrainGenerationStateEvaluationMode evaluationMode
+    )
     {
         this.worldSettings =
             worldSettings;
+
+        this.evaluationMode =
+            evaluationMode;
     }
 
     internal TerrainGenerationStateEvaluationContext(
         WorldSettings worldSettings,
         TerrainAuthoringData authoringData
+    )
+        : this(
+            worldSettings,
+            authoringData,
+            TerrainGenerationStateEvaluationMode.IntegrityVerified
+        )
+    {
+    }
+
+    internal TerrainGenerationStateEvaluationContext(
+        WorldSettings worldSettings,
+        TerrainAuthoringData authoringData,
+        TerrainGenerationStateEvaluationMode evaluationMode
     )
     {
         this.worldSettings =
@@ -66,6 +100,9 @@ internal sealed class TerrainGenerationStateEvaluationContext
 
         this.authoringData =
             authoringData;
+
+        this.evaluationMode =
+            evaluationMode;
 
         authoringDataEvaluated =
             true;
@@ -78,6 +115,10 @@ internal sealed class TerrainGenerationStateEvaluationContext
             return worldSettings;
         }
     }
+
+    internal bool RequiresDeepIntegrityVerification =>
+        evaluationMode ==
+        TerrainGenerationStateEvaluationMode.IntegrityVerified;
 
     internal TerrainAuthoringData AuthoringData
     {
@@ -396,14 +437,43 @@ public static partial class TerrainGenerationStateUtility
             TerrainAuthoringData authoringData
         )
     {
+        return EvaluateGenerationState(
+            worldSettings,
+            authoringData,
+            TerrainGenerationStateEvaluationMode.IntegrityVerified
+        );
+    }
+
+    internal static TerrainGenerationStateEvaluationResult
+        EvaluateOperationalGenerationState(
+            WorldSettings worldSettings,
+            TerrainAuthoringData authoringData
+        )
+    {
+        return EvaluateGenerationState(
+            worldSettings,
+            authoringData,
+            TerrainGenerationStateEvaluationMode.Operational
+        );
+    }
+
+    private static TerrainGenerationStateEvaluationResult
+        EvaluateGenerationState(
+            WorldSettings worldSettings,
+            TerrainAuthoringData authoringData,
+            TerrainGenerationStateEvaluationMode evaluationMode
+        )
+    {
         TerrainGenerationStateEvaluationContext context =
             authoringData != null
                 ? new TerrainGenerationStateEvaluationContext(
                     worldSettings,
-                    authoringData
+                    authoringData,
+                    evaluationMode
                 )
                 : new TerrainGenerationStateEvaluationContext(
-                    worldSettings
+                    worldSettings,
+                    evaluationMode
                 );
 
         return
@@ -632,21 +702,24 @@ public static partial class TerrainGenerationStateUtility
                 );
         }
 
-        TerrainRuntimeGeneratedDataIntegrityResult heightIntegrity =
-            context.IntegrityAudit != null
-                ? context.IntegrityAudit.Height
-                : null;
-
-        if (
-            heightIntegrity == null
-            ||
-            !heightIntegrity.IsValid
-        )
+        if (context.RequiresDeepIntegrityVerification)
         {
-            return
-                context.CacheHeightmapStatus(
-                    GenerationStatus.OutOfDate
-                );
+            TerrainRuntimeGeneratedDataIntegrityResult heightIntegrity =
+                context.IntegrityAudit != null
+                    ? context.IntegrityAudit.Height
+                    : null;
+
+            if (
+                heightIntegrity == null
+                ||
+                !heightIntegrity.IsValid
+            )
+            {
+                return
+                    context.CacheHeightmapStatus(
+                        GenerationStatus.OutOfDate
+                    );
+            }
         }
 
         return
@@ -837,21 +910,24 @@ public static partial class TerrainGenerationStateUtility
                 );
         }
 
-        TerrainRuntimeGeneratedDataIntegrityResult surfaceIntegrity =
-            context.IntegrityAudit != null
-                ? context.IntegrityAudit.Surface
-                : null;
-
-        if (
-            surfaceIntegrity == null
-            ||
-            !surfaceIntegrity.IsValid
-        )
+        if (context.RequiresDeepIntegrityVerification)
         {
-            return
-                context.CacheSurfaceMaskStatus(
-                    GenerationStatus.OutOfDate
-                );
+            TerrainRuntimeGeneratedDataIntegrityResult surfaceIntegrity =
+                context.IntegrityAudit != null
+                    ? context.IntegrityAudit.Surface
+                    : null;
+
+            if (
+                surfaceIntegrity == null
+                ||
+                !surfaceIntegrity.IsValid
+            )
+            {
+                return
+                    context.CacheSurfaceMaskStatus(
+                        GenerationStatus.OutOfDate
+                    );
+            }
         }
 
         return
@@ -967,21 +1043,24 @@ public static partial class TerrainGenerationStateUtility
                 );
         }
 
-        TerrainRuntimeGeneratedDataIntegrityResult collisionIntegrity =
-            context.IntegrityAudit != null
-                ? context.IntegrityAudit.Collision
-                : null;
-
-        if (
-            collisionIntegrity == null
-            ||
-            !collisionIntegrity.IsValid
-        )
+        if (context.RequiresDeepIntegrityVerification)
         {
-            return
-                context.CacheCollisionMeshStatus(
-                    GenerationStatus.OutOfDate
-                );
+            TerrainRuntimeGeneratedDataIntegrityResult collisionIntegrity =
+                context.IntegrityAudit != null
+                    ? context.IntegrityAudit.Collision
+                    : null;
+
+            if (
+                collisionIntegrity == null
+                ||
+                !collisionIntegrity.IsValid
+            )
+            {
+                return
+                    context.CacheCollisionMeshStatus(
+                        GenerationStatus.OutOfDate
+                    );
+            }
         }
 
         return
