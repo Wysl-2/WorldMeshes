@@ -424,6 +424,12 @@ public static class TerrainRuntimeBakePipeline
             run.finalPlan =
                 plan;
 
+            run.diagnostics?.RecordPlanSnapshotAlias(
+                TerrainRuntimeBakePlanSnapshotKind.Final,
+                TerrainRuntimeBakePlanSnapshotKind.Initial,
+                plan
+            );
+
             Finish(
                 run,
                 TerrainRuntimeBakePipelineOutcome.NoWork,
@@ -1453,7 +1459,8 @@ public static class TerrainRuntimeBakePipeline
     // =====================================================
 
     private static TerrainRuntimeBakePlan BuildFreshPlan(
-        ActiveRun run
+        ActiveRun run,
+        TerrainRuntimeBakePlanSnapshotKind? snapshotKindOverride = null
     )
     {
         if (
@@ -1467,17 +1474,82 @@ public static class TerrainRuntimeBakePipeline
             return null;
         }
 
-        TerrainRuntimeBakePlan plan =
-            TerrainRuntimeBakePlanner.BuildPlan(
-                run.worldSettings,
-                run.authoringData
+        TerrainRuntimeBakePlanSnapshotKind snapshotKind =
+            snapshotKindOverride ??
+            GetPlanSnapshotKind(
+                currentState
             );
+
+        TerrainRuntimeBakePipelineState traceStage =
+            snapshotKind == TerrainRuntimeBakePlanSnapshotKind.Final
+                ? TerrainRuntimeBakePipelineState.Finalizing
+                : currentState;
+
+        TerrainRuntimeBakePlanningDiagnosticsContext planningDiagnostics =
+            run.diagnostics?.BeginPlanningSnapshot(
+                snapshotKind,
+                traceStage
+            );
+
+        TerrainRuntimeBakePlan plan;
+
+        try
+        {
+            plan =
+                TerrainRuntimeBakePlanner.BuildPlan(
+                    run.worldSettings,
+                    run.authoringData,
+                    planningDiagnostics
+                );
+
+            planningDiagnostics?.Complete(
+                plan
+            );
+        }
+        catch (Exception exception)
+        {
+            planningDiagnostics?.Fail(
+                exception.Message
+            );
+
+            throw;
+        }
 
         run.currentPlan =
             plan;
 
 
         return plan;
+    }
+
+    private static TerrainRuntimeBakePlanSnapshotKind GetPlanSnapshotKind(
+        TerrainRuntimeBakePipelineState state
+    )
+    {
+        switch (state)
+        {
+            case TerrainRuntimeBakePipelineState.Preflight:
+                return TerrainRuntimeBakePlanSnapshotKind.Initial;
+
+            case TerrainRuntimeBakePipelineState.Heightmaps:
+                return TerrainRuntimeBakePlanSnapshotKind.Height;
+
+            case TerrainRuntimeBakePipelineState.SurfaceMasks:
+                return TerrainRuntimeBakePlanSnapshotKind.Surface;
+
+            case TerrainRuntimeBakePipelineState.Collision:
+                return TerrainRuntimeBakePlanSnapshotKind.Collision;
+
+            case TerrainRuntimeBakePipelineState.Addressables:
+                return TerrainRuntimeBakePlanSnapshotKind.Addressables;
+
+            case TerrainRuntimeBakePipelineState.SceneSync:
+                return TerrainRuntimeBakePlanSnapshotKind.SceneSync;
+
+            case TerrainRuntimeBakePipelineState.Finalizing:
+            default:
+                return TerrainRuntimeBakePlanSnapshotKind.Final;
+        }
     }
 
     private static bool ValidateStagePlan(
@@ -1824,9 +1896,9 @@ public static class TerrainRuntimeBakePipeline
             try
             {
                 run.finalPlan =
-                    TerrainRuntimeBakePlanner.BuildPlan(
-                        run.worldSettings,
-                        run.authoringData
+                    BuildFreshPlan(
+                        run,
+                        TerrainRuntimeBakePlanSnapshotKind.Final
                     );
             }
             catch (Exception exception)

@@ -36,9 +36,61 @@ public static class TerrainRuntimeBakePlanner
         TerrainAuthoringData authoringData
     )
     {
+        return
+            BuildPlan(
+                worldSettings,
+                authoringData,
+                null
+            );
+    }
+
+    internal static TerrainRuntimeBakePlan BuildPlan(
+        WorldSettings worldSettings,
+        TerrainAuthoringData authoringData,
+        TerrainRuntimeBakePlanningDiagnosticsContext diagnostics
+    )
+    {
         using var profilerScope =
             WorldMeshesProfiler.RuntimeBakeBuildPlan.Auto();
 
+        TerrainRuntimeBakeTraceScope plannerTrace =
+            diagnostics?.BeginTrace(
+                "TerrainRuntimeBakePlanner.BuildPlan"
+            );
+
+        try
+        {
+            TerrainRuntimeBakePlan plan =
+                BuildPlanCore(
+                    worldSettings,
+                    authoringData,
+                    diagnostics
+                );
+
+            plannerTrace?.Complete();
+
+            return plan;
+        }
+        catch (System.Exception exception)
+        {
+            plannerTrace?.Fail(
+                exception.Message
+            );
+
+            throw;
+        }
+        finally
+        {
+            plannerTrace?.Dispose();
+        }
+    }
+
+    private static TerrainRuntimeBakePlan BuildPlanCore(
+        WorldSettings worldSettings,
+        TerrainAuthoringData authoringData,
+        TerrainRuntimeBakePlanningDiagnosticsContext diagnostics
+    )
+    {
         TerrainRuntimeBakeStateSnapshot snapshot =
             TerrainRuntimeBakeStateService
                 .GetSnapshot();
@@ -65,6 +117,12 @@ public static class TerrainRuntimeBakePlanner
                 worldSettings == null
                     ? "WorldSettings is unavailable."
                     : "TerrainAuthoringData is unavailable.";
+
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.MissingRequiredAsset,
+                TerrainRuntimeBakeReasonTarget.Blocking,
+                missingReason
+            );
 
             return
                 CreatePlan(
@@ -133,6 +191,20 @@ public static class TerrainRuntimeBakePlanner
                     authoringData
                 );
 
+        if (!authoringReady)
+        {
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.AuthoringNotReady,
+                TerrainRuntimeBakeReasonTarget.Blocking,
+                blockReason
+            );
+        }
+
+        TerrainRuntimeBakeTraceScope heightTrace =
+            diagnostics?.BeginTrace(
+                "TerrainRuntimeBakePlanner.EvaluateHeight"
+            );
+
         // =================================================
         // HEIGHT
         // =================================================
@@ -160,6 +232,11 @@ public static class TerrainRuntimeBakePlanner
             worldSettings.heightmapGenerationRevision <= 0
             &&
             heightManifest == null;
+
+        TerrainRuntimeBakeTraceScope heightCompatibilityTrace =
+            diagnostics?.BeginTrace(
+                "TerrainRuntimeBakePlanner.EvaluateHeightCompatibility"
+            );
 
         bool heightTopologyCompatible =
             HeightTopologyMatchesWorld(
@@ -193,6 +270,22 @@ public static class TerrainRuntimeBakePlanner
             &&
             heightLayoutCompatible;
 
+        heightCompatibilityTrace?.Complete();
+
+        if (
+            heightGenerated
+            &&
+            heightStatus !=
+                TerrainGenerationStateUtility.GenerationStatus.Current
+        )
+        {
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.OutdatedGeneratedData,
+                TerrainRuntimeBakeReasonTarget.Height,
+                "Runtime heightmaps are not current."
+            );
+        }
+
         TerrainRuntimeBakeWorkMode heightMode =
             TerrainRuntimeBakeWorkMode.None;
 
@@ -205,16 +298,38 @@ public static class TerrainRuntimeBakePlanner
             // Generated truth wins over stale persistent queue entries.
             heightMode =
                 TerrainRuntimeBakeWorkMode.None;
+
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.GeneratedDataCurrent,
+                TerrainRuntimeBakeReasonTarget.Height,
+                "Runtime heightmaps are current; no height work is required."
+            );
         }
         else if (!authoringReady)
         {
             heightMode =
                 TerrainRuntimeBakeWorkMode.Full;
+
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.AuthoringNotReady,
+                TerrainRuntimeBakeReasonTarget.Height,
+                "Height work cannot be incrementally trusted while committed authoring data is not current."
+            );
         }
         else if (!heightGenerated)
         {
             heightMode =
                 TerrainRuntimeBakeWorkMode.Full;
+
+            diagnostics?.AddPlannerReason(
+                isInitialBake
+                    ? TerrainRuntimeBakeReasonCode.InitialBake
+                    : TerrainRuntimeBakeReasonCode.MissingGeneratedData,
+                TerrainRuntimeBakeReasonTarget.Height,
+                isInitialBake
+                    ? "No runtime height dataset exists yet; the initial runtime height bake requires full work."
+                    : "Runtime height generation state is missing; a full height rebuild is required."
+            );
         }
         else if (!heightDatasetUsable)
         {
@@ -224,16 +339,28 @@ public static class TerrainRuntimeBakePlanner
             AddHeightCompatibilityReason(
                 heightManifest,
                 worldSettings,
-                safetyReasons
+                safetyReasons,
+                diagnostics
             );
         }
         else if (snapshot.FullHeightRebuildRequired)
         {
             heightMode =
                 TerrainRuntimeBakeWorkMode.Full;
+
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.FullRebuildFlag,
+                TerrainRuntimeBakeReasonTarget.Height,
+                "Persistent runtime bake state requires a full height rebuild."
+            );
         }
         else
         {
+            using var heightDirtyTrace =
+                diagnostics?.BeginTrace(
+                    "TerrainRuntimeBakePlanner.ReconcileHeightDirtyState"
+                );
+
             bool pendingHeightValid =
                 TerrainRuntimeBakeDependencyUtility
                     .TryCopyValidHeightTiles(
@@ -254,10 +381,21 @@ public static class TerrainRuntimeBakePlanner
                 heightMode =
                     TerrainRuntimeBakeWorkMode.Full;
 
-                safetyReasons.Add(
+                string reason =
                     "Persistent height dirty coordinates do not match the " +
                     "current height-tile layout. " +
-                    heightCoordinateError
+                    heightCoordinateError;
+
+                safetyReasons.Add(
+                    reason
+                );
+
+                diagnostics?.AddPlannerReason(
+                    TerrainRuntimeBakeReasonCode.InvalidPersistentDirtyState,
+                    TerrainRuntimeBakeReasonTarget.Height,
+                    reason,
+                    true,
+                    snapshot.PendingHeightTileCount
                 );
             }
             else if (
@@ -268,18 +406,39 @@ public static class TerrainRuntimeBakePlanner
             {
                 heightMode =
                     TerrainRuntimeBakeWorkMode.Incremental;
+
+                diagnostics?.AddPlannerReason(
+                    TerrainRuntimeBakeReasonCode.PendingAuthoringChange,
+                    TerrainRuntimeBakeReasonTarget.Height,
+                    "Pending authoring changes map to a valid incremental height dirty set.",
+                    false,
+                    heightTiles.Count
+                );
             }
             else
             {
                 heightMode =
                     TerrainRuntimeBakeWorkMode.Full;
 
-                safetyReasons.Add(
+                string reason =
                     heightTiles.Count == 0
                         ? "Runtime heightmaps are stale but no complete local " +
                           "height dirty set is available."
                         : "The current authoring signature does not match the " +
-                          "signature observed by the dirty-tile tracker."
+                          "signature observed by the dirty-tile tracker.";
+
+                safetyReasons.Add(
+                    reason
+                );
+
+                diagnostics?.AddPlannerReason(
+                    heightTiles.Count == 0
+                        ? TerrainRuntimeBakeReasonCode.NoProvableDirtySet
+                        : TerrainRuntimeBakeReasonCode.AuthoringSignatureChanged,
+                    TerrainRuntimeBakeReasonTarget.Height,
+                    reason,
+                    true,
+                    heightTiles.Count
                 );
             }
         }
@@ -297,6 +456,13 @@ public static class TerrainRuntimeBakePlanner
                     heightTiles
                 );
         }
+
+        heightTrace?.Complete();
+
+        TerrainRuntimeBakeTraceScope surfaceTrace =
+            diagnostics?.BeginTrace(
+                "TerrainRuntimeBakePlanner.EvaluateSurface"
+            );
 
         // =================================================
         // SURFACE
@@ -321,6 +487,11 @@ public static class TerrainRuntimeBakePlanner
             &&
             surfaceManifest != null;
 
+        TerrainRuntimeBakeTraceScope surfaceCompatibilityTrace =
+            diagnostics?.BeginTrace(
+                "TerrainRuntimeBakePlanner.EvaluateSurfaceCompatibility"
+            );
+
         bool surfaceOwnCompatible =
             SurfaceOwnStateMatchesCurrent(
                 surfaceManifest,
@@ -328,6 +499,22 @@ public static class TerrainRuntimeBakePlanner
                 currentSurfaceSettingsSignature,
                 worldSettings
             );
+
+        surfaceCompatibilityTrace?.Complete();
+
+        if (
+            surfaceGenerated
+            &&
+            surfaceStatus !=
+                TerrainGenerationStateUtility.GenerationStatus.Current
+        )
+        {
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.OutdatedGeneratedData,
+                TerrainRuntimeBakeReasonTarget.Surface,
+                "Runtime surface masks are not current."
+            );
+        }
 
         TerrainRuntimeBakeWorkMode surfaceMode =
             TerrainRuntimeBakeWorkMode.None;
@@ -339,6 +526,15 @@ public static class TerrainRuntimeBakePlanner
         {
             surfaceMode =
                 TerrainRuntimeBakeWorkMode.Full;
+
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.DependencyPropagation,
+                TerrainRuntimeBakeReasonTarget.Surface,
+                "A full height rebuild requires a full surface rebuild.",
+                false,
+                0,
+                TerrainRuntimeBakeReasonTarget.Height
+            );
         }
         else if (
             surfaceStatus ==
@@ -348,33 +544,103 @@ public static class TerrainRuntimeBakePlanner
         {
             surfaceMode =
                 TerrainRuntimeBakeWorkMode.None;
+
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.GeneratedDataCurrent,
+                TerrainRuntimeBakeReasonTarget.Surface,
+                "Runtime surface masks are current; no surface work is required."
+            );
         }
         else if (!surfaceGenerated)
         {
             surfaceMode =
                 TerrainRuntimeBakeWorkMode.Full;
+
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.MissingGeneratedData,
+                TerrainRuntimeBakeReasonTarget.Surface,
+                "Runtime surface-mask generation state is missing; a full surface rebuild is required."
+            );
         }
         else if (!surfaceOwnCompatible)
         {
             surfaceMode =
                 TerrainRuntimeBakeWorkMode.Full;
 
-            safetyReasons.Add(
+            string surfaceCompatibilityReason =
                 GetSurfaceCompatibilityReason(
                     surfaceManifest,
                     surfaceSettings,
                     currentSurfaceSettingsSignature,
-                    worldSettings
+                    worldSettings,
+                    diagnostics
+                );
+
+            if (
+                surfaceManifest != null
+                &&
+                surfaceSettings != null
+                &&
+                surfaceManifest.isComplete
+                &&
+                surfaceManifest.compilerVersion ==
+                    TerrainGenerationStateUtility
+                        .SurfaceMaskCompilerVersion
+                &&
+                surfaceManifest.channelLayoutVersion ==
+                    TerrainSurfaceMaskManifest
+                        .CurrentChannelLayoutVersion
+                &&
+                !string.IsNullOrEmpty(
+                    currentSurfaceSettingsSignature
                 )
+            )
+            {
+                if (
+                    surfaceManifest.surfaceSettingsSignature !=
+                        currentSurfaceSettingsSignature
+                )
+                {
+                    diagnostics?.AddPlannerReason(
+                        TerrainRuntimeBakeReasonCode.SurfaceSettingsChanged,
+                        TerrainRuntimeBakeReasonTarget.Surface,
+                        surfaceCompatibilityReason,
+                        true
+                    );
+                }
+                else
+                {
+                    diagnostics?.AddPlannerReason(
+                        TerrainRuntimeBakeReasonCode.LayoutChanged,
+                        TerrainRuntimeBakeReasonTarget.Surface,
+                        surfaceCompatibilityReason,
+                        true
+                    );
+                }
+            }
+
+            safetyReasons.Add(
+                surfaceCompatibilityReason
             );
         }
         else if (snapshot.FullSurfaceRebuildRequired)
         {
             surfaceMode =
                 TerrainRuntimeBakeWorkMode.Full;
+
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.FullRebuildFlag,
+                TerrainRuntimeBakeReasonTarget.Surface,
+                "Persistent runtime bake state requires a full surface rebuild."
+            );
         }
         else
         {
+            using var surfaceDirtyTrace =
+                diagnostics?.BeginTrace(
+                    "TerrainRuntimeBakePlanner.ReconcileSurfaceDirtyState"
+                );
+
             bool pendingSurfaceValid =
                 TerrainRuntimeBakeDependencyUtility
                     .TryCopyValidSurfaceTiles(
@@ -389,34 +655,68 @@ public static class TerrainRuntimeBakePlanner
                 surfaceMode =
                     TerrainRuntimeBakeWorkMode.Full;
 
-                safetyReasons.Add(
+                string reason =
                     "Persistent surface dirty coordinates do not match the " +
                     "current tile layout. " +
-                    surfaceCoordinateError
+                    surfaceCoordinateError;
+
+                safetyReasons.Add(
+                    reason
+                );
+
+                diagnostics?.AddPlannerReason(
+                    TerrainRuntimeBakeReasonCode.InvalidPersistentDirtyState,
+                    TerrainRuntimeBakeReasonTarget.Surface,
+                    reason,
+                    true,
+                    snapshot.PendingSurfaceTileCount
                 );
             }
             else
             {
+                int directSurfaceTileCount =
+                    surfaceTiles.Count;
+
+                if (directSurfaceTileCount > 0)
+                {
+                    diagnostics?.AddPlannerReason(
+                        TerrainRuntimeBakeReasonCode.PendingSurfaceChange,
+                        TerrainRuntimeBakeReasonTarget.Surface,
+                        "Persistent surface dirty state contributes direct incremental surface work.",
+                        false,
+                        directSurfaceTileCount
+                    );
+                }
+
                 if (
                     heightMode ==
                     TerrainRuntimeBakeWorkMode.Incremental
                 )
                 {
+                    using var surfaceDependencyTrace =
+                        diagnostics?.BeginTrace(
+                            "TerrainRuntimeBakePlanner.ExpandSurfaceDependencies"
+                        );
+
+                    int beforeDependencyCount =
+                        surfaceTiles.Count;
+
                     string surfaceDependencyError =
                         "";
 
-                    if (
-                        surfaceSettings == null
-                        ||
-                        !TerrainRuntimeBakeDependencyUtility
+                    bool dependencyMapped =
+                        surfaceSettings != null
+                        &&
+                        TerrainRuntimeBakeDependencyUtility
                             .TryCollectDependentSurfaceTiles(
                                 worldSettings,
                                 surfaceSettings,
                                 heightTiles,
                                 surfaceTiles,
                                 out surfaceDependencyError
-                            )
-                    )
+                            );
+
+                    if (!dependencyMapped)
                     {
                         surfaceMode =
                             TerrainRuntimeBakeWorkMode.Full;
@@ -431,11 +731,44 @@ public static class TerrainRuntimeBakePlanner
                                 "TerrainSurfaceSettings is unavailable.";
                         }
 
-                        safetyReasons.Add(
+                        string reason =
                             "Surface dependency expansion could not be " +
                             "calculated safely. " +
-                            surfaceDependencyError
+                            surfaceDependencyError;
+
+                        safetyReasons.Add(
+                            reason
                         );
+
+                        diagnostics?.AddPlannerReason(
+                            TerrainRuntimeBakeReasonCode.DependencyPropagationFailed,
+                            TerrainRuntimeBakeReasonTarget.Surface,
+                            reason,
+                            true,
+                            heightTiles.Count,
+                            TerrainRuntimeBakeReasonTarget.Height
+                        );
+                    }
+                    else
+                    {
+                        int addedDependencyCount =
+                            Mathf.Max(
+                                0,
+                                surfaceTiles.Count -
+                                beforeDependencyCount
+                            );
+
+                        if (addedDependencyCount > 0)
+                        {
+                            diagnostics?.AddPlannerReason(
+                                TerrainRuntimeBakeReasonCode.DependencyPropagation,
+                                TerrainRuntimeBakeReasonTarget.Surface,
+                                "Incremental height work expanded the dependent surface dirty set.",
+                                false,
+                                addedDependencyCount,
+                                TerrainRuntimeBakeReasonTarget.Height
+                            );
+                        }
                     }
                 }
 
@@ -467,9 +800,20 @@ public static class TerrainRuntimeBakePlanner
                         surfaceMode =
                             TerrainRuntimeBakeWorkMode.Full;
 
-                        safetyReasons.Add(
+                        string reason =
                             "Runtime surface masks are stale but no complete " +
-                            "incremental surface dirty set can be proven."
+                            "incremental surface dirty set can be proven.";
+
+                        safetyReasons.Add(
+                            reason
+                        );
+
+                        diagnostics?.AddPlannerReason(
+                            TerrainRuntimeBakeReasonCode.NoProvableDirtySet,
+                            TerrainRuntimeBakeReasonTarget.Surface,
+                            reason,
+                            true,
+                            surfaceTiles.Count
                         );
                     }
                 }
@@ -489,6 +833,13 @@ public static class TerrainRuntimeBakePlanner
                     surfaceTiles
                 );
         }
+
+        surfaceTrace?.Complete();
+
+        TerrainRuntimeBakeTraceScope collisionTrace =
+            diagnostics?.BeginTrace(
+                "TerrainRuntimeBakePlanner.EvaluateCollision"
+            );
 
         // =================================================
         // COLLISION
@@ -516,11 +867,32 @@ public static class TerrainRuntimeBakePlanner
             &&
             collisionFolderExists;
 
+        TerrainRuntimeBakeTraceScope collisionCompatibilityTrace =
+            diagnostics?.BeginTrace(
+                "TerrainRuntimeBakePlanner.EvaluateCollisionCompatibility"
+            );
+
         bool collisionOwnCompatible =
             collisionGenerated
             &&
             worldSettings.lastGeneratedCollisionSignature ==
                 currentCollisionSettingsSignature;
+
+        collisionCompatibilityTrace?.Complete();
+
+        if (
+            collisionGenerated
+            &&
+            collisionStatus !=
+                TerrainGenerationStateUtility.GenerationStatus.Current
+        )
+        {
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.OutdatedGeneratedData,
+                TerrainRuntimeBakeReasonTarget.Collision,
+                "Runtime collision meshes are not current."
+            );
+        }
 
         TerrainRuntimeBakeWorkMode collisionMode =
             TerrainRuntimeBakeWorkMode.None;
@@ -532,6 +904,15 @@ public static class TerrainRuntimeBakePlanner
         {
             collisionMode =
                 TerrainRuntimeBakeWorkMode.Full;
+
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.DependencyPropagation,
+                TerrainRuntimeBakeReasonTarget.Collision,
+                "A full height rebuild requires a full collision rebuild.",
+                false,
+                0,
+                TerrainRuntimeBakeReasonTarget.Height
+            );
         }
         else if (
             collisionStatus ==
@@ -541,29 +922,62 @@ public static class TerrainRuntimeBakePlanner
         {
             collisionMode =
                 TerrainRuntimeBakeWorkMode.None;
+
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.GeneratedDataCurrent,
+                TerrainRuntimeBakeReasonTarget.Collision,
+                "Runtime collision meshes are current; no collision work is required."
+            );
         }
         else if (!collisionGenerated)
         {
             collisionMode =
                 TerrainRuntimeBakeWorkMode.Full;
+
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.MissingGeneratedData,
+                TerrainRuntimeBakeReasonTarget.Collision,
+                "Runtime collision generation state is missing; a full collision rebuild is required."
+            );
         }
         else if (!collisionOwnCompatible)
         {
             collisionMode =
                 TerrainRuntimeBakeWorkMode.Full;
 
-            safetyReasons.Add(
+            string reason =
                 "Collision generator/settings compatibility changed; " +
-                "incremental collision coordinates cannot be reused."
+                "incremental collision coordinates cannot be reused.";
+
+            safetyReasons.Add(
+                reason
+            );
+
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.CollisionSettingsChanged,
+                TerrainRuntimeBakeReasonTarget.Collision,
+                reason,
+                true
             );
         }
         else if (snapshot.FullCollisionRebuildRequired)
         {
             collisionMode =
                 TerrainRuntimeBakeWorkMode.Full;
+
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.FullRebuildFlag,
+                TerrainRuntimeBakeReasonTarget.Collision,
+                "Persistent runtime bake state requires a full collision rebuild."
+            );
         }
         else
         {
+            using var collisionDirtyTrace =
+                diagnostics?.BeginTrace(
+                    "TerrainRuntimeBakePlanner.ReconcileCollisionDirtyState"
+                );
+
             bool pendingCollisionValid =
                 TerrainRuntimeBakeDependencyUtility
                     .TryCopyValidCollisionChunks(
@@ -578,37 +992,104 @@ public static class TerrainRuntimeBakePlanner
                 collisionMode =
                     TerrainRuntimeBakeWorkMode.Full;
 
-                safetyReasons.Add(
+                string reason =
                     "Persistent collision dirty coordinates do not match the " +
                     "current world grid. " +
-                    collisionCoordinateError
+                    collisionCoordinateError;
+
+                safetyReasons.Add(
+                    reason
+                );
+
+                diagnostics?.AddPlannerReason(
+                    TerrainRuntimeBakeReasonCode.InvalidPersistentDirtyState,
+                    TerrainRuntimeBakeReasonTarget.Collision,
+                    reason,
+                    true,
+                    snapshot.PendingCollisionChunkCount
                 );
             }
             else
             {
+                int directCollisionChunkCount =
+                    collisionChunks.Count;
+
+                if (directCollisionChunkCount > 0)
+                {
+                    diagnostics?.AddPlannerReason(
+                        TerrainRuntimeBakeReasonCode.PendingCollisionChange,
+                        TerrainRuntimeBakeReasonTarget.Collision,
+                        "Persistent collision dirty state contributes direct incremental collision work.",
+                        false,
+                        directCollisionChunkCount
+                    );
+                }
+
                 if (
                     heightMode ==
                     TerrainRuntimeBakeWorkMode.Incremental
                 )
                 {
-                    if (
-                        !TerrainRuntimeBakeDependencyUtility
+                    using var collisionDependencyTrace =
+                        diagnostics?.BeginTrace(
+                            "TerrainRuntimeBakePlanner.ExpandCollisionDependencies"
+                        );
+
+                    int beforeDependencyCount =
+                        collisionChunks.Count;
+
+                    bool dependencyMapped =
+                        TerrainRuntimeBakeDependencyUtility
                             .TryCollectDependentCollisionChunks(
                                 worldSettings,
                                 heightTiles,
                                 collisionChunks,
                                 out string collisionDependencyError
-                            )
-                    )
+                            );
+
+                    if (!dependencyMapped)
                     {
                         collisionMode =
                             TerrainRuntimeBakeWorkMode.Full;
 
-                        safetyReasons.Add(
+                        string reason =
                             "Collision dependency mapping could not be " +
                             "calculated safely. " +
-                            collisionDependencyError
+                            collisionDependencyError;
+
+                        safetyReasons.Add(
+                            reason
                         );
+
+                        diagnostics?.AddPlannerReason(
+                            TerrainRuntimeBakeReasonCode.DependencyPropagationFailed,
+                            TerrainRuntimeBakeReasonTarget.Collision,
+                            reason,
+                            true,
+                            heightTiles.Count,
+                            TerrainRuntimeBakeReasonTarget.Height
+                        );
+                    }
+                    else
+                    {
+                        int addedDependencyCount =
+                            Mathf.Max(
+                                0,
+                                collisionChunks.Count -
+                                beforeDependencyCount
+                            );
+
+                        if (addedDependencyCount > 0)
+                        {
+                            diagnostics?.AddPlannerReason(
+                                TerrainRuntimeBakeReasonCode.DependencyPropagation,
+                                TerrainRuntimeBakeReasonTarget.Collision,
+                                "Incremental height work expanded the dependent collision dirty set.",
+                                false,
+                                addedDependencyCount,
+                                TerrainRuntimeBakeReasonTarget.Height
+                            );
+                        }
                     }
                 }
 
@@ -640,9 +1121,20 @@ public static class TerrainRuntimeBakePlanner
                         collisionMode =
                             TerrainRuntimeBakeWorkMode.Full;
 
-                        safetyReasons.Add(
+                        string reason =
                             "Collision meshes are stale but no complete " +
-                            "incremental collision dirty set can be proven."
+                            "incremental collision dirty set can be proven.";
+
+                        safetyReasons.Add(
+                            reason
+                        );
+
+                        diagnostics?.AddPlannerReason(
+                            TerrainRuntimeBakeReasonCode.NoProvableDirtySet,
+                            TerrainRuntimeBakeReasonTarget.Collision,
+                            reason,
+                            true,
+                            collisionChunks.Count
                         );
                     }
                 }
@@ -663,6 +1155,13 @@ public static class TerrainRuntimeBakePlanner
                 );
         }
 
+        collisionTrace?.Complete();
+
+        TerrainRuntimeBakeTraceScope blockingTrace =
+            diagnostics?.BeginTrace(
+                "TerrainRuntimeBakePlanner.ValidateBlocking"
+            );
+
         // =================================================
         // BLOCKING VALIDATION
         // =================================================
@@ -674,11 +1173,20 @@ public static class TerrainRuntimeBakePlanner
             surfaceSettings == null
         )
         {
+            const string reason =
+                "TerrainSurfaceSettings is unavailable.";
+
             blockReason =
                 AppendBlockReason(
                     blockReason,
-                    "TerrainSurfaceSettings is unavailable."
+                    reason
                 );
+
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.BlockingValidation,
+                TerrainRuntimeBakeReasonTarget.Blocking,
+                reason
+            );
         }
 
         if (
@@ -690,13 +1198,29 @@ public static class TerrainRuntimeBakePlanner
             )
         )
         {
+            const string reason =
+                "Collision Resolution must be no greater than, and " +
+                "evenly divide, Heightfield Resolution / Chunk.";
+
             blockReason =
                 AppendBlockReason(
                     blockReason,
-                    "Collision Resolution must be no greater than, and " +
-                    "evenly divide, Heightfield Resolution / Chunk."
+                    reason
                 );
+
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.BlockingValidation,
+                TerrainRuntimeBakeReasonTarget.Blocking,
+                reason
+            );
         }
+
+        blockingTrace?.Complete();
+
+        TerrainRuntimeBakeTraceScope globalTrace =
+            diagnostics?.BeginTrace(
+                "TerrainRuntimeBakePlanner.EvaluateGlobalWork"
+            );
 
         // =================================================
         // GLOBAL WORK
@@ -808,6 +1332,90 @@ public static class TerrainRuntimeBakePlanner
                 TerrainRuntimeBakeWorkMode.None
             ||
             topologyRequiresAddressablesConfiguration;
+
+        if (snapshot.AddressablesConfigurationDirty)
+        {
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.AddressablesConfigurationDirty,
+                TerrainRuntimeBakeReasonTarget.Addressables,
+                "Persistent runtime bake state marks Addressables configuration dirty."
+            );
+        }
+
+        if (snapshot.AddressablesContentDirty)
+        {
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.AddressablesContentDirty,
+                TerrainRuntimeBakeReasonTarget.Addressables,
+                "Persistent runtime bake state marks Addressables content dirty."
+            );
+        }
+
+        if (!heightTopologyCompatible)
+        {
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.TopologyChanged,
+                TerrainRuntimeBakeReasonTarget.Addressables,
+                "Runtime height topology does not match the current world; Addressables configuration requires reconciliation.",
+                false,
+                0,
+                TerrainRuntimeBakeReasonTarget.Height
+            );
+        }
+
+        if (generatedDataWork)
+        {
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.GeneratedDataChanged,
+                TerrainRuntimeBakeReasonTarget.Addressables,
+                "Generated runtime data work requires Addressables content reconciliation."
+            );
+        }
+
+        if (externalAddressablesRepairRequired)
+        {
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.AddressablesRepairRequired,
+                TerrainRuntimeBakeReasonTarget.Addressables,
+                "Cached validation reports damaged or incomplete runtime Addressables structure.",
+                true
+            );
+        }
+
+        if (snapshot.RuntimeSceneMetadataDirty)
+        {
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.RuntimeSceneMetadataDirty,
+                TerrainRuntimeBakeReasonTarget.SceneSync,
+                "Persistent runtime bake state marks runtime scene metadata dirty."
+            );
+        }
+
+        if (heightMode != TerrainRuntimeBakeWorkMode.None)
+        {
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.GeneratedDataChanged,
+                TerrainRuntimeBakeReasonTarget.SceneSync,
+                "Height runtime data work requires runtime scene metadata reconciliation.",
+                false,
+                0,
+                TerrainRuntimeBakeReasonTarget.Height
+            );
+        }
+
+        if (topologyRequiresAddressablesConfiguration)
+        {
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.DependencyPropagation,
+                TerrainRuntimeBakeReasonTarget.SceneSync,
+                "Runtime topology/configuration changes require runtime scene metadata reconciliation.",
+                false,
+                0,
+                TerrainRuntimeBakeReasonTarget.Addressables
+            );
+        }
+
+        globalTrace?.Complete();
 
         return
             CreatePlan(
@@ -1066,7 +1674,8 @@ public static class TerrainRuntimeBakePlanner
     private static void AddHeightCompatibilityReason(
         TerrainHeightmapManifest manifest,
         WorldSettings worldSettings,
-        ICollection<string> reasons
+        ICollection<string> reasons,
+        TerrainRuntimeBakePlanningDiagnosticsContext diagnostics
     )
     {
         if (reasons == null)
@@ -1076,18 +1685,30 @@ public static class TerrainRuntimeBakePlanner
 
         if (manifest == null)
         {
-            reasons.Add(
-                "Runtime heightmap manifest is missing; a full height rebuild " +
-                "is required."
+            const string reason =
+                "Runtime heightmap manifest is missing; a full height rebuild is required.";
+
+            reasons.Add(reason);
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.MissingGeneratedMetadata,
+                TerrainRuntimeBakeReasonTarget.Height,
+                reason,
+                true
             );
             return;
         }
 
         if (!manifest.isComplete)
         {
-            reasons.Add(
-                "Runtime heightmap manifest is incomplete; a full height " +
-                "rebuild is required."
+            const string reason =
+                "Runtime heightmap manifest is incomplete; a full height rebuild is required.";
+
+            reasons.Add(reason);
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.InvalidGeneratedMetadata,
+                TerrainRuntimeBakeReasonTarget.Height,
+                reason,
+                true
             );
             return;
         }
@@ -1098,9 +1719,35 @@ public static class TerrainRuntimeBakePlanner
                 .RuntimeHeightCompilerVersion
         )
         {
-            reasons.Add(
-                "Runtime height compiler version changed; existing tiles " +
-                "cannot be incrementally trusted."
+            const string reason =
+                "Runtime height compiler version changed; existing tiles cannot be incrementally trusted.";
+
+            reasons.Add(reason);
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.CompilerVersionChanged,
+                TerrainRuntimeBakeReasonTarget.Height,
+                reason,
+                true
+            );
+            return;
+        }
+
+        if (
+            !HeightTopologyMatchesWorld(
+                manifest,
+                worldSettings
+            )
+        )
+        {
+            const string reason =
+                "Runtime heightmap topology does not match current WorldSettings; a full height rebuild is required.";
+
+            reasons.Add(reason);
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.TopologyChanged,
+                TerrainRuntimeBakeReasonTarget.Height,
+                reason,
+                true
             );
             return;
         }
@@ -1112,27 +1759,45 @@ public static class TerrainRuntimeBakePlanner
             )
         )
         {
-            reasons.Add(
-                "Runtime heightmap layout does not match current WorldSettings; " +
-                "a full height rebuild is required."
+            const string reason =
+                "Runtime heightmap layout does not match current WorldSettings; a full height rebuild is required.";
+
+            reasons.Add(reason);
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.LayoutChanged,
+                TerrainRuntimeBakeReasonTarget.Height,
+                reason,
+                true
             );
             return;
         }
 
         if (!manifest.HasCompleteTileHeightRanges)
         {
-            reasons.Add(
-                "Runtime per-tile height range metadata is incomplete; a " +
-                "full height rebuild is required."
+            const string reason =
+                "Runtime per-tile height range metadata is incomplete; a full height rebuild is required.";
+
+            reasons.Add(reason);
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.InvalidGeneratedMetadata,
+                TerrainRuntimeBakeReasonTarget.Height,
+                reason,
+                true
             );
             return;
         }
 
         if (!manifest.HasValidHeightRange)
         {
-            reasons.Add(
-                "Runtime height range metadata is invalid; a full height " +
-                "rebuild is required."
+            const string reason =
+                "Runtime height range metadata is invalid; a full height rebuild is required.";
+
+            reasons.Add(reason);
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.InvalidGeneratedMetadata,
+                TerrainRuntimeBakeReasonTarget.Height,
+                reason,
+                true
             );
         }
     }
@@ -1141,21 +1806,40 @@ public static class TerrainRuntimeBakePlanner
         TerrainSurfaceMaskManifest manifest,
         TerrainSurfaceSettings surfaceSettings,
         string currentSettingsSignature,
-        WorldSettings worldSettings
+        WorldSettings worldSettings,
+        TerrainRuntimeBakePlanningDiagnosticsContext diagnostics
     )
     {
         if (manifest == null)
         {
-            return
+            const string reason =
                 "Runtime surface-mask manifest is missing; a full surface " +
                 "rebuild is required.";
+
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.MissingGeneratedMetadata,
+                TerrainRuntimeBakeReasonTarget.Surface,
+                reason,
+                true
+            );
+
+            return reason;
         }
 
         if (!manifest.isComplete)
         {
-            return
+            const string reason =
                 "Runtime surface-mask manifest is incomplete; a full surface " +
                 "rebuild is required.";
+
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.InvalidGeneratedMetadata,
+                TerrainRuntimeBakeReasonTarget.Surface,
+                reason,
+                true
+            );
+
+            return reason;
         }
 
         if (
@@ -1168,16 +1852,34 @@ public static class TerrainRuntimeBakePlanner
                     .CurrentChannelLayoutVersion
         )
         {
-            return
+            const string reason =
                 "Runtime surface compiler/channel format changed; a full " +
                 "surface rebuild is required.";
+
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.CompilerVersionChanged,
+                TerrainRuntimeBakeReasonTarget.Surface,
+                reason,
+                true
+            );
+
+            return reason;
         }
 
         if (surfaceSettings == null)
         {
-            return
+            const string reason =
                 "TerrainSurfaceSettings is unavailable; surface dependency " +
                 "compatibility cannot be proven.";
+
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.MissingRequiredAsset,
+                TerrainRuntimeBakeReasonTarget.Surface,
+                reason,
+                true
+            );
+
+            return reason;
         }
 
         if (

@@ -88,7 +88,7 @@ public sealed class TerrainRuntimeBakeTraceRecord
     }
 }
 
-public sealed class TerrainRuntimeBakeDiagnosticsSnapshot
+public sealed partial class TerrainRuntimeBakeDiagnosticsSnapshot
 {
     private readonly ReadOnlyCollection<TerrainRuntimeBakeStageDiagnostic>
         stageRecords;
@@ -217,7 +217,7 @@ public static class TerrainRuntimeBakeDiagnostics
     }
 }
 
-internal sealed class TerrainRuntimeBakeDiagnosticsSession
+internal sealed partial class TerrainRuntimeBakeDiagnosticsSession
 {
     private sealed class StageEntry
     {
@@ -482,6 +482,10 @@ internal sealed class TerrainRuntimeBakeDiagnosticsSession
                 errorMessage,
                 summaryMessage
             );
+
+        AttachPlanningDataTo(
+            completedSnapshot
+        );
 
         completed =
             true;
