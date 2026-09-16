@@ -264,11 +264,17 @@ public static class TerrainRuntimeSceneSynchronizer
          * downstream generations are warnings and are deliberately left
          * untouched; inconsistent current data is a hard preflight failure.
          */
+        TerrainGenerationStateEvaluationContext generationState =
+            new TerrainGenerationStateEvaluationContext(
+                worldSettings,
+                TerrainGenerationStateEvaluationMode.Operational
+            );
+
         TerrainGenerationStateUtility
             .GenerationStatus surfaceStatus =
                 TerrainGenerationStateUtility
                     .GetSurfaceMaskStatus(
-                        worldSettings
+                        generationState
                     );
 
         TerrainSurfaceMaskManifest surfaceManifest =
@@ -320,7 +326,7 @@ public static class TerrainRuntimeSceneSynchronizer
             .GenerationStatus collisionStatus =
                 TerrainGenerationStateUtility
                     .GetCollisionMeshStatus(
-                        worldSettings
+                        generationState
                     );
 
         TerrainCollisionManifest collisionManifest =
@@ -583,7 +589,7 @@ public static class TerrainRuntimeSceneSynchronizer
             bool heightGenerationCurrent =
                 TerrainGenerationStateUtility
                     .GetHeightmapStatus(
-                        worldSettings
+                        generationState
                     )
                 ==
                 TerrainGenerationStateUtility

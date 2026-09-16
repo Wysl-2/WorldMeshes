@@ -147,9 +147,15 @@ public static partial class TerrainGenerationStateUtility
             return false;
         }
 
+        TerrainGenerationStateEvaluationContext generationState =
+            new TerrainGenerationStateEvaluationContext(
+                worldSettings,
+                TerrainGenerationStateEvaluationMode.Operational
+            );
+
         if (
             GetHeightmapStatus(
-                worldSettings
+                generationState
             )
             !=
             GenerationStatus.Current
