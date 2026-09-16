@@ -1239,34 +1239,28 @@ public partial class WorldMeshesEditorWindow :
         bool mutatingDisabled =
             IsRuntimeMutationDisabled();
 
+        TerrainGenerationStateEvaluationResult generationState =
+            TerrainGenerationStateUtility
+                .EvaluateOperationalGenerationState(
+                    worldSettings,
+                    terrainAuthoringData
+                );
+
         TerrainGenerationStateUtility.GenerationStatus
             authoringStatus =
-                TerrainGenerationStateUtility
-                    .GetAuthoringHeightfieldStatus(
-                        worldSettings,
-                        terrainAuthoringData
-                    );
+                generationState.AuthoringHeightfieldStatus;
 
         TerrainGenerationStateUtility.GenerationStatus
             heightStatus =
-                TerrainGenerationStateUtility
-                    .GetHeightmapStatus(
-                        worldSettings
-                    );
+                generationState.HeightmapStatus;
 
         TerrainGenerationStateUtility.GenerationStatus
             surfaceStatus =
-                TerrainGenerationStateUtility
-                    .GetSurfaceMaskStatus(
-                        worldSettings
-                    );
+                generationState.SurfaceMaskStatus;
 
         TerrainGenerationStateUtility.GenerationStatus
             collisionStatus =
-                TerrainGenerationStateUtility
-                    .GetCollisionMeshStatus(
-                        worldSettings
-                    );
+                generationState.CollisionMeshStatus;
 
         bool authoringCurrent =
             authoringStatus ==
