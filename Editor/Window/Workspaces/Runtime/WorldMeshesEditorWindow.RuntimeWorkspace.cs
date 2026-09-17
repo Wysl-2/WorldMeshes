@@ -936,7 +936,78 @@ public partial class WorldMeshesEditorWindow :
             Repaint();
         }
 
+        GUILayout.Space(8f);
+
+        GUILayout.Label(
+            "Diagnostics",
+            EditorStyles.boldLabel
+        );
+
+        TerrainRuntimeBakeDiagnosticsLevel diagnosticsLevel =
+            TerrainRuntimeBakeDiagnostics.Level;
+
+        EditorGUI.BeginDisabledGroup(
+            TerrainRuntimeBakePipeline.IsRunning
+        );
+
+        EditorGUI.BeginChangeCheck();
+
+        diagnosticsLevel =
+            (TerrainRuntimeBakeDiagnosticsLevel)
+                EditorGUILayout.EnumPopup(
+                    "Diagnostics Level",
+                    diagnosticsLevel
+                );
+
+        if (EditorGUI.EndChangeCheck())
+        {
+            TerrainRuntimeBakeDiagnostics.Level =
+                diagnosticsLevel;
+        }
+
+        EditorGUI.EndDisabledGroup();
+
+        EditorGUILayout.HelpBox(
+            GetRuntimeDiagnosticsLevelDescription(
+                diagnosticsLevel
+            ) +
+            "\n\nThe selected level is remembered for this Unity project and is captured when the next unified runtime bake starts.",
+            MessageType.None
+        );
+
+        if (TerrainRuntimeBakePipeline.IsRunning)
+        {
+            EditorGUILayout.HelpBox(
+                "The diagnostics level cannot be changed while a runtime bake is running because the active bake captured its level when it started.",
+                MessageType.None
+            );
+        }
+
         GUILayout.EndVertical();
+    }
+
+    private static string GetRuntimeDiagnosticsLevelDescription(
+        TerrainRuntimeBakeDiagnosticsLevel level
+    )
+    {
+        switch (level)
+        {
+            case TerrainRuntimeBakeDiagnosticsLevel.Off:
+                return
+                    "Disables structured runtime bake diagnostics capture.";
+
+            case TerrainRuntimeBakeDiagnosticsLevel.Detailed:
+                return
+                    "Captures Summary data plus detailed planning, execution, event, and performance diagnostics.";
+
+            case TerrainRuntimeBakeDiagnosticsLevel.Trace:
+                return
+                    "Captures Detailed data plus operation trace scopes and hierarchy. Trace has the highest diagnostics overhead.";
+
+            default:
+                return
+                    "Captures low-overhead bake, stage, warning, error, and outcome summaries.";
+        }
     }
 
     // =====================================================

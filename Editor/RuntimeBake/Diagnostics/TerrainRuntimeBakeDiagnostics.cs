@@ -177,8 +177,11 @@ public static class TerrainRuntimeBakeDiagnostics
 {
     private static TerrainRuntimeBakeDiagnosticsSession activeSession;
 
+    private const string LevelPreferenceKeyPrefix =
+        "WorldMeshes.RuntimeBake.Diagnostics.Level.";
+
     private static TerrainRuntimeBakeDiagnosticsLevel currentLevel =
-        TerrainRuntimeBakeDiagnosticsLevel.Summary;
+        LoadLevel();
 
     public static TerrainRuntimeBakeDiagnosticsLevel Level
     {
@@ -190,8 +193,47 @@ public static class TerrainRuntimeBakeDiagnostics
                 throw new ArgumentOutOfRangeException(nameof(value));
             }
 
+            if (currentLevel == value)
+            {
+                return;
+            }
+
             currentLevel = value;
+
+            EditorPrefs.SetInt(
+                GetLevelPreferenceKey(),
+                (int)value
+            );
         }
+    }
+
+    private static TerrainRuntimeBakeDiagnosticsLevel LoadLevel()
+    {
+        int storedValue =
+            EditorPrefs.GetInt(
+                GetLevelPreferenceKey(),
+                (int)TerrainRuntimeBakeDiagnosticsLevel.Summary
+            );
+
+        if (
+            !Enum.IsDefined(
+                typeof(TerrainRuntimeBakeDiagnosticsLevel),
+                storedValue
+            )
+        )
+        {
+            return TerrainRuntimeBakeDiagnosticsLevel.Summary;
+        }
+
+        return
+            (TerrainRuntimeBakeDiagnosticsLevel)storedValue;
+    }
+
+    private static string GetLevelPreferenceKey()
+    {
+        return
+            LevelPreferenceKeyPrefix +
+            UnityEngine.Application.dataPath;
     }
 
     internal static TerrainRuntimeBakeDiagnosticsSession ActiveSession =>
