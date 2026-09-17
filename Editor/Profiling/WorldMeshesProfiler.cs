@@ -26,6 +26,24 @@ public static class WorldMeshesProfiler
     public static readonly ProfilerMarker PreviewRebuild =
         new("WorldMeshes.Preview.Rebuild");
 
+    public static readonly ProfilerMarker PreviewValidateCommitted =
+        new("WorldMeshes.Preview.ValidateCommitted");
+
+    public static readonly ProfilerMarker PreviewLoadTiles =
+        new("WorldMeshes.Preview.LoadTiles");
+
+    public static readonly ProfilerMarker PreviewReadTileRanges =
+        new("WorldMeshes.Preview.ReadTileRanges");
+
+    public static readonly ProfilerMarker PreviewCopyTiles =
+        new("WorldMeshes.Preview.CopyTiles");
+
+    public static readonly ProfilerMarker PreviewComposeTiles =
+        new("WorldMeshes.Preview.ComposeTiles");
+
+    public static readonly ProfilerMarker PreviewBindCache =
+        new("WorldMeshes.Preview.BindCache");
+
     public static readonly ProfilerMarker RuntimeBakeHeightGeneration =
         new("WorldMeshes.RuntimeBake.Generation.Height");
 

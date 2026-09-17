@@ -369,16 +369,25 @@ public sealed class TerrainAuthoringPreviewCache :
             return false;
         }
 
-        if (
-            !TerrainAuthoringStateUtility
-                .TryValidateCommittedHeightfield(
-                    worldSettings,
-                    authoringData,
-                    out TerrainAuthoringHeightManifest manifest,
-                    out string currentContentHash,
-                    out string validationError
-                )
-        )
+        TerrainAuthoringHeightManifest manifest;
+        string currentContentHash;
+        string validationError;
+        bool validationSucceeded;
+
+        using (WorldMeshesProfiler.PreviewValidateCommitted.Auto())
+        {
+            validationSucceeded =
+                TerrainAuthoringStateUtility
+                    .TryValidateCommittedHeightfield(
+                        worldSettings,
+                        authoringData,
+                        out manifest,
+                        out currentContentHash,
+                        out validationError
+                    );
+        }
+
+        if (!validationSucceeded)
         {
             errorMessage =
                 "The editor terrain preview could not validate " +
@@ -606,14 +615,17 @@ public sealed class TerrainAuthoringPreviewCache :
                         tileZ *
                         newCacheWidth;
 
-                    Graphics.CopyTexture(
-                        sourceTexture,
-                        0,
-                        0,
-                        candidateCache,
-                        slice,
-                        0
-                    );
+                    using (WorldMeshesProfiler.PreviewCopyTiles.Auto())
+                    {
+                        Graphics.CopyTexture(
+                            sourceTexture,
+                            0,
+                            0,
+                            candidateCache,
+                            slice,
+                            0
+                        );
+                    }
 
                     candidateCommittedMinimums[
                         slice
@@ -1477,14 +1489,17 @@ public sealed class TerrainAuthoringPreviewCache :
 
         try
         {
-            Graphics.CopyTexture(
-                sourceTexture,
-                0,
-                0,
-                heightCache,
-                slice,
-                0
-            );
+            using (WorldMeshesProfiler.PreviewCopyTiles.Auto())
+            {
+                Graphics.CopyTexture(
+                    sourceTexture,
+                    0,
+                    0,
+                    heightCache,
+                    slice,
+                    0
+                );
+            }
         }
         catch (
             Exception exception
@@ -1663,11 +1678,14 @@ public sealed class TerrainAuthoringPreviewCache :
                     tileZ
                 );
 
-        texture =
-            AssetDatabase
-                .LoadAssetAtPath<Texture2D>(
-                    sourcePath
-                );
+        using (WorldMeshesProfiler.PreviewLoadTiles.Auto())
+        {
+            texture =
+                AssetDatabase
+                    .LoadAssetAtPath<Texture2D>(
+                        sourcePath
+                    );
+        }
 
         if (texture == null)
         {
@@ -1733,6 +1751,9 @@ public sealed class TerrainAuthoringPreviewCache :
 
         errorMessage =
             "";
+
+        using var rangeProfilerScope =
+            WorldMeshesProfiler.PreviewReadTileRanges.Auto();
 
         string sourcePath =
             TerrainAuthoringStateUtility

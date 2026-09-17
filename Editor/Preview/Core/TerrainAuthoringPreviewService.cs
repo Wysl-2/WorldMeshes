@@ -1502,6 +1502,9 @@ public static class TerrainAuthoringPreviewService
                     dirtyCompositeTiles
                 );
 
+            using var compositionProfilerScope =
+                WorldMeshesProfiler.PreviewComposeTiles.Auto();
+
             /*
              * Compare the final transaction range against the range that
              * was authoritative before any dirty slice was reset.
@@ -1890,6 +1893,9 @@ public static class TerrainAuthoringPreviewService
     {
         errorMessage =
             "";
+
+        using var bindingProfilerScope =
+            WorldMeshesProfiler.PreviewBindCache.Auto();
 
         if (
             clipmapRoot == null

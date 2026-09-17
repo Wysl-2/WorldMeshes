@@ -474,6 +474,8 @@ public static class TerrainAuthoringHeightInitializer
                     out string committedContentHash,
                     out float minimumCommittedHeight,
                     out float maximumCommittedHeight,
+                    out List<TerrainHeightTileRange>
+                        committedTileHeightRanges,
                     out string contentHashError
                 )
         )
@@ -483,6 +485,27 @@ public static class TerrainAuthoringHeightInitializer
                 "requested tiles, but final committed-heightfield " +
                 "validation failed.\n\n" +
                 contentHashError +
+                "\n\nThe authoring manifest remains incomplete."
+            );
+
+            return;
+        }
+
+        if (
+            !TerrainAuthoringStateUtility
+                .TryStoreVerifiedTileHeightRanges(
+                    manifest,
+                    worldSettings,
+                    committedTileHeightRanges,
+                    out string tileRangeError
+                )
+        )
+        {
+            Debug.LogError(
+                "Authoring heightfield initialization verified the " +
+                "physical tiles, but could not store authoritative " +
+                "per-tile height range metadata.\n\n" +
+                tileRangeError +
                 "\n\nThe authoring manifest remains incomplete."
             );
 

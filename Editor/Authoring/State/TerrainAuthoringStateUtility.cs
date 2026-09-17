@@ -102,6 +102,12 @@ public static class TerrainAuthoringStateUtility
                 manifest,
                 worldSettings
             );
+
+            manifest.InitializeTileHeightRanges();
+        }
+        else
+        {
+            manifest.ClearTileHeightRanges();
         }
 
         EditorUtility.SetDirty(
@@ -189,6 +195,58 @@ public static class TerrainAuthoringStateUtility
             manifest,
             worldSettings
         );
+
+        if (
+            manifest.TileHeightRangeMetadataVersion !=
+            TerrainAuthoringHeightManifest
+                .CurrentTileHeightRangeMetadataVersion
+        )
+        {
+            errorMessage =
+                "Committed authoring per-tile height range metadata " +
+                "is not using the current metadata format.";
+
+            return false;
+        }
+
+        if (!manifest.HasCompleteTileHeightRanges)
+        {
+            errorMessage =
+                "Committed authoring per-tile height range metadata " +
+                "is incomplete or invalid.";
+
+            return false;
+        }
+
+        if (
+            !manifest.TryCalculateGlobalHeightRange(
+                out float metadataMinimumHeight,
+                out float metadataMaximumHeight
+            )
+            ||
+            !FloatMatches(
+                metadataMinimumHeight,
+                minimumCommittedHeight
+            )
+            ||
+            !FloatMatches(
+                metadataMaximumHeight,
+                maximumCommittedHeight
+            )
+        )
+        {
+            errorMessage =
+                "Committed authoring per-tile height range metadata " +
+                "does not reduce to the verified physical height range.\n\n" +
+                $"Metadata Range: " +
+                $"{metadataMinimumHeight:R} -> " +
+                $"{metadataMaximumHeight:R}\n" +
+                $"Physical Range: " +
+                $"{minimumCommittedHeight:R} -> " +
+                $"{maximumCommittedHeight:R}";
+
+            return false;
+        }
 
         if (
             manifest.committedHeightRevision < 0
@@ -683,6 +741,8 @@ public static class TerrainAuthoringStateUtility
                 out currentContentHash,
                 out float currentMinimumHeight,
                 out float currentMaximumHeight,
+                out List<TerrainHeightTileRange>
+                    currentTileHeightRanges,
                 out errorMessage
             )
         )
@@ -732,6 +792,328 @@ public static class TerrainAuthoringStateUtility
             return false;
         }
 
+        int tileRangeMetadataVersion =
+            manifest.TileHeightRangeMetadataVersion;
+
+        if (
+            tileRangeMetadataVersion < 0
+            ||
+            tileRangeMetadataVersion >
+                TerrainAuthoringHeightManifest
+                    .CurrentTileHeightRangeMetadataVersion
+        )
+        {
+            errorMessage =
+                "The authoring heightfield uses an unsupported " +
+                "per-tile height range metadata version.\n\n" +
+                $"Supported: 0 -> " +
+                $"{TerrainAuthoringHeightManifest.CurrentTileHeightRangeMetadataVersion}\n" +
+                $"Actual: {tileRangeMetadataVersion}";
+
+            return false;
+        }
+
+        if (tileRangeMetadataVersion == 0)
+        {
+            if (
+                !TryStoreVerifiedTileHeightRanges(
+                    manifest,
+                    worldSettings,
+                    currentTileHeightRanges,
+                    out errorMessage
+                )
+                ||
+                !TryValidateStoredTileHeightRanges(
+                    manifest,
+                    worldSettings,
+                    currentTileHeightRanges,
+                    currentMinimumHeight,
+                    currentMaximumHeight,
+                    out errorMessage
+                )
+            )
+            {
+                return false;
+            }
+        }
+        else if (
+            !TryValidateStoredTileHeightRanges(
+                manifest,
+                worldSettings,
+                currentTileHeightRanges,
+                currentMinimumHeight,
+                currentMaximumHeight,
+                out errorMessage
+            )
+        )
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    // =====================================================
+    // PER-TILE HEIGHT RANGE METADATA
+    // =====================================================
+
+    public static bool TryStoreVerifiedTileHeightRanges(
+        TerrainAuthoringHeightManifest manifest,
+        WorldSettings worldSettings,
+        IReadOnlyList<TerrainHeightTileRange> verifiedRanges,
+        out string errorMessage
+    )
+    {
+        errorMessage =
+            "";
+
+        if (manifest == null)
+        {
+            errorMessage =
+                "TerrainAuthoringHeightManifest is null.";
+
+            return false;
+        }
+
+        if (worldSettings == null)
+        {
+            errorMessage =
+                "WorldSettings is null.";
+
+            return false;
+        }
+
+        if (
+            !ManifestMatchesWorldSettings(
+                manifest,
+                worldSettings
+            )
+        )
+        {
+            errorMessage =
+                "Cannot store committed per-tile height ranges because " +
+                "the authoring manifest layout does not match WorldSettings.";
+
+            return false;
+        }
+
+        int expectedCount =
+            worldSettings.HeightTileGridWidth *
+            worldSettings.HeightTileGridHeight;
+
+        if (
+            verifiedRanges == null
+            ||
+            verifiedRanges.Count != expectedCount
+        )
+        {
+            errorMessage =
+                "Verified committed per-tile height range count is invalid.\n\n" +
+                $"Expected: {expectedCount}\n" +
+                $"Actual: " +
+                $"{(verifiedRanges != null ? verifiedRanges.Count : 0)}";
+
+            return false;
+        }
+
+        for (
+            int index = 0;
+            index < verifiedRanges.Count;
+            index++
+        )
+        {
+            if (verifiedRanges[index].IsValid)
+            {
+                continue;
+            }
+
+            int tileX =
+                index %
+                worldSettings.HeightTileGridWidth;
+
+            int tileZ =
+                index /
+                worldSettings.HeightTileGridWidth;
+
+            errorMessage =
+                $"Verified committed height range for tile " +
+                $"({tileX}, {tileZ}) is invalid.";
+
+            return false;
+        }
+
+        if (
+            !manifest.TryReplaceTileHeightRanges(
+                verifiedRanges
+            )
+            ||
+            !manifest.HasCompleteTileHeightRanges
+            ||
+            !manifest.TryCalculateGlobalHeightRange(
+                out _,
+                out _
+            )
+        )
+        {
+            errorMessage =
+                "Could not store complete committed per-tile " +
+                "height range metadata.";
+
+            return false;
+        }
+
+        EditorUtility.SetDirty(
+            manifest
+        );
+
+        AssetDatabase.SaveAssetIfDirty(
+            manifest
+        );
+
+        return true;
+    }
+
+    private static bool TryValidateStoredTileHeightRanges(
+        TerrainAuthoringHeightManifest manifest,
+        WorldSettings worldSettings,
+        IReadOnlyList<TerrainHeightTileRange> physicalRanges,
+        float physicalMinimumHeight,
+        float physicalMaximumHeight,
+        out string errorMessage
+    )
+    {
+        errorMessage =
+            "";
+
+        if (
+            manifest.TileHeightRangeMetadataVersion !=
+            TerrainAuthoringHeightManifest
+                .CurrentTileHeightRangeMetadataVersion
+        )
+        {
+            errorMessage =
+                "Committed per-tile height range metadata is not " +
+                "using the current metadata format.";
+
+            return false;
+        }
+
+        if (!manifest.HasCompleteTileHeightRanges)
+        {
+            errorMessage =
+                "Committed per-tile height range metadata is " +
+                "missing, incomplete, or invalid.";
+
+            return false;
+        }
+
+        int expectedCount =
+            worldSettings.HeightTileGridWidth *
+            worldSettings.HeightTileGridHeight;
+
+        if (
+            physicalRanges == null
+            ||
+            physicalRanges.Count != expectedCount
+        )
+        {
+            errorMessage =
+                "Physical per-tile height range validation returned " +
+                "an unexpected tile count.";
+
+            return false;
+        }
+
+        for (
+            int index = 0;
+            index < physicalRanges.Count;
+            index++
+        )
+        {
+            int tileX =
+                index %
+                worldSettings.HeightTileGridWidth;
+
+            int tileZ =
+                index /
+                worldSettings.HeightTileGridWidth;
+
+            TerrainHeightTileRange physicalRange =
+                physicalRanges[index];
+
+            if (
+                !physicalRange.IsValid
+                ||
+                !manifest.TryGetTileHeightRange(
+                    tileX,
+                    tileZ,
+                    out float storedMinimumHeight,
+                    out float storedMaximumHeight
+                )
+                ||
+                !FloatMatches(
+                    storedMinimumHeight,
+                    physicalRange.MinimumHeight
+                )
+                ||
+                !FloatMatches(
+                    storedMaximumHeight,
+                    physicalRange.MaximumHeight
+                )
+            )
+            {
+                errorMessage =
+                    $"Committed per-tile height range metadata for tile " +
+                    $"({tileX}, {tileZ}) does not match the physical " +
+                    "authoring height tile.";
+
+                return false;
+            }
+        }
+
+        if (
+            !manifest.TryCalculateGlobalHeightRange(
+                out float metadataMinimumHeight,
+                out float metadataMaximumHeight
+            )
+            ||
+            !FloatMatches(
+                metadataMinimumHeight,
+                physicalMinimumHeight
+            )
+            ||
+            !FloatMatches(
+                metadataMaximumHeight,
+                physicalMaximumHeight
+            )
+            ||
+            !FloatMatches(
+                metadataMinimumHeight,
+                manifest.minimumCommittedHeight
+            )
+            ||
+            !FloatMatches(
+                metadataMaximumHeight,
+                manifest.maximumCommittedHeight
+            )
+        )
+        {
+            errorMessage =
+                "Committed per-tile height range metadata does not " +
+                "reduce to the verified committed global height range.\n\n" +
+                $"Metadata Range: " +
+                $"{metadataMinimumHeight:R} -> " +
+                $"{metadataMaximumHeight:R}\n" +
+                $"Physical Range: " +
+                $"{physicalMinimumHeight:R} -> " +
+                $"{physicalMaximumHeight:R}\n" +
+                $"Manifest Range: " +
+                $"{manifest.minimumCommittedHeight:R} -> " +
+                $"{manifest.maximumCommittedHeight:R}";
+
+            return false;
+        }
+
         return true;
     }
 
@@ -752,6 +1134,26 @@ public static class TerrainAuthoringStateUtility
         out string errorMessage
     )
     {
+        return
+            TryCalculateCommittedHeightContentHash(
+                worldSettings,
+                out contentHash,
+                out minimumHeight,
+                out maximumHeight,
+                out _,
+                out errorMessage
+            );
+    }
+
+    public static bool TryCalculateCommittedHeightContentHash(
+        WorldSettings worldSettings,
+        out string contentHash,
+        out float minimumHeight,
+        out float maximumHeight,
+        out List<TerrainHeightTileRange> tileHeightRanges,
+        out string errorMessage
+    )
+    {
         contentHash =
             "";
 
@@ -760,6 +1162,9 @@ public static class TerrainAuthoringStateUtility
 
         maximumHeight =
             float.NegativeInfinity;
+
+        tileHeightRanges =
+            new List<TerrainHeightTileRange>();
 
         errorMessage =
             "";
@@ -797,6 +1202,13 @@ public static class TerrainAuthoringStateUtility
         int expectedSampleCount =
             samplesPerSide *
             samplesPerSide;
+
+        int expectedTileCount =
+            tileGridWidth *
+            tileGridHeight;
+
+        tileHeightRanges.Capacity =
+            expectedTileCount;
 
         StringBuilder builder =
             new StringBuilder();
@@ -925,6 +1337,12 @@ public static class TerrainAuthoringStateUtility
                     return false;
                 }
 
+                float tileMinimumHeight =
+                    float.PositiveInfinity;
+
+                float tileMaximumHeight =
+                    float.NegativeInfinity;
+
                 for (
                     int index = 0;
                     index < heightData.Length;
@@ -946,6 +1364,18 @@ public static class TerrainAuthoringStateUtility
                         return false;
                     }
 
+                    tileMinimumHeight =
+                        Mathf.Min(
+                            tileMinimumHeight,
+                            height
+                        );
+
+                    tileMaximumHeight =
+                        Mathf.Max(
+                            tileMaximumHeight,
+                            height
+                        );
+
                     minimumHeight =
                         Mathf.Min(
                             minimumHeight,
@@ -960,6 +1390,25 @@ public static class TerrainAuthoringStateUtility
 
                     totalSamples++;
                 }
+
+                TerrainHeightTileRange tileRange =
+                    TerrainHeightTileRange.Create(
+                        tileMinimumHeight,
+                        tileMaximumHeight
+                    );
+
+                if (!tileRange.IsValid)
+                {
+                    errorMessage =
+                        $"Could not calculate a valid committed height " +
+                        $"range for authoring tile ({tileX}, {tileZ}).";
+
+                    return false;
+                }
+
+                tileHeightRanges.Add(
+                    tileRange
+                );
 
                 Hash128 dependencyHash =
                     AssetDatabase
@@ -987,6 +1436,9 @@ public static class TerrainAuthoringStateUtility
 
         if (
             totalSamples <= 0
+            ||
+            tileHeightRanges.Count !=
+                expectedTileCount
             ||
             !IsFinite(
                 minimumHeight

@@ -27,3 +27,437 @@ MonoBehaviour:
   heightTileGridHeight: 12
   heightTileWorldSize: 1024
   heightTileSamplesPerSide: 1025
+  tileHeightRangeMetadataVersion: 1
+  tileHeightRanges:
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
+  - valid: 1
+    minimumHeight: 0
+    maximumHeight: 0
