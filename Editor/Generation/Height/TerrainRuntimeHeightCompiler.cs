@@ -346,6 +346,13 @@ public static class TerrainRuntimeHeightCompiler
         using var profilerScope =
             WorldMeshesProfiler.RuntimeBakeHeightGeneration.Auto();
 
+        using TerrainRuntimeBakePerformanceScope preparePerformance =
+            TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
+                "Height.PrepareAndGather",
+                TerrainRuntimeBakePipelineState.Heightmaps,
+                TerrainRuntimeBakePerformanceCategory.Prepare
+            );
+
         int revisionBefore =
             worldSettings != null
                 ? worldSettings.heightmapGenerationRevision
@@ -634,6 +641,14 @@ public static class TerrainRuntimeHeightCompiler
                 samplesPerSide
             ];
 
+        using TerrainRuntimeBakeTrackedMemoryLease heightBufferMemory =
+            TerrainRuntimeBakePerformanceDiagnostics.TrackTemporaryMemory(
+                "Height.CompiledHeightData",
+                TerrainRuntimeBakePipelineState.Heightmaps,
+                TerrainRuntimeBakeTrackedMemoryCategory.HeightBuffer,
+                (long)compiledHeightData.Length * sizeof(float)
+            );
+
         TerrainRuntimeHeightCompositionContext
             compositionContext =
                 new TerrainRuntimeHeightCompositionContext();
@@ -692,6 +707,15 @@ public static class TerrainRuntimeHeightCompiler
                     );
             }
         }
+
+        preparePerformance?.Complete();
+
+        using TerrainRuntimeBakePerformanceScope generationPerformance =
+            TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
+                "Height.Generate",
+                TerrainRuntimeBakePipelineState.Heightmaps,
+                TerrainRuntimeBakePerformanceCategory.Generate
+            );
 
         bool cancelled =
             false;
@@ -1226,7 +1250,16 @@ public static class TerrainRuntimeHeightCompiler
             compositionContext.Dispose();
 
             EditorUtility.ClearProgressBar();
+
+            generationPerformance?.Complete();
         }
+
+        using TerrainRuntimeBakePerformanceScope validationPerformance =
+            TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
+                "Height.ValidateFinalState",
+                TerrainRuntimeBakePipelineState.Heightmaps,
+                TerrainRuntimeBakePerformanceCategory.Validate
+            );
 
         bool obsoleteCleanupFailed =
             workMode ==
@@ -1442,6 +1475,15 @@ public static class TerrainRuntimeHeightCompiler
                 );
         }
 
+        validationPerformance?.Complete();
+
+        using TerrainRuntimeBakePerformanceScope finalizePerformance =
+            TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
+                "Height.Finalize",
+                TerrainRuntimeBakePipelineState.Heightmaps,
+                TerrainRuntimeBakePerformanceCategory.Finalize
+            );
+
         UpdateManifestLayoutAndSource(
             runtimeManifest,
             worldSettings,
@@ -1573,6 +1615,13 @@ public static class TerrainRuntimeHeightCompiler
             EditorUtility.SetDirty(
                 runtimeManifest
             );
+
+            using TerrainRuntimeBakePerformanceScope commitPerformance =
+                TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
+                    "Height.AssetCommit",
+                    TerrainRuntimeBakePipelineState.Heightmaps,
+                    TerrainRuntimeBakePerformanceCategory.Commit
+                );
 
             using (WorldMeshesProfiler.RuntimeBakeHeightSaveBatch.Auto())
             using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())

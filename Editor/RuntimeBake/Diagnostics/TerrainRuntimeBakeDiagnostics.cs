@@ -175,6 +175,8 @@ public sealed partial class TerrainRuntimeBakeDiagnosticsSnapshot
 
 public static class TerrainRuntimeBakeDiagnostics
 {
+    private static TerrainRuntimeBakeDiagnosticsSession activeSession;
+
     private static TerrainRuntimeBakeDiagnosticsLevel currentLevel =
         TerrainRuntimeBakeDiagnosticsLevel.Summary;
 
@@ -192,6 +194,9 @@ public static class TerrainRuntimeBakeDiagnostics
         }
     }
 
+    internal static TerrainRuntimeBakeDiagnosticsSession ActiveSession =>
+        activeSession;
+
     internal static TerrainRuntimeBakeDiagnosticsSession BeginSession(
         TerrainRuntimeBakePipelineMode mode,
         DateTime startedAtUtc,
@@ -203,10 +208,11 @@ public static class TerrainRuntimeBakeDiagnostics
 
         if (level == TerrainRuntimeBakeDiagnosticsLevel.Off)
         {
+            activeSession = null;
             return null;
         }
 
-        return
+        TerrainRuntimeBakeDiagnosticsSession session =
             new TerrainRuntimeBakeDiagnosticsSession(
                 Guid.NewGuid().ToString("N"),
                 level,
@@ -214,6 +220,19 @@ public static class TerrainRuntimeBakeDiagnostics
                 startedAtUtc,
                 startedAtEditorTime
             );
+
+        activeSession = session;
+        return session;
+    }
+
+    internal static void NotifySessionCompleted(
+        TerrainRuntimeBakeDiagnosticsSession session
+    )
+    {
+        if (ReferenceEquals(activeSession, session))
+        {
+            activeSession = null;
+        }
     }
 }
 
@@ -491,8 +510,16 @@ internal sealed partial class TerrainRuntimeBakeDiagnosticsSession
             completedSnapshot
         );
 
+        AttachPerformanceDataTo(
+            completedSnapshot
+        );
+
         completed =
             true;
+
+        TerrainRuntimeBakeDiagnostics.NotifySessionCompleted(
+            this
+        );
 
         return completedSnapshot;
     }

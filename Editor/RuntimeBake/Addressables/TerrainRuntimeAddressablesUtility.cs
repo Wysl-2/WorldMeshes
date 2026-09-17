@@ -1324,6 +1324,13 @@ public static class TerrainRuntimeAddressablesUtility
         out string errorMessage
     )
     {
+        using TerrainRuntimeBakePerformanceScope buildPerformance =
+            TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
+                "Addressables.BuildPlayerContent",
+                TerrainRuntimeBakePipelineState.Addressables,
+                TerrainRuntimeBakePerformanceCategory.Addressables
+            );
+
         outputPath = "";
         duration = 0d;
         errorMessage = "";
@@ -1354,6 +1361,14 @@ public static class TerrainRuntimeAddressablesUtility
          * avoids broad reimport/refresh churn; SaveAssets is sufficient before
          * Unity's normal Addressables builder runs.
          */
+        using (
+            TerrainRuntimeBakePerformanceScope savePerformance =
+                TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
+                    "Addressables.PreBuildSaveAssets",
+                    TerrainRuntimeBakePipelineState.Addressables,
+                    TerrainRuntimeBakePerformanceCategory.AssetDatabase
+                )
+        )
         using (WorldMeshesProfiler.AddressablesPreBuildSaveAssets.Auto())
         {
             using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())

@@ -248,6 +248,13 @@ public static class TerrainSurfaceMaskCompiler
         bool allowCreateSurfaceSettings
     )
     {
+        using TerrainRuntimeBakePerformanceScope preparePerformance =
+            TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
+                "Surface.PrepareAndGather",
+                TerrainRuntimeBakePipelineState.SurfaceMasks,
+                TerrainRuntimeBakePerformanceCategory.Prepare
+            );
+
         if (activeBuild != null)
         {
             CompleteImmediately(
@@ -803,6 +810,8 @@ public static class TerrainSurfaceMaskCompiler
 
             return false;
         }
+
+        preparePerformance?.Complete();
 
         activeBuild =
             new BuildState(
@@ -1363,6 +1372,9 @@ public static class TerrainSurfaceMaskCompiler
 
         private string batchError;
 
+        private TerrainRuntimeBakePerformanceScope
+            currentReadbackPerformance;
+
         private bool terminal;
 
         public BuildState(
@@ -1505,6 +1517,14 @@ public static class TerrainSurfaceMaskCompiler
             waitingForSlope = true;
             waitingForCurvature = true;
 
+            currentReadbackPerformance?.Dispose();
+            currentReadbackPerformance =
+                TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
+                    "Surface.SourceGather",
+                    TerrainRuntimeBakePipelineState.SurfaceMasks,
+                    TerrainRuntimeBakePerformanceCategory.Gather
+                );
+
             TerrainAnalysisReadbackService.RequestTiles(
                 slopeKey,
                 currentBatch,
@@ -1583,6 +1603,17 @@ public static class TerrainSurfaceMaskCompiler
 
             using var profilerScope =
                 WorldMeshesProfiler.RuntimeBakeSurfaceGeneration.Auto();
+
+            currentReadbackPerformance?.Complete();
+            currentReadbackPerformance?.Dispose();
+            currentReadbackPerformance = null;
+
+            using TerrainRuntimeBakePerformanceScope generationPerformance =
+                TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
+                    "Surface.Generate",
+                    TerrainRuntimeBakePipelineState.SurfaceMasks,
+                    TerrainRuntimeBakePerformanceCategory.Generate
+                );
 
             if (!TargetStillCurrent())
             {
@@ -1711,6 +1742,16 @@ public static class TerrainSurfaceMaskCompiler
 
                 byte[] output = new byte[expectedCount];
 
+                using TerrainRuntimeBakeTrackedMemoryLease surfaceBufferMemory =
+                    TerrainRuntimeBakePerformanceDiagnostics.TrackTemporaryMemory(
+                        "Surface.TileWorkingBuffers",
+                        TerrainRuntimeBakePipelineState.SurfaceMasks,
+                        TerrainRuntimeBakeTrackedMemoryCategory.SurfaceBuffer,
+                        ((long)slopeValues.Length + curvatureValues.Length) *
+                            sizeof(float) +
+                        output.Length
+                    );
+
                 for (int sampleZ = 0; sampleZ < samplesPerSide; sampleZ++)
                 {
                     for (int sampleX = 0; sampleX < samplesPerSide; sampleX++)
@@ -1753,6 +1794,13 @@ public static class TerrainSurfaceMaskCompiler
                  */
                 anyPhysicalContentChange = true;
 
+                using TerrainRuntimeBakePerformanceScope outputPerformance =
+                    TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
+                        "Surface.TextureOutputCreateUpdate",
+                        TerrainRuntimeBakePipelineState.SurfaceMasks,
+                        TerrainRuntimeBakePerformanceCategory.Commit
+                    );
+
                 SurfaceTileWriteOutcome writeOutcome =
                     WriteSurfaceTile(
                         coordinate,
@@ -1793,8 +1841,17 @@ public static class TerrainSurfaceMaskCompiler
                 }
             }
 
+            generationPerformance?.Complete();
+
             try
             {
+                using TerrainRuntimeBakePerformanceScope commitPerformance =
+                    TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
+                        "Surface.AssetCommit",
+                        TerrainRuntimeBakePipelineState.SurfaceMasks,
+                        TerrainRuntimeBakePerformanceCategory.Commit
+                    );
+
                 using (WorldMeshesProfiler.RuntimeBakeSurfaceSaveBatch.Auto())
                 using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
                 {
@@ -1841,6 +1898,13 @@ public static class TerrainSurfaceMaskCompiler
 
         private void FinalizeCompleteDataset()
         {
+            using TerrainRuntimeBakePerformanceScope finalizePerformance =
+                TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
+                    "Surface.Finalize",
+                    TerrainRuntimeBakePipelineState.SurfaceMasks,
+                    TerrainRuntimeBakePerformanceCategory.Finalize
+                );
+
             if (terminal || activeBuild != this)
             {
                 return;

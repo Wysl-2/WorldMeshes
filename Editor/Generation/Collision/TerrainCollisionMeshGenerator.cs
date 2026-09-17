@@ -1149,6 +1149,13 @@ public static class TerrainCollisionMeshGenerator
         // FINALIZATION SAFETY
         // =====================================================
 
+        using TerrainRuntimeBakePerformanceScope finalizePerformance =
+            TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
+                "Collision.Finalize",
+                TerrainRuntimeBakePipelineState.Collision,
+                TerrainRuntimeBakePerformanceCategory.Finalize
+            );
+
         if (
             !TargetStillMatches(
                 worldSettings,
@@ -1430,6 +1437,13 @@ public static class TerrainCollisionMeshGenerator
         out string errorMessage
     )
     {
+        using TerrainRuntimeBakePerformanceScope gatherPerformance =
+            TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
+                "Collision.SourceGather",
+                TerrainRuntimeBakePipelineState.Collision,
+                TerrainRuntimeBakePerformanceCategory.Gather
+            );
+
         heightTile =
             null;
 
@@ -1573,6 +1587,22 @@ public static class TerrainCollisionMeshGenerator
             new int[
                 triangleIndexCount
             ];
+
+        using TerrainRuntimeBakeTrackedMemoryLease collisionBufferMemory =
+            TerrainRuntimeBakePerformanceDiagnostics.TrackTemporaryMemory(
+                "Collision.VertexIndexBuffers",
+                TerrainRuntimeBakePipelineState.Collision,
+                TerrainRuntimeBakeTrackedMemoryCategory.CollisionBuffer,
+                (long)vertexCount * 12L +
+                (long)triangleIndexCount * sizeof(int)
+            );
+
+        using TerrainRuntimeBakePerformanceScope geometryPerformance =
+            TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
+                "Collision.VertexIndexGeneration",
+                TerrainRuntimeBakePipelineState.Collision,
+                TerrainRuntimeBakePerformanceCategory.Generate
+            );
 
         int sourceStartX =
             localChunkX *
@@ -1756,6 +1786,15 @@ public static class TerrainCollisionMeshGenerator
             }
         }
 
+        geometryPerformance?.Complete();
+
+        using TerrainRuntimeBakePerformanceScope meshPerformance =
+            TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
+                "Collision.MeshCreateUpload",
+                TerrainRuntimeBakePipelineState.Collision,
+                TerrainRuntimeBakePerformanceCategory.Commit
+            );
+
         string assetPath =
             GetCollisionMeshPath(
                 chunkX,
@@ -1892,13 +1931,28 @@ public static class TerrainCollisionMeshGenerator
             }
         }
 
-        if (
-            !BakeCollisionMesh(
-                mesh,
-                chunkX,
-                chunkZ
-            )
+        meshPerformance?.Complete();
+
+        bool collisionBakeSucceeded;
+
+        using (
+            TerrainRuntimeBakePerformanceScope cookPerformance =
+                TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
+                    "Collision.ColliderBake",
+                    TerrainRuntimeBakePipelineState.Collision,
+                    TerrainRuntimeBakePerformanceCategory.Commit
+                )
         )
+        {
+            collisionBakeSucceeded =
+                BakeCollisionMesh(
+                    mesh,
+                    chunkX,
+                    chunkZ
+                );
+        }
+
+        if (!collisionBakeSucceeded)
         {
             if (isNew)
             {
@@ -1965,6 +2019,13 @@ public static class TerrainCollisionMeshGenerator
 
         try
         {
+            using TerrainRuntimeBakePerformanceScope commitPerformance =
+                TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
+                    "Collision.AssetCommit",
+                    TerrainRuntimeBakePipelineState.Collision,
+                    TerrainRuntimeBakePerformanceCategory.Commit
+                );
+
             using (WorldMeshesProfiler.RuntimeBakeCollisionSaveBatch.Auto())
             using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
             {

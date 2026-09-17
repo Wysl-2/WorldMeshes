@@ -185,6 +185,7 @@ public sealed class TerrainRuntimeBakePipelineResult
             builder.AppendLine("Diagnostics Run ID: " + Diagnostics.RunId);
             builder.AppendLine("Diagnostics Level: " + Diagnostics.Level);
             Diagnostics.AppendExecutionReport(builder);
+            Diagnostics.AppendPerformanceReport(builder);
         }
 
         if (FailedStage != TerrainRuntimeBakePipelineState.Idle)

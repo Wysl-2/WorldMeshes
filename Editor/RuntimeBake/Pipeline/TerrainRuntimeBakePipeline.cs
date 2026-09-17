@@ -1839,6 +1839,17 @@ public static class TerrainRuntimeBakePipeline
                 )
                 : null;
 
+        using TerrainRuntimeBakePerformanceScope performance =
+            TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
+                name,
+                stage,
+                stage == TerrainRuntimeBakePipelineState.Addressables
+                    ? TerrainRuntimeBakePerformanceCategory.Addressables
+                    : stage == TerrainRuntimeBakePipelineState.SceneSync
+                        ? TerrainRuntimeBakePerformanceCategory.SceneSync
+                        : TerrainRuntimeBakePerformanceCategory.Other
+            );
+
         try
         {
             T result =
