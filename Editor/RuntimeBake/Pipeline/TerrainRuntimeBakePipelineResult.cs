@@ -172,6 +172,15 @@ public sealed class TerrainRuntimeBakePipelineResult
 
     public string BuildDiagnosticReport()
     {
+        if (Diagnostics != null)
+        {
+            return
+                TerrainRuntimeBakeReportFormatter.BuildTextReport(
+                    this,
+                    Diagnostics.Level
+                );
+        }
+
         StringBuilder builder = new StringBuilder();
 
         builder.AppendLine("WorldMeshes Unified Runtime Bake Result");
