@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using Unity.Collections;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -534,6 +533,147 @@ public sealed class TerrainAuthoringPreviewCache :
             return false;
         }
 
+        if (
+            manifest.TileHeightRangeMetadataVersion !=
+            TerrainAuthoringHeightManifest
+                .CurrentTileHeightRangeMetadataVersion
+        )
+        {
+            errorMessage =
+                "The committed authoring per-tile height range metadata " +
+                "is not using the current metadata format.\n\n" +
+                $"Expected: " +
+                $"{TerrainAuthoringHeightManifest.CurrentTileHeightRangeMetadataVersion}\n" +
+                $"Actual: {manifest.TileHeightRangeMetadataVersion}";
+
+            return false;
+        }
+
+        if (!manifest.HasCompleteTileHeightRanges)
+        {
+            errorMessage =
+                "The committed authoring per-tile height range metadata " +
+                "is incomplete or invalid.";
+
+            return false;
+        }
+
+        /*
+         * Package 02 makes these persisted per-tile ranges authoritative.
+         * Deep committed-heightfield validation above has already verified
+         * current metadata against the physical RFloat tiles (or safely
+         * backfilled legacy metadata from that same physical scan).
+         *
+         * Preview construction therefore reads the verified metadata directly
+         * instead of traversing every height sample a second time.
+         */
+        float[] candidateCommittedMinimums =
+            new float[
+                newSliceCount
+            ];
+
+        float[] candidateCommittedMaximums =
+            new float[
+                newSliceCount
+            ];
+
+        bool[] candidateRangeValid =
+            new bool[
+                newSliceCount
+            ];
+
+        for (
+            int tileZ = 0;
+            tileZ < newCacheHeight;
+            tileZ++
+        )
+        {
+            for (
+                int tileX = 0;
+                tileX < newCacheWidth;
+                tileX++
+            )
+            {
+                if (
+                    !manifest.TryGetTileHeightRange(
+                        tileX,
+                        tileZ,
+                        out float tileMinimumHeight,
+                        out float tileMaximumHeight
+                    )
+                )
+                {
+                    errorMessage =
+                        $"Committed authoring per-tile height range " +
+                        $"metadata is unavailable or invalid for tile " +
+                        $"({tileX}, {tileZ}).";
+
+                    return false;
+                }
+
+                int slice =
+                    tileX
+                    +
+                    tileZ *
+                    newCacheWidth;
+
+                candidateCommittedMinimums[
+                    slice
+                ] =
+                    tileMinimumHeight;
+
+                candidateCommittedMaximums[
+                    slice
+                ] =
+                    tileMaximumHeight;
+
+                candidateRangeValid[
+                    slice
+                ] =
+                    true;
+            }
+        }
+
+        if (
+            !TryCalculateGlobalRange(
+                candidateCommittedMinimums,
+                candidateCommittedMaximums,
+                candidateRangeValid,
+                out float candidateMinimumHeight,
+                out float candidateMaximumHeight
+            )
+        )
+        {
+            errorMessage =
+                "The editor preview could not calculate a valid " +
+                "global range from committed per-tile metadata.";
+
+            return false;
+        }
+
+        if (
+            !FloatMatches(
+                candidateMinimumHeight,
+                manifest.minimumCommittedHeight
+            )
+            ||
+            !FloatMatches(
+                candidateMaximumHeight,
+                manifest.maximumCommittedHeight
+            )
+        )
+        {
+            errorMessage =
+                "The preview cache slice ranges do not match the " +
+                "validated committed manifest range.\n\n" +
+                $"Manifest: {manifest.minimumCommittedHeight:R} -> " +
+                $"{manifest.maximumCommittedHeight:R}\n" +
+                $"Cache: {candidateMinimumHeight:R} -> " +
+                $"{candidateMaximumHeight:R}";
+
+            return false;
+        }
+
         RenderTexture candidateCache =
             CreateHeightCache(
                 newSamplesPerSide,
@@ -557,26 +697,6 @@ public sealed class TerrainAuthoringPreviewCache :
             return false;
         }
 
-        /*
-         * These ranges are calculated once from the authoritative committed
-         * RFloat textures. The same values seed the initial composite state
-         * and become the immutable reset metadata for this cache generation.
-         */
-        float[] candidateCommittedMinimums =
-            new float[
-                newSliceCount
-            ];
-
-        float[] candidateCommittedMaximums =
-            new float[
-                newSliceCount
-            ];
-
-        bool[] candidateRangeValid =
-            new bool[
-                newSliceCount
-            ];
-
         try
         {
             for (
@@ -592,13 +712,11 @@ public sealed class TerrainAuthoringPreviewCache :
                 )
                 {
                     if (
-                        !TryLoadCommittedTile(
+                        !TryLoadCommittedTileTexture(
                             tileX,
                             tileZ,
                             newSamplesPerSide,
                             out Texture2D sourceTexture,
-                            out float tileMinimumHeight,
-                            out float tileMaximumHeight,
                             out string tileError
                         )
                     )
@@ -627,20 +745,6 @@ public sealed class TerrainAuthoringPreviewCache :
                         );
                     }
 
-                    candidateCommittedMinimums[
-                        slice
-                    ] =
-                        tileMinimumHeight;
-
-                    candidateCommittedMaximums[
-                        slice
-                    ] =
-                        tileMaximumHeight;
-
-                    candidateRangeValid[
-                        slice
-                    ] =
-                        true;
                 }
             }
         }
@@ -656,54 +760,6 @@ public sealed class TerrainAuthoringPreviewCache :
                 "The committed authoring height tiles could not " +
                 "be copied into the editor preview cache.\n\n" +
                 exception.Message;
-
-            return false;
-        }
-
-        if (
-            !TryCalculateGlobalRange(
-                candidateCommittedMinimums,
-                candidateCommittedMaximums,
-                candidateRangeValid,
-                out float candidateMinimumHeight,
-                out float candidateMaximumHeight
-            )
-        )
-        {
-            DestroyRenderTexture(
-                candidateCache
-            );
-
-            errorMessage =
-                "The editor preview cache was populated, but valid " +
-                "per-slice height-range metadata could not be built.";
-
-            return false;
-        }
-
-        if (
-            !FloatMatches(
-                candidateMinimumHeight,
-                manifest.minimumCommittedHeight
-            )
-            ||
-            !FloatMatches(
-                candidateMaximumHeight,
-                manifest.maximumCommittedHeight
-            )
-        )
-        {
-            DestroyRenderTexture(
-                candidateCache
-            );
-
-            errorMessage =
-                "The preview cache slice ranges do not match the " +
-                "validated committed manifest range.\n\n" +
-                $"Manifest: {manifest.minimumCommittedHeight:R} -> " +
-                $"{manifest.maximumCommittedHeight:R}\n" +
-                $"Cache: {candidateMinimumHeight:R} -> " +
-                $"{candidateMaximumHeight:R}";
 
             return false;
         }
@@ -1613,49 +1669,8 @@ public sealed class TerrainAuthoringPreviewCache :
     }
 
     // =====================================================
-    // COMMITTED TILE LOAD / RANGE
+    // COMMITTED TILE LOAD
     // =====================================================
-
-    private static bool TryLoadCommittedTile(
-        int tileX,
-        int tileZ,
-        int expectedSamplesPerSide,
-        out Texture2D texture,
-        out float tileMinimumHeight,
-        out float tileMaximumHeight,
-        out string errorMessage
-    )
-    {
-        tileMinimumHeight =
-            float.PositiveInfinity;
-
-        tileMaximumHeight =
-            float.NegativeInfinity;
-
-        if (
-            !TryLoadCommittedTileTexture(
-                tileX,
-                tileZ,
-                expectedSamplesPerSide,
-                out texture,
-                out errorMessage
-            )
-        )
-        {
-            return false;
-        }
-
-        return
-            TryReadCommittedTileRange(
-                tileX,
-                tileZ,
-                texture,
-                expectedSamplesPerSide,
-                out tileMinimumHeight,
-                out tileMaximumHeight,
-                out errorMessage
-            );
-    }
 
     private static bool TryLoadCommittedTileTexture(
         int tileX,
@@ -1726,136 +1741,6 @@ public sealed class TerrainAuthoringPreviewCache :
                 "not use TextureFormat.RFloat.\n\n" +
                 $"Actual: {texture.format}\n\n" +
                 sourcePath;
-
-            return false;
-        }
-
-        return true;
-    }
-
-    private static bool TryReadCommittedTileRange(
-        int tileX,
-        int tileZ,
-        Texture2D texture,
-        int expectedSamplesPerSide,
-        out float tileMinimumHeight,
-        out float tileMaximumHeight,
-        out string errorMessage
-    )
-    {
-        tileMinimumHeight =
-            float.PositiveInfinity;
-
-        tileMaximumHeight =
-            float.NegativeInfinity;
-
-        errorMessage =
-            "";
-
-        using var rangeProfilerScope =
-            WorldMeshesProfiler.PreviewReadTileRanges.Auto();
-
-        string sourcePath =
-            TerrainAuthoringStateUtility
-                .GetAuthoringHeightTilePath(
-                    tileX,
-                    tileZ
-                );
-
-        NativeArray<float> data;
-
-        try
-        {
-            data =
-                texture.GetPixelData<float>(
-                    0
-                );
-        }
-        catch (
-            Exception exception
-        )
-        {
-            errorMessage =
-                $"Committed authoring tile ({tileX}, {tileZ}) could " +
-                "not be read for range metadata.\n\n" +
-                exception.Message +
-                "\n\n" +
-                sourcePath;
-
-            return false;
-        }
-
-        int expectedSampleCount =
-            expectedSamplesPerSide *
-            expectedSamplesPerSide;
-
-        if (
-            data.Length !=
-            expectedSampleCount
-        )
-        {
-            errorMessage =
-                $"Committed authoring tile ({tileX}, {tileZ}) has " +
-                "an unexpected sample count.\n\n" +
-                $"Expected: {expectedSampleCount:N0}\n" +
-                $"Actual: {data.Length:N0}\n\n" +
-                sourcePath;
-
-            return false;
-        }
-
-        for (
-            int index = 0;
-            index < data.Length;
-            index++
-        )
-        {
-            float height =
-                data[
-                    index
-                ];
-
-            if (!IsFinite(height))
-            {
-                errorMessage =
-                    $"Committed authoring tile ({tileX}, {tileZ}) " +
-                    "contains a non-finite height sample.\n\n" +
-                    $"Sample: {index}\n" +
-                    $"Value: {height}\n\n" +
-                    sourcePath;
-
-                return false;
-            }
-
-            tileMinimumHeight =
-                Mathf.Min(
-                    tileMinimumHeight,
-                    height
-                );
-
-            tileMaximumHeight =
-                Mathf.Max(
-                    tileMaximumHeight,
-                    height
-                );
-        }
-
-        if (
-            !IsFinite(
-                tileMinimumHeight
-            )
-            ||
-            !IsFinite(
-                tileMaximumHeight
-            )
-            ||
-            tileMaximumHeight <
-                tileMinimumHeight
-        )
-        {
-            errorMessage =
-                $"Committed authoring tile ({tileX}, {tileZ}) did " +
-                "not produce a valid height range.";
 
             return false;
         }
