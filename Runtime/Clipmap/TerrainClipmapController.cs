@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 [DisallowMultipleComponent]
@@ -84,6 +85,9 @@ public class TerrainClipmapController :
     // =====================================================
     // PUBLIC STATE
     // =====================================================
+
+    public event Action AppliedClipmapBoundsChanged;
+
 
     public Transform Target
     {
@@ -185,6 +189,32 @@ public class TerrainClipmapController :
             desiredLayout.MaximumXZ;
 
         return true;
+    }
+
+    // =====================================================
+    // TRY GET APPLIED CLIPMAP BOUNDS
+    // =====================================================
+
+    public bool TryGetAppliedClipmapBounds(
+        out Vector2 minimumXZ,
+        out Vector2 maximumXZ
+    )
+    {
+        minimumXZ =
+            Vector2.zero;
+
+        maximumXZ =
+            Vector2.zero;
+
+        EnsureLayoutApplier();
+
+        return
+            layoutApplier != null
+            &&
+            layoutApplier.TryGetAppliedBounds(
+                out minimumXZ,
+                out maximumXZ
+            );
     }
 
     // =====================================================
@@ -1349,6 +1379,15 @@ public class TerrainClipmapController :
     }
 
     // =====================================================
+    // APPLIED BOUNDS CHANGED
+    // =====================================================
+
+    private void HandleAppliedBoundsChanged()
+    {
+        AppliedClipmapBoundsChanged?.Invoke();
+    }
+
+    // =====================================================
     // LAYOUT APPLIER
     // =====================================================
 
@@ -1358,6 +1397,9 @@ public class TerrainClipmapController :
         {
             layoutApplier =
                 new TerrainClipmapLayoutApplier();
+
+            layoutApplier.AppliedBoundsChanged +=
+                HandleAppliedBoundsChanged;
         }
 
         layoutApplier.Configure(

@@ -1,3 +1,4 @@
+using System;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -150,6 +151,9 @@ public static class TerrainAuthoringSceneViewController
 
     static TerrainAuthoringSceneViewController()
     {
+        layoutApplier.AppliedBoundsChanged +=
+            OnAppliedBoundsChanged;
+
         SceneView.duringSceneGui +=
             OnSceneViewGUI;
 
@@ -416,6 +420,20 @@ public static class TerrainAuthoringSceneViewController
             return
                 statusMessage;
         }
+    }
+
+    public static event Action AppliedClipmapBoundsChanged;
+
+    public static bool TryGetAppliedClipmapBounds(
+        out Vector2 minimumXZ,
+        out Vector2 maximumXZ
+    )
+    {
+        return
+            layoutApplier.TryGetAppliedBounds(
+                out minimumXZ,
+                out maximumXZ
+            );
     }
 
     public static bool HasFollowTarget
@@ -1450,6 +1468,9 @@ public static class TerrainAuthoringSceneViewController
         appliedLayout.Invalidate();
 
         layoutApplier
+            .InvalidateAppliedBounds();
+
+        layoutApplier
             .InvalidateHierarchyReferences();
 
         if (FollowSceneView)
@@ -1545,6 +1566,9 @@ public static class TerrainAuthoringSceneViewController
         appliedLayout.Invalidate();
 
         layoutApplier
+            .InvalidateAppliedBounds();
+
+        layoutApplier
             .InvalidateHierarchyReferences();
 
         RequestReapply();
@@ -1636,6 +1660,11 @@ public static class TerrainAuthoringSceneViewController
         RestoreCanonicalHierarchy(
             false
         );
+    }
+
+    private static void OnAppliedBoundsChanged()
+    {
+        AppliedClipmapBoundsChanged?.Invoke();
     }
 
     // =====================================================

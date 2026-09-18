@@ -3,7 +3,9 @@ using System.Collections.Generic;
 internal static class WorldGridViewportOverlayRegistry
 {
     private static readonly IWorldGridViewportOverlay[] RegisteredOverlays =
-        new IWorldGridViewportOverlay[0];
+    {
+        new WorldGridViewportClipmapBoundsOverlay()
+    };
 
     internal static IReadOnlyList<IWorldGridViewportOverlay> Overlays
     {

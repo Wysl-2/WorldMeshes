@@ -2,6 +2,11 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
+public interface IWorldGridViewportOverlayInvalidationSource
+{
+    event Action<string> OverlayInvalidated;
+}
+
 public interface IWorldGridViewportOverlay
 {
     string Id

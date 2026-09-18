@@ -174,6 +174,8 @@ public class WorldGridViewportWindow : EditorWindow
                 new WorldGridViewportOverlayState();
         }
 
+        SubscribeToOverlayInvalidationSources();
+
         Undo.undoRedoPerformed -=
             HandleUndoRedo;
 
@@ -201,6 +203,8 @@ public class WorldGridViewportWindow : EditorWindow
 
     private void OnDisable()
     {
+        UnsubscribeFromOverlayInvalidationSources();
+
         Undo.undoRedoPerformed -=
             HandleUndoRedo;
 
@@ -218,6 +222,79 @@ public class WorldGridViewportWindow : EditorWindow
 
         lastContinuousRepaintTime =
             0d;
+    }
+
+    private void SubscribeToOverlayInvalidationSources()
+    {
+        IReadOnlyList<IWorldGridViewportOverlay> overlays =
+            WorldGridViewportOverlayRegistry
+                .Overlays;
+
+        for (
+            int i = 0;
+            i < overlays.Count;
+            i++
+        )
+        {
+            if (
+                overlays[i] is
+                    IWorldGridViewportOverlayInvalidationSource
+                        invalidationSource
+            )
+            {
+                invalidationSource.OverlayInvalidated -=
+                    HandleOverlayInvalidated;
+
+                invalidationSource.OverlayInvalidated +=
+                    HandleOverlayInvalidated;
+            }
+        }
+    }
+
+    private void UnsubscribeFromOverlayInvalidationSources()
+    {
+        IReadOnlyList<IWorldGridViewportOverlay> overlays =
+            WorldGridViewportOverlayRegistry
+                .Overlays;
+
+        for (
+            int i = 0;
+            i < overlays.Count;
+            i++
+        )
+        {
+            if (
+                overlays[i] is
+                    IWorldGridViewportOverlayInvalidationSource
+                        invalidationSource
+            )
+            {
+                invalidationSource.OverlayInvalidated -=
+                    HandleOverlayInvalidated;
+            }
+        }
+    }
+
+    private void HandleOverlayInvalidated(
+        string overlayId
+    )
+    {
+        if (
+            overlayState == null
+            ||
+            string.IsNullOrEmpty(
+                overlayId
+            )
+            ||
+            !overlayState.IsUserEnabled(
+                overlayId
+            )
+        )
+        {
+            return;
+        }
+
+        Repaint();
     }
 
     private void OnProjectChange()

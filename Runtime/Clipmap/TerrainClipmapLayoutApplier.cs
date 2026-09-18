@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 /*
@@ -63,6 +64,70 @@ public sealed class TerrainClipmapLayoutApplier
     private bool hierarchyReferencesValid;
 
     // =====================================================
+    // APPLIED BOUNDS
+    // =====================================================
+
+    private bool hasAppliedBounds;
+
+    private Vector2 appliedMinimumXZ =
+        Vector2.zero;
+
+    private Vector2 appliedMaximumXZ =
+        Vector2.zero;
+
+    public event Action AppliedBoundsChanged;
+
+    public bool TryGetAppliedBounds(
+        out Vector2 minimumXZ,
+        out Vector2 maximumXZ
+    )
+    {
+        minimumXZ =
+            Vector2.zero;
+
+        maximumXZ =
+            Vector2.zero;
+
+        if (
+            !hasAppliedBounds
+            ||
+            clipmapRoot == null
+            ||
+            worldSettings == null
+        )
+        {
+            return false;
+        }
+
+        minimumXZ =
+            appliedMinimumXZ;
+
+        maximumXZ =
+            appliedMaximumXZ;
+
+        return true;
+    }
+
+    public void InvalidateAppliedBounds()
+    {
+        if (!hasAppliedBounds)
+        {
+            return;
+        }
+
+        hasAppliedBounds =
+            false;
+
+        appliedMinimumXZ =
+            Vector2.zero;
+
+        appliedMaximumXZ =
+            Vector2.zero;
+
+        AppliedBoundsChanged?.Invoke();
+    }
+
+    // =====================================================
     // CONFIGURE
     // =====================================================
 
@@ -82,6 +147,8 @@ public sealed class TerrainClipmapLayoutApplier
         {
             return false;
         }
+
+        InvalidateAppliedBounds();
 
         clipmapRoot =
             newClipmapRoot;
@@ -262,6 +329,11 @@ public sealed class TerrainClipmapLayoutApplier
             );
         }
 
+        UpdateAppliedBounds(
+            layout.MinimumXZ,
+            layout.MaximumXZ
+        );
+
         return true;
     }
 
@@ -293,6 +365,8 @@ public sealed class TerrainClipmapLayoutApplier
             worldSettings == null
         )
         {
+            InvalidateAppliedBounds();
+
             return true;
         }
 
@@ -358,6 +432,8 @@ public sealed class TerrainClipmapLayoutApplier
                 Vector3.zero
             );
         }
+
+        InvalidateAppliedBounds();
 
         return true;
     }
@@ -515,6 +591,41 @@ public sealed class TerrainClipmapLayoutApplier
             );
 
         return true;
+    }
+
+    // =====================================================
+    // UPDATE APPLIED BOUNDS
+    // =====================================================
+
+    private void UpdateAppliedBounds(
+        Vector2 minimumXZ,
+        Vector2 maximumXZ
+    )
+    {
+        bool changed =
+            !hasAppliedBounds
+            ||
+            appliedMinimumXZ !=
+                minimumXZ
+            ||
+            appliedMaximumXZ !=
+                maximumXZ;
+
+        if (!changed)
+        {
+            return;
+        }
+
+        hasAppliedBounds =
+            true;
+
+        appliedMinimumXZ =
+            minimumXZ;
+
+        appliedMaximumXZ =
+            maximumXZ;
+
+        AppliedBoundsChanged?.Invoke();
     }
 
     // =====================================================
