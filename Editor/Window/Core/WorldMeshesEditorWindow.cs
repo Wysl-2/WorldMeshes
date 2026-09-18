@@ -8,8 +8,6 @@ public partial class WorldMeshesEditorWindow : EditorWindow
     // =====================================================
 
     private float contentPadding = 10f;
-    private float columnGap = 10f;
-    private float settingsMinWidth = 300f;
 
     [MenuItem(
         "Tools/WorldMeshes/Open Editor Window",
@@ -44,59 +42,8 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                     - contentPadding * 2f
             );
 
-        DrawMainLayout(
-            contentArea
-        );
-    }
-
-    private void DrawMainLayout(
-        Rect contentArea
-    )
-    {
-        float maxViewportWidth =
-            contentArea.width
-            - columnGap
-            - settingsMinWidth;
-
-        float viewportSize =
-            Mathf.Max(
-                0f,
-                Mathf.Min(
-                    maxViewportWidth,
-                    contentArea.height
-                )
-            );
-
-        Rect viewport =
-            new Rect(
-                contentArea.x,
-                contentArea.y,
-                viewportSize,
-                viewportSize
-            );
-
-        float settingsX =
-            viewport.xMax
-            + columnGap;
-
-        float settingsWidth =
-            contentArea.xMax
-            - settingsX;
-
-        Rect settingsArea =
-            new Rect(
-                settingsX,
-                contentArea.y,
-                settingsWidth,
-                contentArea.height
-            );
-
-        DrawChunkGrid(
-            viewport
-        );
-
         DrawSettingsPanel(
-            settingsArea
+            contentArea
         );
     }
 }

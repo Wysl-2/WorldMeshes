@@ -1,7 +1,7 @@
 using UnityEditor;
 using UnityEngine;
 
-public partial class WorldMeshesEditorWindow : EditorWindow
+public class WorldGridViewportWindow : EditorWindow
 {
     // =====================================================
     // GRID VIEWPORT
@@ -11,10 +11,51 @@ public partial class WorldMeshesEditorWindow : EditorWindow
     // This has no relationship to terrain chunk size.
     private const float GridCellPixelSize = 64f;
 
+    [SerializeField]
+    private WorldSettings worldSettings;
+
     private Vector2 panOffset =
         Vector2.zero;
 
     private bool isPanning;
+
+    [MenuItem(
+        "Tools/WorldMeshes/World Grid Viewport",
+        false,
+        1
+    )]
+    public static void ShowWindow()
+    {
+        GetWindow<WorldGridViewportWindow>(
+            "World Grid"
+        );
+    }
+
+    private void OnEnable()
+    {
+        if (worldSettings == null)
+        {
+            worldSettings =
+                AssetDatabase.LoadAssetAtPath<WorldSettings>(
+                    WorldMeshesPaths.WorldSettingsAssetPath
+                );
+        }
+    }
+
+    private void OnGUI()
+    {
+        Rect viewport =
+            new Rect(
+                0f,
+                0f,
+                position.width,
+                position.height
+            );
+
+        DrawChunkGrid(
+            viewport
+        );
+    }
 
     private void DrawChunkGrid(
         Rect viewport
@@ -142,8 +183,8 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             return;
         }
 
-        // The viewport grid now gets its dimensions
-        // DIRECTLY from WorldSettings.
+        // The viewport grid gets its dimensions
+        // directly from WorldSettings.
         int gridWidth =
             Mathf.Max(
                 1,
