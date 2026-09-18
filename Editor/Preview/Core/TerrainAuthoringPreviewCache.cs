@@ -380,6 +380,8 @@ public sealed class TerrainAuthoringPreviewCache :
                     .TryValidateCommittedHeightfield(
                         worldSettings,
                         authoringData,
+                        TerrainAuthoringHeightfieldValidationMode
+                            .Operational,
                         out manifest,
                         out currentContentHash,
                         out validationError

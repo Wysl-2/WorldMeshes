@@ -6,6 +6,12 @@ using Unity.Collections;
 using UnityEditor;
 using UnityEngine;
 
+public enum TerrainAuthoringHeightfieldValidationMode
+{
+    IntegrityVerified,
+    Operational
+}
+
 public static class TerrainAuthoringStateUtility
 {
     // =====================================================
@@ -634,6 +640,27 @@ public static class TerrainAuthoringStateUtility
         out string errorMessage
     )
     {
+        return
+            TryValidateCommittedHeightfield(
+                worldSettings,
+                authoringData,
+                TerrainAuthoringHeightfieldValidationMode
+                    .IntegrityVerified,
+                out manifest,
+                out currentContentHash,
+                out errorMessage
+            );
+    }
+
+    public static bool TryValidateCommittedHeightfield(
+        WorldSettings worldSettings,
+        TerrainAuthoringData authoringData,
+        TerrainAuthoringHeightfieldValidationMode validationMode,
+        out TerrainAuthoringHeightManifest manifest,
+        out string currentContentHash,
+        out string errorMessage
+    )
+    {
         manifest =
             null;
 
@@ -731,6 +758,144 @@ public static class TerrainAuthoringStateUtility
                 "match the current WorldSettings.\n\n" +
                 "Reinitialize the authoring heightfield for the " +
                 "current world/height-tile layout.";
+
+            return false;
+        }
+
+        if (
+            string.IsNullOrEmpty(
+                manifest.committedContentHash
+            )
+        )
+        {
+            errorMessage =
+                "The committed authoring heightfield does not " +
+                "contain committed content metadata.";
+
+            return false;
+        }
+
+        if (!manifest.HasValidCommittedHeightRange)
+        {
+            errorMessage =
+                "The committed authoring heightfield does not " +
+                "contain a valid committed global height range.";
+
+            return false;
+        }
+
+        if (
+            manifest.heightTileGridWidth <= 0
+            ||
+            manifest.heightTileGridHeight <= 0
+            ||
+            manifest.heightTileSamplesPerSide <= 1
+        )
+        {
+            errorMessage =
+                "The committed authoring heightfield contains an " +
+                "invalid height-tile layout.";
+
+            return false;
+        }
+
+        if (
+            validationMode ==
+            TerrainAuthoringHeightfieldValidationMode
+                .Operational
+        )
+        {
+            if (
+                manifest.TileHeightRangeMetadataVersion !=
+                TerrainAuthoringHeightManifest
+                    .CurrentTileHeightRangeMetadataVersion
+            )
+            {
+                errorMessage =
+                    "Operational authoring heightfield validation " +
+                    "requires current per-tile height range metadata.\n\n" +
+                    $"Expected Metadata Version: " +
+                    $"{TerrainAuthoringHeightManifest.CurrentTileHeightRangeMetadataVersion}\n" +
+                    $"Actual Metadata Version: " +
+                    $"{manifest.TileHeightRangeMetadataVersion}\n\n" +
+                    "Run an integrity-verified authoring validation or " +
+                    "reinitialize the authoring heightfield before " +
+                    "rebuilding the preview.";
+
+                return false;
+            }
+
+            int expectedTileRangeCount =
+                manifest.ExpectedTileHeightRangeCount;
+
+            if (
+                expectedTileRangeCount <= 0
+                ||
+                manifest.TileHeightRangeCount !=
+                    expectedTileRangeCount
+                ||
+                !manifest.HasCompleteTileHeightRanges
+            )
+            {
+                errorMessage =
+                    "Operational authoring heightfield validation " +
+                    "found incomplete or invalid per-tile range metadata.\n\n" +
+                    $"Expected Range Records: " +
+                    $"{expectedTileRangeCount}\n" +
+                    $"Stored Range Records: " +
+                    $"{manifest.TileHeightRangeCount}\n" +
+                    $"Valid Range Records: " +
+                    $"{manifest.ValidTileHeightRangeCount}";
+
+                return false;
+            }
+
+            if (
+                !manifest.TryCalculateGlobalHeightRange(
+                    out float metadataMinimumHeight,
+                    out float metadataMaximumHeight
+                )
+                ||
+                !FloatMatches(
+                    metadataMinimumHeight,
+                    manifest.minimumCommittedHeight
+                )
+                ||
+                !FloatMatches(
+                    metadataMaximumHeight,
+                    manifest.maximumCommittedHeight
+                )
+            )
+            {
+                errorMessage =
+                    "Operational authoring heightfield validation " +
+                    "found per-tile range metadata that does not " +
+                    "reduce to the committed global height range.\n\n" +
+                    $"Manifest Range: " +
+                    $"{manifest.minimumCommittedHeight:R} -> " +
+                    $"{manifest.maximumCommittedHeight:R}\n" +
+                    $"Metadata Range: " +
+                    $"{metadataMinimumHeight:R} -> " +
+                    $"{metadataMaximumHeight:R}";
+
+                return false;
+            }
+
+            currentContentHash =
+                manifest.committedContentHash;
+
+            return true;
+        }
+
+        if (
+            validationMode !=
+            TerrainAuthoringHeightfieldValidationMode
+                .IntegrityVerified
+        )
+        {
+            errorMessage =
+                $"Unsupported authoring heightfield validation mode: " +
+                $"{validationMode}.";
 
             return false;
         }
