@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Globalization;
 using UnityEditor;
 using UnityEngine;
@@ -8,16 +9,11 @@ public class WorldGridViewportWindow : EditorWindow
     // GRID VIEWPORT
     // =====================================================
 
-    /*
-     * Initial presentation scale only.
-     *
-     * Grid geometry is defined in world meters through
-     * WorldSettings.chunkSize. This value only preserves the
-     * familiar initial appearance of approximately 64 pixels per
-     * terrain chunk before future zoom controls are introduced.
-     */
     private const float DefaultChunkPixelSize =
         64f;
+
+    private const float ToolbarHeight =
+        22f;
 
     private const float StatusBarHeight =
         22f;
@@ -40,6 +36,33 @@ public class WorldGridViewportWindow : EditorWindow
     private const float FitButtonInset =
         3f;
 
+    private const float DefaultInformationPanelWidth =
+        240f;
+
+    private const float MinimumInformationPanelWidth =
+        160f;
+
+    private const float MinimumMapViewportWidth =
+        180f;
+
+    private const float InformationSplitterWidth =
+        5f;
+
+    private static readonly Color SplitterColor =
+        new Color(
+            0f,
+            0f,
+            0f,
+            0.35f
+        );
+
+    private static readonly string[] LatticeDisplayNames =
+    {
+        "None",
+        "World Chunks",
+        "Height Tiles"
+    };
+
     [SerializeField]
     private WorldSettings worldSettings;
 
@@ -47,9 +70,31 @@ public class WorldGridViewportWindow : EditorWindow
     private WorldGridViewportTransform viewportTransform =
         new WorldGridViewportTransform();
 
+    [SerializeField]
+    private WorldGridViewportLattice lattice =
+        WorldGridViewportLattice.WorldChunks;
+
+    [SerializeField]
+    private WorldGridViewportOverlayState overlayState =
+        new WorldGridViewportOverlayState();
+
+    [SerializeField]
+    private bool informationPanelExpanded =
+        true;
+
+    [SerializeField]
+    private float informationPanelWidth =
+        DefaultInformationPanelWidth;
+
     private bool isPanning;
 
+    private bool isResizingInformationPanel;
+
     private bool mouseInsideWindow;
+
+    private WorldGridViewportSelection hoveredSelection;
+
+    private WorldGridViewportSelection selectedSelection;
 
     [MenuItem(
         "Tools/WorldMeshes/World Grid Viewport",
@@ -92,8 +137,8 @@ public class WorldGridViewportWindow : EditorWindow
     {
         minSize =
             new Vector2(
-                200f,
-                200f
+                420f,
+                240f
             );
 
         wantsMouseMove =
@@ -105,17 +150,32 @@ public class WorldGridViewportWindow : EditorWindow
         EnsureWorldSettingsLoaded();
         EnsureViewportTransformInitialized();
 
+        if (overlayState == null)
+        {
+            overlayState =
+                new WorldGridViewportOverlayState();
+        }
+
         Undo.undoRedoPerformed -=
             HandleUndoRedo;
 
         Undo.undoRedoPerformed +=
             HandleUndoRedo;
+
+        EditorApplication.playModeStateChanged -=
+            HandlePlayModeStateChanged;
+
+        EditorApplication.playModeStateChanged +=
+            HandlePlayModeStateChanged;
     }
 
     private void OnDisable()
     {
         Undo.undoRedoPerformed -=
             HandleUndoRedo;
+
+        EditorApplication.playModeStateChanged -=
+            HandlePlayModeStateChanged;
     }
 
     private void OnProjectChange()
@@ -131,6 +191,13 @@ public class WorldGridViewportWindow : EditorWindow
         EnsureWorldSettingsLoaded();
         EnsureViewportTransformInitialized();
 
+        Repaint();
+    }
+
+    private void HandlePlayModeStateChanged(
+        PlayModeStateChange state
+    )
+    {
         Repaint();
     }
 
@@ -192,11 +259,18 @@ public class WorldGridViewportWindow : EditorWindow
         HandleMousePresence();
 
         CalculateLayout(
+            out Rect toolbar,
             out Rect cornerArea,
             out Rect horizontalRuler,
             out Rect verticalRuler,
             out Rect viewport,
+            out Rect informationSplitter,
+            out Rect informationPanel,
             out Rect statusBar
+        );
+
+        HandleInformationPanelResize(
+            informationSplitter
         );
 
         HandleFrameWorldShortcut(
@@ -207,8 +281,17 @@ public class WorldGridViewportWindow : EditorWindow
             viewport
         );
 
-        DrawChunkGrid(
+        HandlePanning(
             viewport
+        );
+
+        WorldGridViewportContext context =
+            CreateContext(
+                viewport
+            );
+
+        DrawViewport(
+            context
         );
 
         WorldGridViewportRuler.Draw(
@@ -224,99 +307,339 @@ public class WorldGridViewportWindow : EditorWindow
             viewport
         );
 
+        DrawInformationPanelSplitter(
+            informationSplitter
+        );
+
+        DrawToolbar(
+            toolbar,
+            context
+        );
+
+        if (informationPanelExpanded)
+        {
+            WorldGridViewportInfoPanel.Draw(
+                informationPanel,
+                context,
+                lattice
+            );
+        }
+
         DrawStatusBar(
             statusBar,
-            viewport
+            context
         );
     }
 
     private void CalculateLayout(
+        out Rect toolbar,
         out Rect cornerArea,
         out Rect horizontalRuler,
         out Rect verticalRuler,
         out Rect viewport,
+        out Rect informationSplitter,
+        out Rect informationPanel,
         out Rect statusBar
     )
     {
-        float contentHeight =
+        float safeWindowWidth =
             Mathf.Max(
                 0f,
-                position.height -
-                    StatusBarHeight
+                position.width
+            );
+
+        float safeWindowHeight =
+            Mathf.Max(
+                0f,
+                position.height
+            );
+
+        float mainContentTop =
+            Mathf.Min(
+                ToolbarHeight,
+                safeWindowHeight
+            );
+
+        float statusHeight =
+            Mathf.Min(
+                StatusBarHeight,
+                Mathf.Max(
+                    0f,
+                    safeWindowHeight -
+                        mainContentTop
+                )
+            );
+
+        float mainContentHeight =
+            Mathf.Max(
+                0f,
+                safeWindowHeight -
+                    mainContentTop -
+                    statusHeight
+            );
+
+        float splitterWidth =
+            informationPanelExpanded
+                ? InformationSplitterWidth
+                : 0f;
+
+        float panelWidth =
+            informationPanelExpanded
+                ? GetClampedInformationPanelWidth()
+                : 0f;
+
+        if (informationPanelExpanded)
+        {
+            informationPanelWidth =
+                panelWidth;
+        }
+
+        float mapRegionWidth =
+            Mathf.Max(
+                0f,
+                safeWindowWidth -
+                    splitterWidth -
+                    panelWidth
+            );
+
+        float rulerHeight =
+            Mathf.Min(
+                WorldGridViewportRuler
+                    .HorizontalRulerHeight,
+                mainContentHeight
+            );
+
+        float verticalRulerWidth =
+            Mathf.Min(
+                WorldGridViewportRuler
+                    .VerticalRulerWidth,
+                mapRegionWidth
             );
 
         float viewportWidth =
             Mathf.Max(
                 0f,
-                position.width -
-                    WorldGridViewportRuler
-                        .VerticalRulerWidth
+                mapRegionWidth -
+                    verticalRulerWidth
             );
 
         float viewportHeight =
             Mathf.Max(
                 0f,
-                contentHeight -
-                    WorldGridViewportRuler
-                        .HorizontalRulerHeight
+                mainContentHeight -
+                    rulerHeight
+            );
+
+        toolbar =
+            new Rect(
+                0f,
+                0f,
+                safeWindowWidth,
+                mainContentTop
             );
 
         cornerArea =
             new Rect(
                 0f,
-                0f,
-                WorldGridViewportRuler
-                    .VerticalRulerWidth,
-                WorldGridViewportRuler
-                    .HorizontalRulerHeight
+                mainContentTop,
+                verticalRulerWidth,
+                rulerHeight
             );
 
         horizontalRuler =
             new Rect(
-                WorldGridViewportRuler
-                    .VerticalRulerWidth,
-                0f,
+                verticalRulerWidth,
+                mainContentTop,
                 viewportWidth,
-                WorldGridViewportRuler
-                    .HorizontalRulerHeight
+                rulerHeight
             );
 
         verticalRuler =
             new Rect(
                 0f,
-                WorldGridViewportRuler
-                    .HorizontalRulerHeight,
-                WorldGridViewportRuler
-                    .VerticalRulerWidth,
+                mainContentTop +
+                    rulerHeight,
+                verticalRulerWidth,
                 viewportHeight
             );
 
         viewport =
             new Rect(
-                WorldGridViewportRuler
-                    .VerticalRulerWidth,
-                WorldGridViewportRuler
-                    .HorizontalRulerHeight,
+                verticalRulerWidth,
+                mainContentTop +
+                    rulerHeight,
                 viewportWidth,
                 viewportHeight
+            );
+
+        informationSplitter =
+            new Rect(
+                mapRegionWidth,
+                mainContentTop,
+                splitterWidth,
+                mainContentHeight
+            );
+
+        informationPanel =
+            new Rect(
+                mapRegionWidth +
+                    splitterWidth,
+                mainContentTop,
+                panelWidth,
+                mainContentHeight
             );
 
         statusBar =
             new Rect(
                 0f,
-                contentHeight,
-                Mathf.Max(
-                    0f,
-                    position.width
-                ),
-                Mathf.Min(
-                    StatusBarHeight,
-                    Mathf.Max(
-                        0f,
-                        position.height
-                    )
-                )
+                safeWindowHeight -
+                    statusHeight,
+                safeWindowWidth,
+                statusHeight
             );
+    }
+
+    private float GetClampedInformationPanelWidth()
+    {
+        float maximumWidth =
+            Mathf.Max(
+                0f,
+                position.width -
+                    WorldGridViewportRuler
+                        .VerticalRulerWidth -
+                    MinimumMapViewportWidth -
+                    InformationSplitterWidth
+            );
+
+        if (maximumWidth <= 0f)
+        {
+            return 0f;
+        }
+
+        float minimumWidth =
+            Mathf.Min(
+                MinimumInformationPanelWidth,
+                maximumWidth
+            );
+
+        float requestedWidth =
+            float.IsNaN(
+                informationPanelWidth
+            )
+            ||
+            float.IsInfinity(
+                informationPanelWidth
+            )
+                ? DefaultInformationPanelWidth
+                : informationPanelWidth;
+
+        return
+            Mathf.Clamp(
+                requestedWidth,
+                minimumWidth,
+                maximumWidth
+            );
+    }
+
+    private void HandleInformationPanelResize(
+        Rect splitter
+    )
+    {
+        Event e =
+            Event.current;
+
+        if (!informationPanelExpanded)
+        {
+            isResizingInformationPanel =
+                false;
+
+            return;
+        }
+
+        if (
+            e.type ==
+                EventType.MouseDown
+            &&
+            e.button == 0
+            &&
+            splitter.Contains(
+                e.mousePosition
+            )
+        )
+        {
+            isResizingInformationPanel =
+                true;
+
+            e.Use();
+
+            return;
+        }
+
+        if (
+            e.type ==
+                EventType.MouseUp
+            &&
+            e.button == 0
+            &&
+            isResizingInformationPanel
+        )
+        {
+            isResizingInformationPanel =
+                false;
+
+            e.Use();
+
+            return;
+        }
+
+        if (
+            e.type ==
+                EventType.MouseDrag
+            &&
+            e.button == 0
+            &&
+            isResizingInformationPanel
+        )
+        {
+            informationPanelWidth =
+                position.width -
+                e.mousePosition.x -
+                InformationSplitterWidth *
+                    0.5f;
+
+            informationPanelWidth =
+                GetClampedInformationPanelWidth();
+
+            Repaint();
+
+            e.Use();
+        }
+    }
+
+    private void DrawInformationPanelSplitter(
+        Rect splitter
+    )
+    {
+        if (
+            !informationPanelExpanded
+            ||
+            splitter.width <= 0f
+            ||
+            splitter.height <= 0f
+        )
+        {
+            return;
+        }
+
+        EditorGUIUtility.AddCursorRect(
+            splitter,
+            MouseCursor.ResizeHorizontal
+        );
+
+        EditorGUI.DrawRect(
+            splitter,
+            SplitterColor
+        );
     }
 
     private void HandleMousePresence()
@@ -360,6 +683,53 @@ public class WorldGridViewportWindow : EditorWindow
 
             Repaint();
         }
+    }
+
+    private WorldGridViewportContext CreateContext(
+        Rect viewport
+    )
+    {
+        Event e =
+            Event.current;
+
+        bool isMouseOverViewport =
+            mouseInsideWindow
+            &&
+            viewport.Contains(
+                e.mousePosition
+            );
+
+        bool hasMouseWorldPosition =
+            isMouseOverViewport
+            &&
+            worldSettings != null
+            &&
+            viewportTransform != null
+            &&
+            viewportTransform.IsInitialized
+            &&
+            viewport.width > 0f
+            &&
+            viewport.height > 0f;
+
+        Vector2 mouseWorldXZ =
+            hasMouseWorldPosition
+                ? viewportTransform.ViewportToWorld(
+                    e.mousePosition,
+                    viewport
+                )
+                : Vector2.zero;
+
+        return
+            new WorldGridViewportContext(
+                worldSettings,
+                viewportTransform,
+                viewport,
+                EditorApplication.isPlaying,
+                isMouseOverViewport,
+                mouseWorldXZ,
+                hasMouseWorldPosition
+            );
     }
 
     private void HandleFrameWorldShortcut(
@@ -648,9 +1018,349 @@ public class WorldGridViewportWindow : EditorWindow
         EditorGUI.EndDisabledGroup();
     }
 
+    private void DrawToolbar(
+        Rect toolbar,
+        WorldGridViewportContext context
+    )
+    {
+        if (
+            toolbar.width <= 0f
+            ||
+            toolbar.height <= 0f
+        )
+        {
+            return;
+        }
+
+        GUI.Box(
+            toolbar,
+            GUIContent.none,
+            EditorStyles.toolbar
+        );
+
+        float x =
+            toolbar.x +
+            6f;
+
+        Rect gridLabelRect =
+            new Rect(
+                x,
+                toolbar.y,
+                32f,
+                toolbar.height
+            );
+
+        GUI.Label(
+            gridLabelRect,
+            "Grid:",
+            EditorStyles.miniLabel
+        );
+
+        x +=
+            gridLabelRect.width +
+            3f;
+
+        Rect gridPopupRect =
+            new Rect(
+                x,
+                toolbar.y +
+                    1f,
+                116f,
+                Mathf.Max(
+                    0f,
+                    toolbar.height -
+                        2f
+                )
+            );
+
+        int selectedLattice =
+            EditorGUI.Popup(
+                gridPopupRect,
+                (int)lattice,
+                LatticeDisplayNames,
+                EditorStyles.toolbarPopup
+            );
+
+        if (
+            selectedLattice !=
+            (int)lattice
+        )
+        {
+            lattice =
+                (WorldGridViewportLattice)
+                selectedLattice;
+
+            Repaint();
+        }
+
+        x +=
+            gridPopupRect.width +
+            6f;
+
+        Rect overlaysRect =
+            new Rect(
+                x,
+                toolbar.y +
+                    1f,
+                82f,
+                Mathf.Max(
+                    0f,
+                    toolbar.height -
+                        2f
+                )
+            );
+
+        if (
+            GUI.Button(
+                overlaysRect,
+                new GUIContent(
+                    "Overlays",
+                    "Enable or disable viewport display overlays"
+                ),
+                EditorStyles.toolbarDropDown
+            )
+        )
+        {
+            ShowOverlaysMenu(
+                context
+            );
+        }
+
+        x +=
+            overlaysRect.width +
+            6f;
+
+        Rect infoRect =
+            new Rect(
+                x,
+                toolbar.y +
+                    1f,
+                48f,
+                Mathf.Max(
+                    0f,
+                    toolbar.height -
+                        2f
+                )
+            );
+
+        bool newInformationPanelExpanded =
+            GUI.Toggle(
+                infoRect,
+                informationPanelExpanded,
+                new GUIContent(
+                    "Info",
+                    "Show or hide the information panel"
+                ),
+                EditorStyles.toolbarButton
+            );
+
+        if (
+            newInformationPanelExpanded !=
+            informationPanelExpanded
+        )
+        {
+            informationPanelExpanded =
+                newInformationPanelExpanded;
+
+            isResizingInformationPanel =
+                false;
+
+            Repaint();
+        }
+    }
+
+    private void ShowOverlaysMenu(
+        WorldGridViewportContext context
+    )
+    {
+        GenericMenu menu =
+            new GenericMenu();
+
+        IReadOnlyList<IWorldGridViewportOverlay> overlays =
+            WorldGridViewportOverlayRegistry
+                .Overlays;
+
+        if (overlays.Count == 0)
+        {
+            menu.AddDisabledItem(
+                new GUIContent(
+                    "No overlays available"
+                )
+            );
+
+            menu.ShowAsContext();
+
+            return;
+        }
+
+        for (
+            int i = 0;
+            i < overlays.Count;
+            i++
+        )
+        {
+            IWorldGridViewportOverlay overlay =
+                overlays[i];
+
+            if (overlay == null)
+            {
+                continue;
+            }
+
+            string overlayId =
+                overlay.Id;
+
+            bool userEnabled =
+                overlayState.IsUserEnabled(
+                    overlayId
+                );
+
+            GUIContent item =
+                new GUIContent(
+                    overlay.DisplayName
+                );
+
+            if (!overlay.IsAvailable(context))
+            {
+                menu.AddDisabledItem(
+                    item,
+                    userEnabled
+                );
+
+                continue;
+            }
+
+            bool nextEnabled =
+                !userEnabled;
+
+            menu.AddItem(
+                item,
+                userEnabled,
+                () =>
+                {
+                    overlayState.SetUserEnabled(
+                        overlayId,
+                        nextEnabled
+                    );
+
+                    Repaint();
+                }
+            );
+        }
+
+        menu.ShowAsContext();
+    }
+
+    private void DrawViewport(
+        WorldGridViewportContext context
+    )
+    {
+        Rect viewport =
+            context.ViewportRect;
+
+        if (
+            viewport.width <= 0f
+            ||
+            viewport.height <= 0f
+        )
+        {
+            return;
+        }
+
+        EditorGUI.DrawRect(
+            viewport,
+            new Color(
+                0.12f,
+                0.12f,
+                0.12f
+            )
+        );
+
+        if (worldSettings == null)
+        {
+            DrawMissingWorldSettingsMessage(
+                viewport
+            );
+
+            return;
+        }
+
+        EnsureViewportTransformInitialized();
+
+        WorldGridViewportLatticeRenderer.Draw(
+            lattice,
+            context
+        );
+
+        DrawEnabledOverlays(
+            context
+        );
+
+        DrawSelectionFoundation(
+            context
+        );
+    }
+
+    private void DrawEnabledOverlays(
+        WorldGridViewportContext context
+    )
+    {
+        IReadOnlyList<IWorldGridViewportOverlay> overlays =
+            WorldGridViewportOverlayRegistry
+                .Overlays;
+
+        for (
+            int i = 0;
+            i < overlays.Count;
+            i++
+        )
+        {
+            IWorldGridViewportOverlay overlay =
+                overlays[i];
+
+            if (
+                overlay == null
+                ||
+                !overlayState.IsUserEnabled(
+                    overlay.Id
+                )
+                ||
+                !overlay.IsAvailable(
+                    context
+                )
+            )
+            {
+                continue;
+            }
+
+            overlay.Draw(
+                context
+            );
+        }
+    }
+
+    private void DrawSelectionFoundation(
+        WorldGridViewportContext context
+    )
+    {
+        /*
+         * Selection state is intentionally dormant in this framework package.
+         * Future overlays or editing tools may populate hoveredSelection and
+         * selectedSelection without coupling selection to one lattice type.
+         */
+        _ =
+            context;
+
+        _ =
+            hoveredSelection;
+
+        _ =
+            selectedSelection;
+    }
+
     private void DrawStatusBar(
         Rect statusBar,
-        Rect viewport
+        WorldGridViewportContext context
     )
     {
         if (
@@ -671,37 +1381,16 @@ public class WorldGridViewportWindow : EditorWindow
         string coordinateText =
             "X: --    Z: --";
 
-        Event e =
-            Event.current;
-
-        if (
-            mouseInsideWindow
-            &&
-            worldSettings != null
-            &&
-            viewportTransform != null
-            &&
-            viewportTransform.IsInitialized
-            &&
-            viewport.Contains(
-                e.mousePosition
-            )
-        )
+        if (context.HasMouseWorldPosition)
         {
-            Vector2 worldPosition =
-                viewportTransform.ViewportToWorld(
-                    e.mousePosition,
-                    viewport
-                );
-
             coordinateText =
                 "X: " +
-                worldPosition.x.ToString(
+                context.MouseWorldXZ.x.ToString(
                     "0.0",
                     CultureInfo.InvariantCulture
                 ) +
                 " m    Z: " +
-                worldPosition.y.ToString(
+                context.MouseWorldXZ.y.ToString(
                     "0.0",
                     CultureInfo.InvariantCulture
                 ) +
@@ -718,50 +1407,19 @@ public class WorldGridViewportWindow : EditorWindow
 
         GUI.Label(
             new Rect(
-                statusBar.x + 6f,
+                statusBar.x +
+                    6f,
                 statusBar.y,
                 Mathf.Max(
                     0f,
-                    statusBar.width - 12f
+                    statusBar.width -
+                        12f
                 ),
                 statusBar.height
             ),
             coordinateText,
             labelStyle
         );
-    }
-
-    private void DrawChunkGrid(
-        Rect viewport
-    )
-    {
-        EditorGUI.DrawRect(
-            viewport,
-            new Color(
-                0.12f,
-                0.12f,
-                0.12f
-            )
-        );
-
-        HandlePanning(
-            viewport
-        );
-
-        if (worldSettings != null)
-        {
-            EnsureViewportTransformInitialized();
-
-            DrawVisibleGrid(
-                viewport
-            );
-        }
-        else
-        {
-            DrawMissingWorldSettingsMessage(
-                viewport
-            );
-        }
     }
 
     private void DrawMissingWorldSettingsMessage(
@@ -792,12 +1450,15 @@ public class WorldGridViewportWindow : EditorWindow
 
         if (
             e.type ==
-                EventType.MouseUp &&
-            e.button == 2 &&
+                EventType.MouseUp
+            &&
+            e.button == 2
+            &&
             isPanning
         )
         {
-            isPanning = false;
+            isPanning =
+                false;
 
             e.Use();
 
@@ -806,7 +1467,8 @@ public class WorldGridViewportWindow : EditorWindow
 
         if (
             e.type ==
-                EventType.MouseDown &&
+                EventType.MouseDown
+            &&
             e.button == 2
         )
         {
@@ -819,7 +1481,8 @@ public class WorldGridViewportWindow : EditorWindow
                 return;
             }
 
-            isPanning = true;
+            isPanning =
+                true;
 
             e.Use();
 
@@ -828,7 +1491,8 @@ public class WorldGridViewportWindow : EditorWindow
 
         if (
             e.type ==
-                EventType.MouseDrag &&
+                EventType.MouseDrag
+            &&
             isPanning
         )
         {
@@ -849,236 +1513,5 @@ public class WorldGridViewportWindow : EditorWindow
 
             e.Use();
         }
-    }
-
-    private void DrawVisibleGrid(
-        Rect viewport
-    )
-    {
-        if (
-            worldSettings == null
-            ||
-            viewportTransform == null
-            ||
-            !viewportTransform.IsInitialized
-            ||
-            viewport.width <= 0f
-            ||
-            viewport.height <= 0f
-        )
-        {
-            return;
-        }
-
-        int gridWidth =
-            Mathf.Max(
-                1,
-                worldSettings.gridWidth
-            );
-
-        int gridHeight =
-            Mathf.Max(
-                1,
-                worldSettings.gridHeight
-            );
-
-        float chunkSize =
-            Mathf.Max(
-                0.01f,
-                worldSettings.chunkSize
-            );
-
-        Vector2 worldSizeXZ =
-            TerrainClipmapLayoutUtility
-                .CalculateWorldSizeXZ(
-                    worldSettings
-                );
-
-        Vector2 topLeftWorld =
-            viewportTransform.ViewportToWorld(
-                new Vector2(
-                    viewport.xMin,
-                    viewport.yMin
-                ),
-                viewport
-            );
-
-        Vector2 bottomRightWorld =
-            viewportTransform.ViewportToWorld(
-                new Vector2(
-                    viewport.xMax,
-                    viewport.yMax
-                ),
-                viewport
-            );
-
-        float visibleMinX =
-            Mathf.Min(
-                topLeftWorld.x,
-                bottomRightWorld.x
-            );
-
-        float visibleMaxX =
-            Mathf.Max(
-                topLeftWorld.x,
-                bottomRightWorld.x
-            );
-
-        float visibleMinZ =
-            Mathf.Min(
-                topLeftWorld.y,
-                bottomRightWorld.y
-            );
-
-        float visibleMaxZ =
-            Mathf.Max(
-                topLeftWorld.y,
-                bottomRightWorld.y
-            );
-
-        float drawMinX =
-            Mathf.Max(
-                0f,
-                visibleMinX
-            );
-
-        float drawMaxX =
-            Mathf.Min(
-                worldSizeXZ.x,
-                visibleMaxX
-            );
-
-        float drawMinZ =
-            Mathf.Max(
-                0f,
-                visibleMinZ
-            );
-
-        float drawMaxZ =
-            Mathf.Min(
-                worldSizeXZ.y,
-                visibleMaxZ
-            );
-
-        if (
-            drawMinX > drawMaxX
-            ||
-            drawMinZ > drawMaxZ
-        )
-        {
-            return;
-        }
-
-        int minX =
-            Mathf.Clamp(
-                Mathf.CeilToInt(
-                    drawMinX /
-                    chunkSize
-                ),
-                0,
-                gridWidth
-            );
-
-        int maxX =
-            Mathf.Clamp(
-                Mathf.FloorToInt(
-                    drawMaxX /
-                    chunkSize
-                ),
-                0,
-                gridWidth
-            );
-
-        int minZ =
-            Mathf.Clamp(
-                Mathf.CeilToInt(
-                    drawMinZ /
-                    chunkSize
-                ),
-                0,
-                gridHeight
-            );
-
-        int maxZ =
-            Mathf.Clamp(
-                Mathf.FloorToInt(
-                    drawMaxZ /
-                    chunkSize
-                ),
-                0,
-                gridHeight
-            );
-
-        Handles.BeginGUI();
-
-        for (
-            int x = minX;
-            x <= maxX;
-            x++
-        )
-        {
-            float worldX =
-                x *
-                chunkSize;
-
-            Vector2 lineStart =
-                viewportTransform.WorldToViewport(
-                    new Vector2(
-                        worldX,
-                        drawMinZ
-                    ),
-                    viewport
-                );
-
-            Vector2 lineEnd =
-                viewportTransform.WorldToViewport(
-                    new Vector2(
-                        worldX,
-                        drawMaxZ
-                    ),
-                    viewport
-                );
-
-            Handles.DrawLine(
-                lineStart,
-                lineEnd
-            );
-        }
-
-        for (
-            int z = minZ;
-            z <= maxZ;
-            z++
-        )
-        {
-            float worldZ =
-                z *
-                chunkSize;
-
-            Vector2 lineStart =
-                viewportTransform.WorldToViewport(
-                    new Vector2(
-                        drawMinX,
-                        worldZ
-                    ),
-                    viewport
-                );
-
-            Vector2 lineEnd =
-                viewportTransform.WorldToViewport(
-                    new Vector2(
-                        drawMaxX,
-                        worldZ
-                    ),
-                    viewport
-                );
-
-            Handles.DrawLine(
-                lineStart,
-                lineEnd
-            );
-        }
-
-        Handles.EndGUI();
     }
 }
