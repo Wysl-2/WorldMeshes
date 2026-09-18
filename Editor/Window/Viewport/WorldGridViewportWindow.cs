@@ -159,16 +159,72 @@ public class WorldGridViewportWindow : EditorWindow
 
     private void OnGUI()
     {
-        Rect viewport =
+        float viewportWidth =
+            Mathf.Max(
+                0f,
+                position.width -
+                    WorldGridViewportRuler
+                        .VerticalRulerWidth
+            );
+
+        float viewportHeight =
+            Mathf.Max(
+                0f,
+                position.height -
+                    WorldGridViewportRuler
+                        .HorizontalRulerHeight
+            );
+
+        Rect cornerArea =
             new Rect(
                 0f,
                 0f,
-                position.width,
-                position.height
+                WorldGridViewportRuler
+                    .VerticalRulerWidth,
+                WorldGridViewportRuler
+                    .HorizontalRulerHeight
+            );
+
+        Rect horizontalRuler =
+            new Rect(
+                WorldGridViewportRuler
+                    .VerticalRulerWidth,
+                0f,
+                viewportWidth,
+                WorldGridViewportRuler
+                    .HorizontalRulerHeight
+            );
+
+        Rect verticalRuler =
+            new Rect(
+                0f,
+                WorldGridViewportRuler
+                    .HorizontalRulerHeight,
+                WorldGridViewportRuler
+                    .VerticalRulerWidth,
+                viewportHeight
+            );
+
+        Rect viewport =
+            new Rect(
+                WorldGridViewportRuler
+                    .VerticalRulerWidth,
+                WorldGridViewportRuler
+                    .HorizontalRulerHeight,
+                viewportWidth,
+                viewportHeight
             );
 
         DrawChunkGrid(
             viewport
+        );
+
+        WorldGridViewportRuler.Draw(
+            cornerArea,
+            horizontalRuler,
+            verticalRuler,
+            viewport,
+            viewportTransform
         );
     }
 
@@ -232,11 +288,16 @@ public class WorldGridViewportWindow : EditorWindow
             Event.current;
 
         if (
-            !viewport.Contains(
-                e.mousePosition
-            )
+            e.type ==
+                EventType.MouseUp &&
+            e.button == 2 &&
+            isPanning
         )
         {
+            isPanning = false;
+
+            e.Use();
+
             return;
         }
 
@@ -246,20 +307,20 @@ public class WorldGridViewportWindow : EditorWindow
             e.button == 2
         )
         {
+            if (
+                !viewport.Contains(
+                    e.mousePosition
+                )
+            )
+            {
+                return;
+            }
+
             isPanning = true;
 
             e.Use();
-        }
 
-        if (
-            e.type ==
-                EventType.MouseUp &&
-            e.button == 2
-        )
-        {
-            isPanning = false;
-
-            e.Use();
+            return;
         }
 
         if (
@@ -297,6 +358,10 @@ public class WorldGridViewportWindow : EditorWindow
             viewportTransform == null
             ||
             !viewportTransform.IsInitialized
+            ||
+            viewport.width <= 0f
+            ||
+            viewport.height <= 0f
         )
         {
             return;
