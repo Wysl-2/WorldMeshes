@@ -5,6 +5,12 @@ public partial class WorldMeshesEditorWindow :
 {
     private void OnEnable()
     {
+        minSize =
+            new UnityEngine.Vector2(
+                320f,
+                220f
+            );
+
         LoadDefaultEditorAssets();
 
         LoadEditorState();

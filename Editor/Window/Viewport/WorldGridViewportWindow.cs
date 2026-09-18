@@ -7,15 +7,23 @@ public class WorldGridViewportWindow : EditorWindow
     // GRID VIEWPORT
     // =====================================================
 
-    // Purely visual editor-grid size.
-    // This has no relationship to terrain chunk size.
-    private const float GridCellPixelSize = 64f;
+    /*
+     * Initial presentation scale only.
+     *
+     * Grid geometry is defined in world meters through
+     * WorldSettings.chunkSize. This value only preserves the
+     * familiar initial appearance of approximately 64 pixels per
+     * terrain chunk before future zoom controls are introduced.
+     */
+    private const float DefaultChunkPixelSize =
+        64f;
 
     [SerializeField]
     private WorldSettings worldSettings;
 
-    private Vector2 panOffset =
-        Vector2.zero;
+    [SerializeField]
+    private WorldGridViewportTransform viewportTransform =
+        new WorldGridViewportTransform();
 
     private bool isPanning;
 
@@ -31,15 +39,122 @@ public class WorldGridViewportWindow : EditorWindow
         );
     }
 
+    internal static void RepaintOpenWindows()
+    {
+        WorldGridViewportWindow[] windows =
+            Resources.FindObjectsOfTypeAll<WorldGridViewportWindow>();
+
+        for (
+            int i = 0;
+            i < windows.Length;
+            i++
+        )
+        {
+            WorldGridViewportWindow window =
+                windows[i];
+
+            if (window == null)
+            {
+                continue;
+            }
+
+            window.EnsureWorldSettingsLoaded();
+            window.EnsureViewportTransformInitialized();
+            window.Repaint();
+        }
+    }
+
     private void OnEnable()
     {
-        if (worldSettings == null)
+        minSize =
+            new Vector2(
+                200f,
+                200f
+            );
+
+        EnsureWorldSettingsLoaded();
+        EnsureViewportTransformInitialized();
+
+        Undo.undoRedoPerformed -=
+            HandleUndoRedo;
+
+        Undo.undoRedoPerformed +=
+            HandleUndoRedo;
+    }
+
+    private void OnDisable()
+    {
+        Undo.undoRedoPerformed -=
+            HandleUndoRedo;
+    }
+
+    private void OnProjectChange()
+    {
+        EnsureWorldSettingsLoaded();
+        EnsureViewportTransformInitialized();
+
+        Repaint();
+    }
+
+    private void HandleUndoRedo()
+    {
+        EnsureWorldSettingsLoaded();
+        EnsureViewportTransformInitialized();
+
+        Repaint();
+    }
+
+    private void EnsureWorldSettingsLoaded()
+    {
+        if (worldSettings != null)
         {
-            worldSettings =
-                AssetDatabase.LoadAssetAtPath<WorldSettings>(
-                    WorldMeshesPaths.WorldSettingsAssetPath
-                );
+            return;
         }
+
+        worldSettings =
+            AssetDatabase.LoadAssetAtPath<WorldSettings>(
+                WorldMeshesPaths.WorldSettingsAssetPath
+            );
+    }
+
+    private void EnsureViewportTransformInitialized()
+    {
+        if (viewportTransform == null)
+        {
+            viewportTransform =
+                new WorldGridViewportTransform();
+        }
+
+        if (
+            viewportTransform.IsInitialized
+            ||
+            worldSettings == null
+        )
+        {
+            return;
+        }
+
+        Vector2 worldSizeXZ =
+            TerrainClipmapLayoutUtility
+                .CalculateWorldSizeXZ(
+                    worldSettings
+                );
+
+        float chunkSize =
+            Mathf.Max(
+                0.01f,
+                worldSettings.chunkSize
+            );
+
+        float defaultPixelsPerMeter =
+            DefaultChunkPixelSize /
+            chunkSize;
+
+        viewportTransform.Initialize(
+            worldSizeXZ *
+                0.5f,
+            defaultPixelsPerMeter
+        );
     }
 
     private void OnGUI()
@@ -74,32 +189,20 @@ public class WorldGridViewportWindow : EditorWindow
             viewport
         );
 
-        GUI.BeginClip(
-            viewport
-        );
-
-        Rect localViewport =
-            new Rect(
-                0f,
-                0f,
-                viewport.width,
-                viewport.height
-            );
-
         if (worldSettings != null)
         {
+            EnsureViewportTransformInitialized();
+
             DrawVisibleGrid(
-                localViewport
+                viewport
             );
         }
         else
         {
             DrawMissingWorldSettingsMessage(
-                localViewport
+                viewport
             );
         }
-
-        GUI.EndClip();
     }
 
     private void DrawMissingWorldSettingsMessage(
@@ -165,10 +268,20 @@ public class WorldGridViewportWindow : EditorWindow
             isPanning
         )
         {
-            panOffset +=
-                e.delta;
+            EnsureViewportTransformInitialized();
 
-            Repaint();
+            if (
+                viewportTransform != null
+                &&
+                viewportTransform.IsInitialized
+            )
+            {
+                viewportTransform.PanByPixels(
+                    e.delta
+                );
+
+                Repaint();
+            }
 
             e.Use();
         }
@@ -178,13 +291,17 @@ public class WorldGridViewportWindow : EditorWindow
         Rect viewport
     )
     {
-        if (worldSettings == null)
+        if (
+            worldSettings == null
+            ||
+            viewportTransform == null
+            ||
+            !viewportTransform.IsInitialized
+        )
         {
             return;
         }
 
-        // The viewport grid gets its dimensions
-        // directly from WorldSettings.
         int gridWidth =
             Mathf.Max(
                 1,
@@ -197,65 +314,134 @@ public class WorldGridViewportWindow : EditorWindow
                 worldSettings.gridHeight
             );
 
-        Handles.BeginGUI();
+        float chunkSize =
+            Mathf.Max(
+                0.01f,
+                worldSettings.chunkSize
+            );
 
-        float gridPixelWidth =
-            gridWidth
-            * GridCellPixelSize;
+        Vector2 worldSizeXZ =
+            TerrainClipmapLayoutUtility
+                .CalculateWorldSizeXZ(
+                    worldSettings
+                );
 
-        float gridPixelHeight =
-            gridHeight
-            * GridCellPixelSize;
+        Vector2 topLeftWorld =
+            viewportTransform.ViewportToWorld(
+                new Vector2(
+                    viewport.xMin,
+                    viewport.yMin
+                ),
+                viewport
+            );
 
-        // -------------------------
-        // Visible grid range
-        // -------------------------
+        Vector2 bottomRightWorld =
+            viewportTransform.ViewportToWorld(
+                new Vector2(
+                    viewport.xMax,
+                    viewport.yMax
+                ),
+                viewport
+            );
+
+        float visibleMinX =
+            Mathf.Min(
+                topLeftWorld.x,
+                bottomRightWorld.x
+            );
+
+        float visibleMaxX =
+            Mathf.Max(
+                topLeftWorld.x,
+                bottomRightWorld.x
+            );
+
+        float visibleMinZ =
+            Mathf.Min(
+                topLeftWorld.y,
+                bottomRightWorld.y
+            );
+
+        float visibleMaxZ =
+            Mathf.Max(
+                topLeftWorld.y,
+                bottomRightWorld.y
+            );
+
+        float drawMinX =
+            Mathf.Max(
+                0f,
+                visibleMinX
+            );
+
+        float drawMaxX =
+            Mathf.Min(
+                worldSizeXZ.x,
+                visibleMaxX
+            );
+
+        float drawMinZ =
+            Mathf.Max(
+                0f,
+                visibleMinZ
+            );
+
+        float drawMaxZ =
+            Mathf.Min(
+                worldSizeXZ.y,
+                visibleMaxZ
+            );
+
+        if (
+            drawMinX > drawMaxX
+            ||
+            drawMinZ > drawMaxZ
+        )
+        {
+            return;
+        }
 
         int minX =
-            Mathf.Max(
+            Mathf.Clamp(
+                Mathf.CeilToInt(
+                    drawMinX /
+                    chunkSize
+                ),
                 0,
-                Mathf.FloorToInt(
-                    -panOffset.x
-                    / GridCellPixelSize
-                )
+                gridWidth
             );
 
         int maxX =
-            Mathf.Min(
-                gridWidth,
-                Mathf.CeilToInt(
-                    (
-                        viewport.width
-                        - panOffset.x
-                    )
-                    / GridCellPixelSize
-                )
-            );
-
-        int minY =
-            Mathf.Max(
-                0,
+            Mathf.Clamp(
                 Mathf.FloorToInt(
-                    -panOffset.y
-                    / GridCellPixelSize
-                )
+                    drawMaxX /
+                    chunkSize
+                ),
+                0,
+                gridWidth
             );
 
-        int maxY =
-            Mathf.Min(
-                gridHeight,
+        int minZ =
+            Mathf.Clamp(
                 Mathf.CeilToInt(
-                    (
-                        viewport.height
-                        - panOffset.y
-                    )
-                    / GridCellPixelSize
-                )
+                    drawMinZ /
+                    chunkSize
+                ),
+                0,
+                gridHeight
             );
 
-        // -------------------------
-        // Vertical lines
-        // -------------------------
+        int maxZ =
+            Mathf.Clamp(
+                Mathf.FloorToInt(
+                    drawMaxZ /
+                    chunkSize
+                ),
+                0,
+                gridHeight
+            );
+
+        Handles.BeginGUI();
 
         for (
             int x = minX;
@@ -263,71 +449,65 @@ public class WorldGridViewportWindow : EditorWindow
             x++
         )
         {
-            float xPosition =
-                panOffset.x
-                + x * GridCellPixelSize;
+            float worldX =
+                x *
+                chunkSize;
 
-            float yStart =
-                Mathf.Max(
-                    0f,
-                    panOffset.y
+            Vector2 lineStart =
+                viewportTransform.WorldToViewport(
+                    new Vector2(
+                        worldX,
+                        drawMinZ
+                    ),
+                    viewport
                 );
 
-            float yEnd =
-                Mathf.Min(
-                    viewport.height,
-                    panOffset.y
-                    + gridPixelHeight
+            Vector2 lineEnd =
+                viewportTransform.WorldToViewport(
+                    new Vector2(
+                        worldX,
+                        drawMaxZ
+                    ),
+                    viewport
                 );
 
             Handles.DrawLine(
-                new Vector2(
-                    xPosition,
-                    yStart
-                ),
-                new Vector2(
-                    xPosition,
-                    yEnd
-                )
+                lineStart,
+                lineEnd
             );
         }
 
-        // -------------------------
-        // Horizontal lines
-        // -------------------------
-
         for (
-            int y = minY;
-            y <= maxY;
-            y++
+            int z = minZ;
+            z <= maxZ;
+            z++
         )
         {
-            float yPosition =
-                panOffset.y
-                + y * GridCellPixelSize;
+            float worldZ =
+                z *
+                chunkSize;
 
-            float xStart =
-                Mathf.Max(
-                    0f,
-                    panOffset.x
+            Vector2 lineStart =
+                viewportTransform.WorldToViewport(
+                    new Vector2(
+                        drawMinX,
+                        worldZ
+                    ),
+                    viewport
                 );
 
-            float xEnd =
-                Mathf.Min(
-                    viewport.width,
-                    panOffset.x
-                    + gridPixelWidth
+            Vector2 lineEnd =
+                viewportTransform.WorldToViewport(
+                    new Vector2(
+                        drawMaxX,
+                        worldZ
+                    ),
+                    viewport
                 );
 
             Handles.DrawLine(
-                new Vector2(
-                    xStart,
-                    yPosition
-                ),
-                new Vector2(
-                    xEnd,
-                    yPosition
-                )
+                lineStart,
+                lineEnd
             );
         }
 

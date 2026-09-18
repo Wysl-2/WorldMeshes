@@ -268,6 +268,9 @@ public partial class WorldMeshesEditorWindow :
 
             LoadWorldSettingsIntoEditor();
 
+            WorldGridViewportWindow
+                .RepaintOpenWindows();
+
             Selection.activeObject =
                 worldSettings;
 
@@ -359,6 +362,9 @@ public partial class WorldMeshesEditorWindow :
             newSettings;
 
         LoadWorldSettingsIntoEditor();
+
+        WorldGridViewportWindow
+            .RepaintOpenWindows();
 
         Selection.activeObject =
             worldSettings;
@@ -543,6 +549,9 @@ public partial class WorldMeshesEditorWindow :
 
         TerrainAuthoringPreviewService
             .RequestRefresh();
+
+        WorldGridViewportWindow
+            .RepaintOpenWindows();
 
         Repaint();
 
