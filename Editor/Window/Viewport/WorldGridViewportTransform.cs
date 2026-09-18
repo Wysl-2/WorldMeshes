@@ -136,6 +136,204 @@ public sealed class WorldGridViewportTransform
             worldDelta;
     }
 
+    public bool ZoomAtViewportPoint(
+        Vector2 viewportPosition,
+        Rect viewport,
+        float zoomFactor,
+        float minimumPixelsPerMeter,
+        float maximumPixelsPerMeter
+    )
+    {
+        if (
+            !initialized
+            ||
+            viewport.width <= 0f
+            ||
+            viewport.height <= 0f
+            ||
+            !IsFinite(viewportPosition)
+            ||
+            !IsFinite(zoomFactor)
+            ||
+            zoomFactor <= 0f
+        )
+        {
+            return false;
+        }
+
+        float safeMinimum =
+            SanitizePixelsPerMeter(
+                minimumPixelsPerMeter
+            );
+
+        float safeMaximum =
+            SanitizePixelsPerMeter(
+                maximumPixelsPerMeter
+            );
+
+        if (safeMaximum < safeMinimum)
+        {
+            safeMaximum =
+                safeMinimum;
+        }
+
+        Vector2 worldBefore =
+            ViewportToWorld(
+                viewportPosition,
+                viewport
+            );
+
+        float currentPixelsPerMeter =
+            GetSafePixelsPerMeter();
+
+        float requestedPixelsPerMeter =
+            currentPixelsPerMeter *
+            zoomFactor;
+
+        if (!IsFinite(requestedPixelsPerMeter))
+        {
+            requestedPixelsPerMeter =
+                zoomFactor > 1f
+                    ? safeMaximum
+                    : safeMinimum;
+        }
+
+        float newPixelsPerMeter =
+            Mathf.Clamp(
+                requestedPixelsPerMeter,
+                safeMinimum,
+                safeMaximum
+            );
+
+        if (
+            Mathf.Approximately(
+                newPixelsPerMeter,
+                currentPixelsPerMeter
+            )
+        )
+        {
+            return false;
+        }
+
+        pixelsPerMeter =
+            newPixelsPerMeter;
+
+        Vector2 worldAfter =
+            ViewportToWorld(
+                viewportPosition,
+                viewport
+            );
+
+        Vector2 centerAdjustment =
+            worldBefore -
+            worldAfter;
+
+        if (IsFinite(centerAdjustment))
+        {
+            viewCenterWorldXZ +=
+                centerAdjustment;
+        }
+
+        return true;
+    }
+
+    public bool FrameWorld(
+        Vector2 worldSizeXZ,
+        Rect viewport,
+        float paddingPixels
+    )
+    {
+        if (
+            !IsValidWorldSize(
+                worldSizeXZ
+            )
+            ||
+            viewport.width <= 0f
+            ||
+            viewport.height <= 0f
+        )
+        {
+            return false;
+        }
+
+        viewCenterWorldXZ =
+            worldSizeXZ *
+                0.5f;
+
+        pixelsPerMeter =
+            CalculateFramePixelsPerMeter(
+                worldSizeXZ,
+                viewport,
+                paddingPixels
+            );
+
+        initialized =
+            true;
+
+        return true;
+    }
+
+    public static float CalculateFramePixelsPerMeter(
+        Vector2 worldSizeXZ,
+        Rect viewport,
+        float paddingPixels
+    )
+    {
+        if (
+            !IsValidWorldSize(
+                worldSizeXZ
+            )
+            ||
+            viewport.width <= 0f
+            ||
+            viewport.height <= 0f
+        )
+        {
+            return
+                MinimumPixelsPerMeter;
+        }
+
+        float safePadding =
+            IsFinite(paddingPixels)
+                ? Mathf.Max(
+                    0f,
+                    paddingPixels
+                )
+                : 0f;
+
+        float usableWidth =
+            Mathf.Max(
+                1f,
+                viewport.width -
+                    safePadding *
+                    2f
+            );
+
+        float usableHeight =
+            Mathf.Max(
+                1f,
+                viewport.height -
+                    safePadding *
+                    2f
+            );
+
+        float scaleX =
+            usableWidth /
+            worldSizeXZ.x;
+
+        float scaleZ =
+            usableHeight /
+            worldSizeXZ.y;
+
+        return
+            SanitizePixelsPerMeter(
+                Mathf.Min(
+                    scaleX,
+                    scaleZ
+                )
+            );
+    }
+
     private float GetSafePixelsPerMeter()
     {
         float safePixelsPerMeter =
@@ -169,6 +367,18 @@ public sealed class WorldGridViewportTransform
 
         return
             value;
+    }
+
+    private static bool IsValidWorldSize(
+        Vector2 value
+    )
+    {
+        return
+            IsFinite(value)
+            &&
+            value.x > 0f
+            &&
+            value.y > 0f;
     }
 
     private static bool IsFinite(

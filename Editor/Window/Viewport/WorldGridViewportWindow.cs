@@ -1,3 +1,4 @@
+using System.Globalization;
 using UnityEditor;
 using UnityEngine;
 
@@ -18,6 +19,27 @@ public class WorldGridViewportWindow : EditorWindow
     private const float DefaultChunkPixelSize =
         64f;
 
+    private const float StatusBarHeight =
+        22f;
+
+    private const float FrameWorldPadding =
+        24f;
+
+    private const float ZoomBase =
+        1.1f;
+
+    private const float MinimumFrameScaleMultiplier =
+        0.25f;
+
+    private const float MaximumFrameScaleMultiplier =
+        16f;
+
+    private const float DetailedChunkPixelSize =
+        1024f;
+
+    private const float FitButtonInset =
+        3f;
+
     [SerializeField]
     private WorldSettings worldSettings;
 
@@ -26,6 +48,8 @@ public class WorldGridViewportWindow : EditorWindow
         new WorldGridViewportTransform();
 
     private bool isPanning;
+
+    private bool mouseInsideWindow;
 
     [MenuItem(
         "Tools/WorldMeshes/World Grid Viewport",
@@ -71,6 +95,12 @@ public class WorldGridViewportWindow : EditorWindow
                 200f,
                 200f
             );
+
+        wantsMouseMove =
+            true;
+
+        wantsMouseEnterLeaveWindow =
+            true;
 
         EnsureWorldSettingsLoaded();
         EnsureViewportTransformInitialized();
@@ -159,61 +189,23 @@ public class WorldGridViewportWindow : EditorWindow
 
     private void OnGUI()
     {
-        float viewportWidth =
-            Mathf.Max(
-                0f,
-                position.width -
-                    WorldGridViewportRuler
-                        .VerticalRulerWidth
-            );
+        HandleMousePresence();
 
-        float viewportHeight =
-            Mathf.Max(
-                0f,
-                position.height -
-                    WorldGridViewportRuler
-                        .HorizontalRulerHeight
-            );
+        CalculateLayout(
+            out Rect cornerArea,
+            out Rect horizontalRuler,
+            out Rect verticalRuler,
+            out Rect viewport,
+            out Rect statusBar
+        );
 
-        Rect cornerArea =
-            new Rect(
-                0f,
-                0f,
-                WorldGridViewportRuler
-                    .VerticalRulerWidth,
-                WorldGridViewportRuler
-                    .HorizontalRulerHeight
-            );
+        HandleFrameWorldShortcut(
+            viewport
+        );
 
-        Rect horizontalRuler =
-            new Rect(
-                WorldGridViewportRuler
-                    .VerticalRulerWidth,
-                0f,
-                viewportWidth,
-                WorldGridViewportRuler
-                    .HorizontalRulerHeight
-            );
-
-        Rect verticalRuler =
-            new Rect(
-                0f,
-                WorldGridViewportRuler
-                    .HorizontalRulerHeight,
-                WorldGridViewportRuler
-                    .VerticalRulerWidth,
-                viewportHeight
-            );
-
-        Rect viewport =
-            new Rect(
-                WorldGridViewportRuler
-                    .VerticalRulerWidth,
-                WorldGridViewportRuler
-                    .HorizontalRulerHeight,
-                viewportWidth,
-                viewportHeight
-            );
+        HandleZoom(
+            viewport
+        );
 
         DrawChunkGrid(
             viewport
@@ -225,6 +217,517 @@ public class WorldGridViewportWindow : EditorWindow
             verticalRuler,
             viewport,
             viewportTransform
+        );
+
+        DrawFitWorldButton(
+            cornerArea,
+            viewport
+        );
+
+        DrawStatusBar(
+            statusBar,
+            viewport
+        );
+    }
+
+    private void CalculateLayout(
+        out Rect cornerArea,
+        out Rect horizontalRuler,
+        out Rect verticalRuler,
+        out Rect viewport,
+        out Rect statusBar
+    )
+    {
+        float contentHeight =
+            Mathf.Max(
+                0f,
+                position.height -
+                    StatusBarHeight
+            );
+
+        float viewportWidth =
+            Mathf.Max(
+                0f,
+                position.width -
+                    WorldGridViewportRuler
+                        .VerticalRulerWidth
+            );
+
+        float viewportHeight =
+            Mathf.Max(
+                0f,
+                contentHeight -
+                    WorldGridViewportRuler
+                        .HorizontalRulerHeight
+            );
+
+        cornerArea =
+            new Rect(
+                0f,
+                0f,
+                WorldGridViewportRuler
+                    .VerticalRulerWidth,
+                WorldGridViewportRuler
+                    .HorizontalRulerHeight
+            );
+
+        horizontalRuler =
+            new Rect(
+                WorldGridViewportRuler
+                    .VerticalRulerWidth,
+                0f,
+                viewportWidth,
+                WorldGridViewportRuler
+                    .HorizontalRulerHeight
+            );
+
+        verticalRuler =
+            new Rect(
+                0f,
+                WorldGridViewportRuler
+                    .HorizontalRulerHeight,
+                WorldGridViewportRuler
+                    .VerticalRulerWidth,
+                viewportHeight
+            );
+
+        viewport =
+            new Rect(
+                WorldGridViewportRuler
+                    .VerticalRulerWidth,
+                WorldGridViewportRuler
+                    .HorizontalRulerHeight,
+                viewportWidth,
+                viewportHeight
+            );
+
+        statusBar =
+            new Rect(
+                0f,
+                contentHeight,
+                Mathf.Max(
+                    0f,
+                    position.width
+                ),
+                Mathf.Min(
+                    StatusBarHeight,
+                    Mathf.Max(
+                        0f,
+                        position.height
+                    )
+                )
+            );
+    }
+
+    private void HandleMousePresence()
+    {
+        Event e =
+            Event.current;
+
+        if (
+            e.type ==
+                EventType.MouseEnterWindow
+        )
+        {
+            mouseInsideWindow =
+                true;
+
+            Repaint();
+
+            return;
+        }
+
+        if (
+            e.type ==
+                EventType.MouseLeaveWindow
+        )
+        {
+            mouseInsideWindow =
+                false;
+
+            Repaint();
+
+            return;
+        }
+
+        if (
+            e.type ==
+                EventType.MouseMove
+        )
+        {
+            mouseInsideWindow =
+                true;
+
+            Repaint();
+        }
+    }
+
+    private void HandleFrameWorldShortcut(
+        Rect viewport
+    )
+    {
+        Event e =
+            Event.current;
+
+        if (
+            e.type !=
+                EventType.KeyDown
+            ||
+            e.keyCode !=
+                KeyCode.F
+            ||
+            e.modifiers !=
+                EventModifiers.None
+            ||
+            focusedWindow != this
+            ||
+            EditorGUIUtility.editingTextField
+        )
+        {
+            return;
+        }
+
+        FrameWorld(
+            viewport
+        );
+
+        e.Use();
+    }
+
+    private void HandleZoom(
+        Rect viewport
+    )
+    {
+        Event e =
+            Event.current;
+
+        if (
+            e.type !=
+                EventType.ScrollWheel
+            ||
+            !viewport.Contains(
+                e.mousePosition
+            )
+        )
+        {
+            return;
+        }
+
+        EnsureWorldSettingsLoaded();
+        EnsureViewportTransformInitialized();
+
+        if (
+            viewportTransform == null
+            ||
+            !viewportTransform.IsInitialized
+            ||
+            !TryCalculateZoomLimits(
+                viewport,
+                out float minimumPixelsPerMeter,
+                out float maximumPixelsPerMeter
+            )
+        )
+        {
+            return;
+        }
+
+        float zoomFactor =
+            Mathf.Pow(
+                ZoomBase,
+                -e.delta.y
+            );
+
+        if (
+            viewportTransform.ZoomAtViewportPoint(
+                e.mousePosition,
+                viewport,
+                zoomFactor,
+                minimumPixelsPerMeter,
+                maximumPixelsPerMeter
+            )
+        )
+        {
+            Repaint();
+        }
+
+        e.Use();
+    }
+
+    private bool TryCalculateZoomLimits(
+        Rect viewport,
+        out float minimumPixelsPerMeter,
+        out float maximumPixelsPerMeter
+    )
+    {
+        minimumPixelsPerMeter =
+            0f;
+
+        maximumPixelsPerMeter =
+            0f;
+
+        if (
+            worldSettings == null
+            ||
+            viewport.width <= 0f
+            ||
+            viewport.height <= 0f
+        )
+        {
+            return false;
+        }
+
+        Vector2 worldSizeXZ =
+            TerrainClipmapLayoutUtility
+                .CalculateWorldSizeXZ(
+                    worldSettings
+                );
+
+        float framePixelsPerMeter =
+            WorldGridViewportTransform
+                .CalculateFramePixelsPerMeter(
+                    worldSizeXZ,
+                    viewport,
+                    FrameWorldPadding
+                );
+
+        float chunkSize =
+            Mathf.Max(
+                0.01f,
+                worldSettings.chunkSize
+            );
+
+        float detailedChunkPixelsPerMeter =
+            DetailedChunkPixelSize /
+            chunkSize;
+
+        minimumPixelsPerMeter =
+            framePixelsPerMeter *
+            MinimumFrameScaleMultiplier;
+
+        maximumPixelsPerMeter =
+            Mathf.Max(
+                detailedChunkPixelsPerMeter,
+                framePixelsPerMeter *
+                    MaximumFrameScaleMultiplier
+            );
+
+        if (
+            float.IsNaN(minimumPixelsPerMeter)
+            ||
+            float.IsInfinity(minimumPixelsPerMeter)
+            ||
+            minimumPixelsPerMeter <= 0f
+            ||
+            float.IsNaN(maximumPixelsPerMeter)
+            ||
+            float.IsInfinity(maximumPixelsPerMeter)
+            ||
+            maximumPixelsPerMeter <= 0f
+        )
+        {
+            return false;
+        }
+
+        if (
+            maximumPixelsPerMeter <
+            minimumPixelsPerMeter
+        )
+        {
+            maximumPixelsPerMeter =
+                minimumPixelsPerMeter;
+        }
+
+        return true;
+    }
+
+    private void FrameWorld(
+        Rect viewport
+    )
+    {
+        EnsureWorldSettingsLoaded();
+
+        if (
+            worldSettings == null
+            ||
+            viewport.width <= 0f
+            ||
+            viewport.height <= 0f
+        )
+        {
+            return;
+        }
+
+        if (viewportTransform == null)
+        {
+            viewportTransform =
+                new WorldGridViewportTransform();
+        }
+
+        Vector2 worldSizeXZ =
+            TerrainClipmapLayoutUtility
+                .CalculateWorldSizeXZ(
+                    worldSettings
+                );
+
+        if (
+            viewportTransform.FrameWorld(
+                worldSizeXZ,
+                viewport,
+                FrameWorldPadding
+            )
+        )
+        {
+            Repaint();
+        }
+    }
+
+    private void DrawFitWorldButton(
+        Rect cornerArea,
+        Rect viewport
+    )
+    {
+        float buttonWidth =
+            Mathf.Max(
+                0f,
+                cornerArea.width -
+                    FitButtonInset *
+                    2f
+            );
+
+        float buttonHeight =
+            Mathf.Max(
+                0f,
+                cornerArea.height -
+                    FitButtonInset *
+                    2f
+            );
+
+        if (
+            buttonWidth <= 0f
+            ||
+            buttonHeight <= 0f
+        )
+        {
+            return;
+        }
+
+        Rect buttonRect =
+            new Rect(
+                cornerArea.x +
+                    FitButtonInset,
+                cornerArea.y +
+                    FitButtonInset,
+                buttonWidth,
+                buttonHeight
+            );
+
+        EditorGUI.BeginDisabledGroup(
+            worldSettings == null
+            ||
+            viewport.width <= 0f
+            ||
+            viewport.height <= 0f
+        );
+
+        if (
+            GUI.Button(
+                buttonRect,
+                new GUIContent(
+                    "Fit",
+                    "Frame World"
+                ),
+                EditorStyles.toolbarButton
+            )
+        )
+        {
+            FrameWorld(
+                viewport
+            );
+        }
+
+        EditorGUI.EndDisabledGroup();
+    }
+
+    private void DrawStatusBar(
+        Rect statusBar,
+        Rect viewport
+    )
+    {
+        if (
+            statusBar.width <= 0f
+            ||
+            statusBar.height <= 0f
+        )
+        {
+            return;
+        }
+
+        GUI.Box(
+            statusBar,
+            GUIContent.none,
+            EditorStyles.toolbar
+        );
+
+        string coordinateText =
+            "X: --    Z: --";
+
+        Event e =
+            Event.current;
+
+        if (
+            mouseInsideWindow
+            &&
+            worldSettings != null
+            &&
+            viewportTransform != null
+            &&
+            viewportTransform.IsInitialized
+            &&
+            viewport.Contains(
+                e.mousePosition
+            )
+        )
+        {
+            Vector2 worldPosition =
+                viewportTransform.ViewportToWorld(
+                    e.mousePosition,
+                    viewport
+                );
+
+            coordinateText =
+                "X: " +
+                worldPosition.x.ToString(
+                    "0.0",
+                    CultureInfo.InvariantCulture
+                ) +
+                " m    Z: " +
+                worldPosition.y.ToString(
+                    "0.0",
+                    CultureInfo.InvariantCulture
+                ) +
+                " m";
+        }
+
+        GUIStyle labelStyle =
+            new GUIStyle(
+                EditorStyles.miniLabel
+            );
+
+        labelStyle.alignment =
+            TextAnchor.MiddleLeft;
+
+        GUI.Label(
+            new Rect(
+                statusBar.x + 6f,
+                statusBar.y,
+                Mathf.Max(
+                    0f,
+                    statusBar.width - 12f
+                ),
+                statusBar.height
+            ),
+            coordinateText,
+            labelStyle
         );
     }
 
