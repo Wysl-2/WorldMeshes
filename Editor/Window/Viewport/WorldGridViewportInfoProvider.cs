@@ -83,9 +83,9 @@ internal sealed class WorldGridViewportWorldInfoProvider :
 
         DrawValue(
             "Context",
-            context.IsPlaying
-                ? "Play Mode"
-                : "Edit Mode"
+            GetExecutionStateDisplayName(
+                context
+            )
         );
 
         DrawValue(
@@ -132,6 +132,32 @@ internal sealed class WorldGridViewportWorldInfoProvider :
             ) +
             " chunks"
         );
+    }
+
+    private static string GetExecutionStateDisplayName(
+        WorldGridViewportContext context
+    )
+    {
+        switch (context.ExecutionState)
+        {
+            case WorldGridViewportExecutionState.EnteringPlayMode:
+                return
+                    "Entering Play Mode";
+
+            case WorldGridViewportExecutionState.PlayMode:
+                return
+                    context.IsPaused
+                        ? "Play Mode (Paused)"
+                        : "Play Mode";
+
+            case WorldGridViewportExecutionState.ExitingPlayMode:
+                return
+                    "Exiting Play Mode";
+
+            default:
+                return
+                    "Edit Mode";
+        }
     }
 
     private static void DrawValue(

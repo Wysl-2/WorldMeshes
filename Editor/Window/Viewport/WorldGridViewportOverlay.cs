@@ -18,6 +18,10 @@ public interface IWorldGridViewportOverlay
         WorldGridViewportContext context
     );
 
+    bool RequiresContinuousRepaint(
+        WorldGridViewportContext context
+    );
+
     void Draw(
         WorldGridViewportContext context
     );

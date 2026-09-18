@@ -48,6 +48,9 @@ public class WorldGridViewportWindow : EditorWindow
     private const float InformationSplitterWidth =
         5f;
 
+    private const double ContinuousRepaintInterval =
+        1.0 / 20.0;
+
     private static readonly Color SplitterColor =
         new Color(
             0f,
@@ -91,6 +94,12 @@ public class WorldGridViewportWindow : EditorWindow
     private bool isResizingInformationPanel;
 
     private bool mouseInsideWindow;
+
+    private WorldGridViewportExecutionState executionState;
+
+    private bool requiresContinuousRepaint;
+
+    private double lastContinuousRepaintTime;
 
     private WorldGridViewportSelection hoveredSelection;
 
@@ -147,6 +156,15 @@ public class WorldGridViewportWindow : EditorWindow
         wantsMouseEnterLeaveWindow =
             true;
 
+        executionState =
+            ResolveInitialExecutionState();
+
+        requiresContinuousRepaint =
+            false;
+
+        lastContinuousRepaintTime =
+            0d;
+
         EnsureWorldSettingsLoaded();
         EnsureViewportTransformInitialized();
 
@@ -167,6 +185,18 @@ public class WorldGridViewportWindow : EditorWindow
 
         EditorApplication.playModeStateChanged +=
             HandlePlayModeStateChanged;
+
+        EditorApplication.pauseStateChanged -=
+            HandlePauseStateChanged;
+
+        EditorApplication.pauseStateChanged +=
+            HandlePauseStateChanged;
+
+        EditorApplication.update -=
+            HandleEditorUpdate;
+
+        EditorApplication.update +=
+            HandleEditorUpdate;
     }
 
     private void OnDisable()
@@ -176,6 +206,18 @@ public class WorldGridViewportWindow : EditorWindow
 
         EditorApplication.playModeStateChanged -=
             HandlePlayModeStateChanged;
+
+        EditorApplication.pauseStateChanged -=
+            HandlePauseStateChanged;
+
+        EditorApplication.update -=
+            HandleEditorUpdate;
+
+        requiresContinuousRepaint =
+            false;
+
+        lastContinuousRepaintTime =
+            0d;
     }
 
     private void OnProjectChange()
@@ -198,7 +240,105 @@ public class WorldGridViewportWindow : EditorWindow
         PlayModeStateChange state
     )
     {
+        switch (state)
+        {
+            case PlayModeStateChange.ExitingEditMode:
+                executionState =
+                    WorldGridViewportExecutionState
+                        .EnteringPlayMode;
+                break;
+
+            case PlayModeStateChange.EnteredPlayMode:
+                executionState =
+                    WorldGridViewportExecutionState
+                        .PlayMode;
+                break;
+
+            case PlayModeStateChange.ExitingPlayMode:
+                executionState =
+                    WorldGridViewportExecutionState
+                        .ExitingPlayMode;
+                break;
+
+            case PlayModeStateChange.EnteredEditMode:
+                executionState =
+                    WorldGridViewportExecutionState
+                        .EditMode;
+                break;
+        }
+
+        InvalidateContinuousRepaint();
         Repaint();
+    }
+
+    private void HandlePauseStateChanged(
+        PauseState state
+    )
+    {
+        _ =
+            state;
+
+        InvalidateContinuousRepaint();
+        Repaint();
+    }
+
+    private void HandleEditorUpdate()
+    {
+        if (!requiresContinuousRepaint)
+        {
+            return;
+        }
+
+        double currentTime =
+            EditorApplication.timeSinceStartup;
+
+        if (
+            currentTime -
+                lastContinuousRepaintTime <
+            ContinuousRepaintInterval
+        )
+        {
+            return;
+        }
+
+        lastContinuousRepaintTime =
+            currentTime;
+
+        Repaint();
+    }
+
+    private static WorldGridViewportExecutionState
+        ResolveInitialExecutionState()
+    {
+        if (EditorApplication.isPlaying)
+        {
+            return
+                WorldGridViewportExecutionState
+                    .PlayMode;
+        }
+
+        if (
+            EditorApplication
+                .isPlayingOrWillChangePlaymode
+        )
+        {
+            return
+                WorldGridViewportExecutionState
+                    .EnteringPlayMode;
+        }
+
+        return
+            WorldGridViewportExecutionState
+                .EditMode;
+    }
+
+    private void InvalidateContinuousRepaint()
+    {
+        requiresContinuousRepaint =
+            false;
+
+        lastContinuousRepaintTime =
+            0d;
     }
 
     private void EnsureWorldSettingsLoaded()
@@ -289,6 +429,9 @@ public class WorldGridViewportWindow : EditorWindow
             CreateContext(
                 viewport
             );
+
+        requiresContinuousRepaint =
+            false;
 
         DrawViewport(
             context
@@ -725,7 +868,8 @@ public class WorldGridViewportWindow : EditorWindow
                 worldSettings,
                 viewportTransform,
                 viewport,
-                EditorApplication.isPlaying,
+                executionState,
+                EditorApplication.isPaused,
                 isMouseOverViewport,
                 mouseWorldXZ,
                 hasMouseWorldPosition
@@ -1331,6 +1475,16 @@ public class WorldGridViewportWindow : EditorWindow
             )
             {
                 continue;
+            }
+
+            if (
+                overlay.RequiresContinuousRepaint(
+                    context
+                )
+            )
+            {
+                requiresContinuousRepaint =
+                    true;
             }
 
             overlay.Draw(

@@ -17,7 +17,35 @@ public readonly struct WorldGridViewportContext
         get;
     }
 
+    public WorldGridViewportExecutionState ExecutionState
+    {
+        get;
+    }
+
     public bool IsPlaying
+    {
+        get
+        {
+            return
+                ExecutionState ==
+                WorldGridViewportExecutionState.PlayMode;
+        }
+    }
+
+    public bool IsTransitioning
+    {
+        get
+        {
+            return
+                ExecutionState ==
+                    WorldGridViewportExecutionState.EnteringPlayMode
+                ||
+                ExecutionState ==
+                    WorldGridViewportExecutionState.ExitingPlayMode;
+        }
+    }
+
+    public bool IsPaused
     {
         get;
     }
@@ -41,7 +69,8 @@ public readonly struct WorldGridViewportContext
         WorldSettings worldSettings,
         WorldGridViewportTransform transform,
         Rect viewportRect,
-        bool isPlaying,
+        WorldGridViewportExecutionState executionState,
+        bool isPaused,
         bool isMouseOverViewport,
         Vector2 mouseWorldXZ,
         bool hasMouseWorldPosition
@@ -56,8 +85,11 @@ public readonly struct WorldGridViewportContext
         ViewportRect =
             viewportRect;
 
-        IsPlaying =
-            isPlaying;
+        ExecutionState =
+            executionState;
+
+        IsPaused =
+            isPaused;
 
         IsMouseOverViewport =
             isMouseOverViewport;
