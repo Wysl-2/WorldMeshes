@@ -113,6 +113,17 @@ public static class TerrainAuthoringPreviewService
         Vector2.zero;
 
     /*
+     * Package 02 requested residency state.
+     *
+     * The active resident window remains authoritative on previewCache.
+     * This value represents only the latest local window requested for the
+     * next synchronous cache build. A later package introduces staging.
+     */
+    private static bool hasRequestedResidencyWindow;
+
+    private static TerrainHeightCacheWindow requestedResidencyWindow;
+
+    /*
      * Stage 10 validation-only monotonic binding diagnostic.
      *
      * This is not preview lifecycle state and does not influence any
@@ -185,6 +196,8 @@ public static class TerrainAuthoringPreviewService
                 heightCompositor.Dispose();
 
                 dirtyCompositeTiles.Clear();
+
+                ClearRequestedResidency();
 
                 SetStatus(
                     TerrainAuthoringPreviewStatus.Disabled,
@@ -288,6 +301,253 @@ public static class TerrainAuthoringPreviewService
                 out minimumXZ,
                 out maximumXZ
             );
+    }
+
+    public static bool TryGetActiveResidentWindow(
+        out TerrainHeightCacheWindow window
+    )
+    {
+        window =
+            default;
+
+        if (
+            previewCache == null
+            ||
+            !previewCache.IsReady
+        )
+        {
+            return false;
+        }
+
+        window =
+            new TerrainHeightCacheWindow(
+                previewCache.CacheOriginTile,
+                previewCache.CacheSize
+            );
+
+        return
+            window.IsValid;
+    }
+
+    public static bool TryGetRequestedResidentWindow(
+        out TerrainHeightCacheWindow window
+    )
+    {
+        window =
+            hasRequestedResidencyWindow
+                ? requestedResidencyWindow
+                : default;
+
+        return
+            hasRequestedResidencyWindow
+            &&
+            window.IsValid;
+    }
+
+    public static bool ActiveCacheContains(
+        TerrainHeightCacheWindow requiredWindow
+    )
+    {
+        if (
+            !Enabled
+            ||
+            status !=
+                TerrainAuthoringPreviewStatus.Ready
+            ||
+            !requiredWindow.IsValid
+            ||
+            !TryGetActiveResidentWindow(
+                out TerrainHeightCacheWindow activeWindow
+            )
+        )
+        {
+            return false;
+        }
+
+        return
+            activeWindow.Contains(
+                requiredWindow
+            );
+    }
+
+    public static bool CanActiveCacheCoverWorldBounds(
+        Vector2 minimumXZ,
+        Vector2 maximumXZ
+    )
+    {
+        if (
+            !Enabled
+            ||
+            status !=
+                TerrainAuthoringPreviewStatus.Ready
+        )
+        {
+            return false;
+        }
+
+        WorldSettings worldSettings =
+            LoadWorldSettings();
+
+        if (worldSettings == null)
+        {
+            return false;
+        }
+
+        if (
+            !TerrainAuthoringPreviewResidencyUtility
+                .TryCalculateRequiredWindow(
+                    worldSettings,
+                    minimumXZ,
+                    maximumXZ,
+                    TerrainAuthoringPreviewResidencyUtility
+                        .DefaultSamplePadding,
+                    out TerrainHeightCacheWindow requiredWindow,
+                    out _
+                )
+        )
+        {
+            return false;
+        }
+
+        return
+            ActiveCacheContains(
+                requiredWindow
+            );
+    }
+
+    public static bool RequestResidencyForWorldBounds(
+        Vector2 minimumXZ,
+        Vector2 maximumXZ,
+        out string errorMessage
+    )
+    {
+        errorMessage =
+            "";
+
+        if (!Enabled)
+        {
+            errorMessage =
+                "Terrain authoring Height Preview is disabled.";
+
+            return false;
+        }
+
+        WorldSettings worldSettings =
+            LoadWorldSettings();
+
+        if (worldSettings == null)
+        {
+            errorMessage =
+                "WorldSettings could not be loaded for the editor " +
+                "height-cache residency request.";
+
+            return false;
+        }
+
+        if (
+            !TerrainAuthoringPreviewResidencyUtility
+                .TryCalculateRequiredWindow(
+                    worldSettings,
+                    minimumXZ,
+                    maximumXZ,
+                    TerrainAuthoringPreviewResidencyUtility
+                        .DefaultSamplePadding,
+                    out TerrainHeightCacheWindow requiredWindow,
+                    out errorMessage
+                )
+        )
+        {
+            return false;
+        }
+
+        if (
+            ActiveCacheContains(
+                requiredWindow
+            )
+        )
+        {
+            ClearRequestedResidency();
+
+            return true;
+        }
+
+        Vector2Int minimumResidentSize =
+            Vector2Int.zero;
+
+        bool hasActiveWindow =
+            TryGetActiveResidentWindow(
+                out TerrainHeightCacheWindow activeWindow
+            );
+
+        if (hasActiveWindow)
+        {
+            minimumResidentSize =
+                activeWindow.Size;
+        }
+
+        if (
+            !TerrainAuthoringPreviewResidencyUtility
+                .TryCalculateResidentWindow(
+                    worldSettings,
+                    minimumXZ,
+                    maximumXZ,
+                    TerrainAuthoringPreviewResidencyUtility
+                        .DefaultSamplePadding,
+                    TerrainAuthoringPreviewResidencyUtility
+                        .DefaultGuardTileCount,
+                    minimumResidentSize,
+                    out TerrainHeightCacheWindow residentWindow,
+                    out errorMessage
+                )
+        )
+        {
+            return false;
+        }
+
+        if (
+            hasActiveWindow
+            &&
+            activeWindow ==
+                residentWindow
+        )
+        {
+            ClearRequestedResidency();
+
+            /*
+             * If the cache exists but is temporarily not Ready, keep the
+             * normal PreviewService refresh path alive so authoring/binding
+             * state can recover without inventing another residency window.
+             */
+            if (
+                status !=
+                    TerrainAuthoringPreviewStatus.Ready
+            )
+            {
+                ScheduleRefresh();
+            }
+
+            return true;
+        }
+
+        if (
+            hasRequestedResidencyWindow
+            &&
+            requestedResidencyWindow ==
+                residentWindow
+        )
+        {
+            return true;
+        }
+
+        requestedResidencyWindow =
+            residentWindow;
+
+        hasRequestedResidencyWindow =
+            true;
+
+        ScheduleRefresh();
+
+        return true;
     }
 
     public static int CacheWidth
@@ -436,6 +696,15 @@ public static class TerrainAuthoringPreviewService
     }
 
     public static long FullCommittedBuildCount
+    {
+        get
+        {
+            return
+                fullCommittedBuildCount;
+        }
+    }
+
+    public static long ResidentCacheBuildCount
     {
         get
         {
@@ -913,7 +1182,7 @@ public static class TerrainAuthoringPreviewService
      * Use when the physical committed base heightfield or its layout
      * changed.
      *
-     * This is the normal full-cache rebuild boundary.
+     * This is the normal resident-cache rebuild boundary.
      */
     public static void NotifyCommittedHeightfieldChanged()
     {
@@ -1145,6 +1414,8 @@ public static class TerrainAuthoringPreviewService
         overallSignatureAcknowledgementRequested =
             false;
 
+        ClearRequestedResidency();
+
         ReleaseBinding();
         ReleaseCache();
 
@@ -1156,6 +1427,126 @@ public static class TerrainAuthoringPreviewService
         );
 
         RepaintEditorViews();
+    }
+
+    // =====================================================
+    // RESIDENCY HELPERS
+    // =====================================================
+
+    private static void ClearRequestedResidency()
+    {
+        hasRequestedResidencyWindow =
+            false;
+
+        requestedResidencyWindow =
+            default;
+    }
+
+    private static bool TryResolveBuildWindow(
+        WorldSettings worldSettings,
+        out TerrainHeightCacheWindow buildWindow,
+        out string errorMessage
+    )
+    {
+        buildWindow =
+            default;
+
+        errorMessage =
+            "";
+
+        if (worldSettings == null)
+        {
+            errorMessage =
+                "WorldSettings is null while resolving editor height-cache residency.";
+
+            return false;
+        }
+
+        Vector2Int worldGridSize =
+            new Vector2Int(
+                worldSettings.HeightTileGridWidth,
+                worldSettings.HeightTileGridHeight
+            );
+
+        if (hasRequestedResidencyWindow)
+        {
+            if (
+                IsWindowInsideWorldGrid(
+                    requestedResidencyWindow,
+                    worldGridSize
+                )
+            )
+            {
+                buildWindow =
+                    requestedResidencyWindow;
+
+                return true;
+            }
+
+            ClearRequestedResidency();
+        }
+
+        if (
+            TryGetActiveResidentWindow(
+                out TerrainHeightCacheWindow activeWindow
+            )
+            &&
+            IsWindowInsideWorldGrid(
+                activeWindow,
+                worldGridSize
+            )
+        )
+        {
+            buildWindow =
+                activeWindow;
+
+            return true;
+        }
+
+        if (
+            !TerrainAuthoringPreviewResidencyUtility
+                .TryCalculateCanonicalResidentWindow(
+                    worldSettings,
+                    out buildWindow,
+                    out errorMessage
+                )
+        )
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsWindowInsideWorldGrid(
+        TerrainHeightCacheWindow window,
+        Vector2Int worldGridSize
+    )
+    {
+        if (
+            !window.IsValid
+            ||
+            worldGridSize.x <= 0
+            ||
+            worldGridSize.y <= 0
+            ||
+            window.OriginTile.x < 0
+            ||
+            window.OriginTile.y < 0
+        )
+        {
+            return false;
+        }
+
+        Vector2Int maximumExclusive =
+            window.MaximumExclusive;
+
+        return
+            maximumExclusive.x <=
+                worldGridSize.x
+            &&
+            maximumExclusive.y <=
+                worldGridSize.y;
     }
 
     // =====================================================
@@ -1363,8 +1754,42 @@ public static class TerrainAuthoringPreviewService
         }
 
         // =================================================
-        // FULL COMMITTED BUILD DECISION
+        // RESIDENT COMMITTED BUILD DECISION
         // =================================================
+
+        if (
+            !TryResolveBuildWindow(
+                worldSettings,
+                out TerrainHeightCacheWindow buildWindow,
+                out string residencyError
+            )
+        )
+        {
+            ReleaseBinding();
+            ReleaseCache();
+
+            SetStatus(
+                TerrainAuthoringPreviewStatus.Error,
+                "The editor preview could not resolve a valid local " +
+                "height-cache residency window.\n\n" +
+                residencyError
+            );
+
+            RepaintEditorViews();
+
+            return;
+        }
+
+        bool hasActiveWindow =
+            TryGetActiveResidentWindow(
+                out TerrainHeightCacheWindow activeWindow
+            );
+
+        bool residencyChanged =
+            !hasActiveWindow
+            ||
+            activeWindow !=
+                buildWindow;
 
         bool cacheNeedsBuild =
             previewCache == null
@@ -1376,7 +1801,21 @@ public static class TerrainAuthoringPreviewService
             previewCache
                 .SourceCommittedHeightfieldSignature
             !=
-            currentCommittedSignature;
+            currentCommittedSignature
+            ||
+            residencyChanged;
+
+        if (
+            !cacheNeedsBuild
+            &&
+            hasRequestedResidencyWindow
+            &&
+            requestedResidencyWindow ==
+                buildWindow
+        )
+        {
+            ClearRequestedResidency();
+        }
 
         if (cacheNeedsBuild)
         {
@@ -1384,9 +1823,9 @@ public static class TerrainAuthoringPreviewService
                 WorldMeshesProfiler.PreviewRebuild.Auto();
 
             /*
-             * Full committed rebuilds replace the RenderTexture object,
+             * Resident committed rebuilds replace the RenderTexture object,
              * so stop the clipmap sampling the previous cache before the
-             * atomic committed-base transaction.
+             * synchronous local-cache transaction.
              */
             ReleaseBinding();
 
@@ -1397,15 +1836,6 @@ public static class TerrainAuthoringPreviewService
                 previewCache
                 ??
                 new TerrainAuthoringPreviewCache();
-
-            TerrainHeightCacheWindow buildWindow =
-                new TerrainHeightCacheWindow(
-                    Vector2Int.zero,
-                    new Vector2Int(
-                        worldSettings.HeightTileGridWidth,
-                        worldSettings.HeightTileGridHeight
-                    )
-                );
 
             if (
                 !newCache.TryBuild(
@@ -1440,6 +1870,16 @@ public static class TerrainAuthoringPreviewService
             previewCache =
                 newCache;
 
+            if (
+                hasRequestedResidencyWindow
+                &&
+                requestedResidencyWindow ==
+                    buildWindow
+            )
+            {
+                ClearRequestedResidency();
+            }
+
             fullCommittedBuildCount++;
 
             committedRebuildRequested =
@@ -1449,7 +1889,7 @@ public static class TerrainAuthoringPreviewService
                 true;
 
             /*
-             * A full build has created committed/base cache contents only.
+             * A resident build has created committed/base cache contents only.
              *
              * Rebuild the current complete modifier state through the
              * SAME dirty-slice transaction used by ordinary edits.
@@ -1926,9 +2366,9 @@ public static class TerrainAuthoringPreviewService
         else
         {
             readyMessage =
-                "The committed base heightfield is cached once and " +
-                "the preview is ready for incremental composite " +
-                "slice updates.";
+                "The resident committed-base heightfield window is " +
+                "cached and ready for incremental composite slice " +
+                "updates.";
         }
 
         SetStatus(
@@ -2153,7 +2593,7 @@ public static class TerrainAuthoringPreviewService
     private static void OnProjectChanged()
     {
         /*
-         * Do not blindly rebuild the world cache.
+         * Do not blindly rebuild or recenter the resident cache.
          *
          * The next refresh compares the cheap committed-heightfield
          * signature. Authorized committed-base transactions use
@@ -2184,6 +2624,8 @@ public static class TerrainAuthoringPreviewService
                 ReleaseCache();
 
                 dirtyCompositeTiles.Clear();
+
+                ClearRequestedResidency();
 
                 SetStatus(
                     TerrainAuthoringPreviewStatus.PlayMode,

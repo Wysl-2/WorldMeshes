@@ -78,17 +78,17 @@ public partial class WorldMeshesEditorWindow :
 
             EditorGUILayout.LabelField(
                 "Cache Model",
-                "Committed Base + Incremental Composite"
+                "Resident Committed Base + Incremental Composite"
             );
 
             EditorGUILayout.LabelField(
-                "Cache Tile Grid",
+                "Resident Tile Grid",
                 $"{TerrainAuthoringPreviewService.CacheWidth} x " +
                 $"{TerrainAuthoringPreviewService.CacheHeight}"
             );
 
             EditorGUILayout.LabelField(
-                "Cache Slices",
+                "Resident Slices",
                 TerrainAuthoringPreviewService
                     .CacheSliceCount
                     .ToString("N0")
@@ -109,6 +109,19 @@ public partial class WorldMeshesEditorWindow :
                 $"{cacheOrigin.x}, {cacheOrigin.y}"
             );
 
+            if (
+                TerrainAuthoringPreviewService
+                    .TryGetRequestedResidentWindow(
+                        out TerrainHeightCacheWindow requestedWindow
+                    )
+            )
+            {
+                EditorGUILayout.LabelField(
+                    "Requested Resident Window",
+                    requestedWindow.ToString()
+                );
+            }
+
             EditorGUILayout.LabelField(
                 "Preview Height Range",
                 $"{TerrainAuthoringPreviewService.MinimumPreviewHeight:R} -> " +
@@ -123,9 +136,9 @@ public partial class WorldMeshesEditorWindow :
             );
 
             EditorGUILayout.LabelField(
-                "Full Cache Builds",
+                "Resident Cache Builds",
                 TerrainAuthoringPreviewService
-                    .FullCommittedBuildCount
+                    .ResidentCacheBuildCount
                     .ToString("N0")
             );
 
@@ -205,18 +218,18 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.HelpBox(
-            "The edit-mode preview now keeps committed base " +
-            "heightfield identity separate from overall authoring " +
-            "state.\n\n" +
+            "The edit-mode Height Preview now keeps only the local " +
+            "height-tile window required by the current clipmap, plus " +
+            "sample safety and a one-tile residency guard.\n\n" +
 
-            "Committed base/layout changes rebuild the full GPU " +
-            "cache. Future modifier edits can instead notify only " +
-            "their affected height tiles so those existing texture-" +
-            "array slices are recomposited in place without replacing " +
-            "or rebinding the full cache.\n\n" +
+            "Committed base/layout changes rebuild the current resident " +
+            "window. Modifier edits still recomposite affected resident " +
+            "slices in place. Nonresident terrain remains authoritative " +
+            "authoring data rather than missing data.\n\n" +
 
-            "The Rebuild Committed Preview button performs the " +
-            "expensive validation/full rebuild explicitly.",
+            "Package 02 cache replacement is synchronous, so moving into " +
+            "a new resident window may temporarily hitch. Staged and " +
+            "incremental transitions are introduced by later packages.",
             MessageType.Info
         );
 

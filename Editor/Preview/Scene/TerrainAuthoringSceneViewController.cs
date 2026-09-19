@@ -16,6 +16,7 @@ public enum TerrainAuthoringSceneViewStatus
     PlayMode,
     ClipmapUnavailable,
     SceneViewUnavailable,
+    WaitingForHeightCache,
     Following,
     Frozen,
     Error
@@ -37,7 +38,7 @@ public enum TerrainAuthoringSceneViewStatus
  * This service deliberately does NOT:
  *
  * - own or rebuild the authoring height cache
- * - stream height data
+ * - perform height-cache loading or GPU residency work
  * - contain clipmap placement mathematics
  * - contain stitch-placement mathematics
  * - run in Play Mode
@@ -45,6 +46,13 @@ public enum TerrainAuthoringSceneViewStatus
 [InitializeOnLoad]
 public static class TerrainAuthoringSceneViewController
 {
+    private enum FollowTargetApplyResult
+    {
+        Applied,
+        WaitingForResidency,
+        Failed
+    }
+
     // =====================================================
     // EDITOR PREFERENCES
     // =====================================================
@@ -154,6 +162,10 @@ public static class TerrainAuthoringSceneViewController
         layoutApplier.AppliedBoundsChanged +=
             OnAppliedBoundsChanged;
 
+        TerrainAuthoringPreviewService
+            .HeightCacheCoverageChanged +=
+                OnHeightCacheCoverageChanged;
+
         SceneView.duringSceneGui +=
             OnSceneViewGUI;
 
@@ -228,9 +240,28 @@ public static class TerrainAuthoringSceneViewController
                 hasLastFollowTarget =
                     false;
 
-                RestoreCanonicalHierarchy(
-                    true
-                );
+                if (
+                    !TryEnsureCanonicalResidency(
+                        out bool waitingForResidency,
+                        out string residencyError
+                    )
+                )
+                {
+                    SetStatus(
+                        TerrainAuthoringSceneViewStatus.Error,
+                        residencyError
+                    );
+                }
+                else if (waitingForResidency)
+                {
+                    SetWaitingForHeightCacheStatus();
+                }
+                else
+                {
+                    RestoreCanonicalHierarchy(
+                        true
+                    );
+                }
 
                 RepaintEditorViews();
 
@@ -344,12 +375,24 @@ public static class TerrainAuthoringSceneViewController
             {
                 CaptureFrozenTarget();
 
-                SetStatus(
-                    TerrainAuthoringSceneViewStatus.Frozen,
+                if (
+                    status ==
+                        TerrainAuthoringSceneViewStatus.WaitingForHeightCache
+                    &&
                     hasFrozenTarget
-                        ? "The clipmap preview is frozen at its current follow target."
-                        : "The clipmap preview is frozen."
-                );
+                )
+                {
+                    SetWaitingForHeightCacheStatus();
+                }
+                else
+                {
+                    SetStatus(
+                        TerrainAuthoringSceneViewStatus.Frozen,
+                        hasFrozenTarget
+                            ? "The clipmap preview is frozen at its current follow target."
+                            : "The clipmap preview is frozen."
+                    );
+                }
 
                 RepaintEditorViews();
 
@@ -393,6 +436,10 @@ public static class TerrainAuthoringSceneViewController
                 case TerrainAuthoringSceneViewStatus.SceneViewUnavailable:
                     return
                         "Scene View Unavailable";
+
+                case TerrainAuthoringSceneViewStatus.WaitingForHeightCache:
+                    return
+                        "Waiting For Height Cache";
 
                 case TerrainAuthoringSceneViewStatus.Following:
                     return
@@ -486,8 +533,8 @@ public static class TerrainAuthoringSceneViewController
      * Use after generated hierarchy synchronization or any editor
      * operation that may have replaced/reset clipmap children.
      *
-     * The full-world authoring height cache is deliberately not
-     * touched.
+     * Height-cache residency remains owned by PreviewService and may
+     * be requested only after a candidate layout is calculated.
      */
     public static void RequestReapply()
     {
@@ -524,6 +571,32 @@ public static class TerrainAuthoringSceneViewController
 
         if (!FollowSceneView)
         {
+            if (
+                !TryEnsureCanonicalResidency(
+                    out bool waitingForResidency,
+                    out string residencyError
+                )
+            )
+            {
+                SetStatus(
+                    TerrainAuthoringSceneViewStatus.Error,
+                    residencyError
+                );
+
+                RepaintEditorViews();
+
+                return false;
+            }
+
+            if (waitingForResidency)
+            {
+                SetWaitingForHeightCacheStatus();
+
+                RepaintEditorViews();
+
+                return true;
+            }
+
             return
                 RestoreCanonicalHierarchy(
                     true
@@ -560,13 +633,32 @@ public static class TerrainAuthoringSceneViewController
                     centerTarget
                 );
 
-        if (
-            !TryApplyFollowTarget(
+        freezePreview =
+            true;
+
+        hasFrozenTarget =
+            true;
+
+        frozenTarget =
+            centerTarget;
+
+        FollowTargetApplyResult applyResult =
+            TryApplyFollowTarget(
                 centerTarget,
                 out string applyError
-            )
+            );
+
+        if (
+            applyResult ==
+                FollowTargetApplyResult.Failed
         )
         {
+            freezePreview =
+                false;
+
+            hasFrozenTarget =
+                false;
+
             SetStatus(
                 TerrainAuthoringSceneViewStatus.Error,
                 applyError
@@ -577,14 +669,17 @@ public static class TerrainAuthoringSceneViewController
             return false;
         }
 
-        freezePreview =
-            true;
+        if (
+            applyResult ==
+                FollowTargetApplyResult.WaitingForResidency
+        )
+        {
+            SetWaitingForHeightCacheStatus();
 
-        hasFrozenTarget =
-            true;
+            RepaintEditorViews();
 
-        frozenTarget =
-            centerTarget;
+            return true;
+        }
 
         SetStatus(
             TerrainAuthoringSceneViewStatus.Frozen,
@@ -668,11 +763,15 @@ public static class TerrainAuthoringSceneViewController
             return;
         }
 
-        if (
-            !TryApplyFollowTarget(
+        FollowTargetApplyResult applyResult =
+            TryApplyFollowTarget(
                 target,
                 out string applyError
-            )
+            );
+
+        if (
+            applyResult ==
+                FollowTargetApplyResult.Failed
         )
         {
             SetStatus(
@@ -683,13 +782,17 @@ public static class TerrainAuthoringSceneViewController
             return;
         }
 
-        SetStatus(
-            TerrainAuthoringSceneViewStatus.Following,
-            FollowSource ==
-                TerrainAuthoringSceneViewFollowSource.Camera
-                ? "The edit-mode clipmap is following the active Scene View camera."
-                : "The edit-mode clipmap is following the active Scene View pivot."
-        );
+        if (
+            applyResult ==
+                FollowTargetApplyResult.WaitingForResidency
+        )
+        {
+            SetWaitingForHeightCacheStatus();
+
+            return;
+        }
+
+        SetFollowingStatus();
     }
 
     // =====================================================
@@ -753,7 +856,7 @@ public static class TerrainAuthoringSceneViewController
     // APPLY FOLLOW TARGET
     // =====================================================
 
-    private static bool TryApplyFollowTarget(
+    private static FollowTargetApplyResult TryApplyFollowTarget(
         Vector3 target,
         out string errorMessage
     )
@@ -767,7 +870,8 @@ public static class TerrainAuthoringSceneViewController
             )
         )
         {
-            return false;
+            return
+                FollowTargetApplyResult.Failed;
         }
 
         Vector3 clampedTarget =
@@ -805,7 +909,44 @@ public static class TerrainAuthoringSceneViewController
                 "The editor clipmap layout could not be calculated.\n\n" +
                 layoutError;
 
-            return false;
+            return
+                FollowTargetApplyResult.Failed;
+        }
+
+        /*
+         * Candidate layout calculation remains SceneViewController-owned.
+         * PreviewService owns whether the sample-safe height data required by
+         * those exact world bounds is resident.
+         */
+        if (
+            TerrainAuthoringPreviewService.Enabled
+            &&
+            !TerrainAuthoringPreviewService
+                .CanActiveCacheCoverWorldBounds(
+                    candidateLayout.MinimumXZ,
+                    candidateLayout.MaximumXZ
+                )
+        )
+        {
+            if (
+                !TerrainAuthoringPreviewService
+                    .RequestResidencyForWorldBounds(
+                        candidateLayout.MinimumXZ,
+                        candidateLayout.MaximumXZ,
+                        out string residencyError
+                    )
+            )
+            {
+                errorMessage =
+                    "The editor height-cache residency request failed.\n\n" +
+                    residencyError;
+
+                return
+                    FollowTargetApplyResult.Failed;
+            }
+
+            return
+                FollowTargetApplyResult.WaitingForResidency;
         }
 
         /*
@@ -813,8 +954,8 @@ public static class TerrainAuthoringSceneViewController
          * while the independently-snapped clipmap layout changes
          * only when one or more LOD grids cross a snapping boundary.
          *
-         * Do not rewrite scene transforms when the complete snapped
-         * layout is unchanged.
+         * The residency check intentionally occurs first. An equal layout is
+         * not safe if the active cache was replaced with different coverage.
          */
         if (
             appliedLayout.IsValid
@@ -825,7 +966,8 @@ public static class TerrainAuthoringSceneViewController
             )
         )
         {
-            return true;
+            return
+                FollowTargetApplyResult.Applied;
         }
 
         isApplyingPlacement =
@@ -844,7 +986,8 @@ public static class TerrainAuthoringSceneViewController
                     "The editor clipmap layout could not be applied.\n\n" +
                     applyError;
 
-                return false;
+                return
+                    FollowTargetApplyResult.Failed;
             }
         }
         finally
@@ -879,7 +1022,8 @@ public static class TerrainAuthoringSceneViewController
 
         RepaintWorldMeshesWindows();
 
-        return true;
+        return
+            FollowTargetApplyResult.Applied;
     }
 
     // =====================================================
@@ -1045,6 +1189,89 @@ public static class TerrainAuthoringSceneViewController
             WorldMeshesPaths.WorldSettingsAssetPath;
 
         return false;
+    }
+
+    // =====================================================
+    // CANONICAL RESIDENCY
+    // =====================================================
+
+    private static bool TryEnsureCanonicalResidency(
+        out bool waitingForResidency,
+        out string errorMessage
+    )
+    {
+        waitingForResidency =
+            false;
+
+        errorMessage =
+            "";
+
+        if (!TerrainAuthoringPreviewService.Enabled)
+        {
+            return true;
+        }
+
+        if (
+            !TryEnsureWorldSettings(
+                out errorMessage
+            )
+        )
+        {
+            return false;
+        }
+
+        if (
+            !TerrainAuthoringPreviewResidencyUtility
+                .TryCalculateCanonicalClipmapBounds(
+                    worldSettings,
+                    out Vector2 minimumXZ,
+                    out Vector2 maximumXZ,
+                    out errorMessage
+                )
+        )
+        {
+            return false;
+        }
+
+        if (
+            TerrainAuthoringPreviewService
+                .CanActiveCacheCoverWorldBounds(
+                    minimumXZ,
+                    maximumXZ
+                )
+        )
+        {
+            return true;
+        }
+
+        bool hadActiveCache =
+            TerrainAuthoringPreviewService
+                .TryGetActiveResidentWindow(
+                    out _
+                );
+
+        if (
+            !TerrainAuthoringPreviewService
+                .RequestResidencyForWorldBounds(
+                    minimumXZ,
+                    maximumXZ,
+                    out errorMessage
+                )
+        )
+        {
+            return false;
+        }
+
+        /*
+         * With no active cache there is no old cache/layout mismatch to
+         * preserve, so canonical hierarchy restoration may proceed while the
+         * first local cache is being prepared. If a cache is already active,
+         * retain the last safe hierarchy until canonical residency arrives.
+         */
+        waitingForResidency =
+            hadActiveCache;
+
+        return true;
     }
 
     // =====================================================
@@ -1328,9 +1555,28 @@ public static class TerrainAuthoringSceneViewController
 
         if (!FollowSceneView)
         {
-            RestoreCanonicalHierarchy(
-                true
-            );
+            if (
+                !TryEnsureCanonicalResidency(
+                    out bool waitingForResidency,
+                    out string residencyError
+                )
+            )
+            {
+                SetStatus(
+                    TerrainAuthoringSceneViewStatus.Error,
+                    residencyError
+                );
+            }
+            else if (waitingForResidency)
+            {
+                SetWaitingForHeightCacheStatus();
+            }
+            else
+            {
+                RestoreCanonicalHierarchy(
+                    true
+                );
+            }
 
             RepaintEditorViews();
 
@@ -1343,17 +1589,28 @@ public static class TerrainAuthoringSceneViewController
             hasFrozenTarget
         )
         {
-            if (
+            FollowTargetApplyResult frozenApplyResult =
                 TryApplyFollowTarget(
                     frozenTarget,
                     out string frozenApplyError
-                )
+                );
+
+            if (
+                frozenApplyResult ==
+                    FollowTargetApplyResult.Applied
             )
             {
                 SetStatus(
                     TerrainAuthoringSceneViewStatus.Frozen,
                     "The frozen edit-mode clipmap preview was reapplied."
                 );
+            }
+            else if (
+                frozenApplyResult ==
+                    FollowTargetApplyResult.WaitingForResidency
+            )
+            {
+                SetWaitingForHeightCacheStatus();
             }
             else
             {
@@ -1405,11 +1662,15 @@ public static class TerrainAuthoringSceneViewController
             return;
         }
 
-        if (
+        FollowTargetApplyResult applyResult =
             TryApplyFollowTarget(
                 target,
                 out string applyError
-            )
+            );
+
+        if (
+            applyResult ==
+                FollowTargetApplyResult.Applied
         )
         {
             if (freezePreview)
@@ -1427,14 +1688,15 @@ public static class TerrainAuthoringSceneViewController
             }
             else
             {
-                SetStatus(
-                    TerrainAuthoringSceneViewStatus.Following,
-                    FollowSource ==
-                        TerrainAuthoringSceneViewFollowSource.Camera
-                        ? "The edit-mode clipmap is following the active Scene View camera."
-                        : "The edit-mode clipmap is following the active Scene View pivot."
-                );
+                SetFollowingStatus();
             }
+        }
+        else if (
+            applyResult ==
+                FollowTargetApplyResult.WaitingForResidency
+        )
+        {
+            SetWaitingForHeightCacheStatus();
         }
         else
         {
@@ -1450,6 +1712,125 @@ public static class TerrainAuthoringSceneViewController
     // =====================================================
     // EDITOR EVENTS
     // =====================================================
+
+    private static void OnHeightCacheCoverageChanged()
+    {
+        if (
+            Application.isPlaying
+            ||
+            EditorApplication.isPlayingOrWillChangePlaymode
+            ||
+            suspendedForPlayMode
+            ||
+            !TerrainAuthoringPreviewService
+                .TryGetHeightCacheWorldCoverage(
+                    out _,
+                    out _
+                )
+        )
+        {
+            return;
+        }
+
+        if (!FollowSceneView)
+        {
+            if (
+                !TryEnsureCanonicalResidency(
+                    out bool waitingForResidency,
+                    out string residencyError
+                )
+            )
+            {
+                SetStatus(
+                    TerrainAuthoringSceneViewStatus.Error,
+                    residencyError
+                );
+            }
+            else if (waitingForResidency)
+            {
+                SetWaitingForHeightCacheStatus();
+            }
+            else
+            {
+                RestoreCanonicalHierarchy(
+                    true
+                );
+            }
+
+            RepaintEditorViews();
+
+            return;
+        }
+
+        Vector3 desiredTarget;
+
+        bool frozenTargetRequested =
+            freezePreview
+            &&
+            hasFrozenTarget;
+
+        if (frozenTargetRequested)
+        {
+            desiredTarget =
+                frozenTarget;
+        }
+        else if (hasLastFollowTarget)
+        {
+            desiredTarget =
+                lastFollowTarget;
+        }
+        else
+        {
+            ScheduleReapply();
+
+            return;
+        }
+
+        FollowTargetApplyResult applyResult =
+            TryApplyFollowTarget(
+                desiredTarget,
+                out string applyError
+            );
+
+        if (
+            applyResult ==
+                FollowTargetApplyResult.Applied
+        )
+        {
+            if (frozenTargetRequested)
+            {
+                SetStatus(
+                    TerrainAuthoringSceneViewStatus.Frozen,
+                    "The frozen edit-mode clipmap preview was reapplied after height-cache residency changed."
+                );
+            }
+            else
+            {
+                SetFollowingStatus();
+            }
+        }
+        else if (
+            applyResult ==
+                FollowTargetApplyResult.WaitingForResidency
+        )
+        {
+            /*
+             * The desired target changed before the completed synchronous
+             * cache refresh. RequestResidencyForWorldBounds schedules the
+             * latest target rather than recursing into another build here.
+             */
+            SetWaitingForHeightCacheStatus();
+        }
+        else
+        {
+            SetStatus(
+                TerrainAuthoringSceneViewStatus.Error,
+                applyError
+            );
+        }
+
+        RepaintEditorViews();
+    }
 
     private static void OnHierarchyChanged()
     {
@@ -1691,6 +2072,28 @@ public static class TerrainAuthoringSceneViewController
                 a.z,
                 b.z
             );
+    }
+
+    private static void SetFollowingStatus()
+    {
+        SetStatus(
+            TerrainAuthoringSceneViewStatus.Following,
+            FollowSource ==
+                TerrainAuthoringSceneViewFollowSource.Camera
+                ? "The edit-mode clipmap is following the active Scene View camera."
+                : "The edit-mode clipmap is following the active Scene View pivot."
+        );
+    }
+
+    private static void SetWaitingForHeightCacheStatus()
+    {
+        SetStatus(
+            TerrainAuthoringSceneViewStatus.WaitingForHeightCache,
+            "The desired Scene View clipmap lies outside the active " +
+            "resident height cache. WorldMeshes is preparing the " +
+            "required local cache while retaining the last safe " +
+            "clipmap placement."
+        );
     }
 
     private static void SetStatus(

@@ -114,6 +114,9 @@ public partial class WorldMeshesEditorWindow :
                     ||
                     TerrainAuthoringSceneViewController.Status ==
                         TerrainAuthoringSceneViewStatus.Frozen
+                    ||
+                    TerrainAuthoringSceneViewController.Status ==
+                        TerrainAuthoringSceneViewStatus.WaitingForHeightCache
                         ? MessageType.Info
                         : MessageType.Warning;
 
@@ -180,17 +183,20 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.HelpBox(
-            "Scene View following moves only the generated clipmap " +
-            "hierarchy. The full-world editor height cache remains " +
-            "fixed and is not rebuilt when the Scene View moves.\n\n" +
+            "Scene View movement first calculates the exact candidate " +
+            "clipmap layout. That layout is applied only when the active " +
+            "local Height Preview cache contains every sample-safe height " +
+            "tile it requires.\n\n" +
 
-            "Follow is clamped to the logical world rectangle. " +
-            "LOD levels keep their independent snapping and shared " +
-            "adaptive stitch offsets.\n\n" +
+            "When coverage is insufficient, WorldMeshes requests another " +
+            "guarded resident window and retains the last safe clipmap " +
+            "placement until the synchronous cache replacement completes. " +
+            "Temporary hitches are expected in Package 02.\n\n" +
 
-            "Transient editor placement is restored to the canonical " +
-            "world-centered hierarchy before scene save, Play Mode, " +
-            "assembly reload, and editor shutdown.",
+            "Follow remains clamped to the logical world rectangle. Camera " +
+            "and ScenePivot modes share the same residency path, and " +
+            "transient placement is still restored for serialization and " +
+            "Play Mode handoff.",
             MessageType.Info
         );
 
