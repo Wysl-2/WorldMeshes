@@ -26,9 +26,9 @@ MonoBehaviour:
   heightLacunarity: 2
   collisionResolution: 64
   clipmapCenterResolution: 512
-  clipmapLevelCount: 6
+  clipmapLevelCount: 5
   clipmapBaseSampleStep: 1
-  clipmapLODOuterResolutions: 0002000000020000000200000002000080010000
+  clipmapLODOuterResolutions: 00020000000200000002000000020000
   lastGeneratedHeightSignature: 79905460baab92e4ffc3638cf2787889a4a0a1d9216aa1bb4a7bbfe6b79d1066
   heightmapGenerationRevision: 41
   lastGeneratedSurfaceSignature: 694faa506b05082a3546981bcad7eec60883725efc1931130d3243e9c43439bf

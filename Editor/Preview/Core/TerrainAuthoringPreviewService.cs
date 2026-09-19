@@ -41,6 +41,15 @@ public static class TerrainAuthoringPreviewService
     public static event System.Action PreviewStateChanged;
 
     /*
+     * Fired only when the usable authoring preview height-cache
+     * coverage changes, becomes available, or becomes unavailable.
+     *
+     * Cache content changes inside the same coverage do not emit
+     * this event.
+     */
+    public static event System.Action HeightCacheCoverageChanged;
+
+    /*
      * Fired only after a dirty composite-height transaction has
      * completed successfully and the listed source tiles contain
      * their final current authoring heights.
@@ -94,6 +103,14 @@ public static class TerrainAuthoringPreviewService
     private static bool overallSignatureAcknowledgementRequested;
 
     private static long fullCommittedBuildCount;
+
+    private static bool hasPublishedHeightCacheCoverage;
+
+    private static Vector2 publishedHeightCacheMinimumXZ =
+        Vector2.zero;
+
+    private static Vector2 publishedHeightCacheMaximumXZ =
+        Vector2.zero;
 
     /*
      * Stage 10 validation-only monotonic binding diagnostic.
@@ -241,6 +258,36 @@ public static class TerrainAuthoringPreviewService
                 &&
                 previewCache.IsReady;
         }
+    }
+
+    public static bool TryGetHeightCacheWorldCoverage(
+        out Vector2 minimumXZ,
+        out Vector2 maximumXZ
+    )
+    {
+        minimumXZ =
+            Vector2.zero;
+
+        maximumXZ =
+            Vector2.zero;
+
+        if (
+            !Enabled
+            ||
+            status !=
+                TerrainAuthoringPreviewStatus.Ready
+            ||
+            previewCache == null
+        )
+        {
+            return false;
+        }
+
+        return
+            previewCache.TryGetWorldCoverage(
+                out minimumXZ,
+                out maximumXZ
+            );
     }
 
     public static int CacheWidth
@@ -1879,6 +1926,8 @@ public static class TerrainAuthoringPreviewService
             readyMessage
         );
 
+        NotifyHeightCacheCoverageIfChanged();
+
         RepaintEditorViews();
     }
 
@@ -2075,6 +2124,7 @@ public static class TerrainAuthoringPreviewService
         previewCache =
             null;
 
+        NotifyHeightCacheCoverageIfChanged();
         NotifyPreviewStateChanged();
     }
 
@@ -2187,6 +2237,55 @@ public static class TerrainAuthoringPreviewService
                     WorldMeshesPaths
                         .TerrainAuthoringDataAssetPath
                 );
+    }
+
+    // =====================================================
+    // HEIGHT CACHE COVERAGE NOTIFICATION
+    // =====================================================
+
+    private static void NotifyHeightCacheCoverageIfChanged()
+    {
+        bool hasCoverage =
+            TryGetHeightCacheWorldCoverage(
+                out Vector2 minimumXZ,
+                out Vector2 maximumXZ
+            );
+
+        bool unchanged =
+            hasPublishedHeightCacheCoverage ==
+                hasCoverage
+            &&
+            (
+                !hasCoverage
+                ||
+                (
+                    publishedHeightCacheMinimumXZ ==
+                        minimumXZ
+                    &&
+                    publishedHeightCacheMaximumXZ ==
+                        maximumXZ
+                )
+            );
+
+        if (unchanged)
+        {
+            return;
+        }
+
+        hasPublishedHeightCacheCoverage =
+            hasCoverage;
+
+        publishedHeightCacheMinimumXZ =
+            hasCoverage
+                ? minimumXZ
+                : Vector2.zero;
+
+        publishedHeightCacheMaximumXZ =
+            hasCoverage
+                ? maximumXZ
+                : Vector2.zero;
+
+        HeightCacheCoverageChanged?.Invoke();
     }
 
     // =====================================================

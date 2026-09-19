@@ -133,7 +133,15 @@ public partial class TerrainHeightmapStreamer :
     private bool initialized;
 
     private bool cacheReady;
-    
+
+    private bool hasPublishedActiveCacheCoverage;
+
+    private Vector2 publishedActiveCacheMinimumXZ =
+        Vector2.zero;
+
+    private Vector2 publishedActiveCacheMaximumXZ =
+        Vector2.zero;
+
     // =====================================================
     // SHADER BINDING STATE
     // =====================================================
@@ -143,6 +151,8 @@ public partial class TerrainHeightmapStreamer :
     // =====================================================
     // PUBLIC RUNTIME STATE
     // =====================================================
+
+    public event System.Action ActiveCacheCoverageChanged;
 
     public Texture2DArray HeightCache
     {
@@ -276,6 +286,51 @@ public partial class TerrainHeightmapStreamer :
             );
 
         return true;
+    }
+
+    private void NotifyActiveCacheCoverageIfChanged()
+    {
+        bool hasCoverage =
+            TryGetActiveCacheWorldCoverage(
+                out Vector2 minimumXZ,
+                out Vector2 maximumXZ
+            );
+
+        bool unchanged =
+            hasPublishedActiveCacheCoverage ==
+                hasCoverage
+            &&
+            (
+                !hasCoverage
+                ||
+                (
+                    publishedActiveCacheMinimumXZ ==
+                        minimumXZ
+                    &&
+                    publishedActiveCacheMaximumXZ ==
+                        maximumXZ
+                )
+            );
+
+        if (unchanged)
+        {
+            return;
+        }
+
+        hasPublishedActiveCacheCoverage =
+            hasCoverage;
+
+        publishedActiveCacheMinimumXZ =
+            hasCoverage
+                ? minimumXZ
+                : Vector2.zero;
+
+        publishedActiveCacheMaximumXZ =
+            hasCoverage
+                ? maximumXZ
+                : Vector2.zero;
+
+        ActiveCacheCoverageChanged?.Invoke();
     }
 
     // =====================================================
@@ -2429,6 +2484,8 @@ public partial class TerrainHeightmapStreamer :
 
         BindHeightCacheToClipmapRenderers();
 
+        NotifyActiveCacheCoverageIfChanged();
+
         // =====================================================
         // RELEASE LEAVING TILES
         // =====================================================
@@ -2805,6 +2862,8 @@ public partial class TerrainHeightmapStreamer :
 
         cacheReady =
             false;
+
+        NotifyActiveCacheCoverageIfChanged();
     }
 
     // =====================================================

@@ -22,10 +22,10 @@ MonoBehaviour:
   - rid: 3932701591544004673
   - rid: 3932701591544004676
   - rid: 3932701602959851520
-  - rid: 3932701602959851587
   - rid: 3932701602959851588
   - rid: 3932701602959851589
-  authoringRevision: 2630
+  - rid: 3932701684810645573
+  authoringRevision: 2649
   references:
     version: 2
     RefIds:
@@ -70,7 +70,7 @@ MonoBehaviour:
         heightDelta: 160
         targetBaseHeight: 0
         targetHeightRange: 10
-        falloff: 0.40285373
+        falloff: 0.29241335
         falloffShape: 0
         falloffProfile: 0
         smoothingRadius: 8
@@ -369,29 +369,6 @@ MonoBehaviour:
         falloffProfile: 0
         smoothingRadius: 8
         smoothingStrength: 1
-    - rid: 3932701602959851587
-      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
-      data:
-        stableId: 1ffbe4709ea047ebbf52d89075cb4047
-        enabled: 1
-        blendMode: 0
-        stampAsset: {fileID: 11400000, guid: e0c7f5643dd0b7399b5e14daff51b424, type: 2}
-        positionXZ: {x: 4769.614, y: 5496.1343}
-        sizeXZ: {x: 3507.484, y: 3507.484}
-        rotationDegrees: 88.70087
-        flipX: 0
-        flipZ: 0
-        sourceInputMin: 0
-        sourceInputMax: 1
-        sourceGamma: 1
-        heightDelta: 100
-        targetBaseHeight: 0
-        targetHeightRange: 10
-        falloff: 0.36650127
-        falloffShape: 0
-        falloffProfile: 0
-        smoothingRadius: 4
-        smoothingStrength: 1
     - rid: 3932701602959851588
       type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
       data:
@@ -437,4 +414,27 @@ MonoBehaviour:
         falloffShape: 0
         falloffProfile: 0
         smoothingRadius: 3
+        smoothingStrength: 1
+    - rid: 3932701684810645573
+      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
+      data:
+        stableId: b6d94c0ce82d40f099837c8f7d7496ca
+        enabled: 1
+        blendMode: 0
+        stampAsset: {fileID: 11400000, guid: e0c7f5643dd0b7399b5e14daff51b424, type: 2}
+        positionXZ: {x: 4657.277, y: 6064.294}
+        sizeXZ: {x: 3160.6152, y: 3160.6152}
+        rotationDegrees: 88.62866
+        flipX: 0
+        flipZ: 0
+        sourceInputMin: 0
+        sourceInputMax: 1
+        sourceGamma: 1
+        heightDelta: 80
+        targetBaseHeight: 0
+        targetHeightRange: 10
+        falloff: 0.25
+        falloffShape: 0
+        falloffProfile: 0
+        smoothingRadius: 4
         smoothingStrength: 1

@@ -237,6 +237,77 @@ public sealed class TerrainAuthoringPreviewCache :
         }
     }
 
+    public bool TryGetWorldCoverage(
+        out Vector2 minimumXZ,
+        out Vector2 maximumXZ
+    )
+    {
+        minimumXZ =
+            Vector2.zero;
+
+        maximumXZ =
+            Vector2.zero;
+
+        if (
+            !IsReady
+            ||
+            sampleSpacing <= 0f
+            ||
+            worldSizeXZ.x <= 0f
+            ||
+            worldSizeXZ.y <= 0f
+        )
+        {
+            return false;
+        }
+
+        float tileWorldSize =
+            sampleSpacing *
+            Mathf.Max(
+                1,
+                samplesPerSide - 1
+            );
+
+        minimumXZ =
+            new Vector2(
+                cacheOriginTile.x *
+                    tileWorldSize,
+
+                cacheOriginTile.y *
+                    tileWorldSize
+            );
+
+        maximumXZ =
+            new Vector2(
+                Mathf.Min(
+                    worldSizeXZ.x,
+                    (
+                        cacheOriginTile.x +
+                        cacheWidth
+                    )
+                    *
+                    tileWorldSize
+                ),
+
+                Mathf.Min(
+                    worldSizeXZ.y,
+                    (
+                        cacheOriginTile.y +
+                        cacheHeight
+                    )
+                    *
+                    tileWorldSize
+                )
+            );
+
+        return
+            maximumXZ.x >=
+                minimumXZ.x
+            &&
+            maximumXZ.y >=
+                minimumXZ.y;
+    }
+
     public float MinimumHeight
     {
         get

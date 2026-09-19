@@ -83,6 +83,14 @@ public class TerrainCollisionColliderPool :
     private bool hasAppliedCenterChunk;
 
     private Vector2Int appliedCenterChunk;
+
+    private bool hasPublishedActiveColliderCoverage;
+
+    private Vector2 publishedActiveColliderMinimumXZ =
+        Vector2.zero;
+
+    private Vector2 publishedActiveColliderMaximumXZ =
+        Vector2.zero;
     
     // =====================================================
     // PROFILER MARKERS
@@ -97,6 +105,8 @@ public class TerrainCollisionColliderPool :
     // =====================================================
     // PUBLIC STATE
     // =====================================================
+
+    public event System.Action ActiveColliderCoverageChanged;
 
     public bool IsInitialized
     {
@@ -354,6 +364,188 @@ public class TerrainCollisionColliderPool :
         return true;
     }
     
+    // =====================================================
+    // ACTIVE COLLIDER WORLD COVERAGE
+    // =====================================================
+
+    public bool TryGetActiveColliderWorldCoverage(
+        out Vector2 minimumXZ,
+        out Vector2 maximumXZ
+    )
+    {
+        minimumXZ =
+            Vector2.zero;
+
+        maximumXZ =
+            Vector2.zero;
+
+        if (
+            !initialized
+            ||
+            poolFailed
+            ||
+            worldSettings == null
+            ||
+            activeSlotsByCoordinate.Count <= 0
+        )
+        {
+            return false;
+        }
+
+        bool foundActiveCollider =
+            false;
+
+        int minimumChunkX =
+            int.MaxValue;
+
+        int maximumChunkX =
+            int.MinValue;
+
+        int minimumChunkZ =
+            int.MaxValue;
+
+        int maximumChunkZ =
+            int.MinValue;
+
+        foreach (
+            KeyValuePair<Vector2Int, ColliderSlot> pair
+            in activeSlotsByCoordinate
+        )
+        {
+            ColliderSlot slot =
+                pair.Value;
+
+            if (
+                slot == null
+                ||
+                !slot.hasCoordinate
+                ||
+                slot.coordinate !=
+                    pair.Key
+                ||
+                slot.meshCollider == null
+                ||
+                !slot.meshCollider.enabled
+                ||
+                slot.meshCollider.sharedMesh == null
+            )
+            {
+                continue;
+            }
+
+            foundActiveCollider =
+                true;
+
+            minimumChunkX =
+                Mathf.Min(
+                    minimumChunkX,
+                    pair.Key.x
+                );
+
+            maximumChunkX =
+                Mathf.Max(
+                    maximumChunkX,
+                    pair.Key.x
+                );
+
+            minimumChunkZ =
+                Mathf.Min(
+                    minimumChunkZ,
+                    pair.Key.y
+                );
+
+            maximumChunkZ =
+                Mathf.Max(
+                    maximumChunkZ,
+                    pair.Key.y
+                );
+        }
+
+        if (!foundActiveCollider)
+        {
+            return false;
+        }
+
+        float chunkSize =
+            Mathf.Max(
+                0.01f,
+                worldSettings.chunkSize
+            );
+
+        minimumXZ =
+            new Vector2(
+                minimumChunkX *
+                    chunkSize,
+
+                minimumChunkZ *
+                    chunkSize
+            );
+
+        maximumXZ =
+            new Vector2(
+                (
+                    maximumChunkX +
+                    1
+                )
+                *
+                chunkSize,
+
+                (
+                    maximumChunkZ +
+                    1
+                )
+                *
+                chunkSize
+            );
+
+        return true;
+    }
+
+    private void NotifyActiveColliderCoverageIfChanged()
+    {
+        bool hasCoverage =
+            TryGetActiveColliderWorldCoverage(
+                out Vector2 minimumXZ,
+                out Vector2 maximumXZ
+            );
+
+        bool unchanged =
+            hasPublishedActiveColliderCoverage ==
+                hasCoverage
+            &&
+            (
+                !hasCoverage
+                ||
+                (
+                    publishedActiveColliderMinimumXZ ==
+                        minimumXZ
+                    &&
+                    publishedActiveColliderMaximumXZ ==
+                        maximumXZ
+                )
+            );
+
+        if (unchanged)
+        {
+            return;
+        }
+
+        hasPublishedActiveColliderCoverage =
+            hasCoverage;
+
+        publishedActiveColliderMinimumXZ =
+            hasCoverage
+                ? minimumXZ
+                : Vector2.zero;
+
+        publishedActiveColliderMaximumXZ =
+            hasCoverage
+                ? maximumXZ
+                : Vector2.zero;
+
+        ActiveColliderCoverageChanged?.Invoke();
+    }
+
     public bool CanTargetMoveTo(
     Vector3 targetWorldPosition
 )
@@ -1151,6 +1343,8 @@ public class TerrainCollisionColliderPool :
          */
         Physics.SyncTransforms();
 
+        NotifyActiveColliderCoverageIfChanged();
+
         if (logPoolUpdates)
         {
             LogPoolUpdate(
@@ -1648,6 +1842,8 @@ private static bool IsFinite(
         activeSlotsByCoordinate.Clear();
         desiredActiveCoordinates.Clear();
 
+        NotifyActiveColliderCoverageIfChanged();
+
         Debug.LogError(
             "Terrain collision collider pool FAILED.\n\n" +
             message,
@@ -1683,6 +1879,8 @@ private static bool IsFinite(
 
         hasAppliedCenterChunk =
             false;
+
+        NotifyActiveColliderCoverageIfChanged();
     }
 
     // =====================================================
