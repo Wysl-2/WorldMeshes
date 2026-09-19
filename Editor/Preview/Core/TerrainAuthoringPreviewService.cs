@@ -1398,10 +1398,20 @@ public static class TerrainAuthoringPreviewService
                 ??
                 new TerrainAuthoringPreviewCache();
 
+            TerrainHeightCacheWindow buildWindow =
+                new TerrainHeightCacheWindow(
+                    Vector2Int.zero,
+                    new Vector2Int(
+                        worldSettings.HeightTileGridWidth,
+                        worldSettings.HeightTileGridHeight
+                    )
+                );
+
             if (
                 !newCache.TryBuild(
                     worldSettings,
                     authoringData,
+                    buildWindow,
                     out string buildError
                 )
             )

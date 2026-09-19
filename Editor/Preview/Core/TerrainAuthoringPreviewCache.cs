@@ -5,7 +5,11 @@ using UnityEngine;
 using UnityEngine.Rendering;
 
 /*
- * Full-world edit-mode height preview cache.
+ * Windowed edit-mode height preview cache.
+ *
+ * One cache represents an explicit rectangular window of world height tiles.
+ * World tile coordinates remain authoritative while Texture2DArray slices are
+ * addressed in cache-local coordinates relative to CacheOriginTile.
  *
  * The committed base range metadata is immutable for the lifetime of one
  * committed-cache build. Composite range metadata may change repeatedly while
@@ -411,12 +415,48 @@ public sealed class TerrainAuthoringPreviewCache :
     }
 
     // =====================================================
-    // FULL COMMITTED CACHE BUILD
+    // COMMITTED CACHE WINDOW BUILD
     // =====================================================
 
     public bool TryBuild(
         WorldSettings worldSettings,
         TerrainAuthoringData authoringData,
+        out string errorMessage
+    )
+    {
+        errorMessage =
+            "";
+
+        if (worldSettings == null)
+        {
+            errorMessage =
+                "WorldSettings is null.";
+
+            return false;
+        }
+
+        TerrainHeightCacheWindow requestedWindow =
+            new TerrainHeightCacheWindow(
+                Vector2Int.zero,
+                new Vector2Int(
+                    worldSettings.HeightTileGridWidth,
+                    worldSettings.HeightTileGridHeight
+                )
+            );
+
+        return
+            TryBuild(
+                worldSettings,
+                authoringData,
+                requestedWindow,
+                out errorMessage
+            );
+    }
+
+    public bool TryBuild(
+        WorldSettings worldSettings,
+        TerrainAuthoringData authoringData,
+        TerrainHeightCacheWindow requestedWindow,
         out string errorMessage
     )
     {
@@ -542,27 +582,21 @@ public sealed class TerrainAuthoringPreviewCache :
             return false;
         }
 
-        int newCacheWidth =
+        int manifestCacheWidth =
             manifest.heightTileGridWidth;
 
-        int newCacheHeight =
+        int manifestCacheHeight =
             manifest.heightTileGridHeight;
 
         int newSamplesPerSide =
             manifest.heightTileSamplesPerSide;
 
-        int newSliceCount =
-            newCacheWidth *
-            newCacheHeight;
-
         if (
-            newCacheWidth <= 0
+            manifestCacheWidth <= 0
             ||
-            newCacheHeight <= 0
+            manifestCacheHeight <= 0
             ||
             newSamplesPerSide <= 1
-            ||
-            newSliceCount <= 0
         )
         {
             errorMessage =
@@ -571,6 +605,62 @@ public sealed class TerrainAuthoringPreviewCache :
 
             return false;
         }
+
+        Vector2Int newCacheOrigin =
+            requestedWindow.OriginTile;
+
+        Vector2Int requestedMaximumExclusive =
+            requestedWindow.MaximumExclusive;
+
+        if (
+            !requestedWindow.IsValid
+            ||
+            newCacheOrigin.x < 0
+            ||
+            newCacheOrigin.y < 0
+            ||
+            requestedMaximumExclusive.x >
+                manifestCacheWidth
+            ||
+            requestedMaximumExclusive.y >
+                manifestCacheHeight
+        )
+        {
+            errorMessage =
+                "The requested editor preview cache window is outside " +
+                "the committed authoring height-tile grid.\n\n" +
+                $"Requested: {requestedWindow}\n" +
+                $"World Tile Grid: {manifestCacheWidth} x " +
+                $"{manifestCacheHeight}";
+
+            return false;
+        }
+
+        int newCacheWidth =
+            requestedWindow.Width;
+
+        int newCacheHeight =
+            requestedWindow.Height;
+
+        long newSliceCountLong =
+            (long)newCacheWidth *
+            newCacheHeight;
+
+        if (
+            newSliceCountLong <= 0L
+            ||
+            newSliceCountLong > int.MaxValue
+        )
+        {
+            errorMessage =
+                "The requested editor preview cache window contains an " +
+                "invalid number of height-tile slices.";
+
+            return false;
+        }
+
+        int newSliceCount =
+            (int)newSliceCountLong;
 
         if (
             newSamplesPerSide >
@@ -595,13 +685,12 @@ public sealed class TerrainAuthoringPreviewCache :
         )
         {
             errorMessage =
-                "The full-world editor preview cache requires " +
+                "The requested editor preview cache window requires " +
                 "more texture-array slices than the current " +
                 "graphics device supports.\n\n" +
+                $"Requested Window: {requestedWindow}\n" +
                 $"Required: {newSliceCount}\n" +
-                $"Maximum: {SystemInfo.maxTextureArraySlices}\n\n" +
-                "A future windowed editor preview cache can " +
-                "remove this whole-world limitation.";
+                $"Maximum: {SystemInfo.maxTextureArraySlices}";
 
             return false;
         }
@@ -656,21 +745,29 @@ public sealed class TerrainAuthoringPreviewCache :
             ];
 
         for (
-            int tileZ = 0;
-            tileZ < newCacheHeight;
-            tileZ++
+            int localTileZ = 0;
+            localTileZ < newCacheHeight;
+            localTileZ++
         )
         {
+            int worldTileZ =
+                newCacheOrigin.y +
+                localTileZ;
+
             for (
-                int tileX = 0;
-                tileX < newCacheWidth;
-                tileX++
+                int localTileX = 0;
+                localTileX < newCacheWidth;
+                localTileX++
             )
             {
+                int worldTileX =
+                    newCacheOrigin.x +
+                    localTileX;
+
                 if (
                     !manifest.TryGetTileHeightRange(
-                        tileX,
-                        tileZ,
+                        worldTileX,
+                        worldTileZ,
                         out float tileMinimumHeight,
                         out float tileMaximumHeight
                     )
@@ -679,15 +776,15 @@ public sealed class TerrainAuthoringPreviewCache :
                     errorMessage =
                         $"Committed authoring per-tile height range " +
                         $"metadata is unavailable or invalid for tile " +
-                        $"({tileX}, {tileZ}).";
+                        $"({worldTileX}, {worldTileZ}).";
 
                     return false;
                 }
 
                 int slice =
-                    tileX
+                    localTileX
                     +
-                    tileZ *
+                    localTileZ *
                     newCacheWidth;
 
                 candidateCommittedMinimums[
@@ -719,26 +816,40 @@ public sealed class TerrainAuthoringPreviewCache :
         {
             errorMessage =
                 "The editor preview could not calculate a valid " +
-                "global range from committed per-tile metadata.";
+                "resident cache range from committed per-tile metadata.";
 
             return false;
         }
 
+        bool representsCompleteWorld =
+            newCacheOrigin ==
+                Vector2Int.zero
+            &&
+            newCacheWidth ==
+                manifestCacheWidth
+            &&
+            newCacheHeight ==
+                manifestCacheHeight;
+
         if (
-            !FloatMatches(
-                candidateMinimumHeight,
-                manifest.minimumCommittedHeight
-            )
-            ||
-            !FloatMatches(
-                candidateMaximumHeight,
-                manifest.maximumCommittedHeight
+            representsCompleteWorld
+            &&
+            (
+                !FloatMatches(
+                    candidateMinimumHeight,
+                    manifest.minimumCommittedHeight
+                )
+                ||
+                !FloatMatches(
+                    candidateMaximumHeight,
+                    manifest.maximumCommittedHeight
+                )
             )
         )
         {
             errorMessage =
-                "The preview cache slice ranges do not match the " +
-                "validated committed manifest range.\n\n" +
+                "The complete-world preview cache slice ranges do not " +
+                "match the validated committed manifest range.\n\n" +
                 $"Manifest: {manifest.minimumCommittedHeight:R} -> " +
                 $"{manifest.maximumCommittedHeight:R}\n" +
                 $"Cache: {candidateMinimumHeight:R} -> " +
@@ -773,21 +884,29 @@ public sealed class TerrainAuthoringPreviewCache :
         try
         {
             for (
-                int tileZ = 0;
-                tileZ < newCacheHeight;
-                tileZ++
+                int localTileZ = 0;
+                localTileZ < newCacheHeight;
+                localTileZ++
             )
             {
+                int worldTileZ =
+                    newCacheOrigin.y +
+                    localTileZ;
+
                 for (
-                    int tileX = 0;
-                    tileX < newCacheWidth;
-                    tileX++
+                    int localTileX = 0;
+                    localTileX < newCacheWidth;
+                    localTileX++
                 )
                 {
+                    int worldTileX =
+                        newCacheOrigin.x +
+                        localTileX;
+
                     if (
                         !TryLoadCommittedTileTexture(
-                            tileX,
-                            tileZ,
+                            worldTileX,
+                            worldTileZ,
                             newSamplesPerSide,
                             out Texture2D sourceTexture,
                             out string tileError
@@ -801,9 +920,9 @@ public sealed class TerrainAuthoringPreviewCache :
                     }
 
                     int slice =
-                        tileX
+                        localTileX
                         +
-                        tileZ *
+                        localTileZ *
                         newCacheWidth;
 
                     using (WorldMeshesProfiler.PreviewCopyTiles.Auto())
@@ -844,7 +963,7 @@ public sealed class TerrainAuthoringPreviewCache :
             candidateCache;
 
         cacheOriginTile =
-            Vector2Int.zero;
+            newCacheOrigin;
 
         cacheWidth =
             newCacheWidth;
