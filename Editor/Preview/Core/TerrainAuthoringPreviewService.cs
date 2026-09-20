@@ -9,6 +9,7 @@ public enum TerrainAuthoringPreviewStatus
     PlayMode,
     AuthoringUnavailable,
     ClipmapUnavailable,
+    Preparing,
     Ready,
     Error
 }
@@ -189,6 +190,9 @@ public static partial class TerrainAuthoringPreviewService
         EditorApplication.quitting +=
             OnEditorQuitting;
 
+        EditorApplication.update +=
+            OnStreamingEditorUpdate;
+
         NotifyCommittedHeightfieldChanged();
     }
 
@@ -272,6 +276,10 @@ public static partial class TerrainAuthoringPreviewService
                 case TerrainAuthoringPreviewStatus.ClipmapUnavailable:
                     return
                         "Clipmap Unavailable";
+
+                case TerrainAuthoringPreviewStatus.Preparing:
+                    return
+                        "Preparing Preview";
 
                 case TerrainAuthoringPreviewStatus.Ready:
                     return
@@ -609,11 +617,10 @@ public static partial class TerrainAuthoringPreviewService
             return false;
         }
 
-        hasDesiredResidencyWindow =
-            true;
-
-        desiredResidencyWindow =
-            desiredWindow;
+        RecordStreamingResidencyIntent(
+            requiredWindow,
+            desiredWindow
+        );
 
         bool hasActiveWindow =
             TryGetActiveResidentWindow(
@@ -635,16 +642,49 @@ public static partial class TerrainAuthoringPreviewService
             return false;
         }
 
-        if (!decision.TransitionRequired)
+        TerrainHeightCacheWindow targetWindow =
+            default;
+
+        bool hasTransitionTarget =
+            decision.TransitionRequired;
+
+        if (hasTransitionTarget)
+        {
+            targetWindow =
+                decision.TargetWindow;
+        }
+        else if (
+            hasActiveWindow
+            &&
+            TerrainAuthoringPreviewStreamingPolicy
+                .TryCalculatePrefetchTarget(
+                    activeWindow,
+                    requiredWindow,
+                    desiredWindow,
+                    new Vector2Int(
+                        worldSettings.HeightTileGridWidth,
+                        worldSettings.HeightTileGridHeight
+                    ),
+                    out TerrainHeightCacheWindow prefetchTarget
+                )
+        )
+        {
+            hasTransitionTarget =
+                true;
+
+            targetWindow =
+                prefetchTarget;
+        }
+
+        if (!hasTransitionTarget)
         {
             ClearRequestedResidency();
             ClearTransitionFailureSuppression();
 
+            NotifyStreamingIntentNoLongerRequiresTarget();
+
             return true;
         }
-
-        TerrainHeightCacheWindow targetWindow =
-            decision.TargetWindow;
 
         if (
             IsTransitionFailureSuppressed(
@@ -1501,7 +1541,7 @@ public static partial class TerrainAuthoringPreviewService
 
         dirtyCompositeTiles.Clear();
 
-        ExecuteRefresh();
+        ScheduleRefresh();
     }
 
     // =====================================================
@@ -1986,29 +2026,72 @@ public static partial class TerrainAuthoringPreviewService
                 WorldMeshesProfiler.PreviewRebuild.Auto();
 
             /*
-             * Package 03 prepares a separate staging cache while the current
-             * active cache remains bound. Only a fully composed and validated
-             * staging cache is allowed to cross the activation boundary.
+             * Package 04 leaves the active cache bound and queues the target
+             * for bounded EditorApplication.update work. No retained copy,
+             * committed tile load, or composition loop executes here.
              */
             if (
-                !TryExecuteSynchronousStagedTransition(
+                previewCache != null
+                &&
+                previewCache.IsReady
+                &&
+                clipmapRebindRequested
+            )
+            {
+                if (
+                    boundClipmapRoot != null
+                    &&
+                    boundClipmapRoot !=
+                        clipmapRoot
+                )
+                {
+                    ReleaseBinding();
+                }
+
+                if (
+                    !BindPreviewToClipmap(
+                        clipmapRoot,
+                        out string activeBindError
+                    )
+                )
+                {
+                    SetStatus(
+                        TerrainAuthoringPreviewStatus.Error,
+                        activeBindError
+                    );
+
+                    RepaintEditorViews();
+
+                    return;
+                }
+
+                clipmapRebindRequested =
+                    false;
+            }
+
+            if (
+                !RequestIncrementalStagedTransition(
                     worldSettings,
                     authoringData,
                     buildWindow,
                     currentCommittedSignature,
                     currentOverallSignature,
                     clipmapRoot,
-                    out _
+                    out string streamingError
                 )
             )
             {
-                /*
-                 * Failure handling is owned by the staged transaction. A
-                 * still-current active cache remains bound; a stale active
-                 * cache is preserved as a resource but reported as stale.
-                 */
-                return;
+                SetStatus(
+                    TerrainAuthoringPreviewStatus.Error,
+                    "The editor preview could not queue incremental " +
+                    "height-cache streaming.\n\n" +
+                    streamingError
+                );
+
+                RepaintEditorViews();
             }
+
+            return;
         }
 
         // =================================================

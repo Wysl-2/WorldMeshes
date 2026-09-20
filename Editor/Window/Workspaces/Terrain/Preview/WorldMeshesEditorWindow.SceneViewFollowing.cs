@@ -183,19 +183,20 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.HelpBox(
-            "Scene View movement calculates the exact candidate clipmap " +
-            "layout and always lets Height Preview evaluate residency. If the " +
-            "active cache lacks required sample-safe coverage, the layout " +
-            "still waits for a staged transition.\n\n" +
+            "Scene View movement continuously updates the latest required and " +
+            "desired residency. Guard-based prefetch begins near the active " +
+            "window edge while current sample-safe coverage is still valid, " +
+            "so ordinary movement can remain seamless when streaming finishes " +
+            "in time.\n\n" +
 
-            "If coverage is already safe but the active cache is materially " +
-            "over- or undersized, Package 03A requests a staged size recovery " +
-            "without blocking Scene View placement. Origin differences alone " +
-            "do not force a transition while guard coverage remains safe.\n\n" +
+            "If the Scene View outruns active coverage, the last safe clipmap " +
+            "layout remains applied while incremental streaming continues. " +
+            "Rapid movement coalesces obsolete destinations toward the latest " +
+            "meaningful target instead of completing an A/B/C queue.\n\n" +
 
-            "The previous active terrain remains bound throughout Package 03 " +
-            "staging. Work is still synchronous in Package 03A; Package 04 " +
-            "introduces incremental multi-update streaming.",
+            "Package 04 performs bounded work through EditorApplication.update. " +
+            "Camera and ScenePivot follow modes, Freeze Preview, and Center On " +
+            "World all use the same residency/streaming path.",
             MessageType.Info
         );
 

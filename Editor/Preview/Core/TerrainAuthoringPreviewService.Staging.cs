@@ -38,7 +38,11 @@ public static partial class TerrainAuthoringPreviewService
                 &&
                 currentTransition.State !=
                     TerrainAuthoringPreviewTransitionState
-                        .Failed;
+                        .Failed
+                &&
+                currentTransition.State !=
+                    TerrainAuthoringPreviewTransitionState
+                        .Cancelled;
         }
     }
 
@@ -67,11 +71,14 @@ public static partial class TerrainAuthoringPreviewService
 
             switch (currentTransition.State)
             {
-                case TerrainAuthoringPreviewTransitionState.PreparingRetained:
-                    return "Preparing Retained";
+                case TerrainAuthoringPreviewTransitionState.CopyingRetained:
+                    return "Copying Retained";
 
-                case TerrainAuthoringPreviewTransitionState.PreparingEntering:
-                    return "Preparing Entering";
+                case TerrainAuthoringPreviewTransitionState.LoadingSourceTiles:
+                    return "Loading Source Tiles";
+
+                case TerrainAuthoringPreviewTransitionState.ComposingSourceTiles:
+                    return "Composing Source Tiles";
 
                 case TerrainAuthoringPreviewTransitionState.ReadyToActivate:
                     return "Ready To Activate";
@@ -289,7 +296,7 @@ public static partial class TerrainAuthoringPreviewService
 
         transition.SetState(
             TerrainAuthoringPreviewTransitionState
-                .PreparingRetained
+                .CopyingRetained
         );
 
         foreach (
@@ -349,7 +356,7 @@ public static partial class TerrainAuthoringPreviewService
 
         transition.SetState(
             TerrainAuthoringPreviewTransitionState
-                .PreparingEntering
+                .LoadingSourceTiles
         );
 
         heightCompositor
@@ -472,7 +479,7 @@ public static partial class TerrainAuthoringPreviewService
 
         transition.SetState(
             TerrainAuthoringPreviewTransitionState
-                .Validating
+                .Finalizing
         );
 
         string latestCommittedSignature =
@@ -1054,6 +1061,8 @@ public static partial class TerrainAuthoringPreviewService
 
         currentTransition =
             null;
+
+        ResetStreamingStateForResourceRelease();
 
         ClearDesiredResidency();
         ClearTransitionFailureSuppression();

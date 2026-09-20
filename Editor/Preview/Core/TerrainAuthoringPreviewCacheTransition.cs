@@ -5,12 +5,15 @@ using UnityEngine;
 internal enum TerrainAuthoringPreviewTransitionState
 {
     Planned,
-    PreparingRetained,
-    PreparingEntering,
-    Validating,
+    Preparing,
+    CopyingRetained,
+    LoadingSourceTiles,
+    ComposingSourceTiles,
+    Finalizing,
     ReadyToActivate,
     Activating,
     Activated,
+    Cancelled,
     Failed
 }
 
@@ -78,6 +81,23 @@ internal sealed class TerrainAuthoringPreviewCacheTransition
     public int CommittedSourceLoadCount { get; internal set; }
 
     public int FullyComposedTileCount { get; internal set; }
+
+    public long RequestGeneration { get; internal set; }
+
+    public bool CommittedRebuildRequested { get; internal set; }
+
+    public int RetainedCopyCursor { get; internal set; }
+
+    public int CommittedLoadCursor { get; internal set; }
+
+    public int CompositionCursor { get; internal set; }
+
+    public int TotalWorkUnits { get; internal set; }
+
+    public int CompletedWorkUnits { get; internal set; }
+
+    public string CancellationReason { get; private set; } =
+        "";
 
     private TerrainAuthoringPreviewCacheTransition(
         bool hasSourceWindow,
@@ -202,6 +222,51 @@ internal sealed class TerrainAuthoringPreviewCacheTransition
 
         State =
             TerrainAuthoringPreviewTransitionState.Failed;
+    }
+
+    internal void MarkCancelled(
+        string cancellationReason
+    )
+    {
+        CancellationReason =
+            string.IsNullOrEmpty(
+                cancellationReason
+            )
+                ? "The staged height-cache transition was cancelled."
+                : cancellationReason;
+
+        State =
+            TerrainAuthoringPreviewTransitionState.Cancelled;
+    }
+
+    internal void ResetStreamingExecutionState()
+    {
+        RetainedCopyCursor =
+            0;
+
+        CommittedLoadCursor =
+            0;
+
+        CompositionCursor =
+            0;
+
+        RetainedGpuCopyCount =
+            0;
+
+        CommittedSourceLoadCount =
+            0;
+
+        FullyComposedTileCount =
+            0;
+
+        TotalWorkUnits =
+            0;
+
+        CompletedWorkUnits =
+            0;
+
+        CancellationReason =
+            "";
     }
 
     private void BuildClassification()

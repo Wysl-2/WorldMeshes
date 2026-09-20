@@ -179,6 +179,10 @@ public partial class WorldMeshesEditorWindow :
 
         DrawWorkspaceSectionGap();
 
+        DrawIncrementalStreamingValidationSettings();
+
+        DrawWorkspaceSectionGap();
+
         DrawAuthoringChangePipelineSettings();
 
         DrawWorkspaceSectionGap();

@@ -303,6 +303,136 @@ public partial class WorldMeshesEditorWindow :
             );
         }
 
+        if (previewEnabled)
+        {
+            GUILayout.Space(
+                5f
+            );
+
+            GUILayout.Label(
+                "Incremental Streaming",
+                EditorStyles.boldLabel
+            );
+
+            EditorGUILayout.LabelField(
+                "Streaming State",
+                TerrainAuthoringPreviewService
+                    .StreamingStateLabel
+            );
+
+            EditorGUILayout.LabelField(
+                "Coverage",
+                TerrainAuthoringPreviewService
+                    .StreamingCoverageLabel
+            );
+
+            if (
+                TerrainAuthoringPreviewService
+                    .TryGetStagingResidentWindow(
+                        out TerrainHeightCacheWindow streamingTarget
+                    )
+            )
+            {
+                EditorGUILayout.LabelField(
+                    "Streaming Target",
+                    streamingTarget.ToString()
+                );
+            }
+            else if (
+                TerrainAuthoringPreviewService
+                    .TryGetRequestedResidentWindow(
+                        out TerrainHeightCacheWindow queuedTarget
+                    )
+            )
+            {
+                EditorGUILayout.LabelField(
+                    "Streaming Target",
+                    queuedTarget.ToString()
+                );
+            }
+
+            if (
+                TerrainAuthoringPreviewService
+                    .TryGetDesiredResidentWindow(
+                        out TerrainHeightCacheWindow latestDesired
+                    )
+            )
+            {
+                EditorGUILayout.LabelField(
+                    "Latest Desired Window",
+                    latestDesired.ToString()
+                );
+            }
+
+            EditorGUILayout.LabelField(
+                "Retained Copied",
+                $"{TerrainAuthoringPreviewService.StreamingRetainedCopiedCount:N0} / " +
+                $"{TerrainAuthoringPreviewService.StreamingRetainedTileCount:N0}"
+            );
+
+            EditorGUILayout.LabelField(
+                "Committed Loads",
+                $"{TerrainAuthoringPreviewService.StreamingSourceLoadedCount:N0} / " +
+                $"{TerrainAuthoringPreviewService.StreamingSourceTileCount:N0}"
+            );
+
+            EditorGUILayout.LabelField(
+                "Composed Tiles",
+                $"{TerrainAuthoringPreviewService.StreamingSourceComposedCount:N0} / " +
+                $"{TerrainAuthoringPreviewService.StreamingSourceTileCount:N0}"
+            );
+
+            EditorGUILayout.LabelField(
+                "Progress",
+                TerrainAuthoringPreviewService
+                    .StreamingProgress
+                    .ToString("P1")
+            );
+
+            EditorGUILayout.LabelField(
+                "Copies / Update",
+                TerrainAuthoringPreviewService
+                    .StreamingRetainedCopiesPerUpdate
+                    .ToString()
+            );
+
+            EditorGUILayout.LabelField(
+                "Loads / Update",
+                TerrainAuthoringPreviewService
+                    .StreamingCommittedLoadsPerUpdate
+                    .ToString()
+            );
+
+            EditorGUILayout.LabelField(
+                "Compositions / Update",
+                TerrainAuthoringPreviewService
+                    .StreamingCompositionsPerUpdate
+                    .ToString()
+            );
+
+            EditorGUILayout.LabelField(
+                "Soft Work Budget",
+                $"{TerrainAuthoringPreviewService.StreamingSoftWorkBudgetMilliseconds:R} ms"
+            );
+
+            if (
+                !string.IsNullOrEmpty(
+                    TerrainAuthoringPreviewService
+                        .StreamingStatusMessage
+                )
+            )
+            {
+                EditorGUILayout.HelpBox(
+                    TerrainAuthoringPreviewService
+                        .StreamingStatusMessage,
+                    TerrainAuthoringPreviewService.StreamingState ==
+                        TerrainAuthoringPreviewStreamingState.Failed
+                        ? MessageType.Error
+                        : MessageType.Info
+                );
+            }
+        }
+
         GUILayout.Space(
             5f
         );
@@ -332,22 +462,21 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.HelpBox(
-            "The edit-mode Height Preview owns an active resident cache and " +
-            "a separate staging cache. Desired residency is derived from the " +
-            "current clipmap footprint, sample safety, the one-tile guard, " +
-            "and world-edge fitting; the active cache size is no longer used " +
-            "as a permanent minimum.\n\n" +
+            "The edit-mode Height Preview keeps the current active cache bound " +
+            "while replacement residency is prepared incrementally through " +
+            "EditorApplication.update. Retained GPU copies, committed tile " +
+            "loads, and tile composition are bounded per editor update.\n\n" +
 
-            "A one-tile size difference is tolerated for stability. A " +
-            "materially oversized or undersized active cache is recovered " +
-            "through the existing Package 03 staged transition. Retained " +
-            "final-composite slices are GPU copied when safe, so shrinking an " +
-            "oversized cache does not require reloading those tiles.\n\n" +
+            "Committed height loading starts conservatively at one tile per " +
+            "update. The soft work budget only prevents starting additional " +
+            "work after the threshold; it cannot interrupt a Unity operation " +
+            "that is already running. All AssetDatabase, GPU-copy, and compute " +
+            "work remains on the editor main thread.\n\n" +
 
-            "Safe size recovery does not block Scene View placement because " +
-            "the current active cache already covers the required samples. " +
-            "Package 03A remains synchronous; Package 04 introduces " +
-            "multi-update incremental streaming.",
+            "Guard-based prefetch begins before active coverage becomes unsafe. " +
+            "Rapid Scene View movement coalesces toward the latest meaningful " +
+            "destination, obsolete staging is cancelled, and atomic activation " +
+            "still occurs only after every staging slice is final-ready.",
             MessageType.Info
         );
 
