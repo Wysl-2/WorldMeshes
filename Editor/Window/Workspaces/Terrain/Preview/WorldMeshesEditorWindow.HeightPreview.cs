@@ -78,17 +78,17 @@ public partial class WorldMeshesEditorWindow :
 
             EditorGUILayout.LabelField(
                 "Cache Model",
-                "Resident Committed Base + Incremental Composite"
+                "Active + Staging Resident Composite"
             );
 
             EditorGUILayout.LabelField(
-                "Resident Tile Grid",
+                "Active Tile Grid",
                 $"{TerrainAuthoringPreviewService.CacheWidth} x " +
                 $"{TerrainAuthoringPreviewService.CacheHeight}"
             );
 
             EditorGUILayout.LabelField(
-                "Resident Slices",
+                "Active Slices",
                 TerrainAuthoringPreviewService
                     .CacheSliceCount
                     .ToString("N0")
@@ -105,7 +105,7 @@ public partial class WorldMeshesEditorWindow :
                     .CacheOriginTile;
 
             EditorGUILayout.LabelField(
-                "Cache Origin Tile",
+                "Active Cache Origin",
                 $"{cacheOrigin.x}, {cacheOrigin.y}"
             );
 
@@ -122,21 +122,111 @@ public partial class WorldMeshesEditorWindow :
                 );
             }
 
+            if (
+                TerrainAuthoringPreviewService
+                    .HasTransitionDiagnostics
+            )
+            {
+                GUILayout.Space(
+                    5f
+                );
+
+                EditorGUILayout.LabelField(
+                    "Transition State",
+                    TerrainAuthoringPreviewService
+                        .TransitionStateLabel
+                );
+
+                if (
+                    TerrainAuthoringPreviewService
+                        .TryGetStagingResidentWindow(
+                            out TerrainHeightCacheWindow stagingWindow
+                        )
+                )
+                {
+                    EditorGUILayout.LabelField(
+                        "Staging Window",
+                        stagingWindow.ToString()
+                    );
+                }
+
+                EditorGUILayout.LabelField(
+                    "Retained Tiles",
+                    TerrainAuthoringPreviewService
+                        .LastTransitionRetainedTileCount
+                        .ToString("N0")
+                );
+
+                EditorGUILayout.LabelField(
+                    "Entering Tiles",
+                    TerrainAuthoringPreviewService
+                        .LastTransitionEnteringTileCount
+                        .ToString("N0")
+                );
+
+                EditorGUILayout.LabelField(
+                    "Leaving Tiles",
+                    TerrainAuthoringPreviewService
+                        .LastTransitionLeavingTileCount
+                        .ToString("N0")
+                );
+
+                EditorGUILayout.LabelField(
+                    "Reusable Retained",
+                    TerrainAuthoringPreviewService
+                        .LastTransitionReusableRetainedTileCount
+                        .ToString("N0")
+                );
+
+                EditorGUILayout.LabelField(
+                    "Retained GPU Copies",
+                    TerrainAuthoringPreviewService
+                        .LastTransitionRetainedGpuCopyCount
+                        .ToString("N0")
+                );
+
+                EditorGUILayout.LabelField(
+                    "Committed Source Loads",
+                    TerrainAuthoringPreviewService
+                        .LastTransitionCommittedSourceLoadCount
+                        .ToString("N0")
+                );
+
+                EditorGUILayout.LabelField(
+                    "Composed Tiles",
+                    TerrainAuthoringPreviewService
+                        .LastTransitionComposedTileCount
+                        .ToString("N0")
+                );
+
+                if (
+                    TerrainAuthoringPreviewService
+                        .HasTransitionFailure
+                )
+                {
+                    EditorGUILayout.HelpBox(
+                        TerrainAuthoringPreviewService
+                            .LastTransitionFailureMessage,
+                        MessageType.Error
+                    );
+                }
+            }
+
             EditorGUILayout.LabelField(
-                "Preview Height Range",
+                "Active Height Range",
                 $"{TerrainAuthoringPreviewService.MinimumPreviewHeight:R} -> " +
                 $"{TerrainAuthoringPreviewService.MaximumPreviewHeight:R}"
             );
 
             EditorGUILayout.LabelField(
-                "Cache Texture ID",
+                "Active Texture ID",
                 TerrainAuthoringPreviewService
                     .CacheTextureInstanceId
                     .ToString()
             );
 
             EditorGUILayout.LabelField(
-                "Resident Cache Builds",
+                "Active Cache Activations",
                 TerrainAuthoringPreviewService
                     .ResidentCacheBuildCount
                     .ToString("N0")
@@ -165,7 +255,7 @@ public partial class WorldMeshesEditorWindow :
             );
 
             EditorGUILayout.LabelField(
-                "Approx. GPU Memory",
+                "Approx. Active GPU Memory",
                 FormatPreviewMemory(
                     TerrainAuthoringPreviewService
                         .ApproximateGpuMemoryBytes
@@ -218,18 +308,19 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.HelpBox(
-            "The edit-mode Height Preview now keeps only the local " +
-            "height-tile window required by the current clipmap, plus " +
-            "sample safety and a one-tile residency guard.\n\n" +
+            "The edit-mode Height Preview now owns an active resident cache " +
+            "and a separate staging cache. The active cache remains bound " +
+            "while replacement residency is prepared.\n\n" +
 
-            "Committed base/layout changes rebuild the current resident " +
-            "window. Modifier edits still recomposite affected resident " +
-            "slices in place. Nonresident terrain remains authoritative " +
-            "authoring data rather than missing data.\n\n" +
+            "Overlapping final-composite slices are copied on the GPU when " +
+            "their authoring state is still current. Entering or non-reusable " +
+            "tiles load authoritative committed data and run the complete " +
+            "current regional/modifier composition before activation.\n\n" +
 
-            "Package 02 cache replacement is synchronous, so moving into " +
-            "a new resident window may temporarily hitch. Staged and " +
-            "incremental transitions are introduced by later packages.",
+            "A staging cache activates only after every slice reaches final " +
+            "composite readiness. Package 03 still performs this work " +
+            "synchronously, so hitches may remain; Package 04 introduces " +
+            "multi-update incremental streaming.",
             MessageType.Info
         );
 

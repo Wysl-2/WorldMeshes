@@ -12,8 +12,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2af33c540a888db84ab5ef736feb1c3d, type: 3}
   m_Name: WorldSettings
   m_EditorClassIdentifier: Assembly-CSharp::WorldSettings
-  gridWidth: 96
-  gridHeight: 96
+  gridWidth: 192
+  gridHeight: 192
   chunkSize: 128
   heightfieldResolutionPerChunk: 128
   heightTileChunkSpan: 8
@@ -29,11 +29,11 @@ MonoBehaviour:
   clipmapLevelCount: 5
   clipmapBaseSampleStep: 1
   clipmapLODOuterResolutions: 00020000000200000002000000020000
-  lastGeneratedHeightSignature: 79905460baab92e4ffc3638cf2787889a4a0a1d9216aa1bb4a7bbfe6b79d1066
-  heightmapGenerationRevision: 41
-  lastGeneratedSurfaceSignature: 694faa506b05082a3546981bcad7eec60883725efc1931130d3243e9c43439bf
-  surfaceMaskGenerationRevision: 35
-  surfaceSourceHeightmapGenerationRevision: 41
-  lastGeneratedCollisionSignature: 46c0e58363a83436f8fa31c42c8eb54eff5429b15a9089b8371340a8461e10c3
-  collisionMeshGenerationRevision: 35
-  collisionSourceHeightmapGenerationRevision: 41
+  lastGeneratedHeightSignature: 
+  heightmapGenerationRevision: 0
+  lastGeneratedSurfaceSignature: 
+  surfaceMaskGenerationRevision: 0
+  surfaceSourceHeightmapGenerationRevision: -1
+  lastGeneratedCollisionSignature: 
+  collisionMeshGenerationRevision: 0
+  collisionSourceHeightmapGenerationRevision: -1

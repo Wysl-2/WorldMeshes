@@ -44,7 +44,7 @@ public enum TerrainAuthoringSceneViewStatus
  * - run in Play Mode
  */
 [InitializeOnLoad]
-public static class TerrainAuthoringSceneViewController
+public static partial class TerrainAuthoringSceneViewController
 {
     private enum FollowTargetApplyResult
     {
@@ -165,6 +165,10 @@ public static class TerrainAuthoringSceneViewController
         TerrainAuthoringPreviewService
             .HeightCacheCoverageChanged +=
                 OnHeightCacheCoverageChanged;
+
+        TerrainAuthoringPreviewService
+            .HeightCacheTransitionFailed +=
+                OnHeightCacheTransitionFailed;
 
         SceneView.duringSceneGui +=
             OnSceneViewGUI;

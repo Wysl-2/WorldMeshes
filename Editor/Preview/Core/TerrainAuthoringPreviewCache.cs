@@ -19,7 +19,7 @@ using UnityEngine.Rendering;
  * authoritative committed min/max values without rescanning every RFloat
  * sample in the source Texture2D.
  */
-public sealed class TerrainAuthoringPreviewCache :
+public sealed partial class TerrainAuthoringPreviewCache :
     IDisposable
 {
     // =====================================================
@@ -1011,6 +1011,12 @@ public sealed class TerrainAuthoringPreviewCache :
         sliceRangeValid =
             candidateRangeValid;
 
+        InitializeSliceReadiness(
+            SliceCount,
+            TerrainAuthoringPreviewSliceReadiness
+                .CommittedBaseReady
+        );
+
         minimumHeight =
             candidateMinimumHeight;
 
@@ -1592,6 +1598,12 @@ public sealed class TerrainAuthoringPreviewCache :
                 slice
             ] =
                 true;
+
+            SetSliceReadinessBySlice(
+                slice,
+                TerrainAuthoringPreviewSliceReadiness
+                    .FinalCompositeReady
+            );
         }
 
         if (
@@ -1775,6 +1787,12 @@ public sealed class TerrainAuthoringPreviewCache :
             slice
         ] =
             true;
+
+        SetSliceReadinessBySlice(
+            slice,
+            TerrainAuthoringPreviewSliceReadiness
+                .CommittedBaseReady
+        );
 
         if (
             recalculateGlobalRange
@@ -2179,6 +2197,9 @@ public sealed class TerrainAuthoringPreviewCache :
             null;
 
         sliceRangeValid =
+            null;
+
+        sliceReadiness =
             null;
 
         minimumHeight =

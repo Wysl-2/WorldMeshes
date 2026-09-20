@@ -188,15 +188,15 @@ public partial class WorldMeshesEditorWindow :
             "local Height Preview cache contains every sample-safe height " +
             "tile it requires.\n\n" +
 
-            "When coverage is insufficient, WorldMeshes requests another " +
-            "guarded resident window and retains the last safe clipmap " +
-            "placement until the synchronous cache replacement completes. " +
-            "Temporary hitches are expected in Package 02.\n\n" +
+            "When coverage is insufficient, WorldMeshes prepares a staging " +
+            "resident window while the current active terrain remains bound. " +
+            "The desired layout stays deferred until staging is completely " +
+            "composed, validated, and atomically activated. A staging failure " +
+            "leaves the previous active terrain visible where it remains valid.\n\n" +
 
-            "Follow remains clamped to the logical world rectangle. Camera " +
-            "and ScenePivot modes share the same residency path, and " +
-            "transient placement is still restored for serialization and " +
-            "Play Mode handoff.",
+            "Package 03 staging is still synchronous, so temporary hitches " +
+            "may remain. Camera and ScenePivot modes share the same residency " +
+            "path, and Package 04 introduces incremental multi-update work.",
             MessageType.Info
         );
 

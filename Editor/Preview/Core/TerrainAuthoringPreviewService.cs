@@ -32,7 +32,7 @@ public enum TerrainAuthoringPreviewStatus
  * notification and does not request a cache rebuild.
  */
 [InitializeOnLoad]
-public static class TerrainAuthoringPreviewService
+public static partial class TerrainAuthoringPreviewService
 {
     // =====================================================
     // OUTBOUND STATE EVENT
@@ -68,7 +68,29 @@ public static class TerrainAuthoringPreviewService
     // STATE
     // =====================================================
 
-    private static TerrainAuthoringPreviewCache previewCache;
+    private static TerrainAuthoringPreviewCache activeCache;
+
+    private static TerrainAuthoringPreviewCache stagingCache;
+
+    /*
+     * Existing Package 01/02 internal code continues to use previewCache as
+     * the active-cache compatibility surface. Staging code never uses this
+     * alias, and public cache queries therefore remain active-only.
+     */
+    private static TerrainAuthoringPreviewCache previewCache
+    {
+        get
+        {
+            return
+                activeCache;
+        }
+
+        set
+        {
+            activeCache =
+                value;
+        }
+    }
 
     /*
      * Stage 13A composition executor.
@@ -113,11 +135,11 @@ public static class TerrainAuthoringPreviewService
         Vector2.zero;
 
     /*
-     * Package 02 requested residency state.
+     * Requested residency state established by Package 02.
      *
-     * The active resident window remains authoritative on previewCache.
-     * This value represents only the latest local window requested for the
-     * next synchronous cache build. A later package introduces staging.
+     * The active resident window remains authoritative on activeCache.
+     * This value represents the latest local target that Package 03 prepares
+     * in staging before atomic activation.
      */
     private static bool hasRequestedResidencyWindow;
 
@@ -467,6 +489,7 @@ public static class TerrainAuthoringPreviewService
         )
         {
             ClearRequestedResidency();
+            ClearTransitionFailureSuppression();
 
             return true;
         }
@@ -501,6 +524,21 @@ public static class TerrainAuthoringPreviewService
                 )
         )
         {
+            return false;
+        }
+
+        if (
+            IsTransitionFailureSuppressed(
+                residentWindow,
+                out string suppressedFailure
+            )
+        )
+        {
+            errorMessage =
+                "The requested resident window previously failed to stage " +
+                "against the current authoring state." +
+                suppressedFailure;
+
             return false;
         }
 
@@ -1186,6 +1224,8 @@ public static class TerrainAuthoringPreviewService
      */
     public static void NotifyCommittedHeightfieldChanged()
     {
+        ClearTransitionFailureSuppression();
+
         committedRebuildRequested =
             true;
 
@@ -1282,6 +1322,8 @@ public static class TerrainAuthoringPreviewService
         IEnumerable<Vector2Int> tileCoordinates
     )
     {
+        ClearTransitionFailureSuppression();
+
         if (tileCoordinates != null)
         {
             foreach (
@@ -1355,6 +1397,8 @@ public static class TerrainAuthoringPreviewService
      */
     public static void ForceCommittedRebuildNow()
     {
+        ClearTransitionFailureSuppression();
+
         committedRebuildRequested =
             true;
 
@@ -1823,137 +1867,29 @@ public static class TerrainAuthoringPreviewService
                 WorldMeshesProfiler.PreviewRebuild.Auto();
 
             /*
-             * Resident committed rebuilds replace the RenderTexture object,
-             * so stop the clipmap sampling the previous cache before the
-             * synchronous local-cache transaction.
+             * Package 03 prepares a separate staging cache while the current
+             * active cache remains bound. Only a fully composed and validated
+             * staging cache is allowed to cross the activation boundary.
              */
-            ReleaseBinding();
-
-            clipmapRebindRequested =
-                true;
-
-            TerrainAuthoringPreviewCache newCache =
-                previewCache
-                ??
-                new TerrainAuthoringPreviewCache();
-
             if (
-                !newCache.TryBuild(
+                !TryExecuteSynchronousStagedTransition(
                     worldSettings,
                     authoringData,
                     buildWindow,
-                    out string buildError
+                    currentCommittedSignature,
+                    currentOverallSignature,
+                    clipmapRoot,
+                    out _
                 )
             )
             {
-                ReleaseBinding();
-
-                if (previewCache == null)
-                {
-                    newCache.Dispose();
-                }
-                else
-                {
-                    ReleaseCache();
-                }
-
-                SetStatus(
-                    TerrainAuthoringPreviewStatus.Error,
-                    buildError
-                );
-
-                RepaintEditorViews();
-
-                return;
-            }
-
-            previewCache =
-                newCache;
-
-            if (
-                hasRequestedResidencyWindow
-                &&
-                requestedResidencyWindow ==
-                    buildWindow
-            )
-            {
-                ClearRequestedResidency();
-            }
-
-            fullCommittedBuildCount++;
-
-            committedRebuildRequested =
-                false;
-
-            clipmapRebindRequested =
-                true;
-
-            /*
-             * A resident build has created committed/base cache contents only.
-             *
-             * Rebuild the current complete modifier state through the
-             * SAME dirty-slice transaction used by ordinary edits.
-             * This prevents full preview rebuilds from silently erasing
-             * enabled modifiers while claiming the overall signature is
-             * current.
-             */
-            HashSet<Vector2Int> fullRebuildCompositionTiles =
-                new HashSet<Vector2Int>();
-
-            if (
-                !TerrainRegionalElevationCompositionUtility
-                    .TryCollectRequiredHeightTiles(
-                        worldSettings,
-                        authoringData,
-                        fullRebuildCompositionTiles,
-                        1,
-                        out _,
-                        out string compositionSetError
-                    )
-            )
-            {
                 /*
-                 * The committed cache remains a valid base, but the complete
-                 * authored surface cannot be reconstructed. Keep the preview
-                 * stale and report the regional/modifier composition problem.
+                 * Failure handling is owned by the staged transaction. A
+                 * still-current active cache remains bound; a stale active
+                 * cache is preserved as a resource but reported as stale.
                  */
-                overallSignatureAcknowledgementRequested =
-                    false;
-
-                SetStatus(
-                    TerrainAuthoringPreviewStatus.Error,
-                    "The committed preview cache was rebuilt, but the " +
-                    "complete regional/modifier composition set could not " +
-                    "be resolved.\n\n" +
-                    compositionSetError
-                );
-
-                RepaintEditorViews();
-
                 return;
             }
-
-            /*
-             * Dirty requests that belonged to the previous committed cache
-             * are obsolete. With a global node regional source this set is
-             * the complete logical world; without one it retains the
-             * established enabled-modifier footprint behavior.
-             */
-            dirtyCompositeTiles.Clear();
-
-            dirtyCompositeTiles.UnionWith(
-                fullRebuildCompositionTiles
-            );
-
-            /*
-             * When neither regional elevation nor an enabled modifier
-             * requires composition, the committed base already represents
-             * the complete output. The normal zero-dirty acknowledgement
-             * path below handles that case. Otherwise acknowledgement occurs
-             * only after the dirty composition transaction succeeds.
-             */
-            overallSignatureAcknowledgementRequested =
-                true;
         }
 
         // =================================================
@@ -2564,18 +2500,7 @@ public static class TerrainAuthoringPreviewService
 
     private static void ReleaseCache()
     {
-        if (previewCache == null)
-        {
-            return;
-        }
-
-        previewCache.Dispose();
-
-        previewCache =
-            null;
-
-        NotifyHeightCacheCoverageIfChanged();
-        NotifyPreviewStateChanged();
+        ReleaseAllPreviewCaches();
     }
 
     // =====================================================
@@ -2599,6 +2524,8 @@ public static class TerrainAuthoringPreviewService
          * signature. Authorized committed-base transactions use
          * the explicit committed-heightfield invalidation API.
          */
+        ClearTransitionFailureSuppression();
+
         ScheduleRefresh();
     }
 
