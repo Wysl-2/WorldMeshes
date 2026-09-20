@@ -1063,6 +1063,7 @@ public static partial class TerrainAuthoringPreviewService
             null;
 
         ResetStreamingStateForResourceRelease();
+        ClearRegionalElevationResidencyForResourceRelease();
 
         ClearDesiredResidency();
         ClearTransitionFailureSuppression();

@@ -510,6 +510,68 @@ public partial class WorldMeshesEditorWindow :
             );
         }
 
+        if (previewEnabled)
+        {
+            GUILayout.Space(
+                5f
+            );
+
+            GUILayout.Label(
+                "Regional Elevation Residency",
+                EditorStyles.boldLabel
+            );
+
+            EditorGUILayout.LabelField(
+                "Regional Scope",
+                TerrainAuthoringPreviewService
+                    .LastRegionalInvalidationKind
+            );
+
+            EditorGUILayout.LabelField(
+                "Logical Affected Tiles",
+                TerrainAuthoringPreviewService
+                    .LastRegionalLogicalAffectedTileCount
+                    .ToString("N0")
+            );
+
+            EditorGUILayout.LabelField(
+                "Resident Affected Tiles",
+                TerrainAuthoringPreviewService
+                    .LastRegionalResidentAffectedTileCount
+                    .ToString("N0")
+            );
+
+            EditorGUILayout.LabelField(
+                "Nonresident Affected Tiles",
+                TerrainAuthoringPreviewService
+                    .LastRegionalNonresidentAffectedTileCount
+                    .ToString("N0")
+            );
+
+            EditorGUILayout.LabelField(
+                "Regional Published Tiles",
+                TerrainAuthoringPreviewService
+                    .LastRegionalPublishedCompositeTileCount
+                    .ToString("N0")
+            );
+
+            EditorGUILayout.LabelField(
+                "Pending Regional Invalidation",
+                TerrainAuthoringPreviewService
+                    .HasPendingRegionalElevationInvalidation
+                    ? "Yes"
+                    : "No"
+            );
+
+            EditorGUILayout.LabelField(
+                "Interactive Regional Edit",
+                TerrainAuthoringPreviewService
+                    .InteractiveRegionalElevationEditActive
+                    ? "Yes"
+                    : "No"
+            );
+        }
+
         GUILayout.Space(
             5f
         );
@@ -561,7 +623,15 @@ public partial class WorldMeshesEditorWindow :
             "the edit; those tiles reconstruct the current complete modifier " +
             "stack when they later enter residency. Authoring generations " +
             "cancel stale staging, and remote staging restart is deferred while " +
-            "an interactive modifier gesture is active.",
+            "an interactive modifier gesture is active.\n\n" +
+
+            "Regional elevation authoring is also world-global. Whole-world " +
+            "regional influence is represented as a compact logical scope and " +
+            "intersected with active residency, so distant regional terrain is " +
+            "not loaded solely because a node changed. Later-entering tiles " +
+            "reconstruct the current regional surface before the complete " +
+            "modifier stack. Regional interactive edits share the same " +
+            "authoring-generation and streaming-deferral safety.",
             MessageType.Info
         );
 

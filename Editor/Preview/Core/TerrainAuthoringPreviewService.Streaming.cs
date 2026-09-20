@@ -544,14 +544,13 @@ public static partial class TerrainAuthoringPreviewService
         {
             if (
                 ShouldDeferStreamingRestart(
-                    TerrainAuthoringModifierService
-                        .HasActiveInteractiveEdit
+                    HasActiveInteractiveTerrainAuthoringEdit
                 )
             )
             {
                 SetStreamingState(
                     TerrainAuthoringPreviewStreamingState.Preparing,
-                    "Streaming restart is deferred while an interactive terrain modifier edit is active."
+                    "Streaming restart is deferred while an interactive terrain authoring edit is active."
                 );
 
                 return;
@@ -1425,6 +1424,10 @@ public static partial class TerrainAuthoringPreviewService
         }
 
         MarkActiveCacheAuthoringGeneration(
+            transition.TargetAuthoringGeneration
+        );
+
+        AcknowledgePendingRegionalElevationAfterActivation(
             transition.TargetAuthoringGeneration
         );
 

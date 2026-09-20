@@ -33,8 +33,7 @@ public static partial class TerrainRegionalElevationService
         public string OverallSignatureBefore;
         public TerrainRegionalElevationSnapshot InitialSnapshot;
 
-        public readonly HashSet<Vector2Int> InteractiveDirtyTiles =
-            new HashSet<Vector2Int>();
+        public long LogicalAffectedTileCount;
     }
 
     private static InteractiveNodeEditState activeInteractiveEdit;
@@ -55,7 +54,10 @@ public static partial class TerrainRegionalElevationService
 
     internal static int ActiveInteractiveDirtyTileCount =>
         activeInteractiveEdit != null
-            ? activeInteractiveEdit.InteractiveDirtyTiles.Count
+            ? TerrainRegionalElevationResidencyPolicy
+                .ClampLogicalCountToInt(
+                    activeInteractiveEdit.LogicalAffectedTileCount
+                )
             : 0;
 
     internal static bool ActiveInteractiveHasChanges =>
@@ -155,9 +157,12 @@ public static partial class TerrainRegionalElevationService
 
         if (!string.IsNullOrEmpty(committedBefore))
         {
-            TerrainRegionalElevationCompositionUtility.CollectAllHeightTiles(
-                worldSettings,
-                state.InteractiveDirtyTiles);
+            state.LogicalAffectedTileCount =
+                TerrainRegionalElevationResidencyPolicy
+                    .GetLogicalAffectedTileCount(
+                        worldSettings,
+                        TerrainRegionalElevationInvalidationScope.WholeWorld
+                    );
         }
 
         activeInteractiveEdit = state;
@@ -317,15 +322,17 @@ public static partial class TerrainRegionalElevationService
             if (
                 notifyPreview &&
                 hadInteractiveChanges &&
-                state.InteractiveDirtyTiles.Count > 0)
+                state.LogicalAffectedTileCount > 0L)
             {
                 /*
                  * The gesture may have returned to its starting value after a
-                 * throttled preview sample. Recompose the restored state rather
-                 * than issuing metadata-only acknowledgement.
+                 * throttled preview sample. Recompose the restored regional
+                 * state across the current active residency.
                  */
-                TerrainAuthoringPreviewService.NotifyCompositeAuthoringStateChanged(
-                    state.InteractiveDirtyTiles);
+                TerrainAuthoringPreviewService
+                    .NotifyRegionalElevationAuthoringStateChanged(
+                        TerrainRegionalElevationInvalidationScope.WholeWorld
+                    );
             }
 
             SetNoChangeDiagnostics(operation, data, world);
@@ -366,12 +373,17 @@ public static partial class TerrainRegionalElevationService
             state.NotifyPreview,
             state.NotifyRuntime);
 
-        if (state.NotifyRuntime && state.InteractiveDirtyTiles.Count > 0)
+        if (
+            state.NotifyRuntime
+            &&
+            state.LogicalAffectedTileCount > 0L
+        )
         {
-            TerrainRuntimeInvalidationService.InvalidateAuthoringHeightTiles(
-                state.WorldSettings,
-                state.AuthoringData,
-                state.InteractiveDirtyTiles);
+            TerrainRuntimeInvalidationService
+                .InvalidateGlobalAuthoringHeightOutput(
+                    state.WorldSettings,
+                    state.AuthoringData
+                );
 
             lastInteractiveRuntimeInvalidationCount++;
         }
@@ -379,11 +391,14 @@ public static partial class TerrainRegionalElevationService
         /*
          * Live drag samples already requested the final preview pixels. Once
          * revision advances, only acknowledge the new overall authoring
-         * identity instead of redundantly scheduling every tile again.
+         * identity instead of redundantly scheduling resident tiles again.
          */
         if (state.NotifyPreview)
         {
-            TerrainAuthoringPreviewService.NotifyCompositeAuthoringStateChanged(null);
+            TerrainAuthoringPreviewService
+                .NotifyRegionalElevationAuthoringStateChanged(
+                    TerrainRegionalElevationInvalidationScope.None
+                );
         }
 
         string committedAfter =
@@ -405,16 +420,23 @@ public static partial class TerrainRegionalElevationService
                 OverallSignatureBefore = state.OverallSignatureBefore,
                 OverallSignatureAfter = overallAfter,
                 PreviewNotificationMode = state.NotifyPreview
-                    ? "InteractiveLivePreviewThenMetadata"
+                    ? "InteractiveRegionalWholeWorldThenMetadata"
                     : "Suppressed",
                 RuntimeInvalidationMode = state.NotifyRuntime
-                    ? "InteractiveCommitWholeWorld"
+                    ? "GlobalHeightOutput"
                     : "Suppressed",
+                RegionalInvalidationKind = state.LogicalAffectedTileCount > 0L
+                    ? "WholeWorld"
+                    : "None",
+                LogicalAffectedTileCount = state.LogicalAffectedTileCount,
                 NodeCountBefore = state.InitialSnapshot.NodeCount,
                 NodeCountAfter = finalSnapshot.NodeCount
             };
 
-        diagnostics.SetDirtyTiles(state.InteractiveDirtyTiles);
+        diagnostics.SetLogicalDirtyTileCount(
+            state.LogicalAffectedTileCount
+        );
+
         LastMutationDiagnostics = diagnostics;
 
         int committedGroup = state.UndoGroup;
@@ -467,10 +489,12 @@ public static partial class TerrainRegionalElevationService
         if (
             notifyPreview &&
             hadInteractiveChanges &&
-            state.InteractiveDirtyTiles.Count > 0)
+            state.LogicalAffectedTileCount > 0L)
         {
-            TerrainAuthoringPreviewService.NotifyCompositeAuthoringStateChanged(
-                state.InteractiveDirtyTiles);
+            TerrainAuthoringPreviewService
+                .NotifyRegionalElevationAuthoringStateChanged(
+                    TerrainRegionalElevationInvalidationScope.WholeWorld
+                );
         }
 
         SetNoChangeDiagnostics(operation, data, world);
@@ -490,7 +514,10 @@ public static partial class TerrainRegionalElevationService
         EditorUtility.SetDirty(state.AuthoringData);
 
         lastInteractivePreviewDirtyTileCount =
-            state.InteractiveDirtyTiles.Count;
+            TerrainRegionalElevationResidencyPolicy
+                .ClampLogicalCountToInt(
+                    state.LogicalAffectedTileCount
+                );
 
         TryNotifyInteractivePreview(
             state,
@@ -505,7 +532,7 @@ public static partial class TerrainRegionalElevationService
             state == null ||
             !state.NotifyPreview ||
             !state.PreviewRefreshPending ||
-            state.InteractiveDirtyTiles.Count <= 0)
+            state.LogicalAffectedTileCount <= 0L)
         {
             return false;
         }
@@ -522,8 +549,10 @@ public static partial class TerrainRegionalElevationService
             return false;
         }
 
-        TerrainAuthoringPreviewService.NotifyCompositeAuthoringStateChanged(
-            state.InteractiveDirtyTiles);
+        TerrainAuthoringPreviewService
+            .NotifyRegionalElevationAuthoringStateChanged(
+                TerrainRegionalElevationInvalidationScope.WholeWorld
+            );
 
         state.PreviewRefreshPending = false;
         state.HasPreviewNotification = true;

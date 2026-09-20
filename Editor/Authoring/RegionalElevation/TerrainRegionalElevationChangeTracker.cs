@@ -29,11 +29,19 @@ public static class TerrainRegionalElevationChangeTracker
         lastUndoRedoDirtyTiles =
             new List<Vector2Int>();
 
+    private static int lastUndoRedoDirtyTileCount;
+
+    private static string lastUndoRedoInvalidationKind =
+        "None";
+
     public static int LastUndoRedoDirtyTileCount =>
-        lastUndoRedoDirtyTiles.Count;
+        lastUndoRedoDirtyTileCount;
 
     public static IReadOnlyList<Vector2Int> LastUndoRedoDirtyTiles =>
         lastUndoRedoDirtyTiles;
+
+    public static string LastUndoRedoInvalidationKind =>
+        lastUndoRedoInvalidationKind;
 
     static TerrainRegionalElevationChangeTracker()
     {
@@ -207,6 +215,12 @@ public static class TerrainRegionalElevationChangeTracker
     {
         lastUndoRedoDirtyTiles.Clear();
 
+        lastUndoRedoDirtyTileCount =
+            0;
+
+        lastUndoRedoInvalidationKind =
+            "None";
+
         List<int> keys =
             new List<int>(
                 trackedStates.Keys
@@ -288,38 +302,48 @@ public static class TerrainRegionalElevationChangeTracker
                 continue;
             }
 
-            HashSet<Vector2Int> allHeightTiles =
-                new HashSet<Vector2Int>();
+            long logicalAffectedTileCount =
+                TerrainRegionalElevationResidencyPolicy
+                    .GetLogicalAffectedTileCount(
+                        worldSettings,
+                        TerrainRegionalElevationInvalidationScope.WholeWorld
+                    );
 
-            TerrainRegionalElevationCompositionUtility
-                .CollectAllHeightTiles(
-                    worldSettings,
-                    allHeightTiles
-                );
+            long combinedCount =
+                (long)lastUndoRedoDirtyTileCount +
+                logicalAffectedTileCount;
 
-            lastUndoRedoDirtyTiles.AddRange(
-                allHeightTiles
-            );
+            lastUndoRedoDirtyTileCount =
+                TerrainRegionalElevationResidencyPolicy
+                    .ClampLogicalCountToInt(
+                        combinedCount
+                    );
+
+            lastUndoRedoInvalidationKind =
+                logicalAffectedTileCount > 0L
+                    ? "WholeWorld"
+                    : "None";
 
             if (
                 tracked.NotifyRuntime
                 &&
-                allHeightTiles.Count > 0
+                logicalAffectedTileCount > 0L
             )
             {
                 TerrainRuntimeInvalidationService
-                    .InvalidateAuthoringHeightTiles(
+                    .InvalidateGlobalAuthoringHeightOutput(
                         worldSettings,
-                        authoringData,
-                        allHeightTiles
+                        authoringData
                     );
             }
 
             if (tracked.NotifyPreview)
             {
                 TerrainAuthoringPreviewService
-                    .NotifyCompositeAuthoringStateChanged(
-                        allHeightTiles
+                    .NotifyRegionalElevationAuthoringStateChanged(
+                        logicalAffectedTileCount > 0L
+                            ? TerrainRegionalElevationInvalidationScope.WholeWorld
+                            : TerrainRegionalElevationInvalidationScope.None
                     );
             }
         }

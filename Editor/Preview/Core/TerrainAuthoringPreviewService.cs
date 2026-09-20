@@ -1371,11 +1371,13 @@ public static partial class TerrainAuthoringPreviewService
             true;
 
         /*
-         * Dirty composite coordinates belong to the old committed
-         * base transaction. A future modifier system should submit
-         * new dirty regions after the new base is committed.
+         * Dirty composite coordinates and pending regional invalidation belong
+         * to the old committed-base transaction. Fresh authoring notifications
+         * are evaluated against the replacement committed source.
          */
         dirtyCompositeTiles.Clear();
+
+        ClearPendingRegionalElevationInvalidationForCommittedChange();
 
         overallSignatureAcknowledgementRequested =
             false;
@@ -1965,7 +1967,7 @@ public static partial class TerrainAuthoringPreviewService
         }
 
         // =================================================
-        // PACKAGE 05 - ACTIVE RESIDENT MODIFIER UPDATE
+        // PACKAGE 06 - ACTIVE RESIDENT AUTHORING UPDATE
         // =================================================
 
         int package05EarlyUpdatedCompositeSliceCount =
@@ -1985,6 +1987,8 @@ public static partial class TerrainAuthoringPreviewService
             (
                 dirtyCompositeTiles.Count > 0
                 ||
+                hasPendingRegionalElevationInvalidation
+                ||
                 overallSignatureAcknowledgementRequested
             )
         )
@@ -2003,8 +2007,8 @@ public static partial class TerrainAuthoringPreviewService
             {
                 SetStatus(
                     TerrainAuthoringPreviewStatus.Error,
-                    "The active resident modifier update failed. The logical " +
-                    "dirty set has been retained for retry.\n\n" +
+                    "The active resident authoring update failed. Logical " +
+                    "modifier/regional invalidation has been retained for retry.\n\n" +
                     modifierResidencyError
                 );
 

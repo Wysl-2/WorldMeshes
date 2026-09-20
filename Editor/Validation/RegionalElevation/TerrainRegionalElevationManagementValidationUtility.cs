@@ -202,7 +202,8 @@ public static class TerrainRegionalElevationManagementValidationUtility
                 addDiag != null &&
                 addDiag.Changed &&
                 addDiag.DirtyTileCount == expectedTiles &&
-                HasWorldCorners(addDiag.DirtyTiles) &&
+                addDiag.RegionalInvalidationKind == "WholeWorld" &&
+                addDiag.DirtyTiles.Count == 0 &&
                 committedBefore == TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(worldSettings) &&
                 overallBefore != TerrainAuthoringStateUtility.GetOverallAuthoringSignature(worldSettings, data);
 

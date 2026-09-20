@@ -21,16 +21,47 @@ public sealed class TerrainRegionalElevationMutationDiagnostics
     private readonly List<Vector2Int> dirtyTiles =
         new List<Vector2Int>();
 
+    private int logicalDirtyTileCount;
+
     public IReadOnlyList<Vector2Int> DirtyTiles => dirtyTiles;
-    public int DirtyTileCount => dirtyTiles.Count;
+    public int DirtyTileCount => logicalDirtyTileCount;
+
+    public string RegionalInvalidationKind { get; internal set; }
+    public long LogicalAffectedTileCount { get; internal set; }
 
     internal void SetDirtyTiles(IEnumerable<Vector2Int> source)
     {
         dirtyTiles.Clear();
+
         if (source != null)
         {
             dirtyTiles.AddRange(source);
         }
+
+        logicalDirtyTileCount =
+            dirtyTiles.Count;
+
+        LogicalAffectedTileCount =
+            logicalDirtyTileCount;
+    }
+
+    internal void SetLogicalDirtyTileCount(
+        long logicalCount
+    )
+    {
+        dirtyTiles.Clear();
+
+        LogicalAffectedTileCount =
+            System.Math.Max(
+                0L,
+                logicalCount
+            );
+
+        logicalDirtyTileCount =
+            TerrainRegionalElevationResidencyPolicy
+                .ClampLogicalCountToInt(
+                    LogicalAffectedTileCount
+                );
     }
 }
 
@@ -498,11 +529,16 @@ public static partial class TerrainRegionalElevationService
 
         EditorUtility.SetDirty(authoringData);
 
-        HashSet<Vector2Int> dirtyTiles = new HashSet<Vector2Int>();
-        if (!string.IsNullOrEmpty(committedBefore))
-        {
-            TerrainRegionalElevationCompositionUtility.CollectAllHeightTiles(worldSettings, dirtyTiles);
-        }
+        long logicalAffectedTileCount =
+            !string.IsNullOrEmpty(
+                committedBefore
+            )
+                ? TerrainRegionalElevationResidencyPolicy
+                    .GetLogicalAffectedTileCount(
+                        worldSettings,
+                        TerrainRegionalElevationInvalidationScope.WholeWorld
+                    )
+                : 0L;
 
         TerrainRegionalElevationChangeTracker.UpdateTrackedState(
             authoringData,
@@ -511,17 +547,27 @@ public static partial class TerrainRegionalElevationService
             notifyPreview,
             notifyRuntime);
 
-        if (notifyRuntime && dirtyTiles.Count > 0)
+        if (
+            notifyRuntime
+            &&
+            logicalAffectedTileCount > 0L
+        )
         {
-            TerrainRuntimeInvalidationService.InvalidateAuthoringHeightTiles(
-                worldSettings,
-                authoringData,
-                dirtyTiles);
+            TerrainRuntimeInvalidationService
+                .InvalidateGlobalAuthoringHeightOutput(
+                    worldSettings,
+                    authoringData
+                );
         }
 
         if (notifyPreview)
         {
-            TerrainAuthoringPreviewService.NotifyCompositeAuthoringStateChanged(dirtyTiles);
+            TerrainAuthoringPreviewService
+                .NotifyRegionalElevationAuthoringStateChanged(
+                    logicalAffectedTileCount > 0L
+                        ? TerrainRegionalElevationInvalidationScope.WholeWorld
+                        : TerrainRegionalElevationInvalidationScope.None
+                );
         }
 
         string committedAfter = TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(worldSettings);
@@ -538,13 +584,24 @@ public static partial class TerrainRegionalElevationService
                 CommittedSignatureAfter = committedAfter,
                 OverallSignatureBefore = overallBefore,
                 OverallSignatureAfter = overallAfter,
-                PreviewNotificationMode = notifyPreview ? "WholeWorld" : "Suppressed",
-                RuntimeInvalidationMode = notifyRuntime ? "WholeWorld" : "Suppressed",
+                PreviewNotificationMode = notifyPreview
+                    ? "RegionalWholeWorldScope"
+                    : "Suppressed",
+                RuntimeInvalidationMode = notifyRuntime
+                    ? "GlobalHeightOutput"
+                    : "Suppressed",
+                RegionalInvalidationKind = logicalAffectedTileCount > 0L
+                    ? "WholeWorld"
+                    : "None",
+                LogicalAffectedTileCount = logicalAffectedTileCount,
                 NodeCountBefore = before.NodeCount,
                 NodeCountAfter = after.NodeCount
             };
 
-        diagnostics.SetDirtyTiles(dirtyTiles);
+        diagnostics.SetLogicalDirtyTileCount(
+            logicalAffectedTileCount
+        );
+
         LastMutationDiagnostics = diagnostics;
 
         Undo.FlushUndoRecordObjects();

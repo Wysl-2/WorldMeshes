@@ -63,8 +63,7 @@ public static partial class TerrainAuthoringPreviewService
             .HasActiveInteractiveEdit;
 
     public static bool StreamingRestartDeferredForInteractiveEdit =>
-        TerrainAuthoringModifierService
-            .HasActiveInteractiveEdit
+        HasActiveInteractiveTerrainAuthoringEdit
         &&
         (
             hasPendingStreamingStart
@@ -381,8 +380,30 @@ public static partial class TerrainAuthoringPreviewService
         lastPublishedCompositeTileCount =
             0;
 
+        bool hadPendingRegionalInvalidation =
+            hasPendingRegionalElevationInvalidation;
+
         if (
-            modifierResidencyResidentDirtyScratch.Count == 0
+            !TryCollectPendingRegionalResidentTiles(
+                worldSettings,
+                hasActiveWindow,
+                activeWindow,
+                regionalResidencyResidentDirtyScratch,
+                out errorMessage
+            )
+        )
+        {
+            return false;
+        }
+
+        BuildResidentAuthoringDirtyUnion(
+            modifierResidencyResidentDirtyScratch,
+            regionalResidencyResidentDirtyScratch,
+            regionalResidencyCompositeUnionScratch
+        );
+
+        if (
+            regionalResidencyCompositeUnionScratch.Count == 0
         )
         {
             if (
@@ -393,6 +414,10 @@ public static partial class TerrainAuthoringPreviewService
             )
             {
                 dirtyCompositeTiles.Clear();
+
+                ConsumePendingRegionalElevationInvalidation(
+                    0
+                );
 
                 previewCache
                     .MarkOverallAuthoringSignature(
@@ -407,6 +432,8 @@ public static partial class TerrainAuthoringPreviewService
 
                 if (
                     lastGlobalDirtyTileCount > 0
+                    ||
+                    hadPendingRegionalInvalidation
                     ||
                     !string.IsNullOrEmpty(
                         lastAuthoringGenerationReason
@@ -432,7 +459,7 @@ public static partial class TerrainAuthoringPreviewService
         if (
             !previewCache
                 .ResetCompositeTilesForRecomposition(
-                    modifierResidencyResidentDirtyScratch,
+                    regionalResidencyCompositeUnionScratch,
                     out updatedResidentSliceCount,
                     out errorMessage
                 )
@@ -443,11 +470,11 @@ public static partial class TerrainAuthoringPreviewService
 
         if (
             updatedResidentSliceCount !=
-                modifierResidencyResidentDirtyScratch.Count
+                regionalResidencyCompositeUnionScratch.Count
         )
         {
             errorMessage =
-                "The resident modifier dirty partition and committed-base " +
+                "The resident modifier/regional dirty union and committed-base " +
                 "reset produced different slice counts.";
 
             return false;
@@ -461,12 +488,12 @@ public static partial class TerrainAuthoringPreviewService
 
         for (
             int index = 0;
-            index < modifierResidencyResidentDirtyScratch.Count;
+            index < regionalResidencyCompositeUnionScratch.Count;
             index++
         )
         {
             Vector2Int dirtyTile =
-                modifierResidencyResidentDirtyScratch[index];
+                regionalResidencyCompositeUnionScratch[index];
 
             int sliceIndex =
                 previewCache.GetSliceIndex(
@@ -536,7 +563,7 @@ public static partial class TerrainAuthoringPreviewService
         )
         {
             errorMessage =
-                "The resident modifier reset/composition transaction " +
+                "The resident authoring reset/composition transaction " +
                 "produced different valid-slice counts.";
 
             return false;
@@ -566,6 +593,10 @@ public static partial class TerrainAuthoringPreviewService
 
         dirtyCompositeTiles.Clear();
 
+        ConsumePendingRegionalElevationInvalidation(
+            regionalResidencyResidentDirtyScratch.Count
+        );
+
         previewCache
             .MarkOverallAuthoringSignature(
                 currentOverallSignature
@@ -579,7 +610,7 @@ public static partial class TerrainAuthoringPreviewService
 
         List<Vector2Int> publishedTiles =
             new List<Vector2Int>(
-                modifierResidencyResidentDirtyScratch
+                regionalResidencyCompositeUnionScratch
             );
 
         lastPublishedCompositeTileCount =
@@ -731,8 +762,15 @@ public static partial class TerrainAuthoringPreviewService
         bool pendingResidentDirty =
             resident
             &&
-            dirtyCompositeTiles.Contains(
-                worldTile
+            (
+                dirtyCompositeTiles.Contains(
+                    worldTile
+                )
+                ||
+                IsWorldTilePendingRegionalElevationRecomposition(
+                    worldSettings,
+                    worldTile
+                )
             );
 
         return

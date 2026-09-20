@@ -139,6 +139,35 @@ public static class TerrainRuntimeInvalidationService
                 );
     }
 
+    public static bool InvalidateGlobalAuthoringHeightOutput(
+        WorldSettings worldSettings,
+        TerrainAuthoringData authoringData
+    )
+    {
+        string currentAuthoringSignature =
+            "";
+
+        if (
+            worldSettings != null
+            &&
+            authoringData != null
+        )
+        {
+            currentAuthoringSignature =
+                TerrainAuthoringStateUtility
+                    .GetOverallAuthoringSignature(
+                        worldSettings,
+                        authoringData
+                    );
+        }
+
+        return
+            InvalidateFullHeightDependencyChain(
+                currentAuthoringSignature,
+                false
+            );
+    }
+
     public static bool InvalidateCommittedAuthoringHeightfield(
         WorldSettings worldSettings,
         TerrainAuthoringData authoringData
