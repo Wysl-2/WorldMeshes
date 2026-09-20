@@ -111,6 +111,30 @@ public partial class WorldMeshesEditorWindow :
 
             if (
                 TerrainAuthoringPreviewService
+                    .TryGetDesiredResidentWindow(
+                        out TerrainHeightCacheWindow desiredWindow
+                    )
+            )
+            {
+                EditorGUILayout.LabelField(
+                    "Desired Resident Window",
+                    desiredWindow.ToString()
+                );
+            }
+
+            EditorGUILayout.LabelField(
+                "Active Size Health",
+                TerrainAuthoringPreviewService
+                    .ActiveResidencySizeHealthLabel
+            );
+
+            EditorGUILayout.LabelField(
+                "Residency Size Tolerance",
+                $"{TerrainAuthoringPreviewService.ResidencySizeToleranceTiles} tile(s)"
+            );
+
+            if (
+                TerrainAuthoringPreviewService
                     .TryGetRequestedResidentWindow(
                         out TerrainHeightCacheWindow requestedWindow
                     )
@@ -308,18 +332,21 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.HelpBox(
-            "The edit-mode Height Preview now owns an active resident cache " +
-            "and a separate staging cache. The active cache remains bound " +
-            "while replacement residency is prepared.\n\n" +
+            "The edit-mode Height Preview owns an active resident cache and " +
+            "a separate staging cache. Desired residency is derived from the " +
+            "current clipmap footprint, sample safety, the one-tile guard, " +
+            "and world-edge fitting; the active cache size is no longer used " +
+            "as a permanent minimum.\n\n" +
 
-            "Overlapping final-composite slices are copied on the GPU when " +
-            "their authoring state is still current. Entering or non-reusable " +
-            "tiles load authoritative committed data and run the complete " +
-            "current regional/modifier composition before activation.\n\n" +
+            "A one-tile size difference is tolerated for stability. A " +
+            "materially oversized or undersized active cache is recovered " +
+            "through the existing Package 03 staged transition. Retained " +
+            "final-composite slices are GPU copied when safe, so shrinking an " +
+            "oversized cache does not require reloading those tiles.\n\n" +
 
-            "A staging cache activates only after every slice reaches final " +
-            "composite readiness. Package 03 still performs this work " +
-            "synchronously, so hitches may remain; Package 04 introduces " +
+            "Safe size recovery does not block Scene View placement because " +
+            "the current active cache already covers the required samples. " +
+            "Package 03A remains synchronous; Package 04 introduces " +
             "multi-update incremental streaming.",
             MessageType.Info
         );

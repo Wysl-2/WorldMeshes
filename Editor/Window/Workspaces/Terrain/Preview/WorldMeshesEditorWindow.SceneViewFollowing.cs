@@ -183,20 +183,19 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.HelpBox(
-            "Scene View movement first calculates the exact candidate " +
-            "clipmap layout. That layout is applied only when the active " +
-            "local Height Preview cache contains every sample-safe height " +
-            "tile it requires.\n\n" +
+            "Scene View movement calculates the exact candidate clipmap " +
+            "layout and always lets Height Preview evaluate residency. If the " +
+            "active cache lacks required sample-safe coverage, the layout " +
+            "still waits for a staged transition.\n\n" +
 
-            "When coverage is insufficient, WorldMeshes prepares a staging " +
-            "resident window while the current active terrain remains bound. " +
-            "The desired layout stays deferred until staging is completely " +
-            "composed, validated, and atomically activated. A staging failure " +
-            "leaves the previous active terrain visible where it remains valid.\n\n" +
+            "If coverage is already safe but the active cache is materially " +
+            "over- or undersized, Package 03A requests a staged size recovery " +
+            "without blocking Scene View placement. Origin differences alone " +
+            "do not force a transition while guard coverage remains safe.\n\n" +
 
-            "Package 03 staging is still synchronous, so temporary hitches " +
-            "may remain. Camera and ScenePivot modes share the same residency " +
-            "path, and Package 04 introduces incremental multi-update work.",
+            "The previous active terrain remains bound throughout Package 03 " +
+            "staging. Work is still synchronous in Package 03A; Package 04 " +
+            "introduces incremental multi-update streaming.",
             MessageType.Info
         );
 

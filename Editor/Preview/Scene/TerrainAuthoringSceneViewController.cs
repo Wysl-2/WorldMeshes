@@ -918,27 +918,32 @@ public static partial class TerrainAuthoringSceneViewController
         }
 
         /*
-         * Candidate layout calculation remains SceneViewController-owned.
-         * PreviewService owns whether the sample-safe height data required by
-         * those exact world bounds is resident.
+         * Package 03A always lets PreviewService evaluate residency, even
+         * when active coverage is already safe. This allows a materially
+         * oversized cache to compact through Package 03 staging without
+         * blocking Scene View placement.
          */
-        if (
-            TerrainAuthoringPreviewService.Enabled
-            &&
-            !TerrainAuthoringPreviewService
-                .CanActiveCacheCoverWorldBounds(
-                    candidateLayout.MinimumXZ,
-                    candidateLayout.MaximumXZ
-                )
-        )
+        if (TerrainAuthoringPreviewService.Enabled)
         {
-            if (
-                !TerrainAuthoringPreviewService
+            bool requestSucceeded =
+                TerrainAuthoringPreviewService
                     .RequestResidencyForWorldBounds(
                         candidateLayout.MinimumXZ,
                         candidateLayout.MaximumXZ,
                         out string residencyError
-                    )
+                    );
+
+            bool activeCoverageSafe =
+                TerrainAuthoringPreviewService
+                    .CanActiveCacheCoverWorldBounds(
+                        candidateLayout.MinimumXZ,
+                        candidateLayout.MaximumXZ
+                    );
+
+            if (
+                !requestSucceeded
+                &&
+                !activeCoverageSafe
             )
             {
                 errorMessage =
@@ -949,8 +954,11 @@ public static partial class TerrainAuthoringSceneViewController
                     FollowTargetApplyResult.Failed;
             }
 
-            return
-                FollowTargetApplyResult.WaitingForResidency;
+            if (!activeCoverageSafe)
+            {
+                return
+                    FollowTargetApplyResult.WaitingForResidency;
+            }
         }
 
         /*
@@ -1237,33 +1245,45 @@ public static partial class TerrainAuthoringSceneViewController
             return false;
         }
 
-        if (
-            TerrainAuthoringPreviewService
-                .CanActiveCacheCoverWorldBounds(
-                    minimumXZ,
-                    maximumXZ
-                )
-        )
-        {
-            return true;
-        }
-
         bool hadActiveCache =
             TerrainAuthoringPreviewService
                 .TryGetActiveResidentWindow(
                     out _
                 );
 
-        if (
-            !TerrainAuthoringPreviewService
+        bool requestSucceeded =
+            TerrainAuthoringPreviewService
                 .RequestResidencyForWorldBounds(
                     minimumXZ,
                     maximumXZ,
                     out errorMessage
-                )
+                );
+
+        bool activeCoverageSafe =
+            TerrainAuthoringPreviewService
+                .CanActiveCacheCoverWorldBounds(
+                    minimumXZ,
+                    maximumXZ
+                );
+
+        if (
+            !requestSucceeded
+            &&
+            !activeCoverageSafe
         )
         {
             return false;
+        }
+
+        if (activeCoverageSafe)
+        {
+            errorMessage =
+                "";
+
+            waitingForResidency =
+                false;
+
+            return true;
         }
 
         /*

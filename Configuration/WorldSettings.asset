@@ -12,8 +12,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2af33c540a888db84ab5ef736feb1c3d, type: 3}
   m_Name: WorldSettings
   m_EditorClassIdentifier: Assembly-CSharp::WorldSettings
-  gridWidth: 192
-  gridHeight: 192
+  gridWidth: 256
+  gridHeight: 256
   chunkSize: 128
   heightfieldResolutionPerChunk: 128
   heightTileChunkSpan: 8

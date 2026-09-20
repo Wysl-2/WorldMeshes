@@ -146,6 +146,18 @@ public static partial class TerrainAuthoringPreviewService
     private static TerrainHeightCacheWindow requestedResidencyWindow;
 
     /*
+     * Package 03A policy state.
+     *
+     * Desired residency describes the guarded local window that current
+     * clipmap coverage ideally wants. It is intentionally independent from
+     * requestedResidencyWindow, which exists only while a concrete staged
+     * transition is pending.
+     */
+    private static bool hasDesiredResidencyWindow;
+
+    private static TerrainHeightCacheWindow desiredResidencyWindow;
+
+    /*
      * Stage 10 validation-only monotonic binding diagnostic.
      *
      * This is not preview lifecycle state and does not influence any
@@ -366,6 +378,103 @@ public static partial class TerrainAuthoringPreviewService
             window.IsValid;
     }
 
+    public static bool TryGetDesiredResidentWindow(
+        out TerrainHeightCacheWindow window
+    )
+    {
+        window =
+            hasDesiredResidencyWindow
+                ? desiredResidencyWindow
+                : default;
+
+        return
+            hasDesiredResidencyWindow
+            &&
+            window.IsValid;
+    }
+
+    internal static bool TryGetActiveResidencySizeHealth(
+        out TerrainAuthoringPreviewResidencySizeHealth sizeHealth
+    )
+    {
+        sizeHealth =
+            TerrainAuthoringPreviewResidencySizeHealth.Unavailable;
+
+        if (
+            !TryGetDesiredResidentWindow(
+                out TerrainHeightCacheWindow desiredWindow
+            )
+            ||
+            !TryGetActiveResidentWindow(
+                out TerrainHeightCacheWindow activeWindow
+            )
+        )
+        {
+            return false;
+        }
+
+        sizeHealth =
+            TerrainAuthoringPreviewResidencyPolicy
+                .EvaluateSizeHealth(
+                    true,
+                    activeWindow,
+                    desiredWindow
+                );
+
+        return true;
+    }
+
+    public static string ActiveResidencySizeHealthLabel
+    {
+        get
+        {
+            if (
+                !TryGetActiveResidencySizeHealth(
+                    out TerrainAuthoringPreviewResidencySizeHealth sizeHealth
+                )
+            )
+            {
+                return
+                    "Unavailable";
+            }
+
+            bool recoveryRequested =
+                hasRequestedResidencyWindow
+                &&
+                hasDesiredResidencyWindow
+                &&
+                requestedResidencyWindow ==
+                    desiredResidencyWindow;
+
+            switch (sizeHealth)
+            {
+                case TerrainAuthoringPreviewResidencySizeHealth.Oversized:
+                    return
+                        recoveryRequested
+                            ? "Oversized - recovery requested"
+                            : "Oversized";
+
+                case TerrainAuthoringPreviewResidencySizeHealth.Undersized:
+                    return
+                        recoveryRequested
+                            ? "Undersized - resize requested"
+                            : "Undersized";
+
+                case TerrainAuthoringPreviewResidencySizeHealth.Healthy:
+                    return
+                        "Healthy";
+
+                default:
+                    return
+                        "Unavailable";
+            }
+        }
+    }
+
+    public static int ResidencySizeToleranceTiles =>
+        TerrainAuthoringPreviewResidencyPolicy
+            .DefaultResidentSizeToleranceTiles;
+
     public static bool ActiveCacheContains(
         TerrainHeightCacheWindow requiredWindow
     )
@@ -483,32 +592,6 @@ public static partial class TerrainAuthoringPreviewService
         }
 
         if (
-            ActiveCacheContains(
-                requiredWindow
-            )
-        )
-        {
-            ClearRequestedResidency();
-            ClearTransitionFailureSuppression();
-
-            return true;
-        }
-
-        Vector2Int minimumResidentSize =
-            Vector2Int.zero;
-
-        bool hasActiveWindow =
-            TryGetActiveResidentWindow(
-                out TerrainHeightCacheWindow activeWindow
-            );
-
-        if (hasActiveWindow)
-        {
-            minimumResidentSize =
-                activeWindow.Size;
-        }
-
-        if (
             !TerrainAuthoringPreviewResidencyUtility
                 .TryCalculateResidentWindow(
                     worldSettings,
@@ -518,8 +601,7 @@ public static partial class TerrainAuthoringPreviewService
                         .DefaultSamplePadding,
                     TerrainAuthoringPreviewResidencyUtility
                         .DefaultGuardTileCount,
-                    minimumResidentSize,
-                    out TerrainHeightCacheWindow residentWindow,
+                    out TerrainHeightCacheWindow desiredWindow,
                     out errorMessage
                 )
         )
@@ -527,58 +609,70 @@ public static partial class TerrainAuthoringPreviewService
             return false;
         }
 
+        hasDesiredResidencyWindow =
+            true;
+
+        desiredResidencyWindow =
+            desiredWindow;
+
+        bool hasActiveWindow =
+            TryGetActiveResidentWindow(
+                out TerrainHeightCacheWindow activeWindow
+            );
+
+        if (
+            !TerrainAuthoringPreviewResidencyPolicy
+                .TryEvaluate(
+                    requiredWindow,
+                    desiredWindow,
+                    hasActiveWindow,
+                    activeWindow,
+                    out TerrainAuthoringPreviewResidencyDecision decision,
+                    out errorMessage
+                )
+        )
+        {
+            return false;
+        }
+
+        if (!decision.TransitionRequired)
+        {
+            ClearRequestedResidency();
+            ClearTransitionFailureSuppression();
+
+            return true;
+        }
+
+        TerrainHeightCacheWindow targetWindow =
+            decision.TargetWindow;
+
         if (
             IsTransitionFailureSuppressed(
-                residentWindow,
+                targetWindow,
                 out string suppressedFailure
             )
         )
         {
             errorMessage =
                 "The requested resident window previously failed to stage " +
-                "against the current authoring state." +
+                "against the current authoring state.\n\n" +
                 suppressedFailure;
 
             return false;
         }
 
         if (
-            hasActiveWindow
-            &&
-            activeWindow ==
-                residentWindow
-        )
-        {
-            ClearRequestedResidency();
-
-            /*
-             * If the cache exists but is temporarily not Ready, keep the
-             * normal PreviewService refresh path alive so authoring/binding
-             * state can recover without inventing another residency window.
-             */
-            if (
-                status !=
-                    TerrainAuthoringPreviewStatus.Ready
-            )
-            {
-                ScheduleRefresh();
-            }
-
-            return true;
-        }
-
-        if (
             hasRequestedResidencyWindow
             &&
             requestedResidencyWindow ==
-                residentWindow
+                targetWindow
         )
         {
             return true;
         }
 
         requestedResidencyWindow =
-            residentWindow;
+            targetWindow;
 
         hasRequestedResidencyWindow =
             true;
@@ -1486,6 +1580,15 @@ public static partial class TerrainAuthoringPreviewService
             default;
     }
 
+    private static void ClearDesiredResidency()
+    {
+        hasDesiredResidencyWindow =
+            false;
+
+        desiredResidencyWindow =
+            default;
+    }
+
     private static bool TryResolveBuildWindow(
         WorldSettings worldSettings,
         out TerrainHeightCacheWindow buildWindow,
@@ -1512,25 +1615,31 @@ public static partial class TerrainAuthoringPreviewService
                 worldSettings.HeightTileGridHeight
             );
 
-        if (hasRequestedResidencyWindow)
-        {
-            if (
-                IsWindowInsideWorldGrid(
-                    requestedResidencyWindow,
-                    worldGridSize
-                )
+        if (
+            hasRequestedResidencyWindow
+            &&
+            !IsWindowInsideWorldGrid(
+                requestedResidencyWindow,
+                worldGridSize
             )
-            {
-                buildWindow =
-                    requestedResidencyWindow;
-
-                return true;
-            }
-
+        )
+        {
             ClearRequestedResidency();
         }
 
         if (
+            hasDesiredResidencyWindow
+            &&
+            !IsWindowInsideWorldGrid(
+                desiredResidencyWindow,
+                worldGridSize
+            )
+        )
+        {
+            ClearDesiredResidency();
+        }
+
+        bool hasActiveWindow =
             TryGetActiveResidentWindow(
                 out TerrainHeightCacheWindow activeWindow
             )
@@ -1538,12 +1647,22 @@ public static partial class TerrainAuthoringPreviewService
             IsWindowInsideWorldGrid(
                 activeWindow,
                 worldGridSize
-            )
+            );
+
+        if (
+            TerrainAuthoringPreviewResidencyPolicy
+                .TrySelectPreferredBuildWindow(
+                    worldGridSize,
+                    hasRequestedResidencyWindow,
+                    requestedResidencyWindow,
+                    hasActiveWindow,
+                    activeWindow,
+                    hasDesiredResidencyWindow,
+                    desiredResidencyWindow,
+                    out buildWindow
+                )
         )
         {
-            buildWindow =
-                activeWindow;
-
             return true;
         }
 

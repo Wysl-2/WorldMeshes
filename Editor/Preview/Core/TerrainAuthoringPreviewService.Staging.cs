@@ -1055,6 +1055,7 @@ public static partial class TerrainAuthoringPreviewService
         currentTransition =
             null;
 
+        ClearDesiredResidency();
         ClearTransitionFailureSuppression();
 
         NotifyHeightCacheCoverageIfChanged();
