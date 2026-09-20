@@ -183,6 +183,10 @@ public partial class WorldMeshesEditorWindow :
 
         DrawWorkspaceSectionGap();
 
+        DrawModifierResidencyValidationSettings();
+
+        DrawWorkspaceSectionGap();
+
         DrawAuthoringChangePipelineSettings();
 
         DrawWorkspaceSectionGap();

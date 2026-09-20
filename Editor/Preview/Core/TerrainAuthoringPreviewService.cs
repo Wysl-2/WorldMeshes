@@ -1360,6 +1360,10 @@ public static partial class TerrainAuthoringPreviewService
     {
         ClearTransitionFailureSuppression();
 
+        RegisterPreviewAuthoringInvalidation(
+            "Committed heightfield changed."
+        );
+
         committedRebuildRequested =
             true;
 
@@ -1391,6 +1395,10 @@ public static partial class TerrainAuthoringPreviewService
         int tileZ
     )
     {
+        RegisterPreviewAuthoringInvalidation(
+            "A composite authoring tile changed."
+        );
+
         dirtyCompositeTiles.Add(
             new Vector2Int(
                 tileX,
@@ -1405,6 +1413,10 @@ public static partial class TerrainAuthoringPreviewService
         Vector2Int tileCoordinate
     )
     {
+        RegisterPreviewAuthoringInvalidation(
+            "A composite authoring tile changed."
+        );
+
         dirtyCompositeTiles.Add(
             tileCoordinate
         );
@@ -1421,29 +1433,21 @@ public static partial class TerrainAuthoringPreviewService
             return;
         }
 
-        bool anyAdded =
-            false;
+        RegisterPreviewAuthoringInvalidation(
+            "Composite authoring tiles changed."
+        );
 
         foreach (
             Vector2Int coordinate
             in tileCoordinates
         )
         {
-            if (
-                dirtyCompositeTiles.Add(
-                    coordinate
-                )
-            )
-            {
-                anyAdded =
-                    true;
-            }
+            dirtyCompositeTiles.Add(
+                coordinate
+            );
         }
 
-        if (anyAdded)
-        {
-            ScheduleRefresh();
-        }
+        ScheduleRefresh();
     }
 
 
@@ -1457,6 +1461,10 @@ public static partial class TerrainAuthoringPreviewService
     )
     {
         ClearTransitionFailureSuppression();
+
+        RegisterPreviewAuthoringInvalidation(
+            "Composite authoring state changed."
+        );
 
         if (tileCoordinates != null)
         {
@@ -1957,6 +1965,75 @@ public static partial class TerrainAuthoringPreviewService
         }
 
         // =================================================
+        // PACKAGE 05 - ACTIVE RESIDENT MODIFIER UPDATE
+        // =================================================
+
+        int package05EarlyUpdatedCompositeSliceCount =
+            0;
+
+        bool package05EarlyCompositeRangeChanged =
+            false;
+
+        if (
+            previewCache != null
+            &&
+            previewCache.IsReady
+            &&
+            previewCache.SourceCommittedHeightfieldSignature ==
+                currentCommittedSignature
+            &&
+            (
+                dirtyCompositeTiles.Count > 0
+                ||
+                overallSignatureAcknowledgementRequested
+            )
+        )
+        {
+            if (
+                !TryProcessResidentModifierAuthoring(
+                    worldSettings,
+                    authoringData,
+                    currentCommittedSignature,
+                    currentOverallSignature,
+                    out package05EarlyUpdatedCompositeSliceCount,
+                    out package05EarlyCompositeRangeChanged,
+                    out string modifierResidencyError
+                )
+            )
+            {
+                SetStatus(
+                    TerrainAuthoringPreviewStatus.Error,
+                    "The active resident modifier update failed. The logical " +
+                    "dirty set has been retained for retry.\n\n" +
+                    modifierResidencyError
+                );
+
+                RepaintEditorViews();
+
+                return;
+            }
+
+            if (
+                package05EarlyCompositeRangeChanged
+                &&
+                !ApplyCurrentPreviewBounds(
+                    clipmapRoot,
+                    out string modifierBoundsError
+                )
+            )
+            {
+                SetStatus(
+                    TerrainAuthoringPreviewStatus.Error,
+                    modifierBoundsError
+                );
+
+                RepaintEditorViews();
+
+                return;
+            }
+        }
+
+        // =================================================
         // RESIDENT COMMITTED BUILD DECISION
         // =================================================
 
@@ -2102,7 +2179,7 @@ public static partial class TerrainAuthoringPreviewService
             false;
 
         int updatedCompositeSliceCount =
-            0;
+            package05EarlyUpdatedCompositeSliceCount;
 
         if (
             previewCache != null

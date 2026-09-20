@@ -84,6 +84,8 @@ internal sealed class TerrainAuthoringPreviewCacheTransition
 
     public long RequestGeneration { get; internal set; }
 
+    public long TargetAuthoringGeneration { get; internal set; }
+
     public bool CommittedRebuildRequested { get; internal set; }
 
     public int RetainedCopyCursor { get; internal set; }

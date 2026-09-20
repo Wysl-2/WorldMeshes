@@ -60,6 +60,13 @@ public static partial class TerrainAuthoringPreviewService
 
     private static long pendingStreamingGeneration;
 
+    /*
+     * Package 05 authoring-content generation captured when the queued
+     * transition request was created. This is independent from the Package 04
+     * residency request generation.
+     */
+    private static long pendingStreamingAuthoringGeneration;
+
     private static float streamingProgress;
 
     private static string lastStreamingFailureMessage =
@@ -356,7 +363,10 @@ public static partial class TerrainAuthoringPreviewService
                 currentOverallSignature
                 &&
                 currentTransition.CommittedRebuildRequested ==
-                    committedRebuildRequested;
+                    committedRebuildRequested
+                &&
+                currentTransition.TargetAuthoringGeneration ==
+                    authoringGeneration;
 
             if (sameTransaction)
             {
@@ -380,6 +390,9 @@ public static partial class TerrainAuthoringPreviewService
                 &&
                 currentTransition.CommittedRebuildRequested ==
                     committedRebuildRequested
+                &&
+                currentTransition.TargetAuthoringGeneration ==
+                    authoringGeneration
             )
             {
                 return true;
@@ -404,7 +417,10 @@ public static partial class TerrainAuthoringPreviewService
                 currentOverallSignature
             &&
             pendingStreamingCommittedRebuild ==
-                committedRebuildRequested;
+                committedRebuildRequested
+            &&
+            pendingStreamingAuthoringGeneration ==
+                authoringGeneration;
 
         if (duplicatePending)
         {
@@ -428,6 +444,9 @@ public static partial class TerrainAuthoringPreviewService
 
         pendingStreamingGeneration =
             streamingRequestGeneration;
+
+        pendingStreamingAuthoringGeneration =
+            authoringGeneration;
 
         streamingProgress =
             0f;
@@ -523,6 +542,21 @@ public static partial class TerrainAuthoringPreviewService
 
         if (hasPendingStreamingStart)
         {
+            if (
+                ShouldDeferStreamingRestart(
+                    TerrainAuthoringModifierService
+                        .HasActiveInteractiveEdit
+                )
+            )
+            {
+                SetStreamingState(
+                    TerrainAuthoringPreviewStreamingState.Preparing,
+                    "Streaming restart is deferred while an interactive terrain modifier edit is active."
+                );
+
+                return;
+            }
+
             BeginPendingStreamingTransition();
 
             return;
@@ -584,6 +618,9 @@ public static partial class TerrainAuthoringPreviewService
             ||
             currentOverallSignature !=
                 pendingStreamingOverallSignature
+            ||
+            pendingStreamingAuthoringGeneration !=
+                authoringGeneration
         )
         {
             ClearPendingStreamingStart();
@@ -638,6 +675,9 @@ public static partial class TerrainAuthoringPreviewService
 
         transition.RequestGeneration =
             pendingStreamingGeneration;
+
+        transition.TargetAuthoringGeneration =
+            pendingStreamingAuthoringGeneration;
 
         transition.CommittedRebuildRequested =
             pendingStreamingCommittedRebuild;
@@ -1258,6 +1298,9 @@ public static partial class TerrainAuthoringPreviewService
             ||
             latestOverallSignature !=
                 currentTransition.TargetOverallAuthoringSignature
+            ||
+            currentTransition.TargetAuthoringGeneration !=
+                authoringGeneration
         )
         {
             CancelCurrentStreamingTransition(
@@ -1304,6 +1347,23 @@ public static partial class TerrainAuthoringPreviewService
 
     private static void ActivateCurrentStreamingTransition()
     {
+        if (
+            currentTransition == null
+            ||
+            currentTransition.TargetAuthoringGeneration !=
+                authoringGeneration
+        )
+        {
+            CancelCurrentStreamingTransition(
+                "Authoring generation changed before staging activation.",
+                false
+            );
+
+            ScheduleRefresh();
+
+            return;
+        }
+
         if (
             !TerrainWorldSceneUtility.TryFindActiveClipmapRoot(
                 out Transform clipmapRoot,
@@ -1364,6 +1424,10 @@ public static partial class TerrainAuthoringPreviewService
             return;
         }
 
+        MarkActiveCacheAuthoringGeneration(
+            transition.TargetAuthoringGeneration
+        );
+
         transition.CompletedWorkUnits++;
 
         streamingProgress =
@@ -1391,6 +1455,17 @@ public static partial class TerrainAuthoringPreviewService
         {
             staleReason =
                 "No current streaming transaction exists.";
+
+            return false;
+        }
+
+        if (
+            currentTransition.TargetAuthoringGeneration !=
+                authoringGeneration
+        )
+        {
+            staleReason =
+                "Authoring generation changed while staging was in progress.";
 
             return false;
         }
@@ -1670,6 +1745,9 @@ public static partial class TerrainAuthoringPreviewService
             false;
 
         pendingStreamingGeneration =
+            0L;
+
+        pendingStreamingAuthoringGeneration =
             0L;
     }
 

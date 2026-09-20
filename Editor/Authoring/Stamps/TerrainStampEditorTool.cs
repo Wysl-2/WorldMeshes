@@ -78,6 +78,9 @@ public sealed class TerrainStampEditorTool :
     private string toolErrorMessage =
         "";
 
+    private string toolResidencyMessage =
+        "";
+
     public override GUIContent toolbarIcon =>
         new GUIContent(
             "Stamp",
@@ -96,6 +99,9 @@ public sealed class TerrainStampEditorTool :
         ResetOverlapSelectionCycle();
 
         toolErrorMessage =
+            "";
+
+        toolResidencyMessage =
             "";
 
         TerrainAuthoringModifierSelection
@@ -205,6 +211,20 @@ public sealed class TerrainStampEditorTool :
                 TerrainStampModifier selectedStamp
         )
         {
+            if (
+                TerrainAuthoringPreviewService
+                    .GetWorldBoundsReadiness(
+                        selectedStamp.GetAffectedWorldBounds(),
+                        1
+                    )
+                ==
+                TerrainAuthoringPreviewReadiness.Ready
+            )
+            {
+                toolResidencyMessage =
+                    "";
+            }
+
             DrawSelectedStampVisualizations(
                 worldSettings,
                 selectedStamp,
@@ -224,6 +244,18 @@ public sealed class TerrainStampEditorTool :
 
         Handles.zTest =
             oldZTest;
+
+        if (
+            !string.IsNullOrEmpty(
+                toolResidencyMessage
+            )
+        )
+        {
+            DrawSceneMessage(
+                toolResidencyMessage,
+                MessageType.Info
+            );
+        }
 
         if (
             !string.IsNullOrEmpty(
@@ -2736,6 +2768,51 @@ public sealed class TerrainStampEditorTool :
             hotAfter != 0
         )
         {
+            TerrainAuthoringPreviewReadiness surfaceReadiness =
+                TerrainAuthoringPreviewService
+                    .GetWorldBoundsReadiness(
+                        stamp.GetAffectedWorldBounds(),
+                        1
+                    );
+
+            if (
+                surfaceReadiness !=
+                    TerrainAuthoringPreviewReadiness.Ready
+            )
+            {
+                switch (surfaceReadiness)
+                {
+                    case TerrainAuthoringPreviewReadiness.Loading:
+                        toolResidencyMessage =
+                            "Terrain surface for this modifier is still loading. " +
+                            "Move the Scene View to this area or wait for Height " +
+                            "Preview residency before editing it.";
+                        break;
+
+                    case TerrainAuthoringPreviewReadiness.OutsideWorld:
+                        toolResidencyMessage =
+                            "This modifier does not currently overlap editable terrain.";
+                        break;
+
+                    default:
+                        toolResidencyMessage =
+                            "Terrain Height Preview is unavailable. Surface-dependent " +
+                            "stamp editing requires a ready authoring preview.";
+                        break;
+                }
+
+                toolErrorMessage =
+                    "";
+
+                GUIUtility.hotControl =
+                    0;
+
+                return false;
+            }
+
+            toolResidencyMessage =
+                "";
+
             if (
                 !TerrainAuthoringModifierService
                     .BeginInteractiveModifierEdit(
@@ -2791,6 +2868,9 @@ public sealed class TerrainStampEditorTool :
             }
 
             toolErrorMessage =
+                "";
+
+            toolResidencyMessage =
                 "";
         }
 

@@ -139,6 +139,19 @@ public static class TerrainAuthoringModifierSceneUtility
             return false;
         }
 
+        if (
+            TerrainAuthoringPreviewService
+                .GetWorldBoundsReadiness(
+                    modifier.GetAffectedWorldBounds(),
+                    1
+                )
+            !=
+            TerrainAuthoringPreviewReadiness.Ready
+        )
+        {
+            return false;
+        }
+
         localHeightTiles.Clear();
 
         TerrainAuthoringPreviewDirtyRegionUtility

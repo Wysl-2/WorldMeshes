@@ -433,6 +433,83 @@ public partial class WorldMeshesEditorWindow :
             }
         }
 
+        if (previewEnabled)
+        {
+            GUILayout.Space(
+                5f
+            );
+
+            GUILayout.Label(
+                "Modifier Residency",
+                EditorStyles.boldLabel
+            );
+
+            EditorGUILayout.LabelField(
+                "Authoring Generation",
+                TerrainAuthoringPreviewService
+                    .AuthoringGeneration
+                    .ToString("N0")
+            );
+
+            EditorGUILayout.LabelField(
+                "Active Authoring Generation",
+                TerrainAuthoringPreviewService
+                    .ActiveCacheAuthoringGeneration
+                    .ToString("N0")
+            );
+
+            EditorGUILayout.LabelField(
+                "Pending Global Dirty Tiles",
+                TerrainAuthoringPreviewService
+                    .PendingGlobalDirtyTileCount
+                    .ToString("N0")
+            );
+
+            EditorGUILayout.LabelField(
+                "Last Global Dirty Tiles",
+                TerrainAuthoringPreviewService
+                    .LastGlobalDirtyTileCount
+                    .ToString("N0")
+            );
+
+            EditorGUILayout.LabelField(
+                "Last Resident Dirty Tiles",
+                TerrainAuthoringPreviewService
+                    .LastResidentDirtyTileCount
+                    .ToString("N0")
+            );
+
+            EditorGUILayout.LabelField(
+                "Last Nonresident Dirty Tiles",
+                TerrainAuthoringPreviewService
+                    .LastNonresidentDirtyTileCount
+                    .ToString("N0")
+            );
+
+            EditorGUILayout.LabelField(
+                "Last Published Composite Tiles",
+                TerrainAuthoringPreviewService
+                    .LastPublishedCompositeTileCount
+                    .ToString("N0")
+            );
+
+            EditorGUILayout.LabelField(
+                "Interactive Modifier Edit",
+                TerrainAuthoringPreviewService
+                    .InteractiveModifierEditActive
+                    ? "Yes"
+                    : "No"
+            );
+
+            EditorGUILayout.LabelField(
+                "Streaming Restart",
+                TerrainAuthoringPreviewService
+                    .StreamingRestartDeferredForInteractiveEdit
+                    ? "Deferred During Edit"
+                    : "Normal"
+            );
+        }
+
         GUILayout.Space(
             5f
         );
@@ -476,7 +553,15 @@ public partial class WorldMeshesEditorWindow :
             "Guard-based prefetch begins before active coverage becomes unsafe. " +
             "Rapid Scene View movement coalesces toward the latest meaningful " +
             "destination, obsolete staging is cancelled, and atomic activation " +
-            "still occurs only after every staging slice is final-ready.",
+            "still occurs only after every staging slice is final-ready.\n\n" +
+
+            "Modifier authoring remains world-global, but immediate GPU " +
+            "recomposition is restricted to affected active resident tiles. " +
+            "Nonresident modifier changes do not load height tiles solely for " +
+            "the edit; those tiles reconstruct the current complete modifier " +
+            "stack when they later enter residency. Authoring generations " +
+            "cancel stale staging, and remote staging restart is deferred while " +
+            "an interactive modifier gesture is active.",
             MessageType.Info
         );
 
