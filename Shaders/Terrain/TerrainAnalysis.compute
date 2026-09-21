@@ -11,6 +11,13 @@ RWTexture2DArray<float> _AnalysisOutput;
 int2 _HeightCacheOriginTile;
 int2 _HeightCacheSize;
 
+/*
+ * The physical height source may include source-only guard tiles. Analysis
+ * output is a separate, numerically safe window inside that source.
+ */
+int2 _AnalysisOutputOriginTile;
+int2 _AnalysisOutputSize;
+
 int _SamplesPerSide;
 
 float _SampleSpacing;
@@ -163,8 +170,8 @@ bool TryGetOutputSample(
     }
 
     int sliceCount =
-        _HeightCacheSize.x *
-        _HeightCacheSize.y;
+        _AnalysisOutputSize.x *
+        _AnalysisOutputSize.y;
 
     int slice =
         _OutputSliceOffset +
@@ -178,15 +185,15 @@ bool TryGetOutputSample(
         return false;
     }
 
-    int2 cacheLocalTile =
+    int2 outputLocalTile =
         int2(
-            slice % _HeightCacheSize.x,
-            slice / _HeightCacheSize.x
+            slice % _AnalysisOutputSize.x,
+            slice / _AnalysisOutputSize.x
         );
 
     int2 tileCoordinate =
-        _HeightCacheOriginTile +
-        cacheLocalTile;
+        _AnalysisOutputOriginTile +
+        outputLocalTile;
 
     int tileIntervals =
         _SamplesPerSide -

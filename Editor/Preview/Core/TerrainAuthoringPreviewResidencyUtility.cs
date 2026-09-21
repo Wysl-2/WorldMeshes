@@ -283,8 +283,14 @@ public static class TerrainAuthoringPreviewResidencyUtility
 
         int safeGuard =
             Mathf.Max(
-                0,
-                guardTileCount
+                Mathf.Max(
+                    0,
+                    guardTileCount
+                ),
+                TerrainAnalysisWindowUtility
+                    .CalculateRequiredInteractiveGuardTileCount(
+                        worldSettings
+                    )
             );
 
         Vector2Int guardedOrigin =

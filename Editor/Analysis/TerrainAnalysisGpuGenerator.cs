@@ -95,6 +95,9 @@ public sealed class TerrainAnalysisGpuGenerator :
         TerrainAuthoringPreviewService.PreviewStateChanged +=
             OnPreviewStateChanged;
 
+        TerrainAuthoringPreviewService.TerrainAnalysisSourceChanged +=
+            OnTerrainAnalysisSourceChanged;
+
         AssemblyReloadEvents.beforeAssemblyReload +=
             Shutdown;
 
@@ -108,11 +111,8 @@ public sealed class TerrainAnalysisGpuGenerator :
         out string errorMessage
     )
     {
-        result =
-            default;
-
-        errorMessage =
-            "";
+        result = default;
+        errorMessage = "";
 
         if (
             EditorApplication
@@ -145,14 +145,7 @@ public sealed class TerrainAnalysisGpuGenerator :
 
         if (
             !TryGetSource(
-                out RenderTexture heightCache,
-                out Vector2Int cacheOriginTile,
-                out Vector2Int cacheSize,
-                out int samplesPerSide,
-                out float sampleSpacing,
-                out Vector2 worldSizeXZ,
-                out string sourceSignature,
-                out int sourceHeightCacheInstanceId,
+                out TerrainAnalysisGpuSource source,
                 out errorMessage
             )
         )
@@ -160,14 +153,120 @@ public sealed class TerrainAnalysisGpuGenerator :
             return false;
         }
 
+        if (
+            !TerrainAnalysisWindowUtility
+                .TryCalculateInteractiveOutputWindow(
+                    source,
+                    out TerrainHeightCacheWindow outputWindow,
+                    out errorMessage
+                )
+        )
+        {
+            return false;
+        }
+
+        if (
+            !TryGenerateFromPreparedSource(
+                key,
+                source,
+                outputWindow,
+                out result,
+                out errorMessage
+            )
+        )
+        {
+            return false;
+        }
+
+        lastObservedHeightCacheInstanceId =
+            source.SourceResourceIdentity;
+
+        return true;
+    }
+
+    internal static bool TryGenerateFromSource(
+        TerrainAnalysisKey key,
+        TerrainAnalysisGpuSource source,
+        TerrainHeightCacheWindow outputWindow,
+        out TerrainAnalysisGenerationResult result,
+        out string errorMessage
+    )
+    {
+        result = default;
+        errorMessage = "";
+
+        if (
+            EditorApplication
+                .isPlayingOrWillChangePlaymode
+        )
+        {
+            errorMessage =
+                "Terrain analysis generation is unavailable while entering or running Play Mode.";
+
+            return false;
+        }
+
+        if (
+            !TerrainAnalysisRegistry
+                .TryValidateKey(
+                    key,
+                    out _,
+                    out errorMessage
+                )
+        )
+        {
+            return false;
+        }
+
+        if (!Instance.TryPrepare(out errorMessage))
+        {
+            return false;
+        }
+
+        return
+            Instance.TryGenerateFromPreparedSource(
+                key,
+                source,
+                outputWindow,
+                out result,
+                out errorMessage
+            );
+    }
+
+    private bool TryGenerateFromPreparedSource(
+        TerrainAnalysisKey key,
+        TerrainAnalysisGpuSource source,
+        TerrainHeightCacheWindow outputWindow,
+        out TerrainAnalysisGenerationResult result,
+        out string errorMessage
+    )
+    {
+        result = default;
+        errorMessage = "";
+
+        if (
+            !source.IsValid
+            ||
+            !outputWindow.IsValid
+            ||
+            !source.SourceWindow.Contains(
+                outputWindow
+            )
+        )
+        {
+            errorMessage =
+                "Terrain analysis received an invalid bounded source/output layout.";
+
+            return false;
+        }
+
         int sliceCount =
-            cacheSize.x *
-            cacheSize.y;
+            outputWindow.TileCount;
 
         RenderTexture output =
             CreateAnalysisTexture(
                 key,
-                samplesPerSide,
+                source.SamplesPerSide,
                 sliceCount
             );
 
@@ -204,16 +303,14 @@ public sealed class TerrainAnalysisGpuGenerator :
 
         int groupsX =
             DivideRoundUp(
-                samplesPerSide,
-                kernelState
-                    .ThreadGroupSizeX
+                source.SamplesPerSide,
+                kernelState.ThreadGroupSizeX
             );
 
         int groupsY =
             DivideRoundUp(
-                samplesPerSide,
-                kernelState
-                    .ThreadGroupSizeY
+                source.SamplesPerSide,
+                kernelState.ThreadGroupSizeY
             );
 
         if (
@@ -237,13 +334,9 @@ public sealed class TerrainAnalysisGpuGenerator :
             SetCommonKernelParameters(
                 kernelState.Kernel,
                 key,
-                heightCache,
+                source,
                 output,
-                cacheOriginTile,
-                cacheSize,
-                samplesPerSide,
-                sampleSpacing,
-                worldSizeXZ
+                outputWindow
             );
 
             computeShader.SetInt(
@@ -258,9 +351,7 @@ public sealed class TerrainAnalysisGpuGenerator :
                 sliceCount
             );
         }
-        catch (
-            Exception exception
-        )
+        catch (Exception exception)
         {
             DestroyCandidate(
                 output
@@ -278,13 +369,16 @@ public sealed class TerrainAnalysisGpuGenerator :
         result =
             new TerrainAnalysisGenerationResult(
                 output,
-                cacheOriginTile,
-                cacheSize,
-                samplesPerSide,
-                sampleSpacing,
-                worldSizeXZ,
-                sourceSignature,
-                sourceHeightCacheInstanceId
+                outputWindow.OriginTile,
+                outputWindow.Size,
+                source.SourceWindow.OriginTile,
+                source.SourceWindow.Size,
+                source.SamplesPerSide,
+                source.SampleSpacing,
+                source.WorldSizeXZ,
+                source.SourceSignature,
+                source.SourceResourceIdentity,
+                source.ResidencyGeneration
             );
 
         if (!result.IsValid)
@@ -293,18 +387,13 @@ public sealed class TerrainAnalysisGpuGenerator :
                 output
             );
 
-            result =
-                default;
+            result = default;
 
             errorMessage =
-                "Terrain analysis generation completed, but the generated " +
-                "layer layout was invalid.";
+                "Terrain analysis generation completed, but the generated layer layout was invalid.";
 
             return false;
         }
-
-        lastObservedHeightCacheInstanceId =
-            sourceHeightCacheInstanceId;
 
         return true;
     }
@@ -316,11 +405,8 @@ public sealed class TerrainAnalysisGpuGenerator :
         out string errorMessage
     )
     {
-        sourceSignature =
-            "";
-
-        errorMessage =
-            "";
+        sourceSignature = "";
+        errorMessage = "";
 
         if (
             layer == null
@@ -344,9 +430,7 @@ public sealed class TerrainAnalysisGpuGenerator :
             tileCoordinates.Count == 0
         )
         {
-            sourceSignature =
-                layer.SourceSignature;
-
+            sourceSignature = layer.SourceSignature;
             return true;
         }
 
@@ -356,8 +440,7 @@ public sealed class TerrainAnalysisGpuGenerator :
         )
         {
             errorMessage =
-                "Terrain analysis authoring generation is unavailable " +
-                "while entering or running Play Mode.";
+                "Terrain analysis authoring generation is unavailable while entering or running Play Mode.";
 
             return false;
         }
@@ -381,14 +464,7 @@ public sealed class TerrainAnalysisGpuGenerator :
 
         if (
             !TryGetSource(
-                out RenderTexture heightCache,
-                out Vector2Int cacheOriginTile,
-                out Vector2Int cacheSize,
-                out int samplesPerSide,
-                out float sampleSpacing,
-                out Vector2 worldSizeXZ,
-                out sourceSignature,
-                out int sourceHeightCacheInstanceId,
+                out TerrainAnalysisGpuSource source,
                 out errorMessage
             )
         )
@@ -396,53 +472,56 @@ public sealed class TerrainAnalysisGpuGenerator :
             return false;
         }
 
+        sourceSignature =
+            source.SourceSignature;
+
         if (
-            sourceHeightCacheInstanceId !=
+            source.SourceResourceIdentity !=
                 layer.SourceHeightCacheInstanceId
             ||
-            cacheOriginTile !=
-                layer.CacheOriginTile
+            source.SourceWindow.OriginTile !=
+                layer.SourceCacheOriginTile
             ||
-            cacheSize !=
-                layer.CacheSize
+            source.SourceWindow.Size !=
+                layer.SourceCacheSize
             ||
-            samplesPerSide !=
+            source.ResidencyGeneration !=
+                layer.SourceResidencyGeneration
+            ||
+            source.SamplesPerSide !=
                 layer.SamplesPerSide
             ||
             !Mathf.Approximately(
-                sampleSpacing,
+                source.SampleSpacing,
                 layer.SampleSpacing
             )
             ||
             !VectorApproximately(
-                worldSizeXZ,
+                source.WorldSizeXZ,
                 layer.WorldSizeXZ
             )
         )
         {
             errorMessage =
-                "The Terrain Authoring Height Preview was replaced or its " +
-                "layout changed. This analysis layer requires a complete " +
-                "regeneration.";
+                "The Terrain Authoring Height Preview was replaced or its source layout changed. This analysis layer requires a complete regeneration.";
 
             return false;
         }
 
         if (
             layer.Texture.width !=
-                samplesPerSide
+                source.SamplesPerSide
             ||
             layer.Texture.height !=
-                samplesPerSide
+                source.SamplesPerSide
             ||
             layer.Texture.volumeDepth !=
-                cacheSize.x *
-                cacheSize.y
+                layer.CacheSize.x *
+                layer.CacheSize.y
         )
         {
             errorMessage =
-                "The existing analysis texture no longer matches the " +
-                "authoring height-cache layout.";
+                "The existing analysis texture no longer matches its local analysis-output layout.";
 
             return false;
         }
@@ -460,16 +539,14 @@ public sealed class TerrainAnalysisGpuGenerator :
 
         int groupsX =
             DivideRoundUp(
-                samplesPerSide,
-                kernelState
-                    .ThreadGroupSizeX
+                source.SamplesPerSide,
+                kernelState.ThreadGroupSizeX
             );
 
         int groupsY =
             DivideRoundUp(
-                samplesPerSide,
-                kernelState
-                    .ThreadGroupSizeY
+                source.SamplesPerSide,
+                kernelState.ThreadGroupSizeY
             );
 
         if (
@@ -479,8 +556,7 @@ public sealed class TerrainAnalysisGpuGenerator :
         )
         {
             errorMessage =
-                "Terrain analysis calculated an invalid incremental " +
-                "compute dispatch.";
+                "Terrain analysis calculated an invalid incremental compute dispatch.";
 
             return false;
         }
@@ -495,43 +571,36 @@ public sealed class TerrainAnalysisGpuGenerator :
         )
         {
             Vector2Int tile =
-                tileCoordinates[
-                    tileIndex
-                ];
+                tileCoordinates[tileIndex];
 
             Vector2Int localTile =
                 tile -
-                cacheOriginTile;
+                layer.CacheOriginTile;
 
             if (
                 localTile.x < 0
                 ||
                 localTile.y < 0
                 ||
-                localTile.x >=
-                    cacheSize.x
+                localTile.x >= layer.CacheSize.x
                 ||
-                localTile.y >=
-                    cacheSize.y
+                localTile.y >= layer.CacheSize.y
             )
             {
                 continue;
             }
 
-            int slice =
+            uniqueSlices.Add(
                 localTile.x +
                 localTile.y *
-                cacheSize.x;
-
-            uniqueSlices.Add(
-                slice
+                layer.CacheSize.x
             );
         }
 
         if (uniqueSlices.Count == 0)
         {
             lastObservedHeightCacheInstanceId =
-                sourceHeightCacheInstanceId;
+                source.SourceResourceIdentity;
 
             return true;
         }
@@ -548,57 +617,29 @@ public sealed class TerrainAnalysisGpuGenerator :
             SetCommonKernelParameters(
                 kernelState.Kernel,
                 layer.Key,
-                heightCache,
+                source,
                 layer.Texture,
-                cacheOriginTile,
-                cacheSize,
-                samplesPerSide,
-                sampleSpacing,
-                worldSizeXZ
+                new TerrainHeightCacheWindow(
+                    layer.CacheOriginTile,
+                    layer.CacheSize
+                )
             );
 
-            /*
-             * Batch adjacent slice indices into one Z dispatch. This keeps
-             * the dispatch count low while still touching only requested
-             * analysis tiles.
-             */
-            int sliceIndex =
-                0;
+            int sliceIndex = 0;
 
-            while (
-                sliceIndex <
-                sortedSlices.Count
-            )
+            while (sliceIndex < sortedSlices.Count)
             {
-                int firstSlice =
-                    sortedSlices[
-                        sliceIndex
-                    ];
-
-                int lastSlice =
-                    firstSlice;
-
-                int nextIndex =
-                    sliceIndex +
-                    1;
+                int firstSlice = sortedSlices[sliceIndex];
+                int lastSlice = firstSlice;
+                int nextIndex = sliceIndex + 1;
 
                 while (
-                    nextIndex <
-                        sortedSlices.Count
+                    nextIndex < sortedSlices.Count
                     &&
-                    sortedSlices[
-                        nextIndex
-                    ]
-                    ==
-                    lastSlice +
-                    1
+                    sortedSlices[nextIndex] == lastSlice + 1
                 )
                 {
-                    lastSlice =
-                        sortedSlices[
-                            nextIndex
-                        ];
-
+                    lastSlice = sortedSlices[nextIndex];
                     nextIndex++;
                 }
 
@@ -619,13 +660,10 @@ public sealed class TerrainAnalysisGpuGenerator :
                     runLength
                 );
 
-                sliceIndex =
-                    nextIndex;
+                sliceIndex = nextIndex;
             }
         }
-        catch (
-            Exception exception
-        )
+        catch (Exception exception)
         {
             errorMessage =
                 "Incremental terrain analysis GPU dispatch failed for " +
@@ -637,7 +675,7 @@ public sealed class TerrainAnalysisGpuGenerator :
         }
 
         lastObservedHeightCacheInstanceId =
-            sourceHeightCacheInstanceId;
+            source.SourceResourceIdentity;
 
         return true;
     }
@@ -827,7 +865,7 @@ public sealed class TerrainAnalysisGpuGenerator :
             TerrainAnalysisDefinition definition =
                 definitions[index];
 
-            if (
+        if (
                 definition == null
                 ||
                 !kernelStates.TryGetValue(
@@ -902,98 +940,43 @@ public sealed class TerrainAnalysisGpuGenerator :
     // =====================================================
 
     private static bool TryGetSource(
-        out RenderTexture heightCache,
-        out Vector2Int cacheOriginTile,
-        out Vector2Int cacheSize,
-        out int samplesPerSide,
-        out float sampleSpacing,
-        out Vector2 worldSizeXZ,
-        out string sourceSignature,
-        out int sourceHeightCacheInstanceId,
+        out TerrainAnalysisGpuSource source,
         out string errorMessage
     )
     {
-        sourceHeightCacheInstanceId =
-            0;
-
-        errorMessage =
-            "";
+        source = default;
+        errorMessage = "";
 
         if (
             !TerrainAuthoringPreviewService
-                .TryGetTerrainAnalysisSource(
-                    out heightCache,
-                    out cacheOriginTile,
-                    out cacheSize,
-                    out samplesPerSide,
-                    out sampleSpacing,
-                    out worldSizeXZ,
-                    out sourceSignature
+                .TryGetTerrainAnalysisGpuSource(
+                    out source
                 )
+            ||
+            !source.IsValid
         )
         {
             errorMessage =
-                "Terrain analysis requires a ready Terrain Authoring " +
-                "Height Preview.";
+                "Terrain analysis requires a ready bounded Terrain Authoring Height Preview source.";
 
             return false;
         }
 
-        int sliceCount =
-            cacheSize.x *
-            cacheSize.y;
-
-        if (
-            heightCache == null
-            ||
-            !heightCache.IsCreated()
-            ||
-            cacheSize.x <= 0
-            ||
-            cacheSize.y <= 0
-            ||
-            sliceCount <= 0
-            ||
-            samplesPerSide <= 1
-            ||
-            sampleSpacing <= 0f
-            ||
-            worldSizeXZ.x <= 0f
-            ||
-            worldSizeXZ.y <= 0f
-        )
-        {
-            errorMessage =
-                "The Terrain Authoring Height Preview reported an invalid " +
-                "analysis source layout.";
-
-            return false;
-        }
-
-        sourceHeightCacheInstanceId =
-            heightCache.GetInstanceID();
-
-        return
-            sourceHeightCacheInstanceId !=
-            0;
+        return true;
     }
 
     private void SetCommonKernelParameters(
         int kernel,
         TerrainAnalysisKey key,
-        RenderTexture heightCache,
+        TerrainAnalysisGpuSource source,
         RenderTexture output,
-        Vector2Int cacheOriginTile,
-        Vector2Int cacheSize,
-        int samplesPerSide,
-        float sampleSpacing,
-        Vector2 worldSizeXZ
+        TerrainHeightCacheWindow outputWindow
     )
     {
         computeShader.SetTexture(
             kernel,
             "_HeightCache",
-            heightCache
+            source.HeightCache
         );
 
         computeShader.SetTexture(
@@ -1004,31 +987,43 @@ public sealed class TerrainAnalysisGpuGenerator :
 
         computeShader.SetInts(
             "_HeightCacheOriginTile",
-            cacheOriginTile.x,
-            cacheOriginTile.y
+            source.SourceWindow.OriginTile.x,
+            source.SourceWindow.OriginTile.y
         );
 
         computeShader.SetInts(
             "_HeightCacheSize",
-            cacheSize.x,
-            cacheSize.y
+            source.SourceWindow.Size.x,
+            source.SourceWindow.Size.y
+        );
+
+        computeShader.SetInts(
+            "_AnalysisOutputOriginTile",
+            outputWindow.OriginTile.x,
+            outputWindow.OriginTile.y
+        );
+
+        computeShader.SetInts(
+            "_AnalysisOutputSize",
+            outputWindow.Size.x,
+            outputWindow.Size.y
         );
 
         computeShader.SetInt(
             "_SamplesPerSide",
-            samplesPerSide
+            source.SamplesPerSide
         );
 
         computeShader.SetFloat(
             "_SampleSpacing",
-            sampleSpacing
+            source.SampleSpacing
         );
 
         computeShader.SetVector(
             "_WorldSizeXZ",
             new Vector4(
-                worldSizeXZ.x,
-                worldSizeXZ.y,
+                source.WorldSizeXZ.x,
+                source.WorldSizeXZ.y,
                 0f,
                 0f
             )
@@ -1149,8 +1144,8 @@ public sealed class TerrainAnalysisGpuGenerator :
         }
 
         bool interactiveEditActive =
-            TerrainAuthoringModifierService
-                .HasActiveInteractiveEdit;
+            TerrainAuthoringPreviewService
+                .HasActiveInteractiveTerrainAuthoringEdit;
 
         bool requiresLiveAnalysis =
             TerrainAuthoringVisualizationController
@@ -1206,6 +1201,30 @@ public sealed class TerrainAnalysisGpuGenerator :
             .NotifySourceTilesChanged(
                 tileCoordinates
             );
+    }
+
+    private static void OnTerrainAnalysisSourceChanged()
+    {
+        ResetDeferredAnalysisState();
+
+        if (
+            TerrainAuthoringPreviewService
+                .TryGetTerrainAnalysisGpuSource(
+                    out TerrainAnalysisGpuSource source
+                )
+        )
+        {
+            lastObservedHeightCacheInstanceId =
+                source.SourceResourceIdentity;
+        }
+        else
+        {
+            lastObservedHeightCacheInstanceId =
+                0;
+        }
+
+        TerrainAnalysisService
+            .InvalidateAll();
     }
 
     private static void OnPreviewStateChanged()
@@ -1280,8 +1299,8 @@ public sealed class TerrainAnalysisGpuGenerator :
          * intermediate state.
          */
         if (
-            TerrainAuthoringModifierService
-                .HasActiveInteractiveEdit
+            TerrainAuthoringPreviewService
+                .HasActiveInteractiveTerrainAuthoringEdit
         )
         {
             return;
@@ -1378,6 +1397,9 @@ public sealed class TerrainAnalysisGpuGenerator :
 
         TerrainAuthoringPreviewService.PreviewStateChanged -=
             OnPreviewStateChanged;
+
+        TerrainAuthoringPreviewService.TerrainAnalysisSourceChanged -=
+            OnTerrainAnalysisSourceChanged;
 
         AssemblyReloadEvents.beforeAssemblyReload -=
             Shutdown;

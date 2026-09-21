@@ -21,16 +21,6 @@ public static class TerrainSurfaceMaskCompiler
 
     private static BuildState activeBuild;
 
-    /*
-     * Keep at most one bake-owned persistent Curvature layer alive between
-     * surface bakes. This lets the existing Terrain Analysis invalidation path
-     * update that layer incrementally after local height edits. If curvature
-     * scale changes, release the previous key before retaining the new one so
-     * repeated global settings changes cannot accumulate full GPU layers.
-     */
-    private static bool hasRetainedCurvatureKey;
-    private static TerrainAnalysisKey retainedCurvatureKey;
-
     public static bool IsGenerating => activeBuild != null;
 
     private enum SurfaceTileWriteOutcome
@@ -444,39 +434,11 @@ public static class TerrainSurfaceMaskCompiler
         }
 
         if (
-            !TerrainAuthoringPreviewService.CacheReady
-            ||
-            TerrainAuthoringPreviewService.Status != TerrainAuthoringPreviewStatus.Ready
-        )
-        {
-            TerrainAuthoringPreviewService.RequestRefresh();
-
-            CompleteImmediately(
-                onCompleted,
-                CreateSimpleResult(
-                    TerrainSurfaceMaskGenerationOutcome.Blocked,
-                    workMode,
-                    worldSettings,
-                    "Runtime surface-mask generation needs the ready Terrain Authoring Height Preview. A preview refresh was requested; run the surface bake again once Height Preview reports Ready."
+            !TerrainAnalysisRuntimeHeightBatchService
+                .TryValidateSource(
+                    heightManifest,
+                    out string analysisSourceError
                 )
-            );
-
-            return false;
-        }
-
-        /*
-         * Terrain Analysis is sourced from the live authoring preview while
-         * runtime surface output targets the generated runtime height dataset.
-         * Both must represent the same authoring identity.
-         */
-        if (
-            string.IsNullOrEmpty(heightManifest.sourceAuthoringSignature)
-            ||
-            !string.Equals(
-                TerrainAuthoringPreviewService.SourceOverallAuthoringSignature,
-                heightManifest.sourceAuthoringSignature,
-                StringComparison.Ordinal
-            )
         )
         {
             CompleteImmediately(
@@ -485,7 +447,8 @@ public static class TerrainSurfaceMaskCompiler
                     TerrainSurfaceMaskGenerationOutcome.Blocked,
                     workMode,
                     worldSettings,
-                    "The Terrain Authoring Height Preview does not represent the same authoring signature as the current runtime height dataset."
+                    "The generated runtime height dataset cannot be used for bounded Terrain Analysis.\n\n" +
+                    analysisSourceError
                 )
             );
 
@@ -494,141 +457,13 @@ public static class TerrainSurfaceMaskCompiler
 
         ScreeSettings scree = surfaceSettings.Scree;
 
-        TerrainAnalysisKey slopeKey = TerrainAnalysisKey.Slope;
+        TerrainAnalysisKey slopeKey =
+            TerrainAnalysisKey.Slope;
+
         TerrainAnalysisKey curvatureKey =
-            TerrainAnalysisKey.Curvature(scree.curvatureScale);
-
-        TerrainAnalysisLayer slopeLayer =
-            TerrainAnalysisService.RequestLayer(slopeKey);
-
-        RetainCurvatureLayer(curvatureKey);
-
-        TerrainAnalysisLayer curvatureLayer =
-            TerrainAnalysisService.RequestLayer(curvatureKey);
-
-        if (
-            !ValidateAnalysisLayer(
-                slopeLayer,
-                heightManifest,
-                out string slopeError
-            )
-        )
-        {
-            CompleteImmediately(
-                onCompleted,
-                CreateSimpleResult(
-                    TerrainSurfaceMaskGenerationOutcome.Blocked,
-                    workMode,
-                    worldSettings,
-                    "Slope analysis is unavailable or does not match the runtime height-tile layout.\n\n" +
-                    slopeError
-                )
+            TerrainAnalysisKey.Curvature(
+                scree.curvatureScale
             );
-
-            return false;
-        }
-
-        if (
-            !ValidateAnalysisLayer(
-                curvatureLayer,
-                heightManifest,
-                out string curvatureError
-            )
-        )
-        {
-            CompleteImmediately(
-                onCompleted,
-                CreateSimpleResult(
-                    TerrainSurfaceMaskGenerationOutcome.Blocked,
-                    workMode,
-                    worldSettings,
-                    "Curvature analysis is unavailable or does not match the runtime height-tile layout.\n\n" +
-                    curvatureError
-                )
-            );
-
-            return false;
-        }
-
-        if (
-            slopeLayer.CacheOriginTile != curvatureLayer.CacheOriginTile
-            ||
-            slopeLayer.CacheSize != curvatureLayer.CacheSize
-            ||
-            slopeLayer.SamplesPerSide != curvatureLayer.SamplesPerSide
-            ||
-            !Mathf.Approximately(
-                slopeLayer.SampleSpacing,
-                curvatureLayer.SampleSpacing
-            )
-            ||
-            slopeLayer.SourceHeightCacheInstanceId
-                != curvatureLayer.SourceHeightCacheInstanceId
-            ||
-            !string.Equals(
-                slopeLayer.SourceSignature,
-                curvatureLayer.SourceSignature,
-                StringComparison.Ordinal
-            )
-        )
-        {
-            CompleteImmediately(
-                onCompleted,
-                CreateSimpleResult(
-                    TerrainSurfaceMaskGenerationOutcome.Blocked,
-                    workMode,
-                    worldSettings,
-                    "Slope and Curvature analysis do not describe the same Terrain Authoring Height Preview."
-                )
-            );
-
-            return false;
-        }
-
-        if (
-            !TerrainAuthoringPreviewService.TryGetTerrainAnalysisSource(
-                out RenderTexture currentAnalysisHeightCache,
-                out _,
-                out _,
-                out _,
-                out _,
-                out _,
-                out string currentAnalysisSourceSignature
-            )
-            ||
-            currentAnalysisHeightCache == null
-            ||
-            slopeLayer.SourceHeightCacheInstanceId
-                != currentAnalysisHeightCache.GetInstanceID()
-            ||
-            curvatureLayer.SourceHeightCacheInstanceId
-                != currentAnalysisHeightCache.GetInstanceID()
-            ||
-            !string.Equals(
-                slopeLayer.SourceSignature,
-                currentAnalysisSourceSignature,
-                StringComparison.Ordinal
-            )
-            ||
-            !string.Equals(
-                curvatureLayer.SourceSignature,
-                currentAnalysisSourceSignature,
-                StringComparison.Ordinal
-            )
-        )
-        {
-            CompleteImmediately(
-                onCompleted,
-                CreateSimpleResult(
-                    TerrainSurfaceMaskGenerationOutcome.Blocked,
-                    workMode,
-                    worldSettings,
-                    "Terrain Analysis does not represent the current Terrain Authoring Height Preview."
-                )
-            );
-
-            return false;
-        }
 
         TerrainSurfaceMaskManifest surfaceManifest =
             AssetDatabase.LoadAssetAtPath<TerrainSurfaceMaskManifest>(
@@ -821,8 +656,6 @@ public static class TerrainSurfaceMaskCompiler
                 surfaceSettings,
                 slopeKey,
                 curvatureKey,
-                slopeLayer,
-                curvatureLayer,
                 settingsSignature,
                 generationSignature,
                 workMode,
@@ -835,86 +668,7 @@ public static class TerrainSurfaceMaskCompiler
 
         return true;
     }
-
-    // =====================================================
-    // ANALYSIS VALIDATION
-    // =====================================================
-
-    private static bool ValidateAnalysisLayer(
-        TerrainAnalysisLayer layer,
-        TerrainHeightmapManifest heightManifest,
-        out string errorMessage
-    )
-    {
-        errorMessage = "";
-
-        if (
-            layer == null
-            ||
-            !layer.IsReady
-            ||
-            layer.Texture == null
-            ||
-            !layer.Texture.IsCreated()
-        )
-        {
-            errorMessage =
-                layer != null
-                    ? layer.ErrorMessage
-                    : "Analysis layer is null.";
-
-            return false;
-        }
-
-        if (
-            layer.CacheOriginTile != Vector2Int.zero
-            ||
-            layer.CacheSize.x != heightManifest.heightTileGridWidth
-            ||
-            layer.CacheSize.y != heightManifest.heightTileGridHeight
-            ||
-            layer.SamplesPerSide != heightManifest.heightTileSamplesPerSide
-            ||
-            !Mathf.Approximately(
-                layer.SampleSpacing,
-                heightManifest.HeightSampleSpacing
-            )
-            ||
-            !Mathf.Approximately(
-                layer.WorldSizeXZ.x,
-                heightManifest.WorldSizeX
-            )
-            ||
-            !Mathf.Approximately(
-                layer.WorldSizeXZ.y,
-                heightManifest.WorldSizeZ
-            )
-        )
-        {
-            errorMessage =
-                "Analysis layout:\n" +
-                "  Origin: " + layer.CacheOriginTile + "\n" +
-                "  Size: " + layer.CacheSize + "\n" +
-                "  Samples: " + layer.SamplesPerSide + "\n" +
-                "  Spacing: " + layer.SampleSpacing.ToString("R") + "\n\n" +
-                "Runtime height layout:\n" +
-                "  Size: " +
-                heightManifest.heightTileGridWidth +
-                " x " +
-                heightManifest.heightTileGridHeight +
-                "\n" +
-                "  Samples: " +
-                heightManifest.heightTileSamplesPerSide +
-                "\n" +
-                "  Spacing: " +
-                heightManifest.HeightSampleSpacing.ToString("R");
-
-            return false;
-        }
-
-        return true;
-    }
-
+    
     private static bool IsIncrementalManifestCompatible(
         TerrainSurfaceMaskManifest manifest,
         TerrainHeightmapManifest heightManifest,
@@ -927,10 +681,10 @@ public static class TerrainSurfaceMaskCompiler
             manifest.isComplete
             &&
             manifest.compilerVersion
-                == TerrainSurfaceMaskManifest.CurrentCompilerVersion
+            == TerrainSurfaceMaskManifest.CurrentCompilerVersion
             &&
             manifest.channelLayoutVersion
-                == TerrainSurfaceMaskManifest.CurrentChannelLayoutVersion
+            == TerrainSurfaceMaskManifest.CurrentChannelLayoutVersion
             &&
             manifest.MatchesHeightLayout(heightManifest)
             &&
@@ -941,25 +695,6 @@ public static class TerrainSurfaceMaskCompiler
                 settingsSignature,
                 StringComparison.Ordinal
             );
-    }
-
-    private static void RetainCurvatureLayer(
-        TerrainAnalysisKey key
-    )
-    {
-        if (
-            hasRetainedCurvatureKey
-            &&
-            !retainedCurvatureKey.Equals(key)
-        )
-        {
-            TerrainAnalysisService.ReleaseLayer(
-                retainedCurvatureKey
-            );
-        }
-
-        retainedCurvatureKey = key;
-        hasRetainedCurvatureKey = true;
     }
 
     // =====================================================
@@ -997,7 +732,6 @@ public static class TerrainSurfaceMaskCompiler
                 "Could not create generated surface-mask folder because its parent does not exist:\n" +
                 parent
             );
-
             return;
         }
 
@@ -1323,9 +1057,6 @@ public static class TerrainSurfaceMaskCompiler
         private readonly TerrainAnalysisKey slopeKey;
         public readonly TerrainAnalysisKey curvatureKey;
 
-        private readonly TerrainAnalysisLayer slopeLayer;
-        private readonly TerrainAnalysisLayer curvatureLayer;
-
         public readonly string settingsSignature;
         public readonly string generationSignature;
 
@@ -1335,9 +1066,6 @@ public static class TerrainSurfaceMaskCompiler
         public readonly int sourceHeightmapGenerationRevision;
         public readonly string sourceHeightmapSignature;
         public readonly string sourceAuthoringSignature;
-
-        public readonly string analysisSourceSignature;
-        public readonly int analysisSourceHeightCacheInstanceId;
 
         public readonly int surfaceGenerationRevisionBefore;
         public readonly int sourceSurfaceHeightRevisionBefore;
@@ -1367,9 +1095,6 @@ public static class TerrainSurfaceMaskCompiler
         private IReadOnlyList<TerrainAnalysisTileData> slopeBatch;
         private IReadOnlyList<TerrainAnalysisTileData> curvatureBatch;
 
-        private bool waitingForSlope;
-        private bool waitingForCurvature;
-
         private string batchError;
 
         private TerrainRuntimeBakePerformanceScope
@@ -1384,8 +1109,6 @@ public static class TerrainSurfaceMaskCompiler
             TerrainSurfaceSettings surfaceSettings,
             TerrainAnalysisKey slopeKey,
             TerrainAnalysisKey curvatureKey,
-            TerrainAnalysisLayer slopeLayer,
-            TerrainAnalysisLayer curvatureLayer,
             string settingsSignature,
             string generationSignature,
             TerrainRuntimeBakeWorkMode workMode,
@@ -1406,8 +1129,6 @@ public static class TerrainSurfaceMaskCompiler
 
             this.slopeKey = slopeKey;
             this.curvatureKey = curvatureKey;
-            this.slopeLayer = slopeLayer;
-            this.curvatureLayer = curvatureLayer;
 
             this.settingsSignature = settingsSignature;
             this.generationSignature = generationSignature;
@@ -1423,12 +1144,6 @@ public static class TerrainSurfaceMaskCompiler
 
             sourceAuthoringSignature =
                 heightManifest.sourceAuthoringSignature ?? "";
-
-            analysisSourceSignature =
-                slopeLayer.SourceSignature ?? "";
-
-            analysisSourceHeightCacheInstanceId =
-                slopeLayer.SourceHeightCacheInstanceId;
 
             surfaceGenerationRevisionBefore =
                 worldSettings.surfaceMaskGenerationRevision;
@@ -1471,17 +1186,25 @@ public static class TerrainSurfaceMaskCompiler
                 return;
             }
 
-            int count =
-                Mathf.Min(
-                    ReadbackBatchTileCount,
-                    coordinates.Count - nextTileIndex
+            currentBatch =
+                TerrainAnalysisRuntimeHeightBatchService
+                    .CollectContiguousRun(
+                        coordinates,
+                        nextTileIndex,
+                        ReadbackBatchTileCount
+                    );
+
+            if (currentBatch.Count == 0)
+            {
+                FinishTerminal(
+                    TerrainSurfaceMaskGenerationOutcome.Failed,
+                    "Could not plan a bounded contiguous runtime-height Terrain Analysis batch."
                 );
 
-            currentBatch =
-                coordinates.GetRange(
-                    nextTileIndex,
-                    count
-                );
+                return;
+            }
+
+            int count = currentBatch.Count;
 
             float progress =
                 coordinates.Count > 0
@@ -1514,9 +1237,6 @@ public static class TerrainSurfaceMaskCompiler
             curvatureBatch = null;
             batchError = "";
 
-            waitingForSlope = true;
-            waitingForCurvature = true;
-
             currentReadbackPerformance?.Dispose();
             currentReadbackPerformance =
                 TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
@@ -1525,21 +1245,20 @@ public static class TerrainSurfaceMaskCompiler
                     TerrainRuntimeBakePerformanceCategory.Gather
                 );
 
-            TerrainAnalysisReadbackService.RequestTiles(
-                slopeKey,
+            TerrainAnalysisRuntimeHeightBatchService.RequestBatch(
+                heightManifest,
                 currentBatch,
-                OnSlopeReadback
-            );
-
-            TerrainAnalysisReadbackService.RequestTiles(
-                curvatureKey,
-                currentBatch,
-                OnCurvatureReadback
+                new[]
+                {
+                    slopeKey,
+                    curvatureKey
+                },
+                OnAnalysisBatchReadback
             );
         }
 
-        private void OnSlopeReadback(
-            IReadOnlyList<TerrainAnalysisTileData> data,
+        private void OnAnalysisBatchReadback(
+            TerrainAnalysisRuntimeHeightBatchResult result,
             string errorMessage
         )
         {
@@ -1548,27 +1267,29 @@ public static class TerrainSurfaceMaskCompiler
                 return;
             }
 
-            slopeBatch = data;
-            waitingForSlope = false;
-
             CaptureError(errorMessage);
-            TryFinishCurrentBatch();
-        }
 
-        private void OnCurvatureReadback(
-            IReadOnlyList<TerrainAnalysisTileData> data,
-            string errorMessage
-        )
-        {
-            if (terminal || activeBuild != this)
+            if (
+                result == null
+                ||
+                !result.TryGetTiles(
+                    slopeKey,
+                    out slopeBatch
+                )
+                ||
+                !result.TryGetTiles(
+                    curvatureKey,
+                    out curvatureBatch
+                )
+            )
             {
-                return;
+                if (string.IsNullOrEmpty(batchError))
+                {
+                    batchError =
+                        "The bounded runtime-height Terrain Analysis batch did not return both Slope and Curvature data.";
+                }
             }
 
-            curvatureBatch = data;
-            waitingForCurvature = false;
-
-            CaptureError(errorMessage);
             TryFinishCurrentBatch();
         }
 
@@ -1592,10 +1313,6 @@ public static class TerrainSurfaceMaskCompiler
                 terminal
                 ||
                 activeBuild != this
-                ||
-                waitingForSlope
-                ||
-                waitingForCurvature
             )
             {
                 return;
@@ -1875,8 +1592,6 @@ public static class TerrainSurfaceMaskCompiler
 
             nextTileIndex += currentBatch.Count;
 
-            TerrainAnalysisReadbackService.Clear();
-
             if (
                 TerrainRuntimeBakeValidationHooks.ShouldCancelCoordinateStage(
                     TerrainRuntimeBakePipelineState.SurfaceMasks,
@@ -1919,7 +1634,7 @@ public static class TerrainSurfaceMaskCompiler
             {
                 FinishTerminal(
                     TerrainSurfaceMaskGenerationOutcome.StalePlan,
-                    "Height generation, surface settings, Terrain Analysis source identity, or persistent bake state changed before surface finalization."
+                    "Height generation, surface settings, generated runtime-height source identity, or persistent bake state changed before surface finalization."
                 );
 
                 return;
@@ -2104,10 +1819,6 @@ public static class TerrainSurfaceMaskCompiler
                 heightManifest == null
                 ||
                 surfaceSettings == null
-                ||
-                slopeLayer == null
-                ||
-                curvatureLayer == null
             )
             {
                 return false;
@@ -2130,6 +1841,14 @@ public static class TerrainSurfaceMaskCompiler
                     sourceHeightmapSignature,
                     StringComparison.Ordinal
                 )
+                ||
+                !heightManifest.isComplete
+                ||
+                !string.Equals(
+                    heightManifest.sourceAuthoringSignature ?? "",
+                    sourceAuthoringSignature,
+                    StringComparison.Ordinal
+                )
             )
             {
                 return false;
@@ -2146,99 +1865,24 @@ public static class TerrainSurfaceMaskCompiler
                     surfaceSettings
                 );
 
-            if (
-                !string.Equals(
+            return
+                string.Equals(
                     currentSettingsSignature,
                     settingsSignature,
                     StringComparison.Ordinal
                 )
-                ||
-                !string.Equals(
+                &&
+                string.Equals(
                     currentGenerationSignature,
                     generationSignature,
                     StringComparison.Ordinal
                 )
-            )
-            {
-                return false;
-            }
-
-            if (
-                !TerrainAuthoringPreviewService.CacheReady
-                ||
-                TerrainAuthoringPreviewService.Status
-                    != TerrainAuthoringPreviewStatus.Ready
-                ||
-                !string.Equals(
-                    TerrainAuthoringPreviewService.SourceOverallAuthoringSignature,
-                    sourceAuthoringSignature,
-                    StringComparison.Ordinal
-                )
-                ||
-                !TerrainAuthoringPreviewService.TryGetTerrainAnalysisSource(
-                    out RenderTexture currentAnalysisHeightCache,
-                    out _,
-                    out _,
-                    out _,
-                    out _,
-                    out _,
-                    out string currentAnalysisSourceSignature
-                )
-                ||
-                currentAnalysisHeightCache == null
-                ||
-                currentAnalysisHeightCache.GetInstanceID()
-                    != analysisSourceHeightCacheInstanceId
-                ||
-                !string.Equals(
-                    currentAnalysisSourceSignature,
-                    analysisSourceSignature,
-                    StringComparison.Ordinal
-                )
-            )
-            {
-                return false;
-            }
-
-            if (
-                !slopeLayer.IsReady
-                ||
-                !curvatureLayer.IsReady
-                ||
-                slopeLayer.SourceHeightCacheInstanceId
-                    != analysisSourceHeightCacheInstanceId
-                ||
-                curvatureLayer.SourceHeightCacheInstanceId
-                    != analysisSourceHeightCacheInstanceId
-                ||
-                !string.Equals(
-                    slopeLayer.SourceSignature,
-                    analysisSourceSignature,
-                    StringComparison.Ordinal
-                )
-                ||
-                !string.Equals(
-                    curvatureLayer.SourceSignature,
-                    analysisSourceSignature,
-                    StringComparison.Ordinal
-                )
-            )
-            {
-                return false;
-            }
-
-            return
-                ValidateAnalysisLayer(
-                    slopeLayer,
-                    heightManifest,
-                    out _
-                )
                 &&
-                ValidateAnalysisLayer(
-                    curvatureLayer,
-                    heightManifest,
-                    out _
-                );
+                TerrainAnalysisRuntimeHeightBatchService
+                    .TryValidateSource(
+                        heightManifest,
+                        out _
+                    );
         }
 
         private void FinishTerminal(
@@ -2374,13 +2018,6 @@ public static class TerrainSurfaceMaskCompiler
             terminal = true;
 
             EditorUtility.ClearProgressBar();
-            TerrainAnalysisReadbackService.Clear();
-
-            /*
-             * Keep the current bake-owned Curvature key alive so subsequent
-             * local preview edits can update only affected analysis slices.
-             * Owner-scoped transient visualization layers are separate.
-             */
             if (
                 workMode == TerrainRuntimeBakeWorkMode.Full
                 &&
