@@ -14,6 +14,9 @@ public static class TerrainCollisionMeshGenerator
     private const int FullPersistenceChunkThreshold =
         512;
 
+    private const double CollisionProgressRefreshIntervalSeconds =
+        0.10d;
+
     private enum TerrainCollisionMeshWriteOutcome
     {
         Failed,
@@ -50,6 +53,113 @@ public static class TerrainCollisionMeshGenerator
 
             this.assetPath =
                 assetPath;
+        }
+    }
+
+    private sealed class CollisionProgressReporter
+    {
+        private double nextRefreshAt;
+        private string lastOperation =
+            "";
+        private bool hasDisplayed;
+
+        public bool ReportIfDue(
+            string operation,
+            Vector2Int coordinate,
+            int current,
+            int total,
+            bool includeOrdinal,
+            bool force
+        )
+        {
+            string safeOperation =
+                operation ??
+                "";
+
+            double now =
+                EditorApplication
+                    .timeSinceStartup;
+
+            bool operationChanged =
+                !hasDisplayed
+                ||
+                !string.Equals(
+                    lastOperation,
+                    safeOperation,
+                    StringComparison.Ordinal
+                );
+
+            if (
+                !force
+                &&
+                hasDisplayed
+                &&
+                !operationChanged
+                &&
+                now < nextRefreshAt
+            )
+            {
+                return false;
+            }
+
+            int safeTotal =
+                Mathf.Max(
+                    1,
+                    total
+                );
+
+            int displayOrdinal =
+                Mathf.Clamp(
+                    current + 1,
+                    1,
+                    safeTotal
+                );
+
+            string detail =
+                "Chunk (" +
+                coordinate.x +
+                ", " +
+                coordinate.y +
+                ")";
+
+            if (includeOrdinal)
+            {
+                detail +=
+                    "\n" +
+                    displayOrdinal +
+                    " / " +
+                    safeTotal;
+            }
+
+            float progress =
+                total > 0
+                    ? Mathf.Clamp01(
+                        (float)current /
+                        total
+                    )
+                    : 1f;
+
+            bool cancelled =
+                EditorUtility
+                    .DisplayCancelableProgressBar(
+                        "Terrain Collision Generation",
+                        safeOperation +
+                        "\n\n" +
+                        detail,
+                        progress
+                    );
+
+            hasDisplayed =
+                true;
+
+            lastOperation =
+                safeOperation;
+
+            nextRefreshAt =
+                now +
+                CollisionProgressRefreshIntervalSeconds;
+
+            return cancelled;
         }
     }
 
@@ -681,6 +791,15 @@ public static class TerrainCollisionMeshGenerator
         > fullExistingMeshes =
             null;
 
+        CollisionProgressReporter progressReporter =
+            new CollisionProgressReporter();
+
+        int generationProgressTotal =
+            Mathf.Max(
+                1,
+                requestedChunks.Count
+            );
+
         try
         {
             // =================================================
@@ -703,6 +822,13 @@ public static class TerrainCollisionMeshGenerator
                 int obsoleteProgress =
                     0;
 
+                int obsoleteProgressTotal =
+                    Mathf.Max(
+                        1,
+                        existingCoordinates.Count +
+                        requestedChunks.Count
+                    );
+
                 foreach (
                     Vector2Int coordinate
                     in existingCoordinates
@@ -723,20 +849,15 @@ public static class TerrainCollisionMeshGenerator
                     }
 
                     cancelled =
-                        ShowProgress(
-                            "Checking obsolete collision meshes",
-                            "Chunk (" +
-                            coordinate.x +
-                            ", " +
-                            coordinate.y +
-                            ")",
-                            obsoleteProgress,
-                            Mathf.Max(
-                                1,
-                                existingCoordinates.Count +
-                                requestedChunks.Count
-                            )
-                        );
+                        progressReporter
+                            .ReportIfDue(
+                                "Checking obsolete collision meshes",
+                                coordinate,
+                                obsoleteProgress,
+                                obsoleteProgressTotal,
+                                false,
+                                false
+                            );
 
                     if (cancelled)
                     {
@@ -871,25 +992,15 @@ public static class TerrainCollisionMeshGenerator
                     )
                     {
                         cancelled =
-                            ShowProgress(
-                                "Generating collision meshes",
-                                "Chunk (" +
-                                coordinate.x +
-                                ", " +
-                                coordinate.y +
-                                ")\n" +
-                                (
-                                    completedChunkOperations +
-                                    1
-                                ) +
-                                " / " +
-                                requestedChunks.Count,
-                                completedChunkOperations,
-                                Mathf.Max(
-                                    1,
-                                    requestedChunks.Count
-                                )
-                            );
+                            progressReporter
+                                .ReportIfDue(
+                                    "Generating collision meshes",
+                                    coordinate,
+                                    completedChunkOperations,
+                                    generationProgressTotal,
+                                    true,
+                                    false
+                                );
 
                         if (cancelled)
                         {
@@ -996,6 +1107,40 @@ public static class TerrainCollisionMeshGenerator
 
                     if (preparedBatch.Count > 0)
                     {
+                        Vector2Int lastPreparedCoordinate =
+                            preparedBatch[
+                                preparedBatch.Count -
+                                1
+                            ]
+                            .coordinate;
+
+                        int forcedProgressCurrent =
+                            Mathf.Max(
+                                0,
+                                completedChunkOperations -
+                                1
+                            );
+
+                        cancelled =
+                            progressReporter
+                                .ReportIfDue(
+                                    "Generating collision meshes",
+                                    lastPreparedCoordinate,
+                                    forcedProgressCurrent,
+                                    generationProgressTotal,
+                                    true,
+                                    true
+                                );
+
+                        if (cancelled)
+                        {
+                            CleanupCreatedPreparedCollisionMeshes(
+                                preparedBatch
+                            );
+
+                            break;
+                        }
+
                         if (
                             !TryBakePreparedCollisionBatch(
                                 preparedBatch,
@@ -2587,19 +2732,12 @@ public static class TerrainCollisionMeshGenerator
                 vertexCount
             ];
 
-        using TerrainRuntimeBakeTrackedMemoryLease collisionBufferMemory =
-            TerrainRuntimeBakePerformanceDiagnostics.TrackTemporaryMemory(
+        using TerrainRuntimeBakeRepeatedMemoryScope collisionBufferMemory =
+            TerrainRuntimeBakePerformanceDiagnostics.TrackRepeatedTemporaryMemory(
                 "Collision.VertexBuffer",
                 TerrainRuntimeBakePipelineState.Collision,
                 TerrainRuntimeBakeTrackedMemoryCategory.CollisionBuffer,
                 (long)vertexCount * 12L
-            );
-
-        using TerrainRuntimeBakePerformanceScope geometryPerformance =
-            TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
-                "Collision.VertexGeneration",
-                TerrainRuntimeBakePipelineState.Collision,
-                TerrainRuntimeBakePerformanceCategory.Generate
             );
 
         float minimumHeight =
@@ -2608,101 +2746,109 @@ public static class TerrainCollisionMeshGenerator
         float maximumHeight =
             float.NegativeInfinity;
 
-        for (
-            int z = 0;
-            z <= collisionResolution;
-            z++
+        using (
+            TerrainRuntimeBakeAggregatedPerformanceScope geometryPerformance =
+                TerrainRuntimeBakePerformanceDiagnostics.BeginAggregatedOperation(
+                    "Collision.VertexGeneration",
+                    TerrainRuntimeBakePipelineState.Collision,
+                    TerrainRuntimeBakePerformanceCategory.Generate
+                )
         )
         {
-            int sourceZ =
-                sourceStartZ +
-                z *
-                heightSampleStep;
-
-            int sourceRowStart =
-                sourceZ *
-                heightSamplesPerTile;
-
             for (
-                int x = 0;
-                x <= collisionResolution;
-                x++
+                int z = 0;
+                z <= collisionResolution;
+                z++
             )
             {
-                int sourceX =
-                    sourceStartX +
-                    x *
+                int sourceZ =
+                    sourceStartZ +
+                    z *
                     heightSampleStep;
 
-                int sourceIndex =
-                    sourceRowStart +
-                    sourceX;
+                int sourceRowStart =
+                    sourceZ *
+                    heightSamplesPerTile;
 
-                float height =
-                    heightData[
-                        sourceIndex
-                    ];
-
-                if (
-                    float.IsNaN(
-                        height
-                    )
-                    ||
-                    float.IsInfinity(
-                        height
-                    )
+                for (
+                    int x = 0;
+                    x <= collisionResolution;
+                    x++
                 )
                 {
-                    Debug.LogError(
-                        "Invalid height value encountered while generating collision mesh.\n\n" +
-                        "Chunk: (" +
-                        chunkX +
-                        ", " +
-                        chunkZ +
-                        ")\n" +
-                        "Source Sample: (" +
-                        sourceX +
-                        ", " +
-                        sourceZ +
-                        ")"
-                    );
-
-                    return
-                        TerrainCollisionMeshWriteOutcome
-                            .Failed;
-                }
-
-                minimumHeight =
-                    Mathf.Min(
-                        minimumHeight,
-                        height
-                    );
-
-                maximumHeight =
-                    Mathf.Max(
-                        maximumHeight,
-                        height
-                    );
-
-                int vertexIndex =
-                    z *
-                    verticesPerSide +
-                    x;
-
-                vertices[
-                    vertexIndex
-                ] =
-                    new Vector3(
+                    int sourceX =
+                        sourceStartX +
                         x *
-                            collisionVertexSpacing,
-                        height,
+                        heightSampleStep;
+
+                    int sourceIndex =
+                        sourceRowStart +
+                        sourceX;
+
+                    float height =
+                        heightData[
+                            sourceIndex
+                        ];
+
+                    if (
+                        float.IsNaN(
+                            height
+                        )
+                        ||
+                        float.IsInfinity(
+                            height
+                        )
+                    )
+                    {
+                        Debug.LogError(
+                            "Invalid height value encountered while generating collision mesh.\n\n" +
+                            "Chunk: (" +
+                            chunkX +
+                            ", " +
+                            chunkZ +
+                            ")\n" +
+                            "Source Sample: (" +
+                            sourceX +
+                            ", " +
+                            sourceZ +
+                            ")"
+                        );
+
+                        return
+                            TerrainCollisionMeshWriteOutcome
+                                .Failed;
+                    }
+
+                    minimumHeight =
+                        Mathf.Min(
+                            minimumHeight,
+                            height
+                        );
+
+                    maximumHeight =
+                        Mathf.Max(
+                            maximumHeight,
+                            height
+                        );
+
+                    int vertexIndex =
                         z *
-                            collisionVertexSpacing
-                    );
+                        verticesPerSide +
+                        x;
+
+                    vertices[
+                        vertexIndex
+                    ] =
+                        new Vector3(
+                            x *
+                                collisionVertexSpacing,
+                            height,
+                            z *
+                                collisionVertexSpacing
+                        );
+                }
             }
         }
-
-        geometryPerformance?.Complete();
 
         if (
             !TryCreateCollisionBounds(
@@ -2727,144 +2873,148 @@ public static class TerrainCollisionMeshGenerator
                     .Failed;
         }
 
-        using TerrainRuntimeBakePerformanceScope meshPerformance =
-            TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
-                "Collision.MeshCreateUpload",
-                TerrainRuntimeBakePipelineState.Collision,
-                TerrainRuntimeBakePerformanceCategory.Commit
-            );
-
-        string assetPath =
-            GetCollisionMeshPath(
-                chunkX,
-                chunkZ
-            );
-
         Mesh mesh =
             null;
 
-        if (fullExistingMeshes != null)
+        bool isNew =
+            false;
+
+        using (
+            TerrainRuntimeBakeAggregatedPerformanceScope meshPerformance =
+                TerrainRuntimeBakePerformanceDiagnostics.BeginAggregatedOperation(
+                    "Collision.MeshCreateUpload",
+                    TerrainRuntimeBakePipelineState.Collision,
+                    TerrainRuntimeBakePerformanceCategory.Commit
+                )
+        )
         {
-            Vector2Int coordinate =
-                new Vector2Int(
+            string assetPath =
+                GetCollisionMeshPath(
                     chunkX,
                     chunkZ
                 );
 
-            if (
-                fullExistingMeshes.TryGetValue(
-                    coordinate,
-                    out ExistingCollisionMeshRecord existingRecord
-                )
-                &&
-                existingRecord != null
-                &&
-                existingRecord.mesh != null
-                &&
-                string.Equals(
-                    existingRecord.assetPath,
-                    assetPath,
-                    StringComparison.OrdinalIgnoreCase
-                )
-            )
+            if (fullExistingMeshes != null)
             {
-                mesh =
-                    existingRecord.mesh;
-            }
-        }
-        else
-        {
-            mesh =
-                AssetDatabase
-                    .LoadAssetAtPath<Mesh>(
-                        assetPath
+                Vector2Int coordinate =
+                    new Vector2Int(
+                        chunkX,
+                        chunkZ
                     );
-        }
 
-        bool isNew =
-            mesh == null;
-
-        if (isNew)
-        {
-            mesh =
-                new Mesh();
-        }
-        else
-        {
-            /*
-             * Update the existing persistent Mesh object in place so its GUID,
-             * Addressables entry, and existing references remain stable.
-             */
-            mesh.Clear(
-                false
-            );
-        }
-
-        mesh.name =
-            GetCollisionMeshName(
-                chunkX,
-                chunkZ
-            );
-
-        mesh.indexFormat =
-            vertexCount > 65535
-                ? IndexFormat.UInt32
-                : IndexFormat.UInt16;
-
-        mesh.vertices =
-            vertices;
-
-        mesh.subMeshCount =
-            1;
-
-        mesh.SetTriangles(
-            collisionTopology,
-            0,
-            false
-        );
-
-        mesh.bounds =
-            calculatedBounds;
-
-        if (isNew)
-        {
-            try
-            {
-                using (WorldMeshesProfiler.AssetDatabaseCreateAsset.Auto())
+                if (
+                    fullExistingMeshes.TryGetValue(
+                        coordinate,
+                        out ExistingCollisionMeshRecord existingRecord
+                    )
+                    &&
+                    existingRecord != null
+                    &&
+                    existingRecord.mesh != null
+                    &&
+                    string.Equals(
+                        existingRecord.assetPath,
+                        assetPath,
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                )
                 {
-                    AssetDatabase.CreateAsset(
-                        mesh,
-                        assetPath
-                    );
+                    mesh =
+                        existingRecord.mesh;
                 }
             }
-            catch (Exception exception)
+            else
             {
-                Debug.LogError(
-                    "Could not create collision mesh asset.\n\n" +
-                    "Chunk: (" +
-                    chunkX +
-                    ", " +
-                    chunkZ +
-                    ")\n" +
-                    "Asset: " +
-                    assetPath +
-                    "\n\n" +
-                    exception.Message
+                mesh =
+                    AssetDatabase
+                        .LoadAssetAtPath<Mesh>(
+                            assetPath
+                        );
+            }
+
+            isNew =
+                mesh == null;
+
+            if (isNew)
+            {
+                mesh =
+                    new Mesh();
+            }
+            else
+            {
+                /*
+                 * Update the existing persistent Mesh object in place so its GUID,
+                 * Addressables entry, and existing references remain stable.
+                 */
+                mesh.Clear(
+                    false
+                );
+            }
+
+            mesh.name =
+                GetCollisionMeshName(
+                    chunkX,
+                    chunkZ
                 );
 
-                UnityEngine.Object
-                    .DestroyImmediate(
-                        mesh
+            mesh.indexFormat =
+                vertexCount > 65535
+                    ? IndexFormat.UInt32
+                    : IndexFormat.UInt16;
+
+            mesh.vertices =
+                vertices;
+
+            mesh.subMeshCount =
+                1;
+
+            mesh.SetTriangles(
+                collisionTopology,
+                0,
+                false
+            );
+
+            mesh.bounds =
+                calculatedBounds;
+
+            if (isNew)
+            {
+                try
+                {
+                    using (WorldMeshesProfiler.AssetDatabaseCreateAsset.Auto())
+                    {
+                        AssetDatabase.CreateAsset(
+                            mesh,
+                            assetPath
+                        );
+                    }
+                }
+                catch (Exception exception)
+                {
+                    Debug.LogError(
+                        "Could not create collision mesh asset.\n\n" +
+                        "Chunk: (" +
+                        chunkX +
+                        ", " +
+                        chunkZ +
+                        ")\n" +
+                        "Asset: " +
+                        assetPath +
+                        "\n\n" +
+                        exception.Message
                     );
 
-                return
-                    TerrainCollisionMeshWriteOutcome
-                        .Failed;
+                    UnityEngine.Object
+                        .DestroyImmediate(
+                            mesh
+                        );
+
+                    return
+                        TerrainCollisionMeshWriteOutcome
+                            .Failed;
+                }
             }
         }
-
-        meshPerformance?.Complete();
 
         preparedMesh =
             mesh;
@@ -4326,27 +4476,4 @@ public static class TerrainCollisionMeshGenerator
         }
     }
 
-    private static bool ShowProgress(
-        string operation,
-        string detail,
-        int current,
-        int total
-    )
-    {
-        float progress =
-            total > 0
-                ? (float)current /
-                  total
-                : 1f;
-
-        return
-            EditorUtility
-                .DisplayCancelableProgressBar(
-                    "Terrain Collision Generation",
-                    operation +
-                    "\n\n" +
-                    detail,
-                    progress
-                );
-    }
 }

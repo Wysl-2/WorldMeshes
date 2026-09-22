@@ -19,7 +19,8 @@ MonoBehaviour:
     rid: 3932701758387388485
   heightModifiers:
   - rid: 3932701523395477625
-  authoringRevision: 2699
+  - rid: 3932701805208404037
+  authoringRevision: 2719
   references:
     version: 2
     RefIds:
@@ -30,8 +31,8 @@ MonoBehaviour:
         enabled: 1
         blendMode: 0
         stampAsset: {fileID: 11400000, guid: 7043998699ccf21f3a1f44690a771848, type: 2}
-        positionXZ: {x: 6758.621, y: 7378.2544}
-        sizeXZ: {x: 8866.433, y: 8866.433}
+        positionXZ: {x: 7424.807, y: 7695.783}
+        sizeXZ: {x: 11329.2705, y: 11290.383}
         rotationDegrees: 0
         flipX: 0
         flipZ: 0
@@ -143,10 +144,10 @@ MonoBehaviour:
           elevation: 0
         - stableId: 3798400a08e84e4a9e19c8777149c0e3
           positionXZ: {x: 12288, y: 12288}
-          elevation: 0
+          elevation: 150
         - stableId: 6b2af010b06b407ba195ae14e3e93384
           positionXZ: {x: 16384, y: 12288}
-          elevation: 0
+          elevation: 150
         - stableId: d26c35daa29b46c985f09d8b94d8b1ba
           positionXZ: {x: 20480, y: 12288}
           elevation: 0
@@ -170,10 +171,10 @@ MonoBehaviour:
           elevation: 0
         - stableId: 59dd987debaf4ea3bd115c97aa83c840
           positionXZ: {x: 12288, y: 16384}
-          elevation: 0
+          elevation: 150
         - stableId: f8bb6413f057496bbdd584a0a8850f33
           positionXZ: {x: 16384, y: 16384}
-          elevation: 0
+          elevation: 150
         - stableId: afb4979e6dc64fab8c4c661769999e07
           positionXZ: {x: 20480, y: 16384}
           elevation: 0
@@ -197,10 +198,10 @@ MonoBehaviour:
           elevation: 0
         - stableId: 37f73162f6564e3d8f0ac2e9e16f121e
           positionXZ: {x: 12288, y: 20480}
-          elevation: 0
+          elevation: 300
         - stableId: 8117b1f93cd741d9a656237c02727e73
           positionXZ: {x: 16384, y: 20480}
-          elevation: 0
+          elevation: 300
         - stableId: 9dcec2556f624ec9874140e260b34c90
           positionXZ: {x: 20480, y: 20480}
           elevation: 0
@@ -224,10 +225,10 @@ MonoBehaviour:
           elevation: 0
         - stableId: c288451641994768bd90fc867e7be749
           positionXZ: {x: 12288, y: 24576}
-          elevation: 0
+          elevation: 300
         - stableId: ac6245f2157841a7addd3c38cb4dcc35
           positionXZ: {x: 16384, y: 24576}
-          elevation: 0
+          elevation: 300
         - stableId: a5c44effa85b4bc489c7c0e1bb12022e
           positionXZ: {x: 20480, y: 24576}
           elevation: 0
@@ -294,3 +295,26 @@ MonoBehaviour:
         - stableId: aa84bf210eb046c7bca4c1bddfd0f876
           positionXZ: {x: 32768, y: 32768}
           elevation: 0
+    - rid: 3932701805208404037
+      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
+      data:
+        stableId: 43986990eefc4d3d8bb73df5414c020e
+        enabled: 1
+        blendMode: 0
+        stampAsset: {fileID: 11400000, guid: 4cfb28d6666ef15f0b00180fa40ee648, type: 2}
+        positionXZ: {x: 8271.215, y: 17249.648}
+        sizeXZ: {x: 12250.57, y: 12250.57}
+        rotationDegrees: 0
+        flipX: 0
+        flipZ: 0
+        sourceInputMin: 0
+        sourceInputMax: 1
+        sourceGamma: 1
+        heightDelta: 200
+        targetBaseHeight: 0
+        targetHeightRange: 10
+        falloff: 0.25
+        falloffShape: 0
+        falloffProfile: 0
+        smoothingRadius: 8
+        smoothingStrength: 1
