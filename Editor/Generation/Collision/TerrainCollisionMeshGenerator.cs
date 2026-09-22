@@ -11,6 +11,9 @@ public static class TerrainCollisionMeshGenerator
     public const string CollisionMeshFolder =
         WorldMeshesPaths.GeneratedCollisionMeshes;
 
+    private const int FullPersistenceChunkThreshold =
+        512;
+
     private enum TerrainCollisionMeshWriteOutcome
     {
         Failed,
@@ -574,6 +577,11 @@ public static class TerrainCollisionMeshGenerator
         List<Vector2Int> failed =
             new List<Vector2Int>();
 
+        List<PreparedCollisionMesh> pendingFullPersistence =
+            new List<PreparedCollisionMesh>(
+                FullPersistenceChunkThreshold
+            );
+
         int createdCount =
             0;
 
@@ -895,11 +903,13 @@ public static class TerrainCollisionMeshGenerator
                     }
 
                     /*
-                     * SaveAssets is global rather than Mesh-specific. If a
-                     * later chunk failed after earlier chunks were prepared,
-                     * do not try to persist only that prefix: the failing Mesh
-                     * may also have been mutated in memory. Leave the complete
-                     * prepared prefix pending and stop conservatively.
+                     * The current prepared batch does not become approved
+                     * Full persistence work until every Mesh is prepared and
+                     * the complete C01 PhysX batch has cooked successfully.
+                     * Previously approved Full batches may remain in the
+                     * separate pendingFullPersistence accumulator and can be
+                     * targeted-saved safely if this current batch terminates
+                     * abnormally.
                      */
                     if (
                         !string.IsNullOrEmpty(
@@ -956,62 +966,45 @@ public static class TerrainCollisionMeshGenerator
                         );
 
                         if (
-                            !TryPersistCollisionBatch(
-                                preparedBatch,
-                                out string persistenceError
-                            )
-                        )
-                        {
-                            foreach (
-                                PreparedCollisionMesh prepared
-                                in preparedBatch
-                            )
-                            {
-                                failed.Add(
-                                    prepared.coordinate
-                                );
-                            }
-
-                            cancelled = false;
-                            failureMessage =
-                                persistenceError;
-
-                            break;
-                        }
-
-                        bool batchCreatedAsset =
-                            false;
-
-                        foreach (
-                            PreparedCollisionMesh prepared
-                            in preparedBatch
-                        )
-                        {
-                            succeeded.Add(
-                                prepared.coordinate
-                            );
-
-                            if (
-                                prepared.outcome ==
-                                TerrainCollisionMeshWriteOutcome
-                                    .Created
-                            )
-                            {
-                                createdCount++;
-                                batchCreatedAsset = true;
-                            }
-                            else
-                            {
-                                updatedCount++;
-                            }
-                        }
-
-                        if (
                             workMode ==
                             TerrainRuntimeBakeWorkMode
                                 .Incremental
                         )
                         {
+                            if (
+                                !TryPersistIncrementalCollisionBatch(
+                                    preparedBatch,
+                                    out string persistenceError
+                                )
+                            )
+                            {
+                                foreach (
+                                    PreparedCollisionMesh prepared
+                                    in preparedBatch
+                                )
+                                {
+                                    failed.Add(
+                                        prepared.coordinate
+                                    );
+                                }
+
+                                cancelled =
+                                    false;
+
+                                failureMessage =
+                                    persistenceError;
+
+                                break;
+                            }
+
+                            bool batchCreatedAsset =
+                                CommitPersistedCollisionMeshes(
+                                    preparedBatch,
+                                    succeeded,
+                                    ref createdCount,
+                                    ref updatedCount
+                                );
+
                             if (
                                 !TryAcknowledgeDurableIncrementalBatch(
                                     worldSettings,
@@ -1024,7 +1017,9 @@ public static class TerrainCollisionMeshGenerator
                                 )
                             )
                             {
-                                staleDuringGeneration = true;
+                                staleDuringGeneration =
+                                    true;
+
                                 staleMessage =
                                     batchStaleMessage;
                             }
@@ -1037,6 +1032,64 @@ public static class TerrainCollisionMeshGenerator
                                 );
                             }
                         }
+                        else if (
+                            workMode ==
+                            TerrainRuntimeBakeWorkMode
+                                .Full
+                        )
+                        {
+                            if (
+                                !TryAddPreparedBatchToFullPersistence(
+                                    pendingFullPersistence,
+                                    preparedBatch,
+                                    out string accumulationError
+                                )
+                            )
+                            {
+                                foreach (
+                                    PreparedCollisionMesh prepared
+                                    in preparedBatch
+                                )
+                                {
+                                    failed.Add(
+                                        prepared.coordinate
+                                    );
+                                }
+
+                                failureMessage =
+                                    accumulationError;
+
+                                break;
+                            }
+
+                            if (
+                                pendingFullPersistence.Count >=
+                                FullPersistenceChunkThreshold
+                            )
+                            {
+                                if (
+                                    !TryPersistFullCollisionCheckpoint(
+                                        pendingFullPersistence,
+                                        out string persistenceError
+                                    )
+                                )
+                                {
+                                    failureMessage =
+                                        persistenceError;
+
+                                    break;
+                                }
+
+                                CommitPersistedCollisionMeshes(
+                                    pendingFullPersistence,
+                                    succeeded,
+                                    ref createdCount,
+                                    ref updatedCount
+                                );
+
+                                pendingFullPersistence.Clear();
+                            }
+                        }
 
                         if (
                             !cancelled
@@ -1045,7 +1098,7 @@ public static class TerrainCollisionMeshGenerator
                             &&
                             TerrainRuntimeBakeValidationHooks.ShouldCancelCoordinateStage(
                                 TerrainRuntimeBakePipelineState.Collision,
-                                succeeded.Count,
+                                completedChunkOperations,
                                 requestedChunks.Count
                             )
                         )
@@ -1075,12 +1128,43 @@ public static class TerrainCollisionMeshGenerator
                 .ClearProgressBar();
         }
 
-        List<Vector2Int> unprocessed =
-            CalculateUnprocessed(
-                requestedChunks,
-                succeeded,
-                failed
-            );
+        if (
+            !cancelled
+            &&
+            !staleDuringGeneration
+            &&
+            string.IsNullOrEmpty(
+                failureMessage
+            )
+            &&
+            workMode ==
+            TerrainRuntimeBakeWorkMode.Full
+            &&
+            pendingFullPersistence.Count > 0
+        )
+        {
+            if (
+                !TryPersistFullCollisionCheckpoint(
+                    pendingFullPersistence,
+                    out string finalPersistenceError
+                )
+            )
+            {
+                failureMessage =
+                    finalPersistenceError;
+            }
+            else
+            {
+                CommitPersistedCollisionMeshes(
+                    pendingFullPersistence,
+                    succeeded,
+                    ref createdCount,
+                    ref updatedCount
+                );
+
+                pendingFullPersistence.Clear();
+            }
+        }
 
         // =====================================================
         // CANCELLED / FAILED / STALE PARTIAL OUTPUT
@@ -1096,14 +1180,94 @@ public static class TerrainCollisionMeshGenerator
             )
         )
         {
+            if (
+                workMode ==
+                TerrainRuntimeBakeWorkMode.Full
+                &&
+                pendingFullPersistence.Count > 0
+            )
+            {
+                List<PreparedCollisionMesh> recoveredMeshes =
+                    new List<PreparedCollisionMesh>(
+                        pendingFullPersistence.Count
+                    );
+
+                bool recoverySucceeded =
+                    TryPersistPendingFullMeshesIndividually(
+                        pendingFullPersistence,
+                        recoveredMeshes,
+                        out string recoveryError
+                    );
+
+                if (recoveredMeshes.Count > 0)
+                {
+                    CommitPersistedCollisionMeshes(
+                        recoveredMeshes,
+                        succeeded,
+                        ref createdCount,
+                        ref updatedCount
+                    );
+
+                    pendingFullPersistence.RemoveRange(
+                        0,
+                        recoveredMeshes.Count
+                    );
+                }
+
+                if (!recoverySucceeded)
+                {
+                    foreach (
+                        PreparedCollisionMesh pending
+                        in pendingFullPersistence
+                    )
+                    {
+                        failed.Add(
+                            pending.coordinate
+                        );
+                    }
+
+                    if (staleDuringGeneration)
+                    {
+                        staleMessage =
+                            CombineDiagnosticMessages(
+                                staleMessage,
+                                recoveryError
+                            );
+                    }
+                    else if (cancelled)
+                    {
+                        cancelled =
+                            false;
+
+                        failureMessage =
+                            recoveryError;
+                    }
+                    else
+                    {
+                        failureMessage =
+                            CombineDiagnosticMessages(
+                                failureMessage,
+                                recoveryError
+                            );
+                    }
+                }
+            }
+
+            List<Vector2Int> partialUnprocessed =
+                CalculateUnprocessed(
+                    requestedChunks,
+                    succeeded,
+                    failed
+                );
+
             TerrainRuntimeBakeStateMutation mutation =
                 new TerrainRuntimeBakeStateMutation();
 
             /*
              * Incremental durable batches were already acknowledged at their
-             * persistence boundary. This terminal mutation only preserves
-             * conservative dirty state for physical changes that may not have
-             * reached an acknowledgement boundary.
+             * persistence boundary. Full checkpoints only make physical Mesh
+             * assets durable; Full pending state remains conservative until a
+             * completely successful finalization.
              */
             if (anyPhysicalContentChange)
             {
@@ -1150,17 +1314,23 @@ public static class TerrainCollisionMeshGenerator
             if (staleDuringGeneration)
             {
                 summary =
-                    "Collision generation stopped because the target or persistent bake state changed at a durability boundary. Durable physical chunks remain persisted; any batch that could not be safely acknowledged remains pending.";
+                    "Collision generation stopped because the target or persistent bake state changed. Durable physical chunks remain persisted; work that could not be safely persisted or finalized remains pending.";
             }
             else if (cancelled)
             {
                 summary =
-                    "Collision generation was cancelled at a durability-safe boundary. Completed incremental batches were already persisted and acknowledged.";
+                    workMode ==
+                        TerrainRuntimeBakeWorkMode.Full
+                        ? "Collision generation was cancelled. Approved Full-rebuild meshes were persisted individually where required; unfinished work remains pending."
+                        : "Collision generation was cancelled at a durability-safe boundary. Completed incremental batches were already persisted and acknowledged.";
             }
             else
             {
                 summary =
-                    "Collision generation stopped after a failure. Earlier durable incremental batches remain persisted and acknowledged; undurable work remains pending.";
+                    workMode ==
+                        TerrainRuntimeBakeWorkMode.Full
+                        ? "Collision generation stopped after a failure. Earlier Full persistence checkpoints remain durable; unfinished or unsuccessfully recovered work remains pending."
+                        : "Collision generation stopped after a failure. Earlier durable incremental batches remain persisted and acknowledged; undurable work remains pending.";
             }
 
             return
@@ -1170,7 +1340,7 @@ public static class TerrainCollisionMeshGenerator
                     requestedChunks,
                     succeeded,
                     failed,
-                    unprocessed,
+                    partialUnprocessed,
                     createdCount,
                     updatedCount,
                     removedCount,
@@ -1187,6 +1357,13 @@ public static class TerrainCollisionMeshGenerator
                     summary
                 );
         }
+
+        List<Vector2Int> unprocessed =
+            CalculateUnprocessed(
+                requestedChunks,
+                succeeded,
+                failed
+            );
 
         // =====================================================
         // FINALIZATION SAFETY
@@ -1987,7 +2164,7 @@ public static class TerrainCollisionMeshGenerator
                     .Updated;
     }
 
-    private static bool TryPersistCollisionBatch(
+    private static bool TryPersistIncrementalCollisionBatch(
         IReadOnlyList<PreparedCollisionMesh> preparedBatch,
         out string errorMessage
     )
@@ -1996,31 +2173,19 @@ public static class TerrainCollisionMeshGenerator
             "";
 
         if (
-            preparedBatch == null
-            ||
-            preparedBatch.Count == 0
+            !TryValidatePreparedCollisionMeshes(
+                preparedBatch,
+                "incremental collision batch",
+                out errorMessage
+            )
         )
         {
-            return true;
+            return false;
         }
 
-        for (
-            int index = 0;
-            index < preparedBatch.Count;
-            index++
-        )
+        if (preparedBatch.Count == 0)
         {
-            if (
-                preparedBatch[index] == null
-                ||
-                preparedBatch[index].mesh == null
-            )
-            {
-                errorMessage =
-                    "Cannot persist a collision batch containing a null prepared Mesh.";
-
-                return false;
-            }
+            return true;
         }
 
         try
@@ -2041,13 +2206,328 @@ public static class TerrainCollisionMeshGenerator
         catch (Exception exception)
         {
             errorMessage =
-                "Could not persist the prepared collision mesh batch.\n\n" +
+                "Could not persist the prepared incremental collision mesh batch.\n\n" +
                 exception.Message;
 
             return false;
         }
 
         return true;
+    }
+
+    private static bool TryPersistFullCollisionCheckpoint(
+        IReadOnlyList<PreparedCollisionMesh> pendingMeshes,
+        out string errorMessage
+    )
+    {
+        errorMessage =
+            "";
+
+        if (
+            !TryValidatePreparedCollisionMeshes(
+                pendingMeshes,
+                "Full collision persistence checkpoint",
+                out errorMessage
+            )
+        )
+        {
+            return false;
+        }
+
+        if (pendingMeshes.Count == 0)
+        {
+            return true;
+        }
+
+        try
+        {
+            using TerrainRuntimeBakePerformanceScope commitPerformance =
+                TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
+                    "Collision.FullAssetCheckpoint",
+                    TerrainRuntimeBakePipelineState.Collision,
+                    TerrainRuntimeBakePerformanceCategory.Commit
+                );
+
+            using (WorldMeshesProfiler.RuntimeBakeCollisionSaveBatch.Auto())
+            using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
+            {
+                AssetDatabase.SaveAssets();
+            }
+        }
+        catch (Exception exception)
+        {
+            errorMessage =
+                "Could not persist a Full collision checkpoint containing " +
+                pendingMeshes.Count +
+                " Meshes.\n\n" +
+                exception.Message;
+
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryPersistPendingFullMeshesIndividually(
+        IReadOnlyList<PreparedCollisionMesh> pendingMeshes,
+        List<PreparedCollisionMesh> successfullyPersisted,
+        out string errorMessage
+    )
+    {
+        errorMessage =
+            "";
+
+        if (successfullyPersisted == null)
+        {
+            errorMessage =
+                "Full collision recovery requires a destination collection for successfully persisted Meshes.";
+
+            return false;
+        }
+
+        successfullyPersisted.Clear();
+
+        if (
+            !TryValidatePreparedCollisionMeshes(
+                pendingMeshes,
+                "Full collision recovery set",
+                out errorMessage
+            )
+        )
+        {
+            return false;
+        }
+
+        if (pendingMeshes.Count == 0)
+        {
+            return true;
+        }
+
+        using TerrainRuntimeBakePerformanceScope recoveryPerformance =
+            TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
+                "Collision.FullAssetRecovery",
+                TerrainRuntimeBakePipelineState.Collision,
+                TerrainRuntimeBakePerformanceCategory.Commit
+            );
+
+        using (WorldMeshesProfiler.RuntimeBakeCollisionSaveBatch.Auto())
+        {
+            for (
+                int index = 0;
+                index < pendingMeshes.Count;
+                index++
+            )
+            {
+                PreparedCollisionMesh prepared =
+                    pendingMeshes[index];
+
+                try
+                {
+                    using (
+                        WorldMeshesProfiler
+                            .AssetDatabaseSaveAssetIfDirty
+                            .Auto()
+                    )
+                    {
+                        AssetDatabase.SaveAssetIfDirty(
+                            prepared.mesh
+                        );
+                    }
+                }
+                catch (Exception exception)
+                {
+                    errorMessage =
+                        "Could not individually persist approved Full collision Mesh during recovery.\n\n" +
+                        "Chunk: (" +
+                        prepared.coordinate.x +
+                        ", " +
+                        prepared.coordinate.y +
+                        ")\n" +
+                        "Successfully Recovered Before Failure: " +
+                        successfullyPersisted.Count +
+                        " / " +
+                        pendingMeshes.Count +
+                        "\n\n" +
+                        exception.Message;
+
+                    return false;
+                }
+
+                successfullyPersisted.Add(
+                    prepared
+                );
+            }
+        }
+
+        return true;
+    }
+
+    private static bool TryValidatePreparedCollisionMeshes(
+        IReadOnlyList<PreparedCollisionMesh> preparedMeshes,
+        string description,
+        out string errorMessage
+    )
+    {
+        errorMessage =
+            "";
+
+        if (preparedMeshes == null)
+        {
+            errorMessage =
+                "Cannot persist a null " +
+                description +
+                ".";
+
+            return false;
+        }
+
+        for (
+            int index = 0;
+            index < preparedMeshes.Count;
+            index++
+        )
+        {
+            if (
+                preparedMeshes[index] == null
+                ||
+                preparedMeshes[index].mesh == null
+            )
+            {
+                errorMessage =
+                    "Cannot persist " +
+                    description +
+                    " containing a null prepared Mesh.";
+
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool TryAddPreparedBatchToFullPersistence(
+        List<PreparedCollisionMesh> pendingFullPersistence,
+        IReadOnlyList<PreparedCollisionMesh> preparedBatch,
+        out string errorMessage
+    )
+    {
+        errorMessage =
+            "";
+
+        if (pendingFullPersistence == null)
+        {
+            errorMessage =
+                "Full collision persistence accumulator is unavailable.";
+
+            return false;
+        }
+
+        if (
+            !TryValidatePreparedCollisionMeshes(
+                preparedBatch,
+                "prepared Full collision batch",
+                out errorMessage
+            )
+        )
+        {
+            return false;
+        }
+
+        for (
+            int index = 0;
+            index < preparedBatch.Count;
+            index++
+        )
+        {
+            pendingFullPersistence.Add(
+                preparedBatch[index]
+            );
+        }
+
+        return true;
+    }
+
+    private static bool CommitPersistedCollisionMeshes(
+        IReadOnlyList<PreparedCollisionMesh> persistedMeshes,
+        List<Vector2Int> succeeded,
+        ref int createdCount,
+        ref int updatedCount
+    )
+    {
+        bool createdAnyAsset =
+            false;
+
+        if (
+            persistedMeshes == null
+            ||
+            succeeded == null
+        )
+        {
+            return false;
+        }
+
+        for (
+            int index = 0;
+            index < persistedMeshes.Count;
+            index++
+        )
+        {
+            PreparedCollisionMesh prepared =
+                persistedMeshes[index];
+
+            if (prepared == null)
+            {
+                continue;
+            }
+
+            succeeded.Add(
+                prepared.coordinate
+            );
+
+            if (
+                prepared.outcome ==
+                TerrainCollisionMeshWriteOutcome.Created
+            )
+            {
+                createdCount++;
+                createdAnyAsset =
+                    true;
+            }
+            else if (
+                prepared.outcome ==
+                TerrainCollisionMeshWriteOutcome.Updated
+            )
+            {
+                updatedCount++;
+            }
+        }
+
+        return
+            createdAnyAsset;
+    }
+
+    private static string CombineDiagnosticMessages(
+        string primary,
+        string secondary
+    )
+    {
+        if (string.IsNullOrEmpty(primary))
+        {
+            return
+                secondary ??
+                "";
+        }
+
+        if (string.IsNullOrEmpty(secondary))
+        {
+            return
+                primary;
+        }
+
+        return
+            primary +
+            "\n\n" +
+            secondary;
     }
 
     private static bool TryAcknowledgeDurableIncrementalBatch(
