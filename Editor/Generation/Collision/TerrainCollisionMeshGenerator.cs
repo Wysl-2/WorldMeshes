@@ -35,6 +35,24 @@ public static class TerrainCollisionMeshGenerator
         public int collisionResolution;
     }
 
+    private sealed class ExistingCollisionMeshRecord
+    {
+        public readonly Mesh mesh;
+        public readonly string assetPath;
+
+        public ExistingCollisionMeshRecord(
+            Mesh mesh,
+            string assetPath
+        )
+        {
+            this.mesh =
+                mesh;
+
+            this.assetPath =
+                assetPath;
+        }
+    }
+
     private sealed class PreparedCollisionMesh
     {
         public readonly Vector2Int coordinate;
@@ -657,6 +675,12 @@ public static class TerrainCollisionMeshGenerator
         string staleMessage =
             "";
 
+        Dictionary<
+            Vector2Int,
+            ExistingCollisionMeshRecord
+        > fullExistingMeshes =
+            null;
+
         try
         {
             // =================================================
@@ -668,13 +692,12 @@ public static class TerrainCollisionMeshGenerator
                 TerrainRuntimeBakeWorkMode.Full
             )
             {
-                Dictionary<Vector2Int, Mesh>
-                    existingMeshes =
-                        FindExistingCollisionMeshes();
+                fullExistingMeshes =
+                    FindExistingCollisionMeshes();
 
                 List<Vector2Int> existingCoordinates =
                     CopySortedUniqueCoordinates(
-                        existingMeshes.Keys
+                        fullExistingMeshes.Keys
                     );
 
                 int obsoleteProgress =
@@ -720,16 +743,13 @@ public static class TerrainCollisionMeshGenerator
                         break;
                     }
 
-                    Mesh existingMesh =
-                        existingMeshes[
+                    ExistingCollisionMeshRecord existingRecord =
+                        fullExistingMeshes[
                             coordinate
                         ];
 
                     string assetPath =
-                        AssetDatabase
-                            .GetAssetPath(
-                                existingMesh
-                            );
+                        existingRecord.assetPath;
 
                     if (
                         !AssetDatabase
@@ -744,6 +764,10 @@ public static class TerrainCollisionMeshGenerator
 
                         break;
                     }
+
+                    fullExistingMeshes.Remove(
+                        coordinate
+                    );
 
                     removedCount++;
                     anyPhysicalContentChange =
@@ -895,6 +919,7 @@ public static class TerrainCollisionMeshGenerator
                                     samplesPerTile,
                                     heightData,
                                     collisionTopology,
+                                    fullExistingMeshes,
                                     out Mesh preparedMesh
                                 );
 
@@ -2476,6 +2501,10 @@ public static class TerrainCollisionMeshGenerator
             int heightSamplesPerTile,
             NativeArray<float> heightData,
             int[] collisionTopology,
+            Dictionary<
+                Vector2Int,
+                ExistingCollisionMeshRecord
+            > fullExistingMeshes,
             out Mesh preparedMesh
         )
     {
@@ -2712,10 +2741,45 @@ public static class TerrainCollisionMeshGenerator
             );
 
         Mesh mesh =
-            AssetDatabase
-                .LoadAssetAtPath<Mesh>(
-                    assetPath
+            null;
+
+        if (fullExistingMeshes != null)
+        {
+            Vector2Int coordinate =
+                new Vector2Int(
+                    chunkX,
+                    chunkZ
                 );
+
+            if (
+                fullExistingMeshes.TryGetValue(
+                    coordinate,
+                    out ExistingCollisionMeshRecord existingRecord
+                )
+                &&
+                existingRecord != null
+                &&
+                existingRecord.mesh != null
+                &&
+                string.Equals(
+                    existingRecord.assetPath,
+                    assetPath,
+                    StringComparison.OrdinalIgnoreCase
+                )
+            )
+            {
+                mesh =
+                    existingRecord.mesh;
+            }
+        }
+        else
+        {
+            mesh =
+                AssetDatabase
+                    .LoadAssetAtPath<Mesh>(
+                        assetPath
+                    );
+        }
 
         bool isNew =
             mesh == null;
@@ -3869,11 +3933,19 @@ public static class TerrainCollisionMeshGenerator
     // EXISTING COLLISION ASSETS
     // =====================================================
 
-    private static Dictionary<Vector2Int, Mesh>
-        FindExistingCollisionMeshes()
+    private static Dictionary<
+        Vector2Int,
+        ExistingCollisionMeshRecord
+    > FindExistingCollisionMeshes()
     {
-        Dictionary<Vector2Int, Mesh> meshes =
-            new Dictionary<Vector2Int, Mesh>();
+        Dictionary<
+            Vector2Int,
+            ExistingCollisionMeshRecord
+        > meshes =
+            new Dictionary<
+                Vector2Int,
+                ExistingCollisionMeshRecord
+            >();
 
         if (
             !AssetDatabase.IsValidFolder(
@@ -3927,13 +3999,66 @@ public static class TerrainCollisionMeshGenerator
                 continue;
             }
 
-            meshes[
+            Vector2Int coordinate =
                 new Vector2Int(
                     x,
                     z
+                );
+
+            ExistingCollisionMeshRecord candidate =
+                new ExistingCollisionMeshRecord(
+                    mesh,
+                    path
+                );
+
+            if (
+                !meshes.TryGetValue(
+                    coordinate,
+                    out ExistingCollisionMeshRecord existingRecord
                 )
-            ] =
-                mesh;
+            )
+            {
+                meshes.Add(
+                    coordinate,
+                    candidate
+                );
+
+                continue;
+            }
+
+            string expectedPath =
+                GetCollisionMeshPath(
+                    x,
+                    z
+                );
+
+            bool existingIsCanonical =
+                existingRecord != null
+                &&
+                string.Equals(
+                    existingRecord.assetPath,
+                    expectedPath,
+                    StringComparison.OrdinalIgnoreCase
+                );
+
+            bool candidateIsCanonical =
+                string.Equals(
+                    path,
+                    expectedPath,
+                    StringComparison.OrdinalIgnoreCase
+                );
+
+            if (
+                !existingIsCanonical
+                &&
+                candidateIsCanonical
+            )
+            {
+                meshes[
+                    coordinate
+                ] =
+                    candidate;
+            }
         }
 
         return
