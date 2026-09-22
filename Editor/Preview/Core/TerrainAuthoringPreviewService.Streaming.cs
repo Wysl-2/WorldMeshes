@@ -486,17 +486,7 @@ public static partial class TerrainAuthoringPreviewService
 
     private static void OnStreamingEditorUpdate()
     {
-        if (
-            !Enabled
-            ||
-            Application.isPlaying
-            ||
-            EditorApplication.isPlayingOrWillChangePlaymode
-            ||
-            EditorApplication.isCompiling
-            ||
-            EditorApplication.isUpdating
-        )
+        if (!CanRunEditorPreviewWork)
         {
             return;
         }
@@ -1754,7 +1744,9 @@ public static partial class TerrainAuthoringPreviewService
             0L;
     }
 
-    private static void ResetStreamingStateForResourceRelease()
+    private static void ResetStreamingStateForResourceRelease(
+        bool notifyObservers = true
+    )
     {
         if (currentTransition != null)
         {
@@ -1789,7 +1781,10 @@ public static partial class TerrainAuthoringPreviewService
         lastPublishedStreamingSnapshot =
             "";
 
-        PublishStreamingStateIfChanged();
+        if (notifyObservers)
+        {
+            PublishStreamingStateIfChanged();
+        }
     }
 
     private static void SetStreamingState(

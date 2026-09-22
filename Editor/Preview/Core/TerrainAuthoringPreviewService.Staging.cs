@@ -1047,7 +1047,9 @@ public static partial class TerrainAuthoringPreviewService
             null;
     }
 
-    private static void ReleaseAllPreviewCaches()
+    private static void ReleaseAllPreviewCaches(
+        bool notifyObservers = true
+    )
     {
         ReleaseStagingCacheOnly();
 
@@ -1062,14 +1064,20 @@ public static partial class TerrainAuthoringPreviewService
         currentTransition =
             null;
 
-        ResetStreamingStateForResourceRelease();
+        ResetStreamingStateForResourceRelease(
+            notifyObservers
+        );
+
         ClearRegionalElevationResidencyForResourceRelease();
 
         ClearDesiredResidency();
         ClearTransitionFailureSuppression();
 
-        NotifyHeightCacheCoverageIfChanged();
+        if (notifyObservers)
+        {
+            NotifyHeightCacheCoverageIfChanged();
 
-        NotifyPreviewStateChanged();
+            NotifyPreviewStateChanged();
+        }
     }
 }

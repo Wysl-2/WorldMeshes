@@ -159,48 +159,7 @@ public static partial class TerrainAuthoringSceneViewController
 
     static TerrainAuthoringSceneViewController()
     {
-        layoutApplier.AppliedBoundsChanged +=
-            OnAppliedBoundsChanged;
-
-        TerrainAuthoringPreviewService
-            .HeightCacheCoverageChanged +=
-                OnHeightCacheCoverageChanged;
-
-        TerrainAuthoringPreviewService
-            .HeightCacheTransitionFailed +=
-                OnHeightCacheTransitionFailed;
-
-        SceneView.duringSceneGui +=
-            OnSceneViewGUI;
-
-        EditorApplication.playModeStateChanged +=
-            OnPlayModeStateChanged;
-
-        EditorApplication.hierarchyChanged +=
-            OnHierarchyChanged;
-
-        EditorApplication.projectChanged +=
-            OnProjectChanged;
-
-        Undo.undoRedoPerformed +=
-            OnUndoRedo;
-
-        EditorSceneManager.sceneSaving +=
-            OnSceneSaving;
-
-        EditorSceneManager.sceneSaved +=
-            OnSceneSaved;
-
-        EditorSceneManager.activeSceneChangedInEditMode +=
-            OnActiveSceneChangedInEditMode;
-
-        AssemblyReloadEvents.beforeAssemblyReload +=
-            OnBeforeAssemblyReload;
-
-        EditorApplication.quitting +=
-            OnEditorQuitting;
-
-        RequestReapply();
+        InitializeSceneViewLifecycle();
     }
 
     // =====================================================
@@ -710,9 +669,8 @@ public static partial class TerrainAuthoringSceneViewController
             ||
             suspendedForPlayMode
             ||
-            Application.isPlaying
-            ||
-            EditorApplication.isPlayingOrWillChangePlaymode
+            !TerrainAuthoringPreviewService
+                .IsEditorLifecycleStable
         )
         {
             return;
@@ -733,19 +691,13 @@ public static partial class TerrainAuthoringSceneViewController
         }
 
         /*
-         * Multiple Scene View windows can exist.
-         *
-         * Only the most recently active Scene View is allowed to
-         * own clipmap placement so separate views cannot fight over
-         * the generated hierarchy.
+         * Package 08A makes Scene View ownership explicit. Only the current
+         * controlling Scene View may publish placement/residency intent.
          */
-        SceneView activeSceneView =
-            SceneView.lastActiveSceneView;
-
         if (
-            activeSceneView != null
-            &&
-            activeSceneView != sceneView
+            !TryUseAsControllingSceneView(
+                sceneView
+            )
         )
         {
             return;
@@ -918,21 +870,13 @@ public static partial class TerrainAuthoringSceneViewController
         }
 
         /*
-         * Package 03A always lets PreviewService evaluate residency, even
-         * when active coverage is already safe. This allows a materially
-         * oversized cache to compact through Package 03 staging without
-         * blocking Scene View placement.
+         * Package 03A still lets PreviewService evaluate residency before
+         * placement. Package 08A adds one ownership rule: temporary editor
+         * suspension may use already-safe active coverage, but it must not
+         * publish new streaming intent until lifecycle stability returns.
          */
         if (TerrainAuthoringPreviewService.Enabled)
         {
-            bool requestSucceeded =
-                TerrainAuthoringPreviewService
-                    .RequestResidencyForWorldBounds(
-                        candidateLayout.MinimumXZ,
-                        candidateLayout.MaximumXZ,
-                        out string residencyError
-                    );
-
             bool activeCoverageSafe =
                 TerrainAuthoringPreviewService
                     .CanActiveCacheCoverWorldBounds(
@@ -941,17 +885,31 @@ public static partial class TerrainAuthoringSceneViewController
                     );
 
             if (
-                !requestSucceeded
-                &&
-                !activeCoverageSafe
+                TerrainAuthoringPreviewService
+                    .CanRunEditorPreviewWork
             )
             {
-                errorMessage =
-                    "The editor height-cache residency request failed.\n\n" +
-                    residencyError;
+                bool requestSucceeded =
+                    TerrainAuthoringPreviewService
+                        .RequestResidencyForWorldBounds(
+                            candidateLayout.MinimumXZ,
+                            candidateLayout.MaximumXZ,
+                            out string residencyError
+                        );
 
-                return
-                    FollowTargetApplyResult.Failed;
+                if (
+                    !requestSucceeded
+                    &&
+                    !activeCoverageSafe
+                )
+                {
+                    errorMessage =
+                        "The editor height-cache residency request failed.\n\n" +
+                        residencyError;
+
+                    return
+                        FollowTargetApplyResult.Failed;
+                }
             }
 
             if (!activeCoverageSafe)
@@ -1549,33 +1507,37 @@ public static partial class TerrainAuthoringSceneViewController
             false;
 
         if (
-            EditorApplication.isCompiling
-            ||
-            EditorApplication.isUpdating
+            !TerrainAuthoringPreviewService
+                .IsEditorLifecycleStable
         )
         {
-            ScheduleReapply();
+            if (
+                Application.isPlaying
+                ||
+                EditorApplication
+                    .isPlayingOrWillChangePlaymode
+                ||
+                suspendedForPlayMode
+            )
+            {
+                SetStatus(
+                    TerrainAuthoringSceneViewStatus.PlayMode,
+                    "Runtime owns clipmap placement while Play Mode is active."
+                );
 
+                RepaintEditorViews();
+            }
+
+            /*
+             * PreviewService lifecycle resume will request a new reapply after
+             * compilation/import or another temporary suspension clears.
+             */
             return;
         }
 
-        if (
-            Application.isPlaying
-            ||
-            EditorApplication.isPlayingOrWillChangePlaymode
-            ||
-            suspendedForPlayMode
-        )
-        {
-            SetStatus(
-                TerrainAuthoringSceneViewStatus.PlayMode,
-                "Runtime owns clipmap placement while Play Mode is active."
-            );
-
-            RepaintEditorViews();
-
-            return;
-        }
+        RefreshControllingSceneViewOwnership(
+            false
+        );
 
         if (!FollowSceneView)
         {
@@ -1649,13 +1611,10 @@ public static partial class TerrainAuthoringSceneViewController
             return;
         }
 
-        SceneView sceneView =
-            SceneView.lastActiveSceneView;
-
         if (
-            sceneView == null
-            ||
-            sceneView.camera == null
+            !TryGetControllingSceneView(
+                out SceneView sceneView
+            )
         )
         {
             SetStatus(
@@ -1962,6 +1921,8 @@ public static partial class TerrainAuthoringSceneViewController
         worldSettings =
             null;
 
+        HandleActiveSceneOwnershipChanged();
+
         hasLastFollowTarget =
             false;
 
@@ -2046,6 +2007,10 @@ public static partial class TerrainAuthoringSceneViewController
                 layoutApplier
                     .InvalidateHierarchyReferences();
 
+                RefreshControllingSceneViewOwnership(
+                    false
+                );
+
                 RequestReapply();
 
                 break;
@@ -2055,16 +2020,12 @@ public static partial class TerrainAuthoringSceneViewController
 
     private static void OnBeforeAssemblyReload()
     {
-        RestoreCanonicalHierarchy(
-            false
-        );
+        ShutdownSceneViewLifecycle();
     }
 
     private static void OnEditorQuitting()
     {
-        RestoreCanonicalHierarchy(
-            false
-        );
+        ShutdownSceneViewLifecycle();
     }
 
     private static void OnAppliedBoundsChanged()

@@ -172,28 +172,7 @@ public static partial class TerrainAuthoringPreviewService
 
     static TerrainAuthoringPreviewService()
     {
-        EditorApplication.playModeStateChanged +=
-            OnPlayModeStateChanged;
-
-        EditorApplication.hierarchyChanged +=
-            OnHierarchyChanged;
-
-        EditorApplication.projectChanged +=
-            OnProjectChanged;
-
-        Undo.undoRedoPerformed +=
-            OnUndoRedo;
-
-        AssemblyReloadEvents.beforeAssemblyReload +=
-            OnBeforeAssemblyReload;
-
-        EditorApplication.quitting +=
-            OnEditorQuitting;
-
-        EditorApplication.update +=
-            OnStreamingEditorUpdate;
-
-        NotifyCommittedHeightfieldChanged();
+        InitializePreviewLifecycle();
     }
 
     // =====================================================
@@ -226,28 +205,9 @@ public static partial class TerrainAuthoringPreviewService
                 value
             );
 
-            if (!value)
-            {
-                ReleaseBinding();
-                ReleaseCache();
-
-                heightCompositor.Dispose();
-
-                dirtyCompositeTiles.Clear();
-
-                ClearRequestedResidency();
-
-                SetStatus(
-                    TerrainAuthoringPreviewStatus.Disabled,
-                    "Terrain authoring preview is disabled."
-                );
-
-                RepaintEditorViews();
-
-                return;
-            }
-
-            NotifyCommittedHeightfieldChanged();
+            HandlePreviewEnabledChanged(
+                value
+            );
         }
     }
 
@@ -1785,14 +1745,15 @@ public static partial class TerrainAuthoringPreviewService
         refreshScheduled =
             false;
 
-        if (
-            EditorApplication.isCompiling
-            ||
-            EditorApplication.isUpdating
-        )
-        {
-            ScheduleRefresh();
+        RefreshTransientSuspensionState();
 
+        if (!CanRunEditorPreviewWork)
+        {
+            /*
+             * Package 08A lifecycle resume schedules a fresh refresh after
+             * temporary editor instability clears. Do not churn delayCall
+             * while compilation/import or an ownership handoff is active.
+             */
             return;
         }
 
@@ -2825,56 +2786,23 @@ public static partial class TerrainAuthoringPreviewService
         PlayModeStateChange state
     )
     {
-        switch (state)
-        {
-            case PlayModeStateChange.ExitingEditMode:
-            case PlayModeStateChange.EnteredPlayMode:
-            {
-                ReleaseBinding();
-                ReleaseCache();
-
-                dirtyCompositeTiles.Clear();
-
-                ClearRequestedResidency();
-
-                SetStatus(
-                    TerrainAuthoringPreviewStatus.PlayMode,
-                    "The editor preview released its height " +
-                    "cache for Play Mode."
-                );
-
-                RepaintEditorViews();
-
-                break;
-            }
-
-            case PlayModeStateChange.EnteredEditMode:
-            {
-                NotifyCommittedHeightfieldChanged();
-
-                break;
-            }
-        }
+        HandlePreviewPlayModeStateChanged(
+            state
+        );
     }
 
     private static void OnBeforeAssemblyReload()
     {
-        ReleaseBinding();
-        ReleaseCache();
-
-        heightCompositor.Dispose();
-
-        dirtyCompositeTiles.Clear();
+        BeginTerminalPreviewShutdown(
+            TerrainAuthoringPreviewSuspensionReason.AssemblyReload
+        );
     }
 
     private static void OnEditorQuitting()
     {
-        ReleaseBinding();
-        ReleaseCache();
-
-        heightCompositor.Dispose();
-
-        dirtyCompositeTiles.Clear();
+        BeginTerminalPreviewShutdown(
+            TerrainAuthoringPreviewSuspensionReason.EditorQuitting
+        );
     }
 
     // =====================================================
