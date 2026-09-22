@@ -19,7 +19,7 @@ MonoBehaviour:
     rid: 3932701758387388485
   heightModifiers:
   - rid: 3932701523395477625
-  authoringRevision: 2696
+  authoringRevision: 2699
   references:
     version: 2
     RefIds:
@@ -80,7 +80,7 @@ MonoBehaviour:
           elevation: 0
         - stableId: 9c39620bc25a4fbda73e1e4034f7b63d
           positionXZ: {x: 0, y: 4096}
-          elevation: 0
+          elevation: 1245.2594
         - stableId: 59fdb2bd636d4a7f8a71057354043bd5
           positionXZ: {x: 4096, y: 4096}
           elevation: 665.83856
@@ -107,7 +107,7 @@ MonoBehaviour:
           elevation: 0
         - stableId: b8a54e7cef514788b761d36134c75266
           positionXZ: {x: 0, y: 8192}
-          elevation: 0
+          elevation: 1383.156
         - stableId: db37ba0bd8294fdf8ec2598d21174778
           positionXZ: {x: 4096, y: 8192}
           elevation: 659.1432
@@ -134,7 +134,7 @@ MonoBehaviour:
           elevation: 0
         - stableId: 68ed4d0c02d5419c8a6638bd7b921f58
           positionXZ: {x: 0, y: 12288}
-          elevation: 0
+          elevation: 927.4645
         - stableId: 940c87db206d49b7b8c718ff73bd93a9
           positionXZ: {x: 4096, y: 12288}
           elevation: 594.556

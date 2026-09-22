@@ -835,7 +835,7 @@ public static class TerrainCollisionMeshGenerator
 
                         TerrainCollisionMeshWriteOutcome
                             writeOutcome =
-                                GenerateOrUpdateCollisionMesh(
+                                PrepareCollisionMesh(
                                     coordinate.x,
                                     coordinate.y,
                                     localChunkX,
@@ -910,8 +910,51 @@ public static class TerrainCollisionMeshGenerator
                         break;
                     }
 
+                    if (cancelled)
+                    {
+                        CleanupCreatedPreparedCollisionMeshes(
+                            preparedBatch
+                        );
+
+                        break;
+                    }
+
                     if (preparedBatch.Count > 0)
                     {
+                        if (
+                            !TryBakePreparedCollisionBatch(
+                                preparedBatch,
+                                out string physicsBakeError
+                            )
+                        )
+                        {
+                            CleanupCreatedPreparedCollisionMeshes(
+                                preparedBatch
+                            );
+
+                            foreach (
+                                PreparedCollisionMesh prepared
+                                in preparedBatch
+                            )
+                            {
+                                failed.Add(
+                                    prepared.coordinate
+                                );
+                            }
+
+                            cancelled =
+                                false;
+
+                            failureMessage =
+                                physicsBakeError;
+
+                            break;
+                        }
+
+                        MarkPreparedCollisionBatchDirty(
+                            preparedBatch
+                        );
+
                         if (
                             !TryPersistCollisionBatch(
                                 preparedBatch,
@@ -1547,7 +1590,7 @@ public static class TerrainCollisionMeshGenerator
     // =====================================================
 
     private static TerrainCollisionMeshWriteOutcome
-        GenerateOrUpdateCollisionMesh(
+        PrepareCollisionMesh(
             int chunkX,
             int chunkZ,
             int localChunkX,
@@ -1933,43 +1976,6 @@ public static class TerrainCollisionMeshGenerator
 
         meshPerformance?.Complete();
 
-        bool collisionBakeSucceeded;
-
-        using (
-            TerrainRuntimeBakePerformanceScope cookPerformance =
-                TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
-                    "Collision.ColliderBake",
-                    TerrainRuntimeBakePipelineState.Collision,
-                    TerrainRuntimeBakePerformanceCategory.Commit
-                )
-        )
-        {
-            collisionBakeSucceeded =
-                BakeCollisionMesh(
-                    mesh,
-                    chunkX,
-                    chunkZ
-                );
-        }
-
-        if (!collisionBakeSucceeded)
-        {
-            if (isNew)
-            {
-                AssetDatabase.DeleteAsset(
-                    assetPath
-                );
-            }
-
-            return
-                TerrainCollisionMeshWriteOutcome
-                    .Failed;
-        }
-
-        EditorUtility.SetDirty(
-            mesh
-        );
-
         preparedMesh =
             mesh;
 
@@ -2145,57 +2151,220 @@ public static class TerrainCollisionMeshGenerator
                 .contentBecameDirty;
     }
 
-    private static bool BakeCollisionMesh(
-        Mesh mesh,
-        int chunkX,
-        int chunkZ
+    private static bool TryBakePreparedCollisionBatch(
+        IReadOnlyList<PreparedCollisionMesh> preparedBatch,
+        out string errorMessage
     )
     {
-        if (mesh == null)
-        {
-            Debug.LogError(
-                "Cannot bake collision mesh physics data.\n\n" +
-                "Chunk: (" +
-                chunkX +
-                ", " +
-                chunkZ +
-                ")\n" +
-                "Mesh is null."
-            );
+        errorMessage =
+            "";
 
-            return false;
+        if (
+            preparedBatch == null
+            ||
+            preparedBatch.Count == 0
+        )
+        {
+            return true;
         }
 
-        try
+        List<Mesh> meshes =
+            new List<Mesh>(
+                preparedBatch.Count
+            );
+
+        for (
+            int index = 0;
+            index < preparedBatch.Count;
+            index++
+        )
         {
-            using (WorldMeshesProfiler.RuntimeBakeCollisionBakePhysics.Auto())
+            PreparedCollisionMesh prepared =
+                preparedBatch[
+                    index
+                ];
+
+            if (
+                prepared == null
+                ||
+                prepared.mesh == null
+            )
             {
-                Physics.BakeMesh(
-                    mesh.GetInstanceID(),
-                    TerrainCollisionPhysicsSettings.Convex,
-                    TerrainCollisionPhysicsSettings.CookingOptions
+                errorMessage =
+                    "Cannot pre-bake a collision batch containing a null prepared Mesh.";
+
+                return false;
+            }
+
+            meshes.Add(
+                prepared.mesh
+            );
+        }
+
+        bool bakeSucceeded;
+
+        using (
+            TerrainRuntimeBakePerformanceScope cookPerformance =
+                TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
+                    "Collision.ColliderBakeBatch",
+                    TerrainRuntimeBakePipelineState.Collision,
+                    TerrainRuntimeBakePerformanceCategory.Commit
+                )
+        )
+        using (
+            WorldMeshesProfiler
+                .RuntimeBakeCollisionBakePhysics
+                .Auto()
+        )
+        {
+            bakeSucceeded =
+                TerrainCollisionPhysicsBatchBaker
+                    .TryBakeMeshes(
+                        meshes,
+                        out string batchError
+                    );
+
+            if (!bakeSucceeded)
+            {
+                errorMessage =
+                    "Could not pre-bake the prepared collision Mesh batch.\n\n" +
+                    batchError;
+            }
+        }
+
+        return
+            bakeSucceeded;
+    }
+
+    private static void MarkPreparedCollisionBatchDirty(
+        IReadOnlyList<PreparedCollisionMesh> preparedBatch
+    )
+    {
+        if (preparedBatch == null)
+        {
+            return;
+        }
+
+        for (
+            int index = 0;
+            index < preparedBatch.Count;
+            index++
+        )
+        {
+            PreparedCollisionMesh prepared =
+                preparedBatch[
+                    index
+                ];
+
+            if (
+                prepared == null
+                ||
+                prepared.mesh == null
+            )
+            {
+                continue;
+            }
+
+            EditorUtility.SetDirty(
+                prepared.mesh
+            );
+        }
+    }
+
+    private static void CleanupCreatedPreparedCollisionMeshes(
+        IReadOnlyList<PreparedCollisionMesh> preparedBatch
+    )
+    {
+        if (preparedBatch == null)
+        {
+            return;
+        }
+
+        for (
+            int index = 0;
+            index < preparedBatch.Count;
+            index++
+        )
+        {
+            PreparedCollisionMesh prepared =
+                preparedBatch[
+                    index
+                ];
+
+            if (
+                prepared == null
+                ||
+                prepared.mesh == null
+                ||
+                prepared.outcome !=
+                    TerrainCollisionMeshWriteOutcome
+                        .Created
+            )
+            {
+                continue;
+            }
+
+            string assetPath =
+                AssetDatabase
+                    .GetAssetPath(
+                        prepared.mesh
+                    );
+
+            if (
+                string.IsNullOrEmpty(
+                    assetPath
+                )
+            )
+            {
+                Debug.LogError(
+                    "Could not clean up a newly created collision Mesh after an incomplete physics batch because its asset path is unavailable.\n\n" +
+                    "Chunk: (" +
+                    prepared.coordinate.x +
+                    ", " +
+                    prepared.coordinate.y +
+                    ")"
+                );
+
+                continue;
+            }
+
+            try
+            {
+                if (
+                    !AssetDatabase
+                        .DeleteAsset(
+                            assetPath
+                        )
+                )
+                {
+                    Debug.LogError(
+                        "Could not clean up a newly created collision Mesh after an incomplete physics batch.\n\n" +
+                        "Chunk: (" +
+                        prepared.coordinate.x +
+                        ", " +
+                        prepared.coordinate.y +
+                        ")\n" +
+                        "Asset: " +
+                        assetPath
+                    );
+                }
+            }
+            catch (Exception exception)
+            {
+                Debug.LogError(
+                    "Could not clean up a newly created collision Mesh after an incomplete physics batch.\n\n" +
+                    "Chunk: (" +
+                    prepared.coordinate.x +
+                    ", " +
+                    prepared.coordinate.y +
+                    ")\n" +
+                    "Asset: " +
+                    assetPath +
+                    "\n\n" +
+                    exception.Message
                 );
             }
         }
-        catch (Exception exception)
-        {
-            Debug.LogError(
-                "Failed to pre-bake collision mesh physics data.\n\n" +
-                "Chunk: (" +
-                chunkX +
-                ", " +
-                chunkZ +
-                ")\n" +
-                "Mesh: " +
-                mesh.name +
-                "\n\n" +
-                exception.Message
-            );
-
-            return false;
-        }
-
-        return true;
     }
 
     // =====================================================
