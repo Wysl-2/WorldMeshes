@@ -1977,6 +1977,209 @@ public static class TerrainCollisionMeshGenerator
     }
 
     // =====================================================
+    // COLLISION SOURCE WINDOW
+    // =====================================================
+
+    private static bool TryValidateCollisionSourceWindow(
+        int chunkX,
+        int chunkZ,
+        int localChunkX,
+        int localChunkZ,
+        int heightfieldResolutionPerChunk,
+        int collisionResolution,
+        int heightSampleStep,
+        int heightSamplesPerTile,
+        out int sourceStartX,
+        out int sourceStartZ,
+        out string errorMessage
+    )
+    {
+        sourceStartX =
+            0;
+
+        sourceStartZ =
+            0;
+
+        errorMessage =
+            "";
+
+        if (
+            heightfieldResolutionPerChunk < 1
+            ||
+            collisionResolution < 1
+            ||
+            heightSampleStep < 1
+            ||
+            heightSamplesPerTile < 1
+            ||
+            localChunkX < 0
+            ||
+            localChunkZ < 0
+        )
+        {
+            errorMessage =
+                "Collision source-window validation received invalid layout inputs.\n\n" +
+                "Chunk: (" +
+                chunkX +
+                ", " +
+                chunkZ +
+                ")\n" +
+                "Local Chunk: (" +
+                localChunkX +
+                ", " +
+                localChunkZ +
+                ")\n" +
+                "Heightfield Resolution Per Chunk: " +
+                heightfieldResolutionPerChunk +
+                "\n" +
+                "Collision Resolution: " +
+                collisionResolution +
+                "\n" +
+                "Height Sample Step: " +
+                heightSampleStep +
+                "\n" +
+                "Height Samples Per Tile: " +
+                heightSamplesPerTile;
+
+            return false;
+        }
+
+        long sampledExtent =
+            (long)collisionResolution *
+            heightSampleStep;
+
+        if (
+            sampledExtent !=
+            heightfieldResolutionPerChunk
+        )
+        {
+            errorMessage =
+                "Collision source-window sampling extent does not match one heightfield chunk.\n\n" +
+                "Chunk: (" +
+                chunkX +
+                ", " +
+                chunkZ +
+                ")\n" +
+                "Heightfield Resolution Per Chunk: " +
+                heightfieldResolutionPerChunk +
+                "\n" +
+                "Collision Resolution: " +
+                collisionResolution +
+                "\n" +
+                "Height Sample Step: " +
+                heightSampleStep +
+                "\n" +
+                "Sampled Extent: " +
+                sampledExtent;
+
+            return false;
+        }
+
+        long sourceStartXLong =
+            (long)localChunkX *
+            heightfieldResolutionPerChunk;
+
+        long sourceStartZLong =
+            (long)localChunkZ *
+            heightfieldResolutionPerChunk;
+
+        long sourceEndXLong =
+            sourceStartXLong +
+            sampledExtent;
+
+        long sourceEndZLong =
+            sourceStartZLong +
+            sampledExtent;
+
+        if (
+            sourceStartXLong < 0L
+            ||
+            sourceStartZLong < 0L
+            ||
+            sourceEndXLong <
+                sourceStartXLong
+            ||
+            sourceEndZLong <
+                sourceStartZLong
+            ||
+            sourceEndXLong >=
+                heightSamplesPerTile
+            ||
+            sourceEndZLong >=
+                heightSamplesPerTile
+        )
+        {
+            errorMessage =
+                "Collision chunk source window lies outside the runtime height tile.\n\n" +
+                "Chunk: (" +
+                chunkX +
+                ", " +
+                chunkZ +
+                ")\n" +
+                "Local Chunk: (" +
+                localChunkX +
+                ", " +
+                localChunkZ +
+                ")\n" +
+                "Source Start: (" +
+                sourceStartXLong +
+                ", " +
+                sourceStartZLong +
+                ")\n" +
+                "Source End: (" +
+                sourceEndXLong +
+                ", " +
+                sourceEndZLong +
+                ")\n" +
+                "Height Samples Per Tile: " +
+                heightSamplesPerTile +
+                "\n" +
+                "Heightfield Resolution Per Chunk: " +
+                heightfieldResolutionPerChunk +
+                "\n" +
+                "Collision Resolution: " +
+                collisionResolution +
+                "\n" +
+                "Height Sample Step: " +
+                heightSampleStep;
+
+            return false;
+        }
+
+        if (
+            sourceStartXLong >
+                int.MaxValue
+            ||
+            sourceStartZLong >
+                int.MaxValue
+        )
+        {
+            errorMessage =
+                "Collision source-window start exceeds the supported integer index range.\n\n" +
+                "Chunk: (" +
+                chunkX +
+                ", " +
+                chunkZ +
+                ")\n" +
+                "Source Start: (" +
+                sourceStartXLong +
+                ", " +
+                sourceStartZLong +
+                ")";
+
+            return false;
+        }
+
+        sourceStartX =
+            (int)sourceStartXLong;
+
+        sourceStartZ =
+            (int)sourceStartZLong;
+
+        return true;
+    }
+
+    // =====================================================
     // DIRECT COLLISION BOUNDS
     // =====================================================
 
@@ -2325,6 +2528,31 @@ public static class TerrainCollisionMeshGenerator
                     .Failed;
         }
 
+        if (
+            !TryValidateCollisionSourceWindow(
+                chunkX,
+                chunkZ,
+                localChunkX,
+                localChunkZ,
+                heightfieldResolutionPerChunk,
+                collisionResolution,
+                heightSampleStep,
+                heightSamplesPerTile,
+                out int sourceStartX,
+                out int sourceStartZ,
+                out string sourceWindowError
+            )
+        )
+        {
+            Debug.LogError(
+                sourceWindowError
+            );
+
+            return
+                TerrainCollisionMeshWriteOutcome
+                    .Failed;
+        }
+
         Vector3[] vertices =
             new Vector3[
                 vertexCount
@@ -2351,14 +2579,6 @@ public static class TerrainCollisionMeshGenerator
         float maximumHeight =
             float.NegativeInfinity;
 
-        int sourceStartX =
-            localChunkX *
-            heightfieldResolutionPerChunk;
-
-        int sourceStartZ =
-            localChunkZ *
-            heightfieldResolutionPerChunk;
-
         for (
             int z = 0;
             z <= collisionResolution;
@@ -2369,6 +2589,10 @@ public static class TerrainCollisionMeshGenerator
                 sourceStartZ +
                 z *
                 heightSampleStep;
+
+            int sourceRowStart =
+                sourceZ *
+                heightSamplesPerTile;
 
             for (
                 int x = 0;
@@ -2381,40 +2605,8 @@ public static class TerrainCollisionMeshGenerator
                     x *
                     heightSampleStep;
 
-                if (
-                    sourceX < 0
-                    ||
-                    sourceX >=
-                        heightSamplesPerTile
-                    ||
-                    sourceZ < 0
-                    ||
-                    sourceZ >=
-                        heightSamplesPerTile
-                )
-                {
-                    Debug.LogError(
-                        "Collision mesh attempted to read outside the runtime height tile.\n\n" +
-                        "Chunk: (" +
-                        chunkX +
-                        ", " +
-                        chunkZ +
-                        ")\n" +
-                        "Source Sample: (" +
-                        sourceX +
-                        ", " +
-                        sourceZ +
-                        ")"
-                    );
-
-                    return
-                        TerrainCollisionMeshWriteOutcome
-                            .Failed;
-                }
-
                 int sourceIndex =
-                    sourceZ *
-                    heightSamplesPerTile +
+                    sourceRowStart +
                     sourceX;
 
                 float height =
