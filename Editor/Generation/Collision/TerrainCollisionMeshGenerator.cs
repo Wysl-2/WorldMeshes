@@ -1977,6 +1977,285 @@ public static class TerrainCollisionMeshGenerator
     }
 
     // =====================================================
+    // DIRECT COLLISION BOUNDS
+    // =====================================================
+
+    private static bool TryCreateCollisionBounds(
+        int chunkX,
+        int chunkZ,
+        float chunkSize,
+        int collisionResolution,
+        float collisionVertexSpacing,
+        float minimumHeight,
+        float maximumHeight,
+        out Bounds bounds,
+        out string errorMessage
+    )
+    {
+        bounds =
+            default;
+
+        errorMessage =
+            "";
+
+        if (
+            float.IsNaN(
+                minimumHeight
+            )
+            ||
+            float.IsInfinity(
+                minimumHeight
+            )
+            ||
+            float.IsNaN(
+                maximumHeight
+            )
+            ||
+            float.IsInfinity(
+                maximumHeight
+            )
+            ||
+            maximumHeight <
+                minimumHeight
+        )
+        {
+            errorMessage =
+                "Cannot calculate collision Mesh bounds from invalid vertical extrema.\n\n" +
+                "Chunk: (" +
+                chunkX +
+                ", " +
+                chunkZ +
+                ")\n" +
+                "Minimum Height: " +
+                minimumHeight +
+                "\n" +
+                "Maximum Height: " +
+                maximumHeight;
+
+            return false;
+        }
+
+        float horizontalExtent =
+            collisionResolution *
+            collisionVertexSpacing;
+
+        if (
+            float.IsNaN(
+                horizontalExtent
+            )
+            ||
+            float.IsInfinity(
+                horizontalExtent
+            )
+            ||
+            horizontalExtent <= 0f
+        )
+        {
+            errorMessage =
+                "Cannot calculate collision Mesh bounds from an invalid horizontal extent.\n\n" +
+                "Chunk: (" +
+                chunkX +
+                ", " +
+                chunkZ +
+                ")\n" +
+                "Collision Resolution: " +
+                collisionResolution +
+                "\n" +
+                "Collision Vertex Spacing: " +
+                collisionVertexSpacing +
+                "\n" +
+                "Calculated Horizontal Extent: " +
+                horizontalExtent;
+
+            return false;
+        }
+
+        float verticalExtent =
+            maximumHeight -
+            minimumHeight;
+
+        if (
+            float.IsNaN(
+                verticalExtent
+            )
+            ||
+            float.IsInfinity(
+                verticalExtent
+            )
+            ||
+            verticalExtent < 0f
+        )
+        {
+            errorMessage =
+                "Cannot calculate collision Mesh bounds from an invalid vertical extent.\n\n" +
+                "Chunk: (" +
+                chunkX +
+                ", " +
+                chunkZ +
+                ")\n" +
+                "Minimum Height: " +
+                minimumHeight +
+                "\n" +
+                "Maximum Height: " +
+                maximumHeight +
+                "\n" +
+                "Calculated Vertical Extent: " +
+                verticalExtent;
+
+            return false;
+        }
+
+        float horizontalCenter =
+            horizontalExtent *
+            0.5f;
+
+        float verticalCenter =
+            minimumHeight +
+            verticalExtent *
+            0.5f;
+
+        if (
+            float.IsNaN(
+                horizontalCenter
+            )
+            ||
+            float.IsInfinity(
+                horizontalCenter
+            )
+            ||
+            float.IsNaN(
+                verticalCenter
+            )
+            ||
+            float.IsInfinity(
+                verticalCenter
+            )
+        )
+        {
+            errorMessage =
+                "Cannot calculate collision Mesh bounds from an invalid center.\n\n" +
+                "Chunk: (" +
+                chunkX +
+                ", " +
+                chunkZ +
+                ")\n" +
+                "Calculated Horizontal Center: " +
+                horizontalCenter +
+                "\n" +
+                "Calculated Vertical Center: " +
+                verticalCenter;
+
+            return false;
+        }
+
+        float boundsTolerance =
+            Mathf.Max(
+                0.001f,
+                chunkSize *
+                    0.00001f
+            );
+
+        if (
+            float.IsNaN(
+                boundsTolerance
+            )
+            ||
+            float.IsInfinity(
+                boundsTolerance
+            )
+            ||
+            boundsTolerance < 0f
+            ||
+            Mathf.Abs(
+                horizontalExtent -
+                chunkSize
+            ) >
+                boundsTolerance
+        )
+        {
+            errorMessage =
+                "Generated collision geometry has an unexpected horizontal extent.\n\n" +
+                "Chunk: (" +
+                chunkX +
+                ", " +
+                chunkZ +
+                ")\n" +
+                "Collision Resolution: " +
+                collisionResolution +
+                "\n" +
+                "Collision Vertex Spacing: " +
+                collisionVertexSpacing +
+                "\n" +
+                "Expected Chunk Size: " +
+                chunkSize +
+                "\n" +
+                "Calculated Horizontal Extent: " +
+                horizontalExtent;
+
+            return false;
+        }
+
+        Vector3 boundsCenter =
+            new Vector3(
+                horizontalCenter,
+                verticalCenter,
+                horizontalCenter
+            );
+
+        Vector3 boundsSize =
+            new Vector3(
+                horizontalExtent,
+                verticalExtent,
+                horizontalExtent
+            );
+
+        if (
+            float.IsNaN(
+                boundsSize.x
+            )
+            ||
+            float.IsInfinity(
+                boundsSize.x
+            )
+            ||
+            float.IsNaN(
+                boundsSize.y
+            )
+            ||
+            float.IsInfinity(
+                boundsSize.y
+            )
+            ||
+            float.IsNaN(
+                boundsSize.z
+            )
+            ||
+            float.IsInfinity(
+                boundsSize.z
+            )
+        )
+        {
+            errorMessage =
+                "Calculated collision Mesh bounds size is invalid.\n\n" +
+                "Chunk: (" +
+                chunkX +
+                ", " +
+                chunkZ +
+                ")";
+
+            return false;
+        }
+
+        bounds =
+            new Bounds(
+                boundsCenter,
+                boundsSize
+            );
+
+        return true;
+    }
+
+    // =====================================================
     // GENERATE / UPDATE ONE COLLISION MESH
     // =====================================================
 
@@ -2065,6 +2344,12 @@ public static class TerrainCollisionMeshGenerator
                 TerrainRuntimeBakePipelineState.Collision,
                 TerrainRuntimeBakePerformanceCategory.Generate
             );
+
+        float minimumHeight =
+            float.PositiveInfinity;
+
+        float maximumHeight =
+            float.NegativeInfinity;
 
         int sourceStartX =
             localChunkX *
@@ -2166,6 +2451,18 @@ public static class TerrainCollisionMeshGenerator
                             .Failed;
                 }
 
+                minimumHeight =
+                    Mathf.Min(
+                        minimumHeight,
+                        height
+                    );
+
+                maximumHeight =
+                    Mathf.Max(
+                        maximumHeight,
+                        height
+                    );
+
                 int vertexIndex =
                     z *
                     verticesPerSide +
@@ -2185,6 +2482,29 @@ public static class TerrainCollisionMeshGenerator
         }
 
         geometryPerformance?.Complete();
+
+        if (
+            !TryCreateCollisionBounds(
+                chunkX,
+                chunkZ,
+                chunkSize,
+                collisionResolution,
+                collisionVertexSpacing,
+                minimumHeight,
+                maximumHeight,
+                out Bounds calculatedBounds,
+                out string boundsError
+            )
+        )
+        {
+            Debug.LogError(
+                boundsError
+            );
+
+            return
+                TerrainCollisionMeshWriteOutcome
+                    .Failed;
+        }
 
         using TerrainRuntimeBakePerformanceScope meshPerformance =
             TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
@@ -2238,58 +2558,17 @@ public static class TerrainCollisionMeshGenerator
         mesh.vertices =
             vertices;
 
-        mesh.triangles =
-            collisionTopology;
+        mesh.subMeshCount =
+            1;
 
-        mesh.RecalculateBounds();
+        mesh.SetTriangles(
+            collisionTopology,
+            0,
+            false
+        );
 
-        float boundsTolerance =
-            Mathf.Max(
-                0.001f,
-                chunkSize *
-                    0.00001f
-            );
-
-        if (
-            Mathf.Abs(
-                mesh.bounds.size.x -
-                chunkSize
-            ) >
-            boundsTolerance
-            ||
-            Mathf.Abs(
-                mesh.bounds.size.z -
-                chunkSize
-            ) >
-            boundsTolerance
-        )
-        {
-            Debug.LogError(
-                "Generated collision mesh has incorrect horizontal bounds.\n\n" +
-                "Chunk: (" +
-                chunkX +
-                ", " +
-                chunkZ +
-                ")\n" +
-                "Expected X/Z Size: " +
-                chunkSize +
-                "\n" +
-                "Actual Size: " +
-                mesh.bounds.size
-            );
-
-            if (isNew)
-            {
-                UnityEngine.Object
-                    .DestroyImmediate(
-                        mesh
-                    );
-            }
-
-            return
-                TerrainCollisionMeshWriteOutcome
-                    .Failed;
-        }
+        mesh.bounds =
+            calculatedBounds;
 
         if (isNew)
         {
