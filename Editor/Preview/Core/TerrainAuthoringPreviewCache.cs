@@ -2150,6 +2150,8 @@ public sealed partial class TerrainAuthoringPreviewCache :
 
     public void Dispose()
     {
+        RecordDiagnosticDispose();
+
         DestroyRenderTexture(
             heightCache
         );

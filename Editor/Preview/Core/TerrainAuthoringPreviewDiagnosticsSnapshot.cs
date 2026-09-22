@@ -55,6 +55,10 @@ internal readonly struct TerrainAuthoringPreviewDiagnosticsSnapshot
     public readonly long CurrentResidentGpuMemoryBytes;
     public readonly long PeakTransitionGpuMemoryBytes;
 
+    public readonly long CacheCreateCount;
+    public readonly long CacheDisposeCount;
+    public readonly int CacheLiveCount;
+
     public readonly bool EditorLifecycleStable;
     public readonly bool PreviewWorkAllowed;
     public readonly bool LifecycleResumePending;
@@ -115,6 +119,9 @@ internal readonly struct TerrainAuthoringPreviewDiagnosticsSnapshot
         long stagingGpuMemoryBytes,
         long currentResidentGpuMemoryBytes,
         long peakTransitionGpuMemoryBytes,
+        long cacheCreateCount,
+        long cacheDisposeCount,
+        int cacheLiveCount,
         bool editorLifecycleStable,
         bool previewWorkAllowed,
         bool lifecycleResumePending,
@@ -185,6 +192,10 @@ internal readonly struct TerrainAuthoringPreviewDiagnosticsSnapshot
         StagingGpuMemoryBytes = stagingGpuMemoryBytes;
         CurrentResidentGpuMemoryBytes = currentResidentGpuMemoryBytes;
         PeakTransitionGpuMemoryBytes = peakTransitionGpuMemoryBytes;
+
+        CacheCreateCount = cacheCreateCount;
+        CacheDisposeCount = cacheDisposeCount;
+        CacheLiveCount = cacheLiveCount;
 
         EditorLifecycleStable = editorLifecycleStable;
         PreviewWorkAllowed = previewWorkAllowed;

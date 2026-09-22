@@ -251,6 +251,28 @@ public partial class WorldMeshesEditorWindow :
         DrawWorkspaceSectionGap();
 
         GUILayout.Label(
+            "Cache Lifetime",
+            EditorStyles.boldLabel
+        );
+
+        EditorGUILayout.LabelField(
+            "Created",
+            snapshot.CacheCreateCount.ToString("N0")
+        );
+
+        EditorGUILayout.LabelField(
+            "Disposed",
+            snapshot.CacheDisposeCount.ToString("N0")
+        );
+
+        EditorGUILayout.LabelField(
+            "Live",
+            snapshot.CacheLiveCount.ToString("N0")
+        );
+
+        DrawWorkspaceSectionGap();
+
+        GUILayout.Label(
             "Lifecycle",
             EditorStyles.boldLabel
         );

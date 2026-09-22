@@ -23,25 +23,22 @@ public enum TerrainAuthoringSceneViewStatus
 }
 
 /*
- * Editor-only policy/controller for transient clipmap placement.
+ * Editor-only owner of transient Scene View placement and residency intent.
  *
  * Responsibilities:
  *
- * - choose a Scene View follow target
+ * - choose the controlling Scene View and follow/frozen target
  * - clamp the target to the logical world rectangle
  * - calculate independently-snapped LOD layouts
  * - apply layouts through TerrainClipmapLayoutApplier
+ * - publish the local residency intent required by that placement
  * - avoid hierarchy writes when the snapped layout did not change
  * - restore the generated canonical hierarchy for serialization and
  *   Play Mode handoff
  *
- * This service deliberately does NOT:
- *
- * - own or rebuild the authoring height cache
- * - perform height-cache loading or GPU residency work
- * - contain clipmap placement mathematics
- * - contain stitch-placement mathematics
- * - run in Play Mode
+ * This service deliberately does NOT own active/staging caches, source
+ * loading, composition, cache activation, or GPU resource lifetime. Those
+ * responsibilities belong to TerrainAuthoringPreviewService.
  */
 [InitializeOnLoad]
 public static partial class TerrainAuthoringSceneViewController

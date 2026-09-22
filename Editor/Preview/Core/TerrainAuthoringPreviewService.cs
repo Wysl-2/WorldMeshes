@@ -15,22 +15,24 @@ public enum TerrainAuthoringPreviewStatus
 }
 
 /*
- * Edit-mode authoring height preview lifecycle.
+ * Final edit-mode streamed height-preview ownership model.
  *
- * Stage 7 separates three invalidation classes:
+ * Persistent/global authoring state is authoritative independently of GPU
+ * residency. activeCache is the complete current local GPU source;
+ * stagingCache is an optional disposable replacement under construction and
+ * never becomes authoritative until atomic activation.
  *
- * 1. Committed base heightfield changed
- *      -> full cache validation/rebuild
+ * Scene View/canonical placement publishes residency intent. PreviewService
+ * owns cache loading, composition, binding, transition lifetime, and resource
+ * disposal. Nonresident terrain remains valid persistent terrain; it is
+ * simply outside the current bounded GPU window.
  *
- * 2. Composite authoring tiles changed
- *      -> update only dirty slices in the existing cache
+ * Temporary editor instability pauses work. Ownership boundaries such as
+ * Play Mode, active-scene replacement, preview disable, assembly reload, and
+ * editor shutdown release edit-mode resources through the lifecycle layer.
  *
- * 3. Clipmap hierarchy changed
- *      -> rebind the existing cache, do not rebuild it
- *
- * The existing PreviewStateChanged event is retained for Stage 5
- * visualization consumers. It is an outbound "preview metadata changed"
- * notification and does not request a cache rebuild.
+ * PreviewStateChanged is an outbound metadata/content notification. It does
+ * not itself request a cache rebuild.
  */
 [InitializeOnLoad]
 public static partial class TerrainAuthoringPreviewService
@@ -74,9 +76,10 @@ public static partial class TerrainAuthoringPreviewService
     private static TerrainAuthoringPreviewCache stagingCache;
 
     /*
-     * Existing Package 01/02 internal code continues to use previewCache as
-     * the active-cache compatibility surface. Staging code never uses this
-     * alias, and public cache queries therefore remain active-only.
+     * Internal compatibility alias for the authoritative active cache.
+     * Staging code never uses this alias, so active and staging ownership
+     * remain unambiguous even while older PreviewService code references
+     * previewCache.
      */
     private static TerrainAuthoringPreviewCache previewCache
     {
@@ -94,10 +97,9 @@ public static partial class TerrainAuthoringPreviewService
     }
 
     /*
-     * Stage 13A composition executor.
-     *
-     * PreviewService owns when/which tiles are recomposed. The
-     * compositor owns only GPU dispatch into the existing cache.
+     * PreviewService owns when and which resident tiles are recomposed.
+     * The compositor owns only GPU dispatch into the cache supplied by
+     * PreviewService.
      */
     private static readonly TerrainHeightCompositor
         heightCompositor =
@@ -939,94 +941,7 @@ public static partial class TerrainAuthoringPreviewService
 
 
     // =====================================================
-    // TERRAIN ANALYSIS SOURCE ACCESS
-    // =====================================================
-
-    /*
-     * Narrow editor-only access for TerrainAnalysisGpuGenerator.
-     *
-     * PreviewService retains ownership of the height cache. Terrain Analysis
-     * receives only the current GPU source and immutable layout metadata
-     * required to generate derived analysis layers.
-     */
-    internal static bool TryGetTerrainAnalysisSource(
-        out RenderTexture heightCache,
-        out Vector2Int cacheOriginTile,
-        out Vector2Int cacheSize,
-        out int samplesPerSide,
-        out float sampleSpacing,
-        out Vector2 worldSizeXZ,
-        out string sourceSignature
-    )
-    {
-        heightCache = null;
-        cacheOriginTile = Vector2Int.zero;
-        cacheSize = Vector2Int.zero;
-        samplesPerSide = 0;
-        sampleSpacing = 0f;
-        worldSizeXZ = Vector2.zero;
-        sourceSignature = "";
-
-        if (
-            previewCache == null ||
-            !previewCache.IsReady
-        )
-        {
-            return false;
-        }
-
-        heightCache =
-            previewCache.HeightCache;
-
-        cacheOriginTile =
-            previewCache.CacheOriginTile;
-
-        cacheSize =
-            previewCache.CacheSize;
-
-        samplesPerSide =
-            previewCache.SamplesPerSide;
-
-        sampleSpacing =
-            previewCache.SampleSpacing;
-
-        worldSizeXZ =
-            previewCache.WorldSizeXZ;
-
-        string authoringSignature =
-            previewCache.SourceOverallAuthoringSignature;
-
-        if (
-            string.IsNullOrEmpty(
-                authoringSignature
-            )
-        )
-        {
-            authoringSignature =
-                previewCache.SourceCommittedHeightfieldSignature;
-        }
-
-        sourceSignature =
-            authoringSignature +
-            "|cache:" +
-            heightCache.GetInstanceID() +
-            "|updates:" +
-            previewCache.TotalIncrementalSliceUpdates;
-
-        return
-            heightCache != null &&
-            heightCache.IsCreated() &&
-            cacheSize.x > 0 &&
-            cacheSize.y > 0 &&
-            samplesPerSide > 1 &&
-            sampleSpacing > 0f &&
-            worldSizeXZ.x > 0f &&
-            worldSizeXZ.y > 0f;
-    }
-
-
-    // =====================================================
-    // STAGE 10 VALIDATION DIAGNOSTICS
+    // VALIDATION DIAGNOSTICS
     // =====================================================
 
     /*

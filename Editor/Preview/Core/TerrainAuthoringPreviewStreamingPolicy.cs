@@ -1,12 +1,13 @@
 using UnityEngine;
 
 /*
- * Pure Package 04 streaming policy.
+ * Pure streamed-residency policy.
  *
  * This layer decides whether current staging still serves the newest
  * residency intent and when active guard headroom should begin prefetching.
  * It owns no GPU resources, AssetDatabase work, hierarchy mutation, or
- * editor callbacks.
+ * editor callbacks. Ordinary work is always expressed in bounded local
+ * windows; logical world size only constrains where those windows may fit.
  */
 internal static class TerrainAuthoringPreviewStreamingPolicy
 {

@@ -183,6 +183,12 @@ public static partial class TerrainAuthoringPreviewService
                 ApproximateStagingGpuMemoryBytes,
                 ApproximateTotalResidentGpuMemoryBytes,
                 PeakTransitionGpuMemoryBytes,
+                TerrainAuthoringPreviewCache
+                    .DiagnosticCreateCount,
+                TerrainAuthoringPreviewCache
+                    .DiagnosticDisposeCount,
+                TerrainAuthoringPreviewCache
+                    .DiagnosticLiveCount,
                 IsEditorLifecycleStable,
                 CanRunEditorPreviewWork,
                 lifecycleResumePending,

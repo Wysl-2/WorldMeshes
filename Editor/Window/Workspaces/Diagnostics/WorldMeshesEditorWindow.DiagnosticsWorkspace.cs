@@ -163,6 +163,10 @@ public partial class WorldMeshesEditorWindow :
 
         DrawWorkspaceSectionGap();
 
+        DrawStreamingRegressionValidationSettings();
+
+        DrawWorkspaceSectionGap();
+
         DrawPreviewResponsivenessValidationSettings();
 
         DrawWorkspaceSectionGap();

@@ -2,14 +2,17 @@ using System;
 using UnityEngine;
 
 /*
- * Package 07 Terrain Analysis identity for the active resident height source.
+ * Terrain Analysis identity for the active local preview source.
  *
- * This partial keeps analysis-specific transient generations beside preview
- * ownership without changing the established Package 01-06 lifecycle code.
+ * Interactive analysis reads the complete authoritative active resident GPU
+ * window and tracks both residency replacement and in-place composite
+ * generations. Offline/global analysis acquires independent bounded batches;
+ * neither path requires full-world edit-mode GPU residency.
+ *
  * A small tracker subscribes before external analysis consumers: source
  * replacement is detected at the authoritative PreviewStateChanged boundary,
- * while successful in-place content changes are observed through the existing
- * CompositeTilesUpdated publication.
+ * while successful in-place content changes are observed through
+ * CompositeTilesUpdated.
  */
 public static partial class TerrainAuthoringPreviewService
 {

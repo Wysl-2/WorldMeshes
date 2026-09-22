@@ -3,9 +3,14 @@ using UnityEngine;
 /*
  * Pure edit-mode height-cache residency mathematics.
  *
- * This utility converts world-space clipmap coverage into authoritative
- * world height-tile windows. It deliberately owns no cache resources,
- * Scene View state, hierarchy mutation, AssetDatabase loading, or async work.
+ * Ordinary residency size is determined by local required coverage, guard
+ * expansion, prefetch policy, and residency-size recovery. Logical world
+ * dimensions only clamp/fix the resulting bounded local window to valid tile
+ * coordinates; they must not cause ordinary resident-cache size to scale with
+ * total world size.
+ *
+ * This utility owns no cache resources, Scene View state, hierarchy mutation,
+ * AssetDatabase loading, or async work.
  */
 public static class TerrainAuthoringPreviewResidencyUtility
 {
