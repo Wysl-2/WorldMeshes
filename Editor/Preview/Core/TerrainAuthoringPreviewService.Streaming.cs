@@ -491,6 +491,11 @@ public static partial class TerrainAuthoringPreviewService
             return;
         }
 
+        using var streamingProfilerScope =
+            WorldMeshesProfiler
+                .PreviewStreamingUpdate
+                .Auto();
+
         if (
             currentTransition != null
             &&
@@ -678,6 +683,8 @@ public static partial class TerrainAuthoringPreviewService
         currentTransition =
             transition;
 
+        BeginTransitionMemoryTracking();
+
         if (
             activeCache != null
             &&
@@ -712,6 +719,8 @@ public static partial class TerrainAuthoringPreviewService
 
             return;
         }
+
+        CaptureTransitionMemoryEstimate();
 
         transition.DestinationTextureInstanceId =
             stagingCache.HeightCache != null
@@ -869,6 +878,11 @@ public static partial class TerrainAuthoringPreviewService
 
     private static void AdvanceRetainedCopies()
     {
+        using var profilerScope =
+            WorldMeshesProfiler
+                .PreviewCopyTiles
+                .Auto();
+
         int count =
             currentTransition
                 .ReusableRetainedTiles
@@ -984,6 +998,11 @@ public static partial class TerrainAuthoringPreviewService
 
     private static void AdvanceCommittedLoads()
     {
+        using var profilerScope =
+            WorldMeshesProfiler
+                .PreviewLoadTiles
+                .Auto();
+
         int count =
             currentTransition
                 .SourceMaterializationTiles
@@ -1068,6 +1087,11 @@ public static partial class TerrainAuthoringPreviewService
 
     private static void AdvanceCompositions()
     {
+        using var profilerScope =
+            WorldMeshesProfiler
+                .PreviewComposeTiles
+                .Auto();
+
         WorldSettings worldSettings =
             LoadWorldSettings();
 
@@ -1245,6 +1269,11 @@ public static partial class TerrainAuthoringPreviewService
 
     private static void FinalizeCurrentStreamingTransition()
     {
+        using var profilerScope =
+            WorldMeshesProfiler
+                .PreviewStreamingFinalize
+                .Auto();
+
         WorldSettings worldSettings =
             LoadWorldSettings();
 
@@ -1336,6 +1365,11 @@ public static partial class TerrainAuthoringPreviewService
 
     private static void ActivateCurrentStreamingTransition()
     {
+        using var profilerScope =
+            WorldMeshesProfiler
+                .PreviewStreamingActivate
+                .Auto();
+
         if (
             currentTransition == null
             ||

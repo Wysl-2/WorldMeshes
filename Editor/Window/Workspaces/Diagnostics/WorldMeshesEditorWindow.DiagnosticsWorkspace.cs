@@ -159,6 +159,10 @@ public partial class WorldMeshesEditorWindow :
 
         GUILayout.Space(5f);
 
+        DrawStreamingPreviewDiagnostics();
+
+        DrawWorkspaceSectionGap();
+
         DrawPreviewResponsivenessValidationSettings();
 
         DrawWorkspaceSectionGap();

@@ -44,6 +44,21 @@ public static class WorldMeshesProfiler
     public static readonly ProfilerMarker PreviewBindCache =
         new("WorldMeshes.Preview.BindCache");
 
+    public static readonly ProfilerMarker PreviewStreamingUpdate =
+        new("WorldMeshes.Preview.Streaming.Update");
+
+    public static readonly ProfilerMarker PreviewStreamingFinalize =
+        new("WorldMeshes.Preview.Streaming.Finalize");
+
+    public static readonly ProfilerMarker PreviewStreamingActivate =
+        new("WorldMeshes.Preview.Streaming.Activate");
+
+    public static readonly ProfilerMarker PreviewAnalysisGenerate =
+        new("WorldMeshes.Preview.Analysis.Generate");
+
+    public static readonly ProfilerMarker PreviewAnalysisUpdateTiles =
+        new("WorldMeshes.Preview.Analysis.UpdateTiles");
+
     public static readonly ProfilerMarker RuntimeBakeHeightGeneration =
         new("WorldMeshes.RuntimeBake.Generation.Height");
 

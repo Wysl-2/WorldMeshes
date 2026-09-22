@@ -2780,26 +2780,11 @@ public sealed class TerrainStampEditorTool :
                     TerrainAuthoringPreviewReadiness.Ready
             )
             {
-                switch (surfaceReadiness)
-                {
-                    case TerrainAuthoringPreviewReadiness.Loading:
-                        toolResidencyMessage =
-                            "Terrain surface for this modifier is still loading. " +
-                            "Move the Scene View to this area or wait for Height " +
-                            "Preview residency before editing it.";
-                        break;
-
-                    case TerrainAuthoringPreviewReadiness.OutsideWorld:
-                        toolResidencyMessage =
-                            "This modifier does not currently overlap editable terrain.";
-                        break;
-
-                    default:
-                        toolResidencyMessage =
-                            "Terrain Height Preview is unavailable. Surface-dependent " +
-                            "stamp editing requires a ready authoring preview.";
-                        break;
-                }
+                toolResidencyMessage =
+                    TerrainAuthoringPreviewReadinessFeedback
+                        .GetMessage(
+                            surfaceReadiness
+                        );
 
                 toolErrorMessage =
                     "";

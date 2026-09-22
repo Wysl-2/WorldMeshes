@@ -244,6 +244,8 @@ public static partial class TerrainAuthoringPreviewService
         currentTransition =
             transition;
 
+        BeginTransitionMemoryTracking();
+
         if (
             activeCache != null
             &&
@@ -277,6 +279,8 @@ public static partial class TerrainAuthoringPreviewService
                     errorMessage
                 );
         }
+
+        CaptureTransitionMemoryEstimate();
 
         transition.DestinationTextureInstanceId =
             stagingCache.HeightCache != null
@@ -713,11 +717,23 @@ public static partial class TerrainAuthoringPreviewService
                 );
         }
 
+        /*
+         * Capture the active + staging coexistence peak before staging
+         * becomes the new authoritative active cache.
+         */
+        CaptureTransitionMemoryEstimate();
+
         activeCache =
             stagingCache;
 
+        /*
+         * Break the staging alias before completing memory tracking. The
+         * previously captured coexistence value remains the transition peak.
+         */
         stagingCache =
             null;
+
+        CompleteTransitionMemoryTracking();
 
         transition.SetState(
             TerrainAuthoringPreviewTransitionState
@@ -1040,6 +1056,13 @@ public static partial class TerrainAuthoringPreviewService
         {
             return;
         }
+
+        /*
+         * Failure, cancellation, lifecycle release, and replacement all pass
+         * through this common disposal path. Preserve the transition peak
+         * before the staging allocation disappears.
+         */
+        CompleteTransitionMemoryTracking();
 
         stagingCache.Dispose();
 

@@ -111,6 +111,11 @@ public sealed class TerrainAnalysisGpuGenerator :
         out string errorMessage
     )
     {
+        using var profilerScope =
+            WorldMeshesProfiler
+                .PreviewAnalysisGenerate
+                .Auto();
+
         result = default;
         errorMessage = "";
 
@@ -405,6 +410,11 @@ public sealed class TerrainAnalysisGpuGenerator :
         out string errorMessage
     )
     {
+        using var profilerScope =
+            WorldMeshesProfiler
+                .PreviewAnalysisUpdateTiles
+                .Auto();
+
         sourceSignature = "";
         errorMessage = "";
 
