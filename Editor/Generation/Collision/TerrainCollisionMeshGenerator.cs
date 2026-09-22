@@ -774,6 +774,76 @@ public static class TerrainCollisionMeshGenerator
                 (long)collisionTopology.Length * sizeof(int)
             );
 
+        NativeArray<int> collisionTopologyJobData =
+            default;
+
+        TerrainRuntimeBakeTrackedMemoryLease collisionTopologyJobMemory =
+            null;
+
+        try
+        {
+            collisionTopologyJobData =
+                new NativeArray<int>(
+                    collisionTopology.Length,
+                    Allocator.Persistent,
+                    NativeArrayOptions.UninitializedMemory
+                );
+
+            for (
+                int topologyIndex = 0;
+                topologyIndex < collisionTopology.Length;
+                topologyIndex++
+            )
+            {
+                collisionTopologyJobData[
+                    topologyIndex
+                ] =
+                    collisionTopology[
+                        topologyIndex
+                    ];
+            }
+
+            collisionTopologyJobMemory =
+                TerrainRuntimeBakePerformanceDiagnostics.TrackTemporaryMemory(
+                    "Collision.TopologyJobBuffer",
+                    TerrainRuntimeBakePipelineState.Collision,
+                    TerrainRuntimeBakeTrackedMemoryCategory.CollisionBuffer,
+                    (long)collisionTopology.Length * sizeof(int)
+                );
+        }
+        catch (Exception exception)
+        {
+            if (collisionTopologyJobData.IsCreated)
+            {
+                collisionTopologyJobData.Dispose();
+            }
+
+            collisionTopologyJobMemory?.Dispose();
+
+            return
+                CreateResult(
+                    TerrainCollisionGenerationOutcome.Failed,
+                    workMode,
+                    requestedChunks,
+                    null,
+                    null,
+                    requestedChunks,
+                    0,
+                    0,
+                    0,
+                    false,
+                    revisionBefore,
+                    revisionBefore,
+                    sourceHeightRevisionBefore,
+                    sourceHeightRevisionBefore,
+                    false,
+                    false,
+                    "Could not allocate collision topology job buffer.\n\n" +
+                    exception.Message,
+                    ""
+                );
+        }
+
         List<Vector2Int> succeeded =
             new List<Vector2Int>();
 
@@ -1047,6 +1117,18 @@ public static class TerrainCollisionMeshGenerator
                         meshDataBufferMemory =
                             default;
 
+                    NativeArray<CollisionGeometryJobInput>
+                        geometryJobInputs =
+                            default;
+
+                    NativeArray<CollisionGeometryJobResult>
+                        geometryJobResults =
+                            default;
+
+                    TerrainRuntimeBakeRepeatedMemoryScope
+                        geometryJobScratchMemory =
+                            default;
+
                     try
                     {
                         if (
@@ -1108,6 +1190,36 @@ public static class TerrainCollisionMeshGenerator
                                             TerrainRuntimeBakeTrackedMemoryCategory.CollisionBuffer,
                                             meshDataPayloadBytes
                                         );
+
+                                geometryJobInputs =
+                                    new NativeArray<CollisionGeometryJobInput>(
+                                        chunks.Count,
+                                        Allocator.TempJob,
+                                        NativeArrayOptions.UninitializedMemory
+                                    );
+
+                                geometryJobResults =
+                                    new NativeArray<CollisionGeometryJobResult>(
+                                        chunks.Count,
+                                        Allocator.TempJob,
+                                        NativeArrayOptions.UninitializedMemory
+                                    );
+
+                                long geometryJobScratchBytes =
+                                    (long)chunks.Count *
+                                    (
+                                        8L +
+                                        20L
+                                    );
+
+                                geometryJobScratchMemory =
+                                    TerrainRuntimeBakePerformanceDiagnostics
+                                        .TrackRepeatedTemporaryMemory(
+                                            "Collision.GeometryJobScratch",
+                                            TerrainRuntimeBakePipelineState.Collision,
+                                            TerrainRuntimeBakeTrackedMemoryCategory.CollisionBuffer,
+                                            geometryJobScratchBytes
+                                        );
                             }
                             catch (Exception exception)
                             {
@@ -1116,7 +1228,7 @@ public static class TerrainCollisionMeshGenerator
                                 );
 
                                 failureMessage =
-                                    "Could not allocate writable collision MeshData.\n\n" +
+                                    "Could not allocate writable collision MeshData or geometry job scratch buffers.\n\n" +
                                     exception.Message;
                             }
                         }
@@ -1138,12 +1250,16 @@ public static class TerrainCollisionMeshGenerator
                                         chunkIndex
                                     ];
 
+                                int displayProgressCurrent =
+                                    completedChunkOperations +
+                                    chunkIndex;
+
                                 cancelled =
                                     progressReporter
                                         .ReportIfDue(
                                             "Generating collision meshes",
                                             coordinate,
-                                            completedChunkOperations,
+                                            displayProgressCurrent,
                                             generationProgressTotal,
                                             true,
                                             false
@@ -1163,26 +1279,18 @@ public static class TerrainCollisionMeshGenerator
                                     tileChunkSpan;
 
                                 if (
-                                    !TryPopulateCollisionMeshData(
-                                        meshDataArray[
-                                            chunkIndex
-                                        ],
-                                        coordinate,
+                                    !TryValidateCollisionSourceWindow(
+                                        coordinate.x,
+                                        coordinate.y,
                                         localChunkX,
                                         localChunkZ,
-                                        chunkSize,
                                         heightfieldResolutionPerChunk,
                                         collisionResolution,
                                         heightSampleStep,
-                                        collisionVertexSpacing,
                                         samplesPerTile,
-                                        heightData,
-                                        collisionTopology,
-                                        collisionIndexFormat,
-                                        vertexCount,
-                                        triangleIndexCount,
-                                        out Bounds calculatedBounds,
-                                        out string meshDataError
+                                        out int sourceStartX,
+                                        out int sourceStartZ,
+                                        out string sourceWindowError
                                     )
                                 )
                                 {
@@ -1191,7 +1299,178 @@ public static class TerrainCollisionMeshGenerator
                                     );
 
                                     failureMessage =
-                                        meshDataError;
+                                        sourceWindowError;
+
+                                    break;
+                                }
+
+                                if (
+                                    !TryConfigureCollisionMeshDataForGeometryJob(
+                                        meshDataArray[
+                                            chunkIndex
+                                        ],
+                                        coordinate,
+                                        vertexCount,
+                                        triangleIndexCount,
+                                        collisionIndexFormat,
+                                        out string configurationError
+                                    )
+                                )
+                                {
+                                    failed.Add(
+                                        coordinate
+                                    );
+
+                                    failureMessage =
+                                        configurationError;
+
+                                    break;
+                                }
+
+                                geometryJobInputs[
+                                    chunkIndex
+                                ] =
+                                    new CollisionGeometryJobInput
+                                    {
+                                        sourceStartX =
+                                            sourceStartX,
+
+                                        sourceStartZ =
+                                            sourceStartZ
+                                    };
+                            }
+                        }
+
+                        if (
+                            !cancelled
+                            &&
+                            string.IsNullOrEmpty(
+                                failureMessage
+                            )
+                            &&
+                            chunks.Count > 0
+                        )
+                        {
+                            Vector2Int lastGeometryCoordinate =
+                                chunks[
+                                    chunks.Count -
+                                    1
+                                ];
+
+                            int forcedGeometryProgressCurrent =
+                                Mathf.Min(
+                                    generationProgressTotal -
+                                    1,
+                                    completedChunkOperations +
+                                    chunks.Count -
+                                    1
+                                );
+
+                            cancelled =
+                                progressReporter
+                                    .ReportIfDue(
+                                        "Generating collision meshes",
+                                        lastGeometryCoordinate,
+                                        forcedGeometryProgressCurrent,
+                                        generationProgressTotal,
+                                        true,
+                                        true
+                                    );
+                        }
+
+                        if (
+                            !cancelled
+                            &&
+                            string.IsNullOrEmpty(
+                                failureMessage
+                            )
+                        )
+                        {
+                            bool geometryJobSucceeded;
+
+                            using (
+                                TerrainRuntimeBakePerformanceScope geometryJobPerformance =
+                                    TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
+                                        "Collision.GeometryJobBatch",
+                                        TerrainRuntimeBakePipelineState.Collision,
+                                        TerrainRuntimeBakePerformanceCategory.Generate
+                                    )
+                            )
+                            {
+                                geometryJobSucceeded =
+                                    TerrainCollisionGeometryJobRunner.TryRun(
+                                        meshDataArray,
+                                        heightData,
+                                        collisionTopologyJobData,
+                                        geometryJobInputs,
+                                        geometryJobResults,
+                                        collisionResolution,
+                                        heightSampleStep,
+                                        samplesPerTile,
+                                        verticesPerSide,
+                                        triangleIndexCount,
+                                        collisionVertexSpacing,
+                                        collisionIndexFormat ==
+                                            IndexFormat.UInt16,
+                                        out string geometryJobError
+                                    );
+
+                                if (!geometryJobSucceeded)
+                                {
+                                    failed.AddRange(
+                                        chunks
+                                    );
+
+                                    failureMessage =
+                                        geometryJobError;
+                                }
+                            }
+                        }
+
+                        if (
+                            !cancelled
+                            &&
+                            string.IsNullOrEmpty(
+                                failureMessage
+                            )
+                        )
+                        {
+                            for (
+                                int chunkIndex = 0;
+                                chunkIndex < chunks.Count;
+                                chunkIndex++
+                            )
+                            {
+                                Vector2Int coordinate =
+                                    chunks[
+                                        chunkIndex
+                                    ];
+
+                                if (
+                                    !TryFinalizeCollisionMeshDataAfterGeometryJob(
+                                        meshDataArray[
+                                            chunkIndex
+                                        ],
+                                        coordinate,
+                                        chunkSize,
+                                        collisionResolution,
+                                        collisionVertexSpacing,
+                                        vertexCount,
+                                        triangleIndexCount,
+                                        geometryJobResults[
+                                            chunkIndex
+                                        ],
+                                        out Bounds calculatedBounds,
+                                        out string geometryResultError
+                                    )
+                                )
+                                {
+                                    failed.Add(
+                                        coordinate
+                                    );
+
+                                    failureMessage =
+                                        geometryResultError;
 
                                     break;
                                 }
@@ -1312,6 +1591,39 @@ public static class TerrainCollisionMeshGenerator
                     }
                     finally
                     {
+                        try
+                        {
+                            if (geometryJobInputs.IsCreated)
+                            {
+                                geometryJobInputs.Dispose();
+                            }
+                        }
+                        catch (Exception exception)
+                        {
+                            Debug.LogError(
+                                "Could not dispose collision geometry job inputs.\n\n" +
+                                exception.Message
+                            );
+                        }
+
+                        try
+                        {
+                            if (geometryJobResults.IsCreated)
+                            {
+                                geometryJobResults.Dispose();
+                            }
+                        }
+                        catch (Exception exception)
+                        {
+                            Debug.LogError(
+                                "Could not dispose collision geometry job results.\n\n" +
+                                exception.Message
+                            );
+                        }
+
+                        geometryJobScratchMemory
+                            .Dispose();
+
                         if (
                             meshDataAllocated
                             &&
@@ -1591,8 +1903,27 @@ public static class TerrainCollisionMeshGenerator
         }
         finally
         {
-            EditorUtility
-                .ClearProgressBar();
+            try
+            {
+                if (collisionTopologyJobData.IsCreated)
+                {
+                    collisionTopologyJobData.Dispose();
+                }
+            }
+            catch (Exception exception)
+            {
+                Debug.LogError(
+                    "Could not dispose collision topology job buffer.\n\n" +
+                    exception.Message
+                );
+            }
+            finally
+            {
+                collisionTopologyJobMemory?.Dispose();
+
+                EditorUtility
+                    .ClearProgressBar();
+            }
         }
 
         if (
@@ -2942,22 +3273,56 @@ public static class TerrainCollisionMeshGenerator
         return true;
     }
 
-    private static bool TryPopulateCollisionMeshData(
+    private static bool TryConfigureCollisionMeshDataForGeometryJob(
         Mesh.MeshData meshData,
         Vector2Int coordinate,
-        int localChunkX,
-        int localChunkZ,
-        float chunkSize,
-        int heightfieldResolutionPerChunk,
-        int collisionResolution,
-        int heightSampleStep,
-        float collisionVertexSpacing,
-        int heightSamplesPerTile,
-        NativeArray<float> heightData,
-        int[] collisionTopology,
-        IndexFormat collisionIndexFormat,
         int vertexCount,
         int triangleIndexCount,
+        IndexFormat collisionIndexFormat,
+        out string errorMessage
+    )
+    {
+        errorMessage =
+            "";
+
+        try
+        {
+            meshData.SetVertexBufferParams(
+                vertexCount,
+                CollisionVertexLayout
+            );
+
+            meshData.SetIndexBufferParams(
+                triangleIndexCount,
+                collisionIndexFormat
+            );
+        }
+        catch (Exception exception)
+        {
+            errorMessage =
+                "Could not configure writable collision MeshData for geometry jobs.\n\n" +
+                "Chunk: (" +
+                coordinate.x +
+                ", " +
+                coordinate.y +
+                ")\n\n" +
+                exception.Message;
+
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryFinalizeCollisionMeshDataAfterGeometryJob(
+        Mesh.MeshData meshData,
+        Vector2Int coordinate,
+        float chunkSize,
+        int collisionResolution,
+        float collisionVertexSpacing,
+        int vertexCount,
+        int triangleIndexCount,
+        CollisionGeometryJobResult result,
         out Bounds calculatedBounds,
         out string errorMessage
     )
@@ -2969,17 +3334,56 @@ public static class TerrainCollisionMeshGenerator
             "";
 
         if (
-            !TryValidateCollisionSourceWindow(
+            result.status ==
+            CollisionGeometryJobStatus
+                .InvalidHeight
+        )
+        {
+            errorMessage =
+                "Invalid height value encountered while generating collision MeshData.\n\n" +
+                "Chunk: (" +
+                coordinate.x +
+                ", " +
+                coordinate.y +
+                ")\n" +
+                "Source Sample: (" +
+                result.invalidSourceX +
+                ", " +
+                result.invalidSourceZ +
+                ")";
+
+            return false;
+        }
+
+        if (
+            result.status !=
+            CollisionGeometryJobStatus
+                .Success
+        )
+        {
+            errorMessage =
+                "Collision geometry job returned an unexpected result status.\n\n" +
+                "Chunk: (" +
+                coordinate.x +
+                ", " +
+                coordinate.y +
+                ")\n" +
+                "Status: " +
+                result.status;
+
+            return false;
+        }
+
+        if (
+            !TryCreateCollisionBounds(
                 coordinate.x,
                 coordinate.y,
-                localChunkX,
-                localChunkZ,
-                heightfieldResolutionPerChunk,
+                chunkSize,
                 collisionResolution,
-                heightSampleStep,
-                heightSamplesPerTile,
-                out int sourceStartX,
-                out int sourceStartZ,
+                collisionVertexSpacing,
+                result.minimumHeight,
+                result.maximumHeight,
+                out calculatedBounds,
                 out errorMessage
             )
         )
@@ -2989,191 +3393,6 @@ public static class TerrainCollisionMeshGenerator
 
         try
         {
-            meshData.SetVertexBufferParams(
-                vertexCount,
-                CollisionVertexLayout
-            );
-
-            NativeArray<Vector3> vertexBuffer =
-                meshData.GetVertexData<Vector3>(
-                    0
-                );
-
-            float minimumHeight =
-                float.PositiveInfinity;
-
-            float maximumHeight =
-                float.NegativeInfinity;
-
-            int verticesPerSide =
-                collisionResolution +
-                1;
-
-            using (
-                TerrainRuntimeBakeAggregatedPerformanceScope geometryPerformance =
-                    TerrainRuntimeBakePerformanceDiagnostics.BeginAggregatedOperation(
-                        "Collision.VertexGeneration",
-                        TerrainRuntimeBakePipelineState.Collision,
-                        TerrainRuntimeBakePerformanceCategory.Generate
-                    )
-            )
-            {
-                for (
-                    int z = 0;
-                    z <= collisionResolution;
-                    z++
-                )
-                {
-                    int sourceZ =
-                        sourceStartZ +
-                        z *
-                        heightSampleStep;
-
-                    int sourceRowStart =
-                        sourceZ *
-                        heightSamplesPerTile;
-
-                    for (
-                        int x = 0;
-                        x <= collisionResolution;
-                        x++
-                    )
-                    {
-                        int sourceX =
-                            sourceStartX +
-                            x *
-                            heightSampleStep;
-
-                        int sourceIndex =
-                            sourceRowStart +
-                            sourceX;
-
-                        float height =
-                            heightData[
-                                sourceIndex
-                            ];
-
-                        if (
-                            float.IsNaN(
-                                height
-                            )
-                            ||
-                            float.IsInfinity(
-                                height
-                            )
-                        )
-                        {
-                            errorMessage =
-                                "Invalid height value encountered while generating collision MeshData.\n\n" +
-                                "Chunk: (" +
-                                coordinate.x +
-                                ", " +
-                                coordinate.y +
-                                ")\n" +
-                                "Source Sample: (" +
-                                sourceX +
-                                ", " +
-                                sourceZ +
-                                ")";
-
-                            return false;
-                        }
-
-                        minimumHeight =
-                            Mathf.Min(
-                                minimumHeight,
-                                height
-                            );
-
-                        maximumHeight =
-                            Mathf.Max(
-                                maximumHeight,
-                                height
-                            );
-
-                        int vertexIndex =
-                            z *
-                            verticesPerSide +
-                            x;
-
-                        vertexBuffer[
-                            vertexIndex
-                        ] =
-                            new Vector3(
-                                x *
-                                    collisionVertexSpacing,
-                                height,
-                                z *
-                                    collisionVertexSpacing
-                            );
-                    }
-                }
-            }
-
-            if (
-                !TryCreateCollisionBounds(
-                    coordinate.x,
-                    coordinate.y,
-                    chunkSize,
-                    collisionResolution,
-                    collisionVertexSpacing,
-                    minimumHeight,
-                    maximumHeight,
-                    out calculatedBounds,
-                    out errorMessage
-                )
-            )
-            {
-                return false;
-            }
-
-            meshData.SetIndexBufferParams(
-                triangleIndexCount,
-                collisionIndexFormat
-            );
-
-            if (
-                collisionIndexFormat ==
-                    IndexFormat.UInt16
-            )
-            {
-                NativeArray<ushort> indexBuffer =
-                    meshData.GetIndexData<ushort>();
-
-                for (
-                    int index = 0;
-                    index < triangleIndexCount;
-                    index++
-                )
-                {
-                    indexBuffer[
-                        index
-                    ] =
-                        (ushort)collisionTopology[
-                            index
-                        ];
-                }
-            }
-            else
-            {
-                NativeArray<int> indexBuffer =
-                    meshData.GetIndexData<int>();
-
-                for (
-                    int index = 0;
-                    index < triangleIndexCount;
-                    index++
-                )
-                {
-                    indexBuffer[
-                        index
-                    ] =
-                        collisionTopology[
-                            index
-                        ];
-                }
-            }
-
             meshData.subMeshCount =
                 1;
 
@@ -3201,7 +3420,7 @@ public static class TerrainCollisionMeshGenerator
         catch (Exception exception)
         {
             errorMessage =
-                "Could not populate writable collision MeshData.\n\n" +
+                "Could not finalize writable collision MeshData after geometry jobs.\n\n" +
                 "Chunk: (" +
                 coordinate.x +
                 ", " +
