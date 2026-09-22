@@ -77,6 +77,9 @@ public static class TerrainCollisionBakeMarkerUtility
 
         int currentRegion = 0;
 
+        int meshReferencesSinceRelease =
+            0;
+
         HashSet<string> expectedMarkerPaths =
             new HashSet<string>();
 
@@ -186,6 +189,34 @@ public static class TerrainCollisionBakeMarkerUtility
                     }
 
                     currentRegion++;
+
+                    int regionMeshCount =
+                        TerrainCollisionBakeResidencyUtility
+                            .GetRegionMeshCount(
+                                regionX,
+                                regionZ,
+                                regionSpan,
+                                gridWidth,
+                                gridHeight
+                            );
+
+                    if (
+                        !TerrainCollisionBakeResidencyUtility
+                            .TryReleaseAfterProcessedMeshCount(
+                                ref meshReferencesSinceRelease,
+                                regionMeshCount,
+                                worldSettings,
+                                "Collision.MarkerResidencyRelease",
+                                TerrainRuntimeBakePipelineState.Addressables,
+                                out string residencyReleaseError
+                            )
+                    )
+                    {
+                        errorMessage =
+                            residencyReleaseError;
+
+                        return false;
+                    }
                 }
 
                 if (cancelled)
@@ -205,6 +236,23 @@ public static class TerrainCollisionBakeMarkerUtility
             {
                 AssetDatabase.SaveAssets();
             }
+
+            if (
+                meshReferencesSinceRelease > 0
+                &&
+                !TerrainCollisionBakeResidencyUtility
+                    .TryReleaseUnusedAssets(
+                        worldSettings,
+                        "Collision.MarkerResidencyRelease",
+                        TerrainRuntimeBakePipelineState.Addressables,
+                        out string cancellationResidencyReleaseError
+                    )
+            )
+            {
+                errorMessage =
+                    cancellationResidencyReleaseError;
+            }
+
             return false;
         }
 
@@ -258,6 +306,24 @@ public static class TerrainCollisionBakeMarkerUtility
             AssetDatabase.SaveAssets();
         }
 
+        if (
+            meshReferencesSinceRelease > 0
+            &&
+            !TerrainCollisionBakeResidencyUtility
+                .TryReleaseUnusedAssets(
+                    worldSettings,
+                    "Collision.MarkerResidencyRelease",
+                    TerrainRuntimeBakePipelineState.Addressables,
+                    out string finalResidencyReleaseError
+                )
+        )
+        {
+            errorMessage =
+                finalResidencyReleaseError;
+
+            return false;
+        }
+
         return true;
     }
 
@@ -303,6 +369,9 @@ public static class TerrainCollisionBakeMarkerUtility
             out int regionGridHeight
         );
 
+        int meshReferencesSinceRelease =
+            0;
+
         for (int regionZ = 0; regionZ < regionGridHeight; regionZ++)
         {
             for (int regionX = 0; regionX < regionGridWidth; regionX++)
@@ -336,7 +405,53 @@ public static class TerrainCollisionBakeMarkerUtility
                 markerRecords.Add(
                     record
                 );
+
+                int regionMeshCount =
+                    TerrainCollisionBakeResidencyUtility
+                        .GetRegionMeshCount(
+                            regionX,
+                            regionZ,
+                            regionSpan,
+                            gridWidth,
+                            gridHeight
+                        );
+
+                if (
+                    !TerrainCollisionBakeResidencyUtility
+                        .TryReleaseAfterProcessedMeshCount(
+                            ref meshReferencesSinceRelease,
+                            regionMeshCount,
+                            worldSettings,
+                            "Collision.MarkerResidencyRelease",
+                            TerrainRuntimeBakePipelineState.Addressables,
+                            out string residencyReleaseError
+                        )
+                )
+                {
+                    errorMessage =
+                        residencyReleaseError;
+
+                    return false;
+                }
             }
+        }
+
+        if (
+            meshReferencesSinceRelease > 0
+            &&
+            !TerrainCollisionBakeResidencyUtility
+                .TryReleaseUnusedAssets(
+                    worldSettings,
+                    "Collision.MarkerResidencyRelease",
+                    TerrainRuntimeBakePipelineState.Addressables,
+                    out string finalResidencyReleaseError
+                )
+        )
+        {
+            errorMessage =
+                finalResidencyReleaseError;
+
+            return false;
         }
 
         return true;

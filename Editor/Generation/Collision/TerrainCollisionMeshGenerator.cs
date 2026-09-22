@@ -11,9 +11,6 @@ public static class TerrainCollisionMeshGenerator
     public const string CollisionMeshFolder =
         WorldMeshesPaths.GeneratedCollisionMeshes;
 
-    private const int FullPersistenceChunkThreshold =
-        512;
-
     private const double CollisionProgressRefreshIntervalSeconds =
         0.10d;
 
@@ -49,19 +46,14 @@ public static class TerrainCollisionMeshGenerator
         public int collisionResolution;
     }
 
-    private sealed class ExistingCollisionMeshRecord
+    private readonly struct ExistingCollisionAssetRecord
     {
-        public readonly Mesh mesh;
         public readonly string assetPath;
 
-        public ExistingCollisionMeshRecord(
-            Mesh mesh,
+        public ExistingCollisionAssetRecord(
             string assetPath
         )
         {
-            this.mesh =
-                mesh;
-
             this.assetPath =
                 assetPath;
         }
@@ -189,6 +181,153 @@ public static class TerrainCollisionMeshGenerator
             this.coordinate = coordinate;
             this.mesh = mesh;
             this.outcome = outcome;
+        }
+    }
+
+    private sealed class FullCollisionResidencyWindow
+    {
+        private readonly List<PreparedCollisionMesh> meshes;
+
+        public int Count =>
+            meshes.Count;
+
+        public IReadOnlyList<PreparedCollisionMesh> Meshes =>
+            meshes;
+
+        public FullCollisionResidencyWindow(
+            int initialCapacity
+        )
+        {
+            meshes =
+                new List<PreparedCollisionMesh>(
+                    Math.Max(
+                        0,
+                        initialCapacity
+                    )
+                );
+        }
+
+        public bool WouldExceed(
+            int incomingCount,
+            int residencyLimit
+        )
+        {
+            if (incomingCount < 0)
+            {
+                return true;
+            }
+
+            long combinedCount =
+                (long)meshes.Count +
+                incomingCount;
+
+            return
+                combinedCount >
+                Math.Max(
+                    1,
+                    residencyLimit
+                );
+        }
+
+        public bool TryAdd(
+            IReadOnlyList<PreparedCollisionMesh> preparedBatch,
+            int residencyLimit,
+            out string errorMessage
+        )
+        {
+            errorMessage =
+                "";
+
+            if (preparedBatch == null)
+            {
+                errorMessage =
+                    "Cannot add a null prepared collision batch to the Full residency window.";
+
+                return false;
+            }
+
+            if (
+                WouldExceed(
+                    preparedBatch.Count,
+                    residencyLimit
+                )
+            )
+            {
+                errorMessage =
+                    "Prepared Full collision batch would exceed the bounded Mesh residency window.\n\n" +
+                    "Resident Meshes: " +
+                    meshes.Count +
+                    "\nIncoming Meshes: " +
+                    preparedBatch.Count +
+                    "\nResidency Limit: " +
+                    residencyLimit;
+
+                return false;
+            }
+
+            for (
+                int index = 0;
+                index < preparedBatch.Count;
+                index++
+            )
+            {
+                PreparedCollisionMesh prepared =
+                    preparedBatch[index];
+
+                if (
+                    prepared == null
+                    ||
+                    prepared.mesh == null
+                )
+                {
+                    errorMessage =
+                        "Prepared Full collision batch contains a null Mesh.";
+
+                    return false;
+                }
+            }
+
+            for (
+                int index = 0;
+                index < preparedBatch.Count;
+                index++
+            )
+            {
+                meshes.Add(
+                    preparedBatch[index]
+                );
+            }
+
+            return true;
+        }
+
+        public void RemovePrefix(
+            int count
+        )
+        {
+            int safeCount =
+                Math.Min(
+                    Math.Max(
+                        0,
+                        count
+                    ),
+                    meshes.Count
+                );
+
+            if (safeCount <= 0)
+            {
+                return;
+            }
+
+            meshes.RemoveRange(
+                0,
+                safeCount
+            );
+        }
+
+        public void ClearStrongReferences()
+        {
+            meshes.Clear();
         }
     }
 
@@ -850,9 +989,15 @@ public static class TerrainCollisionMeshGenerator
         List<Vector2Int> failed =
             new List<Vector2Int>();
 
-        List<PreparedCollisionMesh> pendingFullPersistence =
-            new List<PreparedCollisionMesh>(
-                FullPersistenceChunkThreshold
+        int fullResidencyLimit =
+            TerrainCollisionBakeResidencyUtility
+                .GetFullMeshResidencyLimit(
+                    tileChunkSpan
+                );
+
+        FullCollisionResidencyWindow fullResidencyWindow =
+            new FullCollisionResidencyWindow(
+                fullResidencyLimit
             );
 
         int createdCount =
@@ -893,8 +1038,8 @@ public static class TerrainCollisionMeshGenerator
 
         Dictionary<
             Vector2Int,
-            ExistingCollisionMeshRecord
-        > fullExistingMeshes =
+            ExistingCollisionAssetRecord
+        > fullExistingAssets =
             null;
 
         CollisionProgressReporter progressReporter =
@@ -917,12 +1062,12 @@ public static class TerrainCollisionMeshGenerator
                 TerrainRuntimeBakeWorkMode.Full
             )
             {
-                fullExistingMeshes =
-                    FindExistingCollisionMeshes();
+                fullExistingAssets =
+                    FindExistingCollisionAssets();
 
                 List<Vector2Int> existingCoordinates =
                     CopySortedUniqueCoordinates(
-                        fullExistingMeshes.Keys
+                        fullExistingAssets.Keys
                     );
 
                 int obsoleteProgress =
@@ -970,8 +1115,8 @@ public static class TerrainCollisionMeshGenerator
                         break;
                     }
 
-                    ExistingCollisionMeshRecord existingRecord =
-                        fullExistingMeshes[
+                    ExistingCollisionAssetRecord existingRecord =
+                        fullExistingAssets[
                             coordinate
                         ];
 
@@ -992,7 +1137,7 @@ public static class TerrainCollisionMeshGenerator
                         break;
                     }
 
-                    fullExistingMeshes.Remove(
+                    fullExistingAssets.Remove(
                         coordinate
                     );
 
@@ -1041,6 +1186,48 @@ public static class TerrainCollisionMeshGenerator
                     in tileCoordinates
                 )
                 {
+                    List<Vector2Int> chunks =
+                        groups[
+                            tileCoordinate
+                        ];
+
+                    /*
+                     * Full mode owns only a bounded window of cooked collision
+                     * Meshes. Flush the previous durable window BEFORE loading
+                     * the next height tile whenever that tile would exceed the
+                     * residency limit. This makes the heavy ownership boundary
+                     * independent of total world dimensions.
+                     */
+                    if (
+                        workMode ==
+                            TerrainRuntimeBakeWorkMode.Full
+                        &&
+                        fullResidencyWindow.Count > 0
+                        &&
+                        fullResidencyWindow.WouldExceed(
+                            chunks.Count,
+                            fullResidencyLimit
+                        )
+                    )
+                    {
+                        if (
+                            !TryFlushFullCollisionResidencyWindow(
+                                worldSettings,
+                                fullResidencyWindow,
+                                succeeded,
+                                ref createdCount,
+                                ref updatedCount,
+                                out string residencyFlushError
+                            )
+                        )
+                        {
+                            failureMessage =
+                                residencyFlushError;
+
+                            break;
+                        }
+                    }
+
                     if (
                         !TryLoadHeightTile(
                             tileCoordinate,
@@ -1051,13 +1238,8 @@ public static class TerrainCollisionMeshGenerator
                         )
                     )
                     {
-                        List<Vector2Int> group =
-                            groups[
-                                tileCoordinate
-                            ];
-
                         failed.AddRange(
-                            group
+                            chunks
                         );
 
                         failureMessage =
@@ -1076,18 +1258,11 @@ public static class TerrainCollisionMeshGenerator
                             "Unexpected null runtime height tile.";
 
                         failed.AddRange(
-                            groups[
-                                tileCoordinate
-                            ]
+                            chunks
                         );
 
                         break;
                     }
-
-                    List<Vector2Int> chunks =
-                        groups[
-                            tileCoordinate
-                        ];
 
                     List<PreparedCollisionMesh> preparedBatch =
                         new List<PreparedCollisionMesh>(
@@ -1501,7 +1676,7 @@ public static class TerrainCollisionMeshGenerator
                             if (
                                 !TryResolveCollisionMeshDataTargets(
                                     meshDataEntries,
-                                    fullExistingMeshes,
+                                    fullExistingAssets,
                                     destinationMeshes,
                                     preparedBatch,
                                     out string targetResolutionError
@@ -1652,9 +1827,8 @@ public static class TerrainCollisionMeshGenerator
                      * Full persistence work until every Mesh is prepared and
                      * the complete C01 PhysX batch has cooked successfully.
                      * Previously approved Full batches may remain in the
-                     * separate pendingFullPersistence accumulator and can be
-                     * targeted-saved safely if this current batch terminates
-                     * abnormally.
+                     * bounded Full residency window and can be targeted-saved
+                     * safely if this current batch terminates abnormally.
                      */
                     if (
                         !string.IsNullOrEmpty(
@@ -1818,9 +1992,9 @@ public static class TerrainCollisionMeshGenerator
                         )
                         {
                             if (
-                                !TryAddPreparedBatchToFullPersistence(
-                                    pendingFullPersistence,
+                                !fullResidencyWindow.TryAdd(
                                     preparedBatch,
+                                    fullResidencyLimit,
                                     out string accumulationError
                                 )
                             )
@@ -1839,34 +2013,6 @@ public static class TerrainCollisionMeshGenerator
                                     accumulationError;
 
                                 break;
-                            }
-
-                            if (
-                                pendingFullPersistence.Count >=
-                                FullPersistenceChunkThreshold
-                            )
-                            {
-                                if (
-                                    !TryPersistFullCollisionCheckpoint(
-                                        pendingFullPersistence,
-                                        out string persistenceError
-                                    )
-                                )
-                                {
-                                    failureMessage =
-                                        persistenceError;
-
-                                    break;
-                                }
-
-                                CommitPersistedCollisionMeshes(
-                                    pendingFullPersistence,
-                                    succeeded,
-                                    ref createdCount,
-                                    ref updatedCount
-                                );
-
-                                pendingFullPersistence.Clear();
                             }
                         }
 
@@ -1938,29 +2084,22 @@ public static class TerrainCollisionMeshGenerator
             workMode ==
             TerrainRuntimeBakeWorkMode.Full
             &&
-            pendingFullPersistence.Count > 0
+            fullResidencyWindow.Count > 0
         )
         {
             if (
-                !TryPersistFullCollisionCheckpoint(
-                    pendingFullPersistence,
+                !TryFlushFullCollisionResidencyWindow(
+                    worldSettings,
+                    fullResidencyWindow,
+                    succeeded,
+                    ref createdCount,
+                    ref updatedCount,
                     out string finalPersistenceError
                 )
             )
             {
                 failureMessage =
                     finalPersistenceError;
-            }
-            else
-            {
-                CommitPersistedCollisionMeshes(
-                    pendingFullPersistence,
-                    succeeded,
-                    ref createdCount,
-                    ref updatedCount
-                );
-
-                pendingFullPersistence.Clear();
             }
         }
 
@@ -1982,17 +2121,17 @@ public static class TerrainCollisionMeshGenerator
                 workMode ==
                 TerrainRuntimeBakeWorkMode.Full
                 &&
-                pendingFullPersistence.Count > 0
+                fullResidencyWindow.Count > 0
             )
             {
                 List<PreparedCollisionMesh> recoveredMeshes =
                     new List<PreparedCollisionMesh>(
-                        pendingFullPersistence.Count
+                        fullResidencyWindow.Count
                     );
 
                 bool recoverySucceeded =
                     TryPersistPendingFullMeshesIndividually(
-                        pendingFullPersistence,
+                        fullResidencyWindow.Meshes,
                         recoveredMeshes,
                         out string recoveryError
                     );
@@ -2006,8 +2145,7 @@ public static class TerrainCollisionMeshGenerator
                         ref updatedCount
                     );
 
-                    pendingFullPersistence.RemoveRange(
-                        0,
+                    fullResidencyWindow.RemovePrefix(
                         recoveredMeshes.Count
                     );
                 }
@@ -2016,7 +2154,7 @@ public static class TerrainCollisionMeshGenerator
                 {
                     foreach (
                         PreparedCollisionMesh pending
-                        in pendingFullPersistence
+                        in fullResidencyWindow.Meshes
                     )
                     {
                         failed.Add(
@@ -2046,6 +2184,38 @@ public static class TerrainCollisionMeshGenerator
                             CombineDiagnosticMessages(
                                 failureMessage,
                                 recoveryError
+                            );
+                    }
+                }
+                else if (
+                    fullResidencyWindow.Count == 0
+                    &&
+                    !TerrainCollisionBakeResidencyUtility
+                        .TryReleaseUnusedAssets(
+                            worldSettings,
+                            "Collision.FullResidencyRelease",
+                            TerrainRuntimeBakePipelineState.Collision,
+                            out string recoveryReleaseError
+                        )
+                )
+                {
+                    if (staleDuringGeneration)
+                    {
+                        staleMessage =
+                            CombineDiagnosticMessages(
+                                staleMessage,
+                                recoveryReleaseError
+                            );
+                    }
+                    else
+                    {
+                        cancelled =
+                            false;
+
+                        failureMessage =
+                            CombineDiagnosticMessages(
+                                failureMessage,
+                                recoveryReleaseError
                             );
                     }
                 }
@@ -3438,8 +3608,8 @@ public static class TerrainCollisionMeshGenerator
         CollisionMeshDataEntry[] entries,
         Dictionary<
             Vector2Int,
-            ExistingCollisionMeshRecord
-        > fullExistingMeshes,
+            ExistingCollisionAssetRecord
+        > fullExistingAssets,
         List<Mesh> destinationMeshes,
         List<PreparedCollisionMesh> preparedBatch,
         out string errorMessage
@@ -3488,17 +3658,13 @@ public static class TerrainCollisionMeshGenerator
             Mesh mesh =
                 null;
 
-            if (fullExistingMeshes != null)
+            if (fullExistingAssets != null)
             {
                 if (
-                    fullExistingMeshes.TryGetValue(
+                    fullExistingAssets.TryGetValue(
                         coordinate,
-                        out ExistingCollisionMeshRecord existingRecord
+                        out ExistingCollisionAssetRecord existingRecord
                     )
-                    &&
-                    existingRecord != null
-                    &&
-                    existingRecord.mesh != null
                     &&
                     string.Equals(
                         existingRecord.assetPath,
@@ -3508,7 +3674,24 @@ public static class TerrainCollisionMeshGenerator
                 )
                 {
                     mesh =
-                        existingRecord.mesh;
+                        AssetDatabase
+                            .LoadAssetAtPath<Mesh>(
+                                existingRecord.assetPath
+                            );
+
+                    if (mesh == null)
+                    {
+                        errorMessage =
+                            "Existing Full collision Mesh could not be loaded.\n\n" +
+                            "Chunk: (" +
+                            coordinate.x +
+                            ", " +
+                            coordinate.y +
+                            ")\nAsset: " +
+                            existingRecord.assetPath;
+
+                        return false;
+                    }
                 }
             }
             else
@@ -3981,27 +4164,34 @@ public static class TerrainCollisionMeshGenerator
         return true;
     }
 
-    private static bool TryAddPreparedBatchToFullPersistence(
-        List<PreparedCollisionMesh> pendingFullPersistence,
-        IReadOnlyList<PreparedCollisionMesh> preparedBatch,
+    private static bool TryFlushFullCollisionResidencyWindow(
+        WorldSettings worldSettings,
+        FullCollisionResidencyWindow residencyWindow,
+        List<Vector2Int> succeeded,
+        ref int createdCount,
+        ref int updatedCount,
         out string errorMessage
     )
     {
         errorMessage =
             "";
 
-        if (pendingFullPersistence == null)
+        if (residencyWindow == null)
         {
             errorMessage =
-                "Full collision persistence accumulator is unavailable.";
+                "Full collision residency window is unavailable.";
 
             return false;
         }
 
+        if (residencyWindow.Count == 0)
+        {
+            return true;
+        }
+
         if (
-            !TryValidatePreparedCollisionMeshes(
-                preparedBatch,
-                "prepared Full collision batch",
+            !TryPersistFullCollisionCheckpoint(
+                residencyWindow.Meshes,
                 out errorMessage
             )
         )
@@ -4009,15 +4199,33 @@ public static class TerrainCollisionMeshGenerator
             return false;
         }
 
-        for (
-            int index = 0;
-            index < preparedBatch.Count;
-            index++
+        CommitPersistedCollisionMeshes(
+            residencyWindow.Meshes,
+            succeeded,
+            ref createdCount,
+            ref updatedCount
+        );
+
+        /*
+         * The checkpoint is durable before strong Mesh ownership is dropped.
+         * From this point onward the result history contains coordinates only,
+         * so Unity can reclaim collision Mesh/PhysX native state that has no
+         * other legitimate Editor owner.
+         */
+        residencyWindow
+            .ClearStrongReferences();
+
+        if (
+            !TerrainCollisionBakeResidencyUtility
+                .TryReleaseUnusedAssets(
+                    worldSettings,
+                    "Collision.FullResidencyRelease",
+                    TerrainRuntimeBakePipelineState.Collision,
+                    out errorMessage
+                )
         )
         {
-            pendingFullPersistence.Add(
-                preparedBatch[index]
-            );
+            return false;
         }
 
         return true;
@@ -4798,16 +5006,16 @@ public static class TerrainCollisionMeshGenerator
 
     private static Dictionary<
         Vector2Int,
-        ExistingCollisionMeshRecord
-    > FindExistingCollisionMeshes()
+        ExistingCollisionAssetRecord
+    > FindExistingCollisionAssets()
     {
         Dictionary<
             Vector2Int,
-            ExistingCollisionMeshRecord
-        > meshes =
+            ExistingCollisionAssetRecord
+        > assets =
             new Dictionary<
                 Vector2Int,
-                ExistingCollisionMeshRecord
+                ExistingCollisionAssetRecord
             >();
 
         if (
@@ -4817,7 +5025,7 @@ public static class TerrainCollisionMeshGenerator
         )
         {
             return
-                meshes;
+                assets;
         }
 
         string[] guids =
@@ -4851,13 +5059,18 @@ public static class TerrainCollisionMeshGenerator
                 continue;
             }
 
-            Mesh mesh =
+            /*
+             * Full discovery is deliberately metadata-only. Loading every
+             * Mesh here would make native geometry/cooked PhysX residency
+             * scale with total world size before generation even begins.
+             */
+            if (
                 AssetDatabase
-                    .LoadAssetAtPath<Mesh>(
+                    .GetMainAssetTypeAtPath(
                         path
-                    );
-
-            if (mesh == null)
+                    )
+                != typeof(Mesh)
+            )
             {
                 continue;
             }
@@ -4868,20 +5081,19 @@ public static class TerrainCollisionMeshGenerator
                     z
                 );
 
-            ExistingCollisionMeshRecord candidate =
-                new ExistingCollisionMeshRecord(
-                    mesh,
+            ExistingCollisionAssetRecord candidate =
+                new ExistingCollisionAssetRecord(
                     path
                 );
 
             if (
-                !meshes.TryGetValue(
+                !assets.TryGetValue(
                     coordinate,
-                    out ExistingCollisionMeshRecord existingRecord
+                    out ExistingCollisionAssetRecord existingRecord
                 )
             )
             {
-                meshes.Add(
+                assets.Add(
                     coordinate,
                     candidate
                 );
@@ -4896,8 +5108,6 @@ public static class TerrainCollisionMeshGenerator
                 );
 
             bool existingIsCanonical =
-                existingRecord != null
-                &&
                 string.Equals(
                     existingRecord.assetPath,
                     expectedPath,
@@ -4917,7 +5127,7 @@ public static class TerrainCollisionMeshGenerator
                 candidateIsCanonical
             )
             {
-                meshes[
+                assets[
                     coordinate
                 ] =
                     candidate;
@@ -4925,7 +5135,7 @@ public static class TerrainCollisionMeshGenerator
         }
 
         return
-            meshes;
+            assets;
     }
 
     // =====================================================

@@ -1017,15 +1017,16 @@ public static class TerrainCollisionAddressablesUtility
                             chunkZ
                         );
 
-                    Mesh mesh =
-                        AssetDatabase.LoadAssetAtPath<Mesh>(
-                            assetPath
-                        );
-
-                    if (mesh == null)
+                    if (
+                        AssetDatabase
+                            .GetMainAssetTypeAtPath(
+                                assetPath
+                            )
+                        != typeof(Mesh)
+                    )
                     {
                         errorMessage =
-                            "Missing collision Mesh (" +
+                            "Missing or invalid collision Mesh (" +
                             chunkX +
                             ", " +
                             chunkZ +
