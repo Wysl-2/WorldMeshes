@@ -242,38 +242,82 @@ internal static class TerrainAuthoringPreviewStreamingOverlay
                 LoadingOverlayHeight
             );
 
+        const float padding =
+            8f;
+
+        const float rowHeight =
+            18f;
+
+        Rect contentRect =
+            new Rect(
+                area.x + padding,
+                area.y + padding,
+                Mathf.Max(
+                    0f,
+                    area.width -
+                        (padding * 2f)
+                ),
+                Mathf.Max(
+                    0f,
+                    area.height -
+                        (padding * 2f)
+                )
+            );
+
+        Rect titleRect =
+            new Rect(
+                contentRect.x,
+                contentRect.y,
+                contentRect.width,
+                rowHeight
+            );
+
+        Rect statusRect =
+            new Rect(
+                contentRect.x,
+                titleRect.yMax + 4f,
+                contentRect.width,
+                rowHeight
+            );
+
+        Rect progressRect =
+            new Rect(
+                contentRect.x,
+                statusRect.yMax + 6f,
+                contentRect.width,
+                rowHeight
+            );
+
+        string statusText =
+            snapshot.SourceTileCount > 0
+                ? $"Prepared {snapshot.SourceComposedCount:N0} / " +
+                    $"{snapshot.SourceTileCount:N0} tiles"
+                : "Preparing resident terrain...";
+
         Handles.BeginGUI();
 
-        GUILayout.BeginArea(
+        /*
+         * This overlay can appear or disappear between IMGUI Layout and
+         * Repaint events as streaming state advances. Explicit Rect-based GUI
+         * calls avoid GUILayout's requirement that both passes build the same
+         * control tree.
+         */
+        GUI.Box(
             area,
+            GUIContent.none,
             EditorStyles.helpBox
         );
 
-        GUILayout.Label(
+        GUI.Label(
+            titleRect,
             "Loading terrain preview...",
             EditorStyles.boldLabel
         );
 
-        if (snapshot.SourceTileCount > 0)
-        {
-            EditorGUILayout.LabelField(
-                $"Prepared {snapshot.SourceComposedCount:N0} / " +
-                $"{snapshot.SourceTileCount:N0} tiles"
-            );
-        }
-        else
-        {
-            EditorGUILayout.LabelField(
-                "Preparing resident terrain..."
-            );
-        }
-
-        Rect progressRect =
-            GUILayoutUtility.GetRect(
-                10f,
-                18f,
-                GUILayout.ExpandWidth(true)
-            );
+        GUI.Label(
+            statusRect,
+            statusText
+        );
 
         EditorGUI.ProgressBar(
             progressRect,
@@ -282,8 +326,6 @@ internal static class TerrainAuthoringPreviewStreamingOverlay
             ),
             snapshot.StreamingProgress.ToString("P0")
         );
-
-        GUILayout.EndArea();
 
         Handles.EndGUI();
     }
@@ -311,21 +353,23 @@ internal static class TerrainAuthoringPreviewStreamingOverlay
                 ? "Previous resident terrain remains active."
                 : "No replacement terrain cache was activated.";
 
-        Handles.BeginGUI();
-
-        GUILayout.BeginArea(
-            area
-        );
-
-        EditorGUILayout.HelpBox(
+        string message =
             "Terrain preview could not load this area.\n\n" +
             preservationMessage +
             "\n\n" +
-            failureMessage,
+            failureMessage;
+
+        Handles.BeginGUI();
+
+        /*
+         * Keep failure feedback independent from GUILayout for the same
+         * Layout/Repaint consistency reason as the loading overlay.
+         */
+        EditorGUI.HelpBox(
+            area,
+            message,
             MessageType.Error
         );
-
-        GUILayout.EndArea();
 
         Handles.EndGUI();
     }
