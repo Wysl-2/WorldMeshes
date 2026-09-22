@@ -571,6 +571,45 @@ public static class TerrainCollisionMeshGenerator
             chunkSize /
             collisionResolution;
 
+        if (
+            !TryCreateCollisionTriangleTopology(
+                collisionResolution,
+                out int[] collisionTopology,
+                out string topologyError
+            )
+        )
+        {
+            return
+                CreateResult(
+                    TerrainCollisionGenerationOutcome.Failed,
+                    workMode,
+                    requestedChunks,
+                    null,
+                    null,
+                    requestedChunks,
+                    0,
+                    0,
+                    0,
+                    false,
+                    revisionBefore,
+                    revisionBefore,
+                    sourceHeightRevisionBefore,
+                    sourceHeightRevisionBefore,
+                    false,
+                    false,
+                    topologyError,
+                    ""
+                );
+        }
+
+        using TerrainRuntimeBakeTrackedMemoryLease collisionTopologyMemory =
+            TerrainRuntimeBakePerformanceDiagnostics.TrackTemporaryMemory(
+                "Collision.TopologyBuffer",
+                TerrainRuntimeBakePipelineState.Collision,
+                TerrainRuntimeBakeTrackedMemoryCategory.CollisionBuffer,
+                (long)collisionTopology.Length * sizeof(int)
+            );
+
         List<Vector2Int> succeeded =
             new List<Vector2Int>();
 
@@ -855,6 +894,7 @@ public static class TerrainCollisionMeshGenerator
                                     collisionVertexSpacing,
                                     samplesPerTile,
                                     heightData,
+                                    collisionTopology,
                                     out Mesh preparedMesh
                                 );
 
@@ -1763,6 +1803,180 @@ public static class TerrainCollisionMeshGenerator
     }
 
     // =====================================================
+    // COLLISION TOPOLOGY
+    // =====================================================
+
+    private static bool TryCreateCollisionTriangleTopology(
+        int collisionResolution,
+        out int[] topology,
+        out string errorMessage
+    )
+    {
+        topology =
+            null;
+
+        errorMessage =
+            "";
+
+        if (collisionResolution < 1)
+        {
+            errorMessage =
+                "Collision topology requires a collision resolution of at least 1.";
+
+            return false;
+        }
+
+        try
+        {
+            using TerrainRuntimeBakePerformanceScope topologyPerformance =
+                TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
+                    "Collision.TopologyGeneration",
+                    TerrainRuntimeBakePipelineState.Collision,
+                    TerrainRuntimeBakePerformanceCategory.Generate
+                );
+
+            int verticesPerSide;
+            int vertexCount;
+            int triangleIndexCount;
+
+            checked
+            {
+                verticesPerSide =
+                    collisionResolution +
+                    1;
+
+                vertexCount =
+                    verticesPerSide *
+                    verticesPerSide;
+
+                triangleIndexCount =
+                    collisionResolution *
+                    collisionResolution *
+                    6;
+            }
+
+            int[] generatedTopology =
+                new int[
+                    triangleIndexCount
+                ];
+
+            int triangleIndex =
+                0;
+
+            for (
+                int z = 0;
+                z < collisionResolution;
+                z++
+            )
+            {
+                for (
+                    int x = 0;
+                    x < collisionResolution;
+                    x++
+                )
+                {
+                    int bottomLeft =
+                        z *
+                        verticesPerSide +
+                        x;
+
+                    int bottomRight =
+                        bottomLeft +
+                        1;
+
+                    int topLeft =
+                        bottomLeft +
+                        verticesPerSide;
+
+                    int topRight =
+                        topLeft +
+                        1;
+
+                    if (
+                        bottomLeft < 0
+                        ||
+                        topRight >=
+                            vertexCount
+                    )
+                    {
+                        errorMessage =
+                            "Collision topology generated an out-of-range vertex index.";
+
+                        return false;
+                    }
+
+                    generatedTopology[
+                        triangleIndex++
+                    ] =
+                        bottomLeft;
+
+                    generatedTopology[
+                        triangleIndex++
+                    ] =
+                        topLeft;
+
+                    generatedTopology[
+                        triangleIndex++
+                    ] =
+                        bottomRight;
+
+                    generatedTopology[
+                        triangleIndex++
+                    ] =
+                        bottomRight;
+
+                    generatedTopology[
+                        triangleIndex++
+                    ] =
+                        topLeft;
+
+                    generatedTopology[
+                        triangleIndex++
+                    ] =
+                        topRight;
+                }
+            }
+
+            if (
+                triangleIndex !=
+                generatedTopology.Length
+            )
+            {
+                errorMessage =
+                    "Collision topology generation produced an unexpected index count.\n\n" +
+                    "Expected: " +
+                    generatedTopology.Length +
+                    "\n" +
+                    "Actual: " +
+                    triangleIndex;
+
+                return false;
+            }
+
+            topology =
+                generatedTopology;
+
+            return true;
+        }
+        catch (OverflowException exception)
+        {
+            errorMessage =
+                "Collision topology size overflowed the supported integer range.\n\n" +
+                exception.Message;
+
+            return false;
+        }
+        catch (OutOfMemoryException exception)
+        {
+            errorMessage =
+                "Could not allocate the collision topology buffer.\n\n" +
+                exception.Message;
+
+            return false;
+        }
+    }
+
+    // =====================================================
     // GENERATE / UPDATE ONE COLLISION MESH
     // =====================================================
 
@@ -1779,6 +1993,7 @@ public static class TerrainCollisionMeshGenerator
             float collisionVertexSpacing,
             int heightSamplesPerTile,
             NativeArray<float> heightData,
+            int[] collisionTopology,
             out Mesh preparedMesh
         )
     {
@@ -1793,33 +2008,60 @@ public static class TerrainCollisionMeshGenerator
             verticesPerSide *
             verticesPerSide;
 
-        int triangleIndexCount =
+        long expectedTriangleIndexCount =
+            (long)collisionResolution *
             collisionResolution *
-            collisionResolution *
-            6;
+            6L;
+
+        if (
+            collisionTopology == null
+            ||
+            collisionTopology.Length !=
+                expectedTriangleIndexCount
+        )
+        {
+            Debug.LogError(
+                "Collision topology does not match the requested collision resolution.\n\n" +
+                "Chunk: (" +
+                chunkX +
+                ", " +
+                chunkZ +
+                ")\n" +
+                "Resolution: " +
+                collisionResolution +
+                "\n" +
+                "Expected Indices: " +
+                expectedTriangleIndexCount +
+                "\n" +
+                "Actual Indices: " +
+                (
+                    collisionTopology != null
+                        ? collisionTopology.Length
+                        : 0
+                )
+            );
+
+            return
+                TerrainCollisionMeshWriteOutcome
+                    .Failed;
+        }
 
         Vector3[] vertices =
             new Vector3[
                 vertexCount
             ];
 
-        int[] triangles =
-            new int[
-                triangleIndexCount
-            ];
-
         using TerrainRuntimeBakeTrackedMemoryLease collisionBufferMemory =
             TerrainRuntimeBakePerformanceDiagnostics.TrackTemporaryMemory(
-                "Collision.VertexIndexBuffers",
+                "Collision.VertexBuffer",
                 TerrainRuntimeBakePipelineState.Collision,
                 TerrainRuntimeBakeTrackedMemoryCategory.CollisionBuffer,
-                (long)vertexCount * 12L +
-                (long)triangleIndexCount * sizeof(int)
+                (long)vertexCount * 12L
             );
 
         using TerrainRuntimeBakePerformanceScope geometryPerformance =
             TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
-                "Collision.VertexIndexGeneration",
+                "Collision.VertexGeneration",
                 TerrainRuntimeBakePipelineState.Collision,
                 TerrainRuntimeBakePerformanceCategory.Generate
             );
@@ -1942,70 +2184,6 @@ public static class TerrainCollisionMeshGenerator
             }
         }
 
-        int triangleIndex =
-            0;
-
-        for (
-            int z = 0;
-            z < collisionResolution;
-            z++
-        )
-        {
-            for (
-                int x = 0;
-                x < collisionResolution;
-                x++
-            )
-            {
-                int bottomLeft =
-                    z *
-                    verticesPerSide +
-                    x;
-
-                int bottomRight =
-                    bottomLeft +
-                    1;
-
-                int topLeft =
-                    bottomLeft +
-                    verticesPerSide;
-
-                int topRight =
-                    topLeft +
-                    1;
-
-                triangles[
-                    triangleIndex++
-                ] =
-                    bottomLeft;
-
-                triangles[
-                    triangleIndex++
-                ] =
-                    topLeft;
-
-                triangles[
-                    triangleIndex++
-                ] =
-                    bottomRight;
-
-                triangles[
-                    triangleIndex++
-                ] =
-                    bottomRight;
-
-                triangles[
-                    triangleIndex++
-                ] =
-                    topLeft;
-
-                triangles[
-                    triangleIndex++
-                ] =
-                    topRight;
-            }
-        }
-
         geometryPerformance?.Complete();
 
         using TerrainRuntimeBakePerformanceScope meshPerformance =
@@ -2061,7 +2239,7 @@ public static class TerrainCollisionMeshGenerator
             vertices;
 
         mesh.triangles =
-            triangles;
+            collisionTopology;
 
         mesh.RecalculateBounds();
 
