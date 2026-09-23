@@ -708,6 +708,20 @@ public static class TerrainRuntimeHeightCompiler
             }
         }
 
+        TerrainHeightStreamingCompileContext heightStreamingCompile =
+            TerrainHeightStreamingCompileContext.Create(
+                worldSettings,
+                runtimeManifest,
+                workMode,
+                requestedTiles.Count
+            );
+
+        List<TerrainHeightStreamingFamilyWriteResult>
+            preparedStreamingBatch =
+                new List<TerrainHeightStreamingFamilyWriteResult>(
+                    HeightPersistenceBatchTileCount
+                );
+
         preparePerformance?.Complete();
 
         using TerrainRuntimeBakePerformanceScope generationPerformance =
@@ -871,6 +885,18 @@ public static class TerrainRuntimeHeightCompiler
                     addressablesConfigurationDirty =
                         true;
                 }
+
+                TerrainHeightStreamingFamilyWriteResult
+                    streamingFamily =
+                        heightStreamingCompile
+                            .PrepareFamily(
+                                coordinate,
+                                compiledHeightData
+                            );
+
+                preparedStreamingBatch.Add(
+                    streamingFamily
+                );
 
                 preparedBatch.Add(
                     new PreparedHeightTile(
@@ -1099,6 +1125,11 @@ public static class TerrainRuntimeHeightCompiler
                     break;
                 }
 
+                heightStreamingCompile
+                    .RecordDurableBatch(
+                        preparedStreamingBatch
+                    );
+
                 bool batchCreatedAsset =
                     false;
 
@@ -1159,6 +1190,8 @@ public static class TerrainRuntimeHeightCompiler
                 }
 
                 preparedBatch.Clear();
+
+                preparedStreamingBatch.Clear();
 
                 if (
                     staleDuringGeneration
@@ -1529,6 +1562,11 @@ public static class TerrainRuntimeHeightCompiler
                 target.AuthoringSignature
             );
 
+        heightStreamingCompile
+            .FinalizeAfterNativeSuccess(
+                worldSettings
+            );
+
         using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
         {
             AssetDatabase.SaveAssets();
@@ -1566,7 +1604,7 @@ public static class TerrainRuntimeHeightCompiler
         Selection.activeObject =
             runtimeManifest;
 
-        return
+        TerrainRuntimeHeightCompileResult completedResult =
             new TerrainRuntimeHeightCompileResult(
                 TerrainRuntimeHeightCompileOutcome.Completed,
                 workMode,
@@ -1588,6 +1626,13 @@ public static class TerrainRuntimeHeightCompiler
                     : "The complete runtime height dataset was rebuilt and " +
                       "finalized."
             );
+
+        completedResult.SetHeightStreamingSummary(
+            heightStreamingCompile.CreateSummary()
+        );
+
+        return
+            completedResult;
     }
 
     // =====================================================
@@ -2891,6 +2936,26 @@ public static class TerrainRuntimeHeightCompiler
         switch (result.Outcome)
         {
             case TerrainRuntimeHeightCompileOutcome.Completed:
+                if (
+                    result.HeightStreaming != null
+                    &&
+                    result.HeightStreaming.Evaluated
+                    &&
+                    !result.HeightStreaming.DatasetFinalized
+                )
+                {
+                    Debug.LogWarning(
+                        report
+                    );
+                }
+                else
+                {
+                    Debug.Log(
+                        report
+                    );
+                }
+                break;
+
             case TerrainRuntimeHeightCompileOutcome.NoWork:
                 Debug.Log(
                     report

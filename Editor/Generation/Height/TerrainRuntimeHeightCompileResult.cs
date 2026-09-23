@@ -111,6 +111,12 @@ public sealed class TerrainRuntimeHeightCompileResult
         private set;
     }
 
+    public TerrainHeightStreamingCompileSummary HeightStreaming
+    {
+        get;
+        private set;
+    }
+
     internal TerrainRuntimeHeightCompileResult(
         TerrainRuntimeHeightCompileOutcome outcome,
         TerrainRuntimeBakeWorkMode workMode,
@@ -188,6 +194,20 @@ public sealed class TerrainRuntimeHeightCompileResult
         SummaryMessage =
             summaryMessage ??
             "";
+
+        HeightStreaming =
+            TerrainHeightStreamingCompileSummary
+                .NotEvaluated;
+    }
+
+    internal void SetHeightStreamingSummary(
+        TerrainHeightStreamingCompileSummary summary
+    )
+    {
+        HeightStreaming =
+            summary ??
+            TerrainHeightStreamingCompileSummary
+                .NotEvaluated;
     }
 
     public string BuildDiagnosticReport()
@@ -256,6 +276,10 @@ public sealed class TerrainRuntimeHeightCompileResult
             RemovedTileCount
         );
 
+        AppendHeightStreamingSummary(
+            builder
+        );
+
         if (!string.IsNullOrEmpty(SummaryMessage))
         {
             builder.AppendLine();
@@ -296,6 +320,90 @@ public sealed class TerrainRuntimeHeightCompileResult
 
         return
             builder.ToString();
+    }
+
+    private void AppendHeightStreamingSummary(
+        StringBuilder builder
+    )
+    {
+        if (
+            HeightStreaming == null
+            ||
+            !HeightStreaming.Evaluated
+        )
+        {
+            return;
+        }
+
+        builder.AppendLine();
+
+        builder.AppendLine(
+            "Height Streaming Pyramid"
+        );
+
+        builder.AppendLine(
+            "Generation Enabled: " +
+            HeightStreaming.GenerationEnabled
+        );
+
+        builder.AppendLine(
+            "Target Strides: " +
+            (
+                HeightStreaming.TargetStrides.Count > 0
+                    ? string.Join(
+                        ", ",
+                        HeightStreaming.TargetStrides
+                    )
+                    : "None"
+            )
+        );
+
+        builder.AppendLine(
+            "Requested Families: " +
+            HeightStreaming.RequestedFamilyCount
+        );
+
+        builder.AppendLine(
+            "Complete Families: " +
+            HeightStreaming.CompleteFamilyCount
+        );
+
+        builder.AppendLine(
+            "Incomplete Families: " +
+            HeightStreaming.IncompleteFamilyCount
+        );
+
+        builder.AppendLine(
+            "Created Derived Assets: " +
+            HeightStreaming.CreatedAssetCount
+        );
+
+        builder.AppendLine(
+            "Updated Derived Assets: " +
+            HeightStreaming.UpdatedAssetCount
+        );
+
+        builder.AppendLine(
+            "Removed Derived Assets: " +
+            HeightStreaming.RemovedAssetCount
+        );
+
+        builder.AppendLine(
+            "Streaming Dataset Finalized: " +
+            HeightStreaming.DatasetFinalized
+        );
+
+        if (
+            !string.IsNullOrEmpty(
+                HeightStreaming.FirstError
+            )
+        )
+        {
+            builder.AppendLine(
+                "First Streaming Error: " +
+                HeightStreaming.FirstError
+            );
+        }
     }
 
     private static ReadOnlyCollection<Vector2Int>
