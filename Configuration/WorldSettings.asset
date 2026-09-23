@@ -24,13 +24,14 @@ MonoBehaviour:
   heightOctaves: 4
   heightPersistence: 0.5
   heightLacunarity: 2
+  heightStreamingMaximumStride: 32
   collisionResolution: 64
   clipmapCenterResolution: 512
   clipmapLevelCount: 7
   clipmapBaseSampleStep: 1
   clipmapLODOuterResolutions: 0401000000020000000200008001000000010000c0000000
   lastGeneratedHeightSignature: f711f2cb965166e1184688fd2d55a94a3d7d5627eb4dcac56f9fc9f03184ce60
-  heightmapGenerationRevision: 2
+  heightmapGenerationRevision: 3
   lastGeneratedSurfaceSignature: cc005cc56672fffda99f89f6d560f93ff36df5013818593fc5b6d4984a6a1914
   surfaceMaskGenerationRevision: 2
   surfaceSourceHeightmapGenerationRevision: 2

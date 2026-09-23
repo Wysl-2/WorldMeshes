@@ -43,6 +43,24 @@ public static class TerrainRuntimeHeightCompiler
         }
     }
 
+    private readonly struct ExistingHeightTileRecord
+    {
+        public Vector2Int Coordinate { get; }
+        public string AssetPath { get; }
+
+        public ExistingHeightTileRecord(
+            Vector2Int coordinate,
+            string assetPath
+        )
+        {
+            Coordinate =
+                coordinate;
+
+            AssetPath =
+                assetPath ?? "";
+        }
+    }
+
     private struct CompileTarget
     {
         public int AuthoringRevision;
@@ -584,46 +602,12 @@ public static class TerrainRuntimeHeightCompiler
             }
         }
 
-        Dictionary<Vector2Int, Texture2D> existingTiles =
-            null;
-
-        List<KeyValuePair<Vector2Int, Texture2D>> obsoleteTiles =
-            new List<KeyValuePair<Vector2Int, Texture2D>>();
-
-        if (
-            workMode ==
-            TerrainRuntimeBakeWorkMode.Full
-        )
-        {
-            existingTiles =
-                FindExistingRuntimeHeightTiles();
-
-            foreach (
-                KeyValuePair<Vector2Int, Texture2D> pair
-                in existingTiles
-            )
-            {
-                Vector2Int coordinate =
-                    pair.Key;
-
-                if (
-                    coordinate.x < 0
-                    ||
-                    coordinate.y < 0
-                    ||
-                    coordinate.x >=
-                        worldSettings.HeightTileGridWidth
-                    ||
-                    coordinate.y >=
-                        worldSettings.HeightTileGridHeight
+        List<ExistingHeightTileRecord> obsoleteTiles =
+            workMode == TerrainRuntimeBakeWorkMode.Full
+                ? FindObsoleteRuntimeHeightTiles(
+                    worldSettings
                 )
-                {
-                    obsoleteTiles.Add(
-                        pair
-                    );
-                }
-            }
-        }
+                : new List<ExistingHeightTileRecord>();
 
         int totalOperations =
             requestedTiles.Count +
@@ -722,6 +706,11 @@ public static class TerrainRuntimeHeightCompiler
                     HeightPersistenceBatchTileCount
                 );
 
+        using TerrainHeightBakeResidencyBatch outputResidency =
+            new TerrainHeightBakeResidencyBatch(
+                TerrainRuntimeBakePipelineState.Heightmaps
+            );
+
         preparePerformance?.Complete();
 
         using TerrainRuntimeBakePerformanceScope generationPerformance =
@@ -805,6 +794,7 @@ public static class TerrainRuntimeHeightCompiler
                         coordinate.y,
                         samplesPerSide,
                         compiledHeightData,
+                        outputResidency,
                         out float tileMinimumHeight,
                         out float tileMaximumHeight,
                         out bool outputMayHaveChanged,
@@ -891,7 +881,8 @@ public static class TerrainRuntimeHeightCompiler
                         heightStreamingCompile
                             .PrepareFamily(
                                 coordinate,
-                                compiledHeightData
+                                compiledHeightData,
+                                outputResidency
                             );
 
                 preparedStreamingBatch.Add(
@@ -1125,6 +1116,9 @@ public static class TerrainRuntimeHeightCompiler
                     break;
                 }
 
+                outputResidency
+                    .ReleasePersistedOutputs();
+
                 heightStreamingCompile
                     .RecordDurableBatch(
                         preparedStreamingBatch
@@ -1224,12 +1218,12 @@ public static class TerrainRuntimeHeightCompiler
             )
             {
                 foreach (
-                    KeyValuePair<Vector2Int, Texture2D> pair
+                    ExistingHeightTileRecord obsolete
                     in obsoleteTiles
                 )
                 {
                     Vector2Int coordinate =
-                        pair.Key;
+                        obsolete.Coordinate;
 
                     cancelled =
                         ShowProgress(
@@ -1245,9 +1239,7 @@ public static class TerrainRuntimeHeightCompiler
                     }
 
                     string path =
-                        AssetDatabase.GetAssetPath(
-                            pair.Value
-                        );
+                        obsolete.AssetPath;
 
                     if (
                         !string.IsNullOrEmpty(path)
@@ -2054,6 +2046,7 @@ public static class TerrainRuntimeHeightCompiler
         int tileZ,
         int samplesPerSide,
         float[] compiledHeightData,
+        TerrainHeightBakeResidencyBatch outputResidency,
         out float minimumHeight,
         out float maximumHeight,
         out bool outputMayHaveChanged,
@@ -2137,6 +2130,10 @@ public static class TerrainRuntimeHeightCompiler
                 $"dimensions. Expected {samplesPerSide} x {samplesPerSide}, " +
                 $"actual {sourceTexture.width} x {sourceTexture.height}.";
 
+            Resources.UnloadAsset(
+                sourceTexture
+            );
+
             return
                 TileWriteOutcome.Failed;
         }
@@ -2168,6 +2165,10 @@ public static class TerrainRuntimeHeightCompiler
                     $"({tileX}, {tileZ}).\n\n" +
                     compositionError;
 
+                Resources.UnloadAsset(
+                    sourceTexture
+                );
+
                 return
                     TileWriteOutcome.Failed;
             }
@@ -2189,6 +2190,10 @@ public static class TerrainRuntimeHeightCompiler
                     errorMessage =
                         $"Authoring height tile ({tileX}, {tileZ}) contains " +
                         "an unexpected sample count.";
+
+                    Resources.UnloadAsset(
+                        sourceTexture
+                    );
 
                     return
                         TileWriteOutcome.Failed;
@@ -2213,10 +2218,18 @@ public static class TerrainRuntimeHeightCompiler
                     $"({tileX}, {tileZ}).\n\n" +
                     exception.Message;
 
+                Resources.UnloadAsset(
+                    sourceTexture
+                );
+
                 return
                     TileWriteOutcome.Failed;
             }
         }
+
+        Resources.UnloadAsset(
+            sourceTexture
+        );
 
         for (
             int index = 0;
@@ -2272,6 +2285,7 @@ public static class TerrainRuntimeHeightCompiler
                 tileZ,
                 samplesPerSide,
                 compiledHeightData,
+                outputResidency,
                 out outputMayHaveChanged,
                 out errorMessage
             );
@@ -2286,6 +2300,7 @@ public static class TerrainRuntimeHeightCompiler
         int tileZ,
         int samplesPerSide,
         float[] heightData,
+        TerrainHeightBakeResidencyBatch outputResidency,
         out bool outputMayHaveChanged,
         out string errorMessage
     )
@@ -2308,6 +2323,13 @@ public static class TerrainRuntimeHeightCompiler
                 .LoadAssetAtPath<Texture2D>(
                     assetPath
                 );
+
+        if (existingTexture != null)
+        {
+            outputResidency?.TrackDirtyOutput(
+                existingTexture
+            );
+        }
 
         if (existingTexture == null)
         {
@@ -2355,6 +2377,10 @@ public static class TerrainRuntimeHeightCompiler
                         assetPath
                     );
                 }
+
+                outputResidency?.TrackDirtyOutput(
+                    texture
+                );
 
                 outputMayHaveChanged =
                     true;
@@ -2778,20 +2804,24 @@ public static class TerrainRuntimeHeightCompiler
     // EXISTING GENERATED TILES - FULL REBUILD ONLY
     // =====================================================
 
-    private static Dictionary<Vector2Int, Texture2D>
-        FindExistingRuntimeHeightTiles()
+    private static List<ExistingHeightTileRecord>
+        FindObsoleteRuntimeHeightTiles(
+            WorldSettings worldSettings
+        )
     {
-        Dictionary<Vector2Int, Texture2D> tiles =
-            new Dictionary<Vector2Int, Texture2D>();
+        List<ExistingHeightTileRecord> obsolete =
+            new List<ExistingHeightTileRecord>();
 
         if (
+            worldSettings == null
+            ||
             !AssetDatabase.IsValidFolder(
                 TerrainRuntimeHeightAssetUtility
                     .HeightmapTileFolder
             )
         )
         {
-            return tiles;
+            return obsolete;
         }
 
         string[] guids =
@@ -2826,27 +2856,36 @@ public static class TerrainRuntimeHeightCompiler
                 continue;
             }
 
-            Texture2D texture =
-                AssetDatabase
-                    .LoadAssetAtPath<Texture2D>(
-                        path
-                    );
+            Vector2Int coordinate =
+                new Vector2Int(
+                    tileX,
+                    tileZ
+                );
 
-            if (texture == null)
+            if (
+                coordinate.x >= 0
+                &&
+                coordinate.y >= 0
+                &&
+                coordinate.x <
+                    worldSettings.HeightTileGridWidth
+                &&
+                coordinate.y <
+                    worldSettings.HeightTileGridHeight
+            )
             {
                 continue;
             }
 
-            tiles[
-                new Vector2Int(
-                    tileX,
-                    tileZ
+            obsolete.Add(
+                new ExistingHeightTileRecord(
+                    coordinate,
+                    path
                 )
-            ] =
-                texture;
+            );
         }
 
-        return tiles;
+        return obsolete;
     }
 
     // =====================================================

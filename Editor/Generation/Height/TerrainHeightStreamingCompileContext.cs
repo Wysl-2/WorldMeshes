@@ -219,6 +219,20 @@ public sealed class TerrainHeightStreamingCompileContext
         float[] authoritativeHeightData
     )
     {
+        return
+            PrepareFamily(
+                coordinate,
+                authoritativeHeightData,
+                null
+            );
+    }
+
+    internal TerrainHeightStreamingFamilyWriteResult PrepareFamily(
+        Vector2Int coordinate,
+        float[] authoritativeHeightData,
+        TerrainHeightBakeResidencyBatch residencyBatch
+    )
+    {
         EnsureManifestInvalidated();
 
         if (!generationEnabled)
@@ -251,7 +265,8 @@ public sealed class TerrainHeightStreamingCompileContext
                     worldSettings,
                     coordinate,
                     targetDescriptors,
-                    authoritativeHeightData
+                    authoritativeHeightData,
+                    residencyBatch
                 );
 
         if (
@@ -273,6 +288,23 @@ public sealed class TerrainHeightStreamingCompileContext
             Vector2Int coordinate,
             Texture2D authoritativeTexture,
             float[] reusableNativeBuffer
+        )
+    {
+        return
+            PrepareFamilyFromExistingNativeTexture(
+                coordinate,
+                authoritativeTexture,
+                reusableNativeBuffer,
+                null
+            );
+    }
+
+    internal TerrainHeightStreamingFamilyWriteResult
+        PrepareFamilyFromExistingNativeTexture(
+            Vector2Int coordinate,
+            Texture2D authoritativeTexture,
+            float[] reusableNativeBuffer,
+            TerrainHeightBakeResidencyBatch residencyBatch
         )
     {
         EnsureManifestInvalidated();
@@ -308,7 +340,8 @@ public sealed class TerrainHeightStreamingCompileContext
                     coordinate,
                     targetDescriptors,
                     authoritativeTexture,
-                    reusableNativeBuffer
+                    reusableNativeBuffer,
+                    residencyBatch
                 );
 
         if (

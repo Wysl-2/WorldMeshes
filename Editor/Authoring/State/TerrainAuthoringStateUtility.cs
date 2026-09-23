@@ -1596,6 +1596,10 @@ public static class TerrainAuthoringStateUtility
                 builder.Append(
                     dependencyHash.ToString()
                 );
+
+                Resources.UnloadAsset(
+                    texture
+                );
             }
         }
 

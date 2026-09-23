@@ -22,6 +22,7 @@ public enum TerrainRuntimeBakePerformanceCategory
 public enum TerrainRuntimeBakeTrackedMemoryCategory
 {
     HeightBuffer,
+    HeightAssetResidency,
     SurfaceBuffer,
     CollisionBuffer,
     OtherTemporary

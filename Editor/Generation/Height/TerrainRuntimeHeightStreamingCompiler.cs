@@ -184,6 +184,14 @@ public static class TerrainRuntimeHeightStreamingCompiler
                 samplesPerSide
             ];
 
+        using TerrainRuntimeBakeTrackedMemoryLease nativeBufferMemory =
+            TerrainRuntimeBakePerformanceDiagnostics.TrackTemporaryMemory(
+                "HeightStreaming.ReusableNativeBuffer",
+                TerrainRuntimeBakePipelineState.HeightStreaming,
+                TerrainRuntimeBakeTrackedMemoryCategory.HeightBuffer,
+                (long)reusableNativeBuffer.Length * sizeof(float)
+            );
+
         List<Vector2Int> succeededTiles =
             new List<Vector2Int>();
 
@@ -198,6 +206,11 @@ public static class TerrainRuntimeHeightStreamingCompiler
                 new List<TerrainHeightStreamingFamilyWriteResult>(
                     HeightStreamingPersistenceBatchFamilyCount
                 );
+
+        using TerrainHeightBakeResidencyBatch outputResidency =
+            new TerrainHeightBakeResidencyBatch(
+                TerrainRuntimeBakePipelineState.HeightStreaming
+            );
 
         long expectedStateRevision =
             plan.SourceStateRevision;
@@ -287,13 +300,28 @@ public static class TerrainRuntimeHeightStreamingCompiler
                             nativePath
                         );
 
-                TerrainHeightStreamingFamilyWriteResult family =
-                    compileContext
-                        .PrepareFamilyFromExistingNativeTexture(
-                            coordinate,
-                            nativeTexture,
-                            reusableNativeBuffer
+                TerrainHeightStreamingFamilyWriteResult family;
+
+                try
+                {
+                    family =
+                        compileContext
+                            .PrepareFamilyFromExistingNativeTexture(
+                                coordinate,
+                                nativeTexture,
+                                reusableNativeBuffer,
+                                outputResidency
+                            );
+                }
+                finally
+                {
+                    if (nativeTexture != null)
+                    {
+                        Resources.UnloadAsset(
+                            nativeTexture
                         );
+                    }
+                }
 
                 preparedBatch.Add(
                     family
@@ -330,6 +358,9 @@ public static class TerrainRuntimeHeightStreamingCompiler
 
                     break;
                 }
+
+                outputResidency
+                    .ReleasePersistedOutputs();
 
                 compileContext.RecordDurableBatch(
                     preparedBatch

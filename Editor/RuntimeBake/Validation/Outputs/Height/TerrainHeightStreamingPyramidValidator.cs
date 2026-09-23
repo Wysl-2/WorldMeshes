@@ -113,6 +113,13 @@ public static class TerrainHeightStreamingPyramidValidator
                     )
                 )
                 {
+                    if (nativeTexture != null)
+                    {
+                        Resources.UnloadAsset(
+                            nativeTexture
+                        );
+                    }
+
                     Debug.LogError(
                         "Height Streaming validation failed.\n\n" +
                         nativeError
@@ -137,6 +144,10 @@ public static class TerrainHeightStreamingPyramidValidator
                         )
                     )
                     {
+                        Resources.UnloadAsset(
+                            nativeTexture
+                        );
+
                         Debug.LogError(
                             $"Height Streaming validation failed because stride {stride} has no valid manifest descriptor."
                         );
@@ -157,8 +168,8 @@ public static class TerrainHeightStreamingPyramidValidator
                             path
                         );
 
-                    if (
-                        !TryValidateDerivedAgainstNative(
+                    bool derivedValid =
+                        TryValidateDerivedAgainstNative(
                             coordinate,
                             descriptor,
                             worldSettings.HeightTileSamplesPerSide,
@@ -166,9 +177,21 @@ public static class TerrainHeightStreamingPyramidValidator
                             derivedTexture,
                             out long representationComparisons,
                             out string derivedError
-                        )
-                    )
+                        );
+
+                    if (derivedTexture != null)
                     {
+                        Resources.UnloadAsset(
+                            derivedTexture
+                        );
+                    }
+
+                    if (!derivedValid)
+                    {
+                        Resources.UnloadAsset(
+                            nativeTexture
+                        );
+
                         Debug.LogError(
                             "Height Streaming validation failed.\n\n" +
                             derivedError
@@ -182,6 +205,10 @@ public static class TerrainHeightStreamingPyramidValidator
                     comparedSamples +=
                         representationComparisons;
                 }
+
+                Resources.UnloadAsset(
+                    nativeTexture
+                );
             }
         }
 
@@ -534,6 +561,10 @@ public static class TerrainHeightStreamingPyramidValidator
                                 return false;
                             }
                         }
+
+                        Resources.UnloadAsset(
+                            right
+                        );
                     }
 
                     if (
@@ -587,7 +618,15 @@ public static class TerrainHeightStreamingPyramidValidator
                                 return false;
                             }
                         }
+
+                        Resources.UnloadAsset(
+                            upper
+                        );
                     }
+
+                    Resources.UnloadAsset(
+                        tile
+                    );
                 }
             }
         }

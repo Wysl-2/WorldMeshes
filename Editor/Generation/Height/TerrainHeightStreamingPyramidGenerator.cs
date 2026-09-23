@@ -21,6 +21,25 @@ public static class TerrainHeightStreamingPyramidGenerator
             float[] authoritativeHeightData
         )
     {
+        return
+            PrepareFamilyFromNativeBuffer(
+                worldSettings,
+                coordinate,
+                descriptors,
+                authoritativeHeightData,
+                null
+            );
+    }
+
+    internal static TerrainHeightStreamingFamilyWriteResult
+        PrepareFamilyFromNativeBuffer(
+            WorldSettings worldSettings,
+            Vector2Int coordinate,
+            IReadOnlyList<TerrainHeightStreamingLevelDescriptor> descriptors,
+            float[] authoritativeHeightData,
+            TerrainHeightBakeResidencyBatch residencyBatch
+        )
+    {
         int requestedStrideCount =
             descriptors != null
                 ? descriptors.Count
@@ -164,6 +183,7 @@ public static class TerrainHeightStreamingPyramidGenerator
                     descriptor,
                     nativeSamplesPerSide,
                     authoritativeHeightData,
+                    residencyBatch,
                     out bool representationMayHaveChanged,
                     out string errorMessage
                 );
@@ -226,6 +246,27 @@ public static class TerrainHeightStreamingPyramidGenerator
             IReadOnlyList<TerrainHeightStreamingLevelDescriptor> descriptors,
             Texture2D authoritativeTexture,
             float[] reusableNativeBuffer
+        )
+    {
+        return
+            PrepareFamilyFromExistingNativeTexture(
+                worldSettings,
+                coordinate,
+                descriptors,
+                authoritativeTexture,
+                reusableNativeBuffer,
+                null
+            );
+    }
+
+    internal static TerrainHeightStreamingFamilyWriteResult
+        PrepareFamilyFromExistingNativeTexture(
+            WorldSettings worldSettings,
+            Vector2Int coordinate,
+            IReadOnlyList<TerrainHeightStreamingLevelDescriptor> descriptors,
+            Texture2D authoritativeTexture,
+            float[] reusableNativeBuffer,
+            TerrainHeightBakeResidencyBatch residencyBatch
         )
     {
         int requestedStrideCount =
@@ -326,7 +367,8 @@ public static class TerrainHeightStreamingPyramidGenerator
                 worldSettings,
                 coordinate,
                 descriptors,
-                reusableNativeBuffer
+                reusableNativeBuffer,
+                residencyBatch
             );
     }
 
@@ -335,6 +377,7 @@ public static class TerrainHeightStreamingPyramidGenerator
         TerrainHeightStreamingLevelDescriptor descriptor,
         int nativeSamplesPerSide,
         float[] authoritativeHeightData,
+        TerrainHeightBakeResidencyBatch residencyBatch,
         out bool outputMayHaveChanged,
         out string errorMessage
     )
@@ -357,6 +400,13 @@ public static class TerrainHeightStreamingPyramidGenerator
             AssetDatabase.LoadAssetAtPath<Texture2D>(
                 assetPath
             );
+
+        if (texture != null)
+        {
+            residencyBatch?.TrackDirtyOutput(
+                texture
+            );
+        }
 
         if (texture == null)
         {
@@ -394,6 +444,10 @@ public static class TerrainHeightStreamingPyramidGenerator
                 AssetDatabase.CreateAsset(
                     createdTexture,
                     assetPath
+                );
+
+                residencyBatch?.TrackDirtyOutput(
+                    createdTexture
                 );
 
                 outputMayHaveChanged =
