@@ -86,6 +86,17 @@ public class TerrainHeightmapManifest :
     public const string HeightTileAddressPrefix =
         "TerrainHeight/HeightTile";
 
+    /*
+     * Logical identity root for the future multiresolution
+     * representation Addressables layout.
+     *
+     * Existing authoritative tile addresses remain unchanged
+     * until the Addressables migration package activates this
+     * representation-aware contract.
+     */
+    public const string HeightRepresentationAddressRoot =
+        "TerrainHeight";
+
     // =====================================================
     // GENERATED OUTPUT STATE
     // =====================================================
@@ -105,6 +116,260 @@ public class TerrainHeightmapManifest :
      */
     public int compilerVersion =
         0;
+
+    // =====================================================
+    // STREAMING HEIGHT PYRAMID STATE
+    // =====================================================
+
+    /*
+     * Streaming completeness is deliberately independent from
+     * authoritative height completeness. A missing/outdated
+     * derived representation must never redefine isComplete.
+     */
+    public bool streamingPyramidIsComplete =
+        false;
+
+    public int streamingPyramidCompilerVersion =
+        0;
+
+    public int streamingSourceHeightmapGenerationRevision =
+        -1;
+
+    public int streamingGenerationRevision =
+        0;
+
+    public string streamingGenerationSignature =
+        "";
+
+    [SerializeField]
+    private List<TerrainHeightStreamingLevelDescriptor>
+        streamingLevels =
+            new List<TerrainHeightStreamingLevelDescriptor>();
+
+    public int StreamingLevelCount =>
+        streamingLevels != null
+            ? streamingLevels.Count
+            : 0;
+
+    public bool TryGetStreamingLevelDescriptor(
+        int sampleStride,
+        out TerrainHeightStreamingLevelDescriptor descriptor
+    )
+    {
+        descriptor =
+            default;
+
+        if (
+            sampleStride <= 1
+            ||
+            streamingLevels == null
+        )
+        {
+            return false;
+        }
+
+        for (
+            int index = 0;
+            index < streamingLevels.Count;
+            index++
+        )
+        {
+            TerrainHeightStreamingLevelDescriptor candidate =
+                streamingLevels[index];
+
+            if (
+                candidate.SampleStride ==
+                    sampleStride
+            )
+            {
+                descriptor =
+                    candidate;
+
+                return
+                    descriptor
+                        .IsStructurallyValid;
+            }
+        }
+
+        return false;
+    }
+
+    public bool HasStreamingStride(
+        int sampleStride
+    )
+    {
+        return
+            TryGetStreamingLevelDescriptor(
+                sampleStride,
+                out _
+            );
+    }
+
+    public bool TryGetHeightRepresentationDescriptor(
+        int sampleStride,
+        out TerrainHeightStreamingLevelDescriptor descriptor
+    )
+    {
+        descriptor =
+            default;
+
+        if (sampleStride == 1)
+        {
+            descriptor =
+                TerrainHeightStreamingLevelDescriptor
+                    .Create(
+                        1,
+                        HeightSampleSpacing,
+                        heightTileSamplesPerSide,
+                        heightTileWorldSize,
+                        heightTileGridWidth,
+                        heightTileGridHeight,
+                        TextureFormat.RFloat
+                    );
+
+            return
+                descriptor
+                    .IsStructurallyValid;
+        }
+
+        return
+            TryGetStreamingLevelDescriptor(
+                sampleStride,
+                out descriptor
+            );
+    }
+
+    public bool TrySetStreamingLevelDescriptors(
+        IReadOnlyList<TerrainHeightStreamingLevelDescriptor> descriptors
+    )
+    {
+        if (descriptors == null)
+        {
+            return false;
+        }
+
+        int previousStride =
+            1;
+
+        for (
+            int index = 0;
+            index < descriptors.Count;
+            index++
+        )
+        {
+            TerrainHeightStreamingLevelDescriptor descriptor =
+                descriptors[index];
+
+            if (
+                !IsStreamingDescriptorCompatible(
+                    descriptor,
+                    previousStride
+                )
+            )
+            {
+                return false;
+            }
+
+            previousStride =
+                descriptor.SampleStride;
+        }
+
+        if (streamingLevels == null)
+        {
+            streamingLevels =
+                new List<TerrainHeightStreamingLevelDescriptor>(
+                    descriptors.Count
+                );
+        }
+        else
+        {
+            streamingLevels.Clear();
+
+            if (
+                streamingLevels.Capacity <
+                    descriptors.Count
+            )
+            {
+                streamingLevels.Capacity =
+                    descriptors.Count;
+            }
+        }
+
+        for (
+            int index = 0;
+            index < descriptors.Count;
+            index++
+        )
+        {
+            streamingLevels.Add(
+                descriptors[index]
+            );
+        }
+
+        return true;
+    }
+
+    public void ClearStreamingLevelDescriptors()
+    {
+        if (streamingLevels != null)
+        {
+            streamingLevels.Clear();
+        }
+    }
+
+    private bool IsStreamingDescriptorCompatible(
+        TerrainHeightStreamingLevelDescriptor descriptor,
+        int previousStride
+    )
+    {
+        if (
+            !descriptor.IsStructurallyValid
+            ||
+            !descriptor.IsDerived
+            ||
+            descriptor.SampleStride <=
+                previousStride
+            ||
+            HeightTileIntervalsPerSide %
+                descriptor.SampleStride !=
+                0
+        )
+        {
+            return false;
+        }
+
+        int expectedSamplesPerSide =
+            HeightTileIntervalsPerSide /
+                descriptor.SampleStride +
+            1;
+
+        float expectedSpacing =
+            HeightSampleSpacing *
+            descriptor.SampleStride;
+
+        return
+            descriptor.SamplesPerSide ==
+                expectedSamplesPerSide
+            &&
+            Mathf.Approximately(
+                descriptor.SampleSpacing,
+                expectedSpacing
+            )
+            &&
+            Mathf.Approximately(
+                descriptor.TileWorldSize,
+                heightTileWorldSize
+            )
+            &&
+            descriptor.TileGridWidth ==
+                heightTileGridWidth
+            &&
+            descriptor.TileGridHeight ==
+                heightTileGridHeight
+            &&
+            descriptor.TextureFormat ==
+                TextureFormat.RFloat;
+    }
 
     // =====================================================
     // AUTHORING SOURCE
@@ -676,6 +941,39 @@ public class TerrainHeightmapManifest :
         return
             $"{HeightTileAddressPrefix}_" +
             $"{tileX}_{tileZ}";
+    }
+
+    /*
+     * Representation-aware logical identity reserved for the
+     * multiresolution Addressables migration. The existing
+     * GetHeightTileAddress contract remains unchanged.
+     */
+    public string GetHeightRepresentationAddress(
+        int sampleStride,
+        int tileX,
+        int tileZ
+    )
+    {
+        if (
+            sampleStride < 1
+            ||
+            !TerrainHeightStreamingPyramidPolicy
+                .IsPowerOfTwo(
+                    sampleStride
+                )
+        )
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(sampleStride),
+                sampleStride,
+                "A height representation stride must be a positive power of two."
+            );
+        }
+
+        return
+            $"{HeightRepresentationAddressRoot}/" +
+            $"Stride{sampleStride}/" +
+            $"HeightTile_{tileX}_{tileZ}";
     }
 
     // =====================================================

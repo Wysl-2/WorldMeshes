@@ -124,6 +124,9 @@ public static class WorldMeshesPaths
     public const string HeightmapTiles =
         GeneratedHeightmaps + "/Tiles";
 
+    public const string HeightmapStreaming =
+        GeneratedHeightmaps + "/Streaming";
+
     public const string HeightmapManifestAssetPath =
         GeneratedHeightmaps +
         "/HeightmapManifest.asset";

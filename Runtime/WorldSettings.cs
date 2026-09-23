@@ -84,6 +84,23 @@ public class WorldSettings : ScriptableObject
         2f;
 
     // =====================================================
+    // RUNTIME HEIGHT STREAMING
+    // =====================================================
+
+    [Header("Runtime Height Streaming")]
+
+    /*
+     * Maximum power-of-two sample stride generated for the
+     * derived runtime height-streaming pyramid.
+     *
+     * The shared streaming policy resolves the actual supported
+     * stride set from this cap and the native tile interval count.
+     */
+    [Min(2)]
+    public int heightStreamingMaximumStride =
+        32;
+
+    // =====================================================
     // DERIVED HEIGHTMAP VALUES
     // =====================================================
 
@@ -127,6 +144,18 @@ public class WorldSettings : ScriptableObject
                 span *
                 resolution +
                 1;
+        }
+    }
+
+    public int HeightTileIntervalsPerSide
+    {
+        get
+        {
+            return
+                Mathf.Max(
+                    1,
+                    HeightTileSamplesPerSide - 1
+                );
         }
     }
 
