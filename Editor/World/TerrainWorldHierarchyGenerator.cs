@@ -657,6 +657,13 @@ public static class TerrainWorldHierarchyGenerator
         source =
             "Fallback 0 -> 0";
 
+        TerrainGenerationStateEvaluationContext generationState =
+            new TerrainGenerationStateEvaluationContext(
+                worldSettings,
+                TerrainGenerationStateEvaluationMode
+                    .Operational
+            );
+
         TerrainHeightmapManifest runtimeManifest =
             AssetDatabase
                 .LoadAssetAtPath<TerrainHeightmapManifest>(
@@ -669,7 +676,7 @@ public static class TerrainWorldHierarchyGenerator
             &&
             TerrainGenerationStateUtility
                 .GetHeightmapStatus(
-                    worldSettings
+                    generationState
                 )
                 ==
                 TerrainGenerationStateUtility
@@ -688,13 +695,6 @@ public static class TerrainWorldHierarchyGenerator
             return;
         }
 
-        TerrainAuthoringData authoringData =
-            AssetDatabase
-                .LoadAssetAtPath<TerrainAuthoringData>(
-                    WorldMeshesPaths
-                        .TerrainAuthoringDataAssetPath
-                );
-
         TerrainAuthoringHeightManifest authoringManifest =
             TerrainAuthoringStateUtility
                 .LoadAuthoringHeightManifest();
@@ -704,8 +704,7 @@ public static class TerrainWorldHierarchyGenerator
             &&
             TerrainGenerationStateUtility
                 .GetAuthoringHeightfieldStatus(
-                    worldSettings,
-                    authoringData
+                    generationState
                 )
                 ==
                 TerrainGenerationStateUtility
