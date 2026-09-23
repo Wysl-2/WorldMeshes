@@ -268,6 +268,63 @@ public sealed class TerrainHeightStreamingCompileContext
         return result;
     }
 
+    public TerrainHeightStreamingFamilyWriteResult
+        PrepareFamilyFromExistingNativeTexture(
+            Vector2Int coordinate,
+            Texture2D authoritativeTexture,
+            float[] reusableNativeBuffer
+        )
+    {
+        EnsureManifestInvalidated();
+
+        if (!generationEnabled)
+        {
+            return
+                TerrainHeightStreamingFamilyWriteResult
+                    .NotAttempted(
+                        coordinate,
+                        targetDescriptors.Count,
+                        firstError
+                    );
+        }
+
+        if (!manifestPrepared)
+        {
+            return
+                TerrainHeightStreamingFamilyWriteResult
+                    .NotAttempted(
+                        coordinate,
+                        targetDescriptors.Count,
+                        string.IsNullOrEmpty(firstError)
+                            ? "The height-streaming manifest target could not be prepared."
+                            : firstError
+                    );
+        }
+
+        TerrainHeightStreamingFamilyWriteResult result =
+            TerrainHeightStreamingPyramidGenerator
+                .PrepareFamilyFromExistingNativeTexture(
+                    worldSettings,
+                    coordinate,
+                    targetDescriptors,
+                    authoritativeTexture,
+                    reusableNativeBuffer
+                );
+
+        if (
+            result.Attempted
+            &&
+            !result.PreparedComplete
+        )
+        {
+            RecordError(
+                result.ErrorMessage
+            );
+        }
+
+        return result;
+    }
+
     public void RecordDurableBatch(
         IReadOnlyList<TerrainHeightStreamingFamilyWriteResult> results
     )
@@ -316,7 +373,7 @@ public sealed class TerrainHeightStreamingCompileContext
         }
     }
 
-    public void FinalizeAfterNativeSuccess(
+    public void FinalizeAfterAuthoritativeSourceConfirmed(
         WorldSettings currentWorldSettings
     )
     {

@@ -8,6 +8,7 @@ public enum TerrainRuntimeBakePlanSnapshotKind
 {
     Initial,
     Height,
+    HeightStreaming,
     Surface,
     Collision,
     Addressables,
@@ -25,6 +26,7 @@ public enum TerrainRuntimeBakeReasonTarget
 {
     Run,
     Height,
+    HeightStreaming,
     Surface,
     Collision,
     Addressables,
@@ -42,6 +44,7 @@ public enum TerrainRuntimeBakeReasonCode
     OutdatedGeneratedData,
     GeneratedDataCurrent,
     PendingAuthoringChange,
+    PendingHeightStreamingChange,
     PendingSurfaceChange,
     PendingCollisionChange,
     AuthoringSignatureChanged,
@@ -99,6 +102,7 @@ public sealed class TerrainRuntimeBakeReasonRecord
 public sealed class TerrainRuntimeBakePlanDiagnosticSnapshot
 {
     private readonly ReadOnlyCollection<Vector2Int> heightTiles;
+    private readonly ReadOnlyCollection<Vector2Int> heightStreamingTiles;
     private readonly ReadOnlyCollection<Vector2Int> surfaceTiles;
     private readonly ReadOnlyCollection<Vector2Int> collisionChunks;
     private readonly ReadOnlyCollection<string> safetyEscalationReasons;
@@ -111,14 +115,17 @@ public sealed class TerrainRuntimeBakePlanDiagnosticSnapshot
     public bool CoordinatesCaptured { get; private set; }
 
     public TerrainRuntimeBakeWorkMode HeightWorkMode { get; private set; }
+    public TerrainRuntimeBakeWorkMode HeightStreamingWorkMode { get; private set; }
     public TerrainRuntimeBakeWorkMode SurfaceWorkMode { get; private set; }
     public TerrainRuntimeBakeWorkMode CollisionWorkMode { get; private set; }
 
     public IReadOnlyList<Vector2Int> HeightTiles => heightTiles;
+    public IReadOnlyList<Vector2Int> HeightStreamingTiles => heightStreamingTiles;
     public IReadOnlyList<Vector2Int> SurfaceTiles => surfaceTiles;
     public IReadOnlyList<Vector2Int> CollisionChunks => collisionChunks;
 
     public int HeightTileCount { get; private set; }
+    public int HeightStreamingTileCount { get; private set; }
     public int SurfaceTileCount { get; private set; }
     public int CollisionChunkCount { get; private set; }
 
@@ -159,10 +166,12 @@ public sealed class TerrainRuntimeBakePlanDiagnosticSnapshot
         if (plan != null)
         {
             HeightWorkMode = plan.HeightWorkMode;
+            HeightStreamingWorkMode = plan.HeightStreamingWorkMode;
             SurfaceWorkMode = plan.SurfaceWorkMode;
             CollisionWorkMode = plan.CollisionWorkMode;
 
             HeightTileCount = plan.HeightTileCount;
+            HeightStreamingTileCount = plan.HeightStreamingTileCount;
             SurfaceTileCount = plan.SurfaceTileCount;
             CollisionChunkCount = plan.CollisionChunkCount;
 
@@ -190,6 +199,7 @@ public sealed class TerrainRuntimeBakePlanDiagnosticSnapshot
         else
         {
             HeightWorkMode = TerrainRuntimeBakeWorkMode.None;
+            HeightStreamingWorkMode = TerrainRuntimeBakeWorkMode.None;
             SurfaceWorkMode = TerrainRuntimeBakeWorkMode.None;
             CollisionWorkMode = TerrainRuntimeBakeWorkMode.None;
             BlockReason = "";
@@ -202,6 +212,11 @@ public sealed class TerrainRuntimeBakePlanDiagnosticSnapshot
         heightTiles =
             CreateCoordinates(
                 CoordinatesCaptured ? plan.HeightTiles : null
+            );
+
+        heightStreamingTiles =
+            CreateCoordinates(
+                CoordinatesCaptured ? plan.HeightStreamingTiles : null
             );
 
         surfaceTiles =

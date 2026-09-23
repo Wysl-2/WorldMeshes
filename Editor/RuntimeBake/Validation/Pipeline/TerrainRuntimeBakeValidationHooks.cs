@@ -47,12 +47,13 @@ public static class TerrainRuntimeBakeValidationHooks
 
         if (
             stage != TerrainRuntimeBakePipelineState.Heightmaps
+            && stage != TerrainRuntimeBakePipelineState.HeightStreaming
             && stage != TerrainRuntimeBakePipelineState.SurfaceMasks
             && stage != TerrainRuntimeBakePipelineState.Collision
         )
         {
             throw new ArgumentException(
-                "Coordinate cancellation is supported only for Heightmaps, SurfaceMasks, and Collision.",
+                "Coordinate cancellation is supported only for Heightmaps, Height Streaming, SurfaceMasks, and Collision.",
                 nameof(stage)
             );
         }
@@ -188,6 +189,8 @@ public static class TerrainRuntimeBakeValidationHooks
         {
             case TerrainRuntimeBakePipelineState.Heightmaps:
                 return "Runtime Heightmaps";
+            case TerrainRuntimeBakePipelineState.HeightStreaming:
+                return "Height Streaming";
             case TerrainRuntimeBakePipelineState.SurfaceMasks:
                 return "Surface Masks";
             case TerrainRuntimeBakePipelineState.Collision:

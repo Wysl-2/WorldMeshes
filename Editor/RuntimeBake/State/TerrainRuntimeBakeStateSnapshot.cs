@@ -14,6 +14,9 @@ public sealed class TerrainRuntimeBakeStateSnapshot
         pendingHeightTiles;
 
     private readonly ReadOnlyCollection<Vector2Int>
+        pendingHeightStreamingTiles;
+
+    private readonly ReadOnlyCollection<Vector2Int>
         pendingSurfaceTiles;
 
     private readonly ReadOnlyCollection<Vector2Int>
@@ -24,6 +27,14 @@ public sealed class TerrainRuntimeBakeStateSnapshot
         get
         {
             return pendingHeightTiles;
+        }
+    }
+
+    public IReadOnlyList<Vector2Int> PendingHeightStreamingTiles
+    {
+        get
+        {
+            return pendingHeightStreamingTiles;
         }
     }
 
@@ -51,6 +62,14 @@ public sealed class TerrainRuntimeBakeStateSnapshot
         }
     }
 
+    public int PendingHeightStreamingTileCount
+    {
+        get
+        {
+            return pendingHeightStreamingTiles.Count;
+        }
+    }
+
     public int PendingSurfaceTileCount
     {
         get
@@ -68,6 +87,12 @@ public sealed class TerrainRuntimeBakeStateSnapshot
     }
 
     public bool FullHeightRebuildRequired
+    {
+        get;
+        private set;
+    }
+
+    public bool FullHeightStreamingRebuildRequired
     {
         get;
         private set;
@@ -128,11 +153,15 @@ public sealed class TerrainRuntimeBakeStateSnapshot
             return
                 pendingHeightTiles.Count > 0
                 ||
+                pendingHeightStreamingTiles.Count > 0
+                ||
                 pendingSurfaceTiles.Count > 0
                 ||
                 pendingCollisionChunks.Count > 0
                 ||
                 FullHeightRebuildRequired
+                ||
+                FullHeightStreamingRebuildRequired
                 ||
                 FullSurfaceRebuildRequired
                 ||
@@ -148,9 +177,11 @@ public sealed class TerrainRuntimeBakeStateSnapshot
 
     internal TerrainRuntimeBakeStateSnapshot(
         IEnumerable<Vector2Int> heightTiles,
+        IEnumerable<Vector2Int> heightStreamingTiles,
         IEnumerable<Vector2Int> surfaceTiles,
         IEnumerable<Vector2Int> collisionChunks,
         bool fullHeightRebuildRequired,
+        bool fullHeightStreamingRebuildRequired,
         bool fullSurfaceRebuildRequired,
         bool fullCollisionRebuildRequired,
         bool addressablesConfigurationDirty,
@@ -164,6 +195,12 @@ public sealed class TerrainRuntimeBakeStateSnapshot
         pendingHeightTiles =
             new List<Vector2Int>(
                 heightTiles
+            )
+            .AsReadOnly();
+
+        pendingHeightStreamingTiles =
+            new List<Vector2Int>(
+                heightStreamingTiles
             )
             .AsReadOnly();
 
@@ -181,6 +218,9 @@ public sealed class TerrainRuntimeBakeStateSnapshot
 
         FullHeightRebuildRequired =
             fullHeightRebuildRequired;
+
+        FullHeightStreamingRebuildRequired =
+            fullHeightStreamingRebuildRequired;
 
         FullSurfaceRebuildRequired =
             fullSurfaceRebuildRequired;

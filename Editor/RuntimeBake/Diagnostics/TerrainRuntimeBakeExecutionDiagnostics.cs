@@ -278,6 +278,10 @@ internal sealed partial class TerrainRuntimeBakeDiagnosticsSession
                 record.plannedCount = plan.HeightTileCount;
                 break;
 
+            case TerrainRuntimeBakePipelineState.HeightStreaming:
+                record.plannedCount = plan.HeightStreamingTileCount;
+                break;
+
             case TerrainRuntimeBakePipelineState.SurfaceMasks:
                 record.plannedCount = plan.SurfaceTileCount;
                 break;
@@ -325,6 +329,34 @@ internal sealed partial class TerrainRuntimeBakeDiagnosticsSession
             result.FailedTileCount,
             result.UnprocessedTileCount,
             result.CreatedTileCount + result.UpdatedTileCount,
+            result.RequestedTiles,
+            result.SucceededTiles,
+            result.FailedTiles,
+            result.UnprocessedTiles
+        );
+    }
+
+    internal void RecordHeightStreamingExecution(
+        TerrainRuntimeHeightStreamingCompileResult result
+    )
+    {
+        if (completed || result == null)
+        {
+            return;
+        }
+
+        MutableExecutionStage record =
+            GetOrCreateExecutionStage(
+                TerrainRuntimeBakePipelineState.HeightStreaming
+            );
+
+        ApplyCoordinateResult(
+            record,
+            result.RequestedTileCount,
+            result.SucceededTileCount,
+            result.FailedTileCount,
+            result.UnprocessedTileCount,
+            result.CreatedAssetCount + result.UpdatedAssetCount,
             result.RequestedTiles,
             result.SucceededTiles,
             result.FailedTiles,

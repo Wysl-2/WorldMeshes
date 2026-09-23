@@ -15,6 +15,7 @@ public enum TerrainRuntimeBakePipelineState
     Idle,
     Preflight,
     Heightmaps,
+    HeightStreaming,
     SurfaceMasks,
     Collision,
     Addressables,
@@ -48,12 +49,8 @@ public sealed class TerrainRuntimeBakePipelineResult
 
     public TerrainRuntimeBakePlan InitialPlan { get; private set; }
 
-    /*
-     * Package 10.1 preserves the exact fresh plan Package 08 used immediately
-     * before each planner-driven stage. These references are immutable planner
-     * outputs and are never reconstructed after the run for validation.
-     */
     public TerrainRuntimeBakePlan HeightPlan { get; private set; }
+    public TerrainRuntimeBakePlan HeightStreamingPlan { get; private set; }
     public TerrainRuntimeBakePlan SurfacePlan { get; private set; }
     public TerrainRuntimeBakePlan CollisionPlan { get; private set; }
     public TerrainRuntimeBakePlan AddressablesPlan { get; private set; }
@@ -62,12 +59,14 @@ public sealed class TerrainRuntimeBakePipelineResult
     public TerrainRuntimeBakePlan FinalPlan { get; private set; }
 
     public bool HeightStageExecuted { get; private set; }
+    public bool HeightStreamingStageExecuted { get; private set; }
     public bool SurfaceStageExecuted { get; private set; }
     public bool CollisionStageExecuted { get; private set; }
     public bool AddressablesStageExecuted { get; private set; }
     public bool SceneSyncStageExecuted { get; private set; }
 
     public TerrainRuntimeHeightCompileResult HeightResult { get; private set; }
+    public TerrainRuntimeHeightStreamingCompileResult HeightStreamingResult { get; private set; }
     public TerrainSurfaceMaskGenerationResult SurfaceResult { get; private set; }
     public TerrainCollisionGenerationResult CollisionResult { get; private set; }
     public TerrainRuntimeAddressablesResult AddressablesResult { get; private set; }
@@ -76,6 +75,7 @@ public sealed class TerrainRuntimeBakePipelineResult
     public DateTime StartedAtUtc { get; private set; }
 
     public double HeightDurationSeconds { get; private set; }
+    public double HeightStreamingDurationSeconds { get; private set; }
     public double SurfaceDurationSeconds { get; private set; }
     public double CollisionDurationSeconds { get; private set; }
     public double AddressablesDurationSeconds { get; private set; }
@@ -96,23 +96,27 @@ public sealed class TerrainRuntimeBakePipelineResult
         TerrainRuntimeBakePipelineState failedStage,
         TerrainRuntimeBakePlan initialPlan,
         TerrainRuntimeBakePlan heightPlan,
+        TerrainRuntimeBakePlan heightStreamingPlan,
         TerrainRuntimeBakePlan surfacePlan,
         TerrainRuntimeBakePlan collisionPlan,
         TerrainRuntimeBakePlan addressablesPlan,
         TerrainRuntimeBakePlan sceneSyncPlan,
         TerrainRuntimeBakePlan finalPlan,
         bool heightStageExecuted,
+        bool heightStreamingStageExecuted,
         bool surfaceStageExecuted,
         bool collisionStageExecuted,
         bool addressablesStageExecuted,
         bool sceneSyncStageExecuted,
         TerrainRuntimeHeightCompileResult heightResult,
+        TerrainRuntimeHeightStreamingCompileResult heightStreamingResult,
         TerrainSurfaceMaskGenerationResult surfaceResult,
         TerrainCollisionGenerationResult collisionResult,
         TerrainRuntimeAddressablesResult addressablesResult,
         TerrainRuntimeSceneSynchronizationResult sceneSyncResult,
         DateTime startedAtUtc,
         double heightDurationSeconds,
+        double heightStreamingDurationSeconds,
         double surfaceDurationSeconds,
         double collisionDurationSeconds,
         double addressablesDurationSeconds,
@@ -132,6 +136,7 @@ public sealed class TerrainRuntimeBakePipelineResult
 
         InitialPlan = initialPlan;
         HeightPlan = heightPlan;
+        HeightStreamingPlan = heightStreamingPlan;
         SurfacePlan = surfacePlan;
         CollisionPlan = collisionPlan;
         AddressablesPlan = addressablesPlan;
@@ -139,12 +144,14 @@ public sealed class TerrainRuntimeBakePipelineResult
         FinalPlan = finalPlan;
 
         HeightStageExecuted = heightStageExecuted;
+        HeightStreamingStageExecuted = heightStreamingStageExecuted;
         SurfaceStageExecuted = surfaceStageExecuted;
         CollisionStageExecuted = collisionStageExecuted;
         AddressablesStageExecuted = addressablesStageExecuted;
         SceneSyncStageExecuted = sceneSyncStageExecuted;
 
         HeightResult = heightResult;
+        HeightStreamingResult = heightStreamingResult;
         SurfaceResult = surfaceResult;
         CollisionResult = collisionResult;
         AddressablesResult = addressablesResult;
@@ -153,6 +160,7 @@ public sealed class TerrainRuntimeBakePipelineResult
         StartedAtUtc = startedAtUtc;
 
         HeightDurationSeconds = Math.Max(0d, heightDurationSeconds);
+        HeightStreamingDurationSeconds = Math.Max(0d, heightStreamingDurationSeconds);
         SurfaceDurationSeconds = Math.Max(0d, surfaceDurationSeconds);
         CollisionDurationSeconds = Math.Max(0d, collisionDurationSeconds);
         AddressablesDurationSeconds = Math.Max(0d, addressablesDurationSeconds);
@@ -189,14 +197,6 @@ public sealed class TerrainRuntimeBakePipelineResult
         builder.AppendLine("Final State: " + FinalState);
         builder.AppendLine("Last Stage: " + LastStage);
 
-        if (Diagnostics != null)
-        {
-            builder.AppendLine("Diagnostics Run ID: " + Diagnostics.RunId);
-            builder.AppendLine("Diagnostics Level: " + Diagnostics.Level);
-            Diagnostics.AppendExecutionReport(builder);
-            Diagnostics.AppendPerformanceReport(builder);
-        }
-
         if (FailedStage != TerrainRuntimeBakePipelineState.Idle)
         {
             builder.AppendLine("Failed Stage: " + FailedStage);
@@ -213,6 +213,7 @@ public sealed class TerrainRuntimeBakePipelineResult
 
         builder.AppendLine();
         AppendHeightSummary(builder);
+        AppendHeightStreamingSummary(builder);
         AppendSurfaceSummary(builder);
         AppendCollisionSummary(builder);
         AppendAddressablesSummary(builder);
@@ -221,6 +222,7 @@ public sealed class TerrainRuntimeBakePipelineResult
         builder.AppendLine();
         builder.AppendLine("Stage Timings:");
         builder.AppendLine("  Heightmaps: " + HeightDurationSeconds.ToString("0.00") + " seconds");
+        builder.AppendLine("  Height Streaming: " + HeightStreamingDurationSeconds.ToString("0.00") + " seconds");
         builder.AppendLine("  Surface Masks: " + SurfaceDurationSeconds.ToString("0.00") + " seconds");
         builder.AppendLine("  Collision: " + CollisionDurationSeconds.ToString("0.00") + " seconds");
         builder.AppendLine("  Addressables: " + AddressablesDurationSeconds.ToString("0.00") + " seconds");
@@ -270,6 +272,11 @@ public sealed class TerrainRuntimeBakePipelineResult
         );
 
         builder.Append(
+            "Height Streaming " + plan.HeightStreamingWorkMode + " (" +
+            plan.HeightStreamingTileCount + " tiles), "
+        );
+
+        builder.Append(
             "Surface " + plan.SurfaceWorkMode + " (" + plan.SurfaceTileCount + " tiles), "
         );
 
@@ -310,6 +317,28 @@ public sealed class TerrainRuntimeBakePipelineResult
         builder.AppendLine(
             "Height: " + HeightResult.Outcome + ", " + HeightResult.WorkMode + ", " +
             HeightResult.SucceededTileCount + " / " + HeightResult.RequestedTileCount + " tiles"
+        );
+    }
+
+    private void AppendHeightStreamingSummary(StringBuilder builder)
+    {
+        if (!HeightStreamingStageExecuted)
+        {
+            builder.AppendLine("Height Streaming: Skipped");
+            return;
+        }
+
+        if (HeightStreamingResult == null)
+        {
+            builder.AppendLine("Height Streaming: No result");
+            return;
+        }
+
+        builder.AppendLine(
+            "Height Streaming: " + HeightStreamingResult.Outcome + ", " +
+            HeightStreamingResult.WorkMode + ", " +
+            HeightStreamingResult.SucceededTileCount + " / " +
+            HeightStreamingResult.RequestedTileCount + " tiles"
         );
     }
 

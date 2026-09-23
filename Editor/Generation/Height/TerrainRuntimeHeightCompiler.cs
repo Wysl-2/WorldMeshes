@@ -1165,6 +1165,7 @@ public static class TerrainRuntimeHeightCompiler
                         authoringData,
                         target,
                         preparedBatch,
+                        preparedStreamingBatch,
                         batchCreatedAsset,
                         ref expectedStateRevision,
                         out staleError
@@ -1563,9 +1564,12 @@ public static class TerrainRuntimeHeightCompiler
             );
 
         heightStreamingCompile
-            .FinalizeAfterNativeSuccess(
+            .FinalizeAfterAuthoritativeSourceConfirmed(
                 worldSettings
             );
+
+        TerrainHeightStreamingCompileSummary heightStreamingSummary =
+            heightStreamingCompile.CreateSummary();
 
         using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
         {
@@ -1584,6 +1588,18 @@ public static class TerrainRuntimeHeightCompiler
                     .DirtyAddressablesContent()
                     .DirtyRuntimeSceneMetadata();
 
+            if (heightStreamingSummary.DatasetFinalized)
+            {
+                mutation
+                    .ClearAllHeightStreamingTiles()
+                    .ClearFullHeightStreaming();
+            }
+            else
+            {
+                mutation
+                    .RequireFullHeightStreaming();
+            }
+
             if (addressablesConfigurationDirty)
             {
                 mutation
@@ -1593,6 +1609,14 @@ public static class TerrainRuntimeHeightCompiler
             TerrainRuntimeBakeStateService
                 .ApplyMutation(
                     mutation
+                );
+        }
+        else if (!heightStreamingSummary.DatasetFinalized)
+        {
+            TerrainRuntimeBakeStateService
+                .ApplyMutation(
+                    new TerrainRuntimeBakeStateMutation()
+                        .RequireFullHeightStreaming()
                 );
         }
         /*
@@ -1628,7 +1652,7 @@ public static class TerrainRuntimeHeightCompiler
             );
 
         completedResult.SetHeightStreamingSummary(
-            heightStreamingCompile.CreateSummary()
+            heightStreamingSummary
         );
 
         return
@@ -1691,6 +1715,7 @@ public static class TerrainRuntimeHeightCompiler
         TerrainAuthoringData authoringData,
         CompileTarget target,
         IReadOnlyList<PreparedHeightTile> preparedBatch,
+        IReadOnlyList<TerrainHeightStreamingFamilyWriteResult> preparedStreamingBatch,
         bool batchCreatedAsset,
         ref long expectedStateRevision,
         out string errorMessage
@@ -1755,10 +1780,38 @@ public static class TerrainRuntimeHeightCompiler
             );
         }
 
+        List<Vector2Int> durableStreamingCoordinates =
+            new List<Vector2Int>();
+
+        if (preparedStreamingBatch != null)
+        {
+            foreach (
+                TerrainHeightStreamingFamilyWriteResult streamingResult
+                in preparedStreamingBatch
+            )
+            {
+                if (
+                    streamingResult != null
+                    &&
+                    streamingResult.Attempted
+                    &&
+                    streamingResult.PreparedComplete
+                )
+                {
+                    durableStreamingCoordinates.Add(
+                        streamingResult.Coordinate
+                    );
+                }
+            }
+        }
+
         TerrainRuntimeBakeStateMutation mutation =
             new TerrainRuntimeBakeStateMutation()
                 .RemoveHeightTiles(
                     durableCoordinates
+                )
+                .RemoveHeightStreamingTiles(
+                    durableStreamingCoordinates
                 )
                 .DirtyAddressablesContent()
                 .DirtyRuntimeSceneMetadata();

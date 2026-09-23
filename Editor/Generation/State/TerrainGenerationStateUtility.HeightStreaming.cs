@@ -8,6 +8,121 @@ public static partial class TerrainGenerationStateUtility
     public const int RuntimeHeightStreamingCompilerVersion =
         1;
 
+    public static GenerationStatus GetHeightStreamingStatus(
+        WorldSettings worldSettings
+    )
+    {
+        TerrainGenerationStateEvaluationContext context =
+            new TerrainGenerationStateEvaluationContext(
+                worldSettings,
+                TerrainGenerationStateEvaluationMode.Operational
+            );
+
+        return
+            GetHeightStreamingStatus(
+                context
+            );
+    }
+
+    internal static GenerationStatus GetHeightStreamingStatus(
+        TerrainGenerationStateEvaluationContext context
+    )
+    {
+        if (context == null)
+        {
+            return
+                GenerationStatus.NotGenerated;
+        }
+
+        if (
+            context.TryGetHeightStreamingStatus(
+                out GenerationStatus cachedStatus
+            )
+        )
+        {
+            return cachedStatus;
+        }
+
+        WorldSettings worldSettings =
+            context.WorldSettings;
+
+        if (worldSettings == null)
+        {
+            return
+                context.CacheHeightStreamingStatus(
+                    GenerationStatus.NotGenerated
+                );
+        }
+
+        GenerationStatus heightStatus =
+            GetHeightmapStatus(
+                context
+            );
+
+        if (
+            heightStatus ==
+            GenerationStatus.NotGenerated
+        )
+        {
+            return
+                context.CacheHeightStreamingStatus(
+                    GenerationStatus.NotGenerated
+                );
+        }
+
+        if (
+            heightStatus !=
+            GenerationStatus.Current
+        )
+        {
+            return
+                context.CacheHeightStreamingStatus(
+                    GenerationStatus.OutOfDate
+                );
+        }
+
+        TerrainHeightmapManifest manifest =
+            context.HeightmapManifest;
+
+        if (manifest == null)
+        {
+            return
+                context.CacheHeightStreamingStatus(
+                    GenerationStatus.NotGenerated
+                );
+        }
+
+        bool everGenerated =
+            manifest.streamingGenerationRevision > 0
+            ||
+            manifest.streamingPyramidCompilerVersion > 0
+            ||
+            manifest.StreamingLevelCount > 0
+            ||
+            !string.IsNullOrEmpty(
+                manifest.streamingGenerationSignature
+            );
+
+        if (!everGenerated)
+        {
+            return
+                context.CacheHeightStreamingStatus(
+                    GenerationStatus.NotGenerated
+                );
+        }
+
+        return
+            context.CacheHeightStreamingStatus(
+                IsHeightStreamingManifestCurrent(
+                    manifest,
+                    worldSettings,
+                    worldSettings.heightmapGenerationRevision
+                )
+                    ? GenerationStatus.Current
+                    : GenerationStatus.OutOfDate
+            );
+    }
+
     public static string GetCurrentHeightStreamingGenerationSignature(
         WorldSettings worldSettings
     )

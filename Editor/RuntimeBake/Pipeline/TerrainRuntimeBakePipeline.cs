@@ -25,6 +25,7 @@ public static class TerrainRuntimeBakePipeline
 
         // Package 10.1 preserves the exact fresh plan used at each stage.
         public TerrainRuntimeBakePlan heightPlan;
+        public TerrainRuntimeBakePlan heightStreamingPlan;
         public TerrainRuntimeBakePlan surfacePlan;
         public TerrainRuntimeBakePlan collisionPlan;
         public TerrainRuntimeBakePlan addressablesPlan;
@@ -33,18 +34,21 @@ public static class TerrainRuntimeBakePipeline
         public TerrainRuntimeBakePlan finalPlan;
 
         public TerrainRuntimeHeightCompileResult heightResult;
+        public TerrainRuntimeHeightStreamingCompileResult heightStreamingResult;
         public TerrainSurfaceMaskGenerationResult surfaceResult;
         public TerrainCollisionGenerationResult collisionResult;
         public TerrainRuntimeAddressablesResult addressablesResult;
         public TerrainRuntimeSceneSynchronizationResult sceneSyncResult;
 
         public bool heightStageExecuted;
+        public bool heightStreamingStageExecuted;
         public bool surfaceStageExecuted;
         public bool collisionStageExecuted;
         public bool addressablesStageExecuted;
         public bool sceneSyncStageExecuted;
 
         public double heightDurationSeconds;
+        public double heightStreamingDurationSeconds;
         public double surfaceDurationSeconds;
         public double collisionDurationSeconds;
         public double addressablesDurationSeconds;
@@ -128,6 +132,9 @@ public static class TerrainRuntimeBakePipeline
                 case TerrainRuntimeBakePipelineState.Heightmaps:
                     return "Runtime Heightmaps";
 
+                case TerrainRuntimeBakePipelineState.HeightStreaming:
+                    return "Height Streaming";
+
                 case TerrainRuntimeBakePipelineState.SurfaceMasks:
                     return "Surface Masks";
 
@@ -171,13 +178,16 @@ public static class TerrainRuntimeBakePipeline
                     return 0.05f;
 
                 case TerrainRuntimeBakePipelineState.Heightmaps:
-                    return 0.20f;
+                    return 0.18f;
+
+                case TerrainRuntimeBakePipelineState.HeightStreaming:
+                    return 0.32f;
 
                 case TerrainRuntimeBakePipelineState.SurfaceMasks:
-                    return 0.40f;
+                    return 0.47f;
 
                 case TerrainRuntimeBakePipelineState.Collision:
-                    return 0.60f;
+                    return 0.63f;
 
                 case TerrainRuntimeBakePipelineState.Addressables:
                     return 0.80f;
@@ -495,7 +505,7 @@ public static class TerrainRuntimeBakePipeline
         {
             Schedule(
                 run,
-                ExecuteSurfaceStage
+                ExecuteHeightStreamingStage
             );
 
             return;
@@ -576,7 +586,7 @@ public static class TerrainRuntimeBakePipeline
             case TerrainRuntimeHeightCompileOutcome.NoWork:
                 Schedule(
                     run,
-                    ExecuteSurfaceStage
+                    ExecuteHeightStreamingStage
                 );
                 return;
 
@@ -612,6 +622,171 @@ public static class TerrainRuntimeBakePipeline
                         result.ErrorMessage,
                         result.SummaryMessage,
                         "Runtime height generation did not complete. Outcome: " +
+                        result.Outcome
+                    )
+                );
+                return;
+        }
+    }
+
+    // =====================================================
+    // HEIGHT STREAMING
+    // =====================================================
+
+    private static void ExecuteHeightStreamingStage(
+        ActiveRun run
+    )
+    {
+        SetState(
+            run,
+            TerrainRuntimeBakePipelineState.HeightStreaming,
+            true
+        );
+
+        if (!PrepareStageBoundary(run))
+        {
+            return;
+        }
+
+        TerrainRuntimeBakePlan plan =
+            BuildFreshPlan(
+                run
+            );
+
+        run.heightStreamingPlan =
+            plan;
+
+        run.diagnostics?.RecordExecutionPlan(
+            TerrainRuntimeBakePipelineState.HeightStreaming,
+            plan
+        );
+
+        if (!ValidateStagePlan(run, plan))
+        {
+            return;
+        }
+
+        if (
+            TerrainRuntimeBakeValidationHooks.TryConsumeFailureBeforeStage(
+                TerrainRuntimeBakePipelineState.HeightStreaming,
+                out string validationFailureMessage
+            )
+        )
+        {
+            FinishFailed(
+                run,
+                TerrainRuntimeBakePipelineState.HeightStreaming,
+                validationFailureMessage
+            );
+
+            return;
+        }
+
+        if (
+            plan.HeightStreamingWorkMode ==
+                TerrainRuntimeBakeWorkMode.None
+        )
+        {
+            Schedule(
+                run,
+                ExecuteSurfaceStage
+            );
+
+            return;
+        }
+
+        run.heightStreamingStageExecuted =
+            true;
+
+        double stageStartedAt =
+            EditorApplication.timeSinceStartup;
+
+        TerrainRuntimeHeightStreamingCompileResult result;
+
+        try
+        {
+            result =
+                TraceExecutionCall(
+                    run,
+                    TerrainRuntimeBakePipelineState.HeightStreaming,
+                    "TerrainRuntimeHeightStreamingCompiler.CompilePlannedHeightStreamingWork",
+                    () => TerrainRuntimeHeightStreamingCompiler
+                        .CompilePlannedHeightStreamingWork(
+                            run.worldSettings,
+                            plan
+                        )
+                );
+        }
+        finally
+        {
+            run.heightStreamingDurationSeconds =
+                Math.Max(
+                    0d,
+                    EditorApplication.timeSinceStartup -
+                    stageStartedAt
+                );
+        }
+
+        run.heightStreamingResult =
+            result;
+
+        run.diagnostics?.RecordHeightStreamingExecution(
+            result
+        );
+
+        if (result == null)
+        {
+            FinishFailed(
+                run,
+                TerrainRuntimeBakePipelineState.HeightStreaming,
+                "Height Streaming generation returned no result."
+            );
+
+            return;
+        }
+
+        switch (result.Outcome)
+        {
+            case TerrainRuntimeHeightStreamingCompileOutcome.Completed:
+            case TerrainRuntimeHeightStreamingCompileOutcome.NoWork:
+                Schedule(
+                    run,
+                    ExecuteSurfaceStage
+                );
+                return;
+
+            case TerrainRuntimeHeightStreamingCompileOutcome.Cancelled:
+                FinishCancelled(
+                    run,
+                    TerrainRuntimeBakePipelineState.HeightStreaming,
+                    GetStageMessage(
+                        result.ErrorMessage,
+                        result.SummaryMessage,
+                        "Height Streaming generation was cancelled."
+                    )
+                );
+                return;
+
+            case TerrainRuntimeHeightStreamingCompileOutcome.Blocked:
+                FinishBlocked(
+                    run,
+                    TerrainRuntimeBakePipelineState.HeightStreaming,
+                    GetStageMessage(
+                        result.ErrorMessage,
+                        result.SummaryMessage,
+                        "Height Streaming generation was blocked."
+                    )
+                );
+                return;
+
+            default:
+                FinishFailed(
+                    run,
+                    TerrainRuntimeBakePipelineState.HeightStreaming,
+                    GetStageMessage(
+                        result.ErrorMessage,
+                        result.SummaryMessage,
+                        "Height Streaming generation did not complete. Outcome: " +
                         result.Outcome
                     )
                 );
@@ -1622,6 +1797,9 @@ public static class TerrainRuntimeBakePipeline
             case TerrainRuntimeBakePipelineState.Heightmaps:
                 return TerrainRuntimeBakePlanSnapshotKind.Height;
 
+            case TerrainRuntimeBakePipelineState.HeightStreaming:
+                return TerrainRuntimeBakePlanSnapshotKind.HeightStreaming;
+
             case TerrainRuntimeBakePipelineState.SurfaceMasks:
                 return TerrainRuntimeBakePlanSnapshotKind.Surface;
 
@@ -1803,6 +1981,9 @@ public static class TerrainRuntimeBakePipeline
 
             case nameof(ExecuteHeightStage):
                 return TerrainRuntimeBakePipelineState.Heightmaps;
+
+            case nameof(ExecuteHeightStreamingStage):
+                return TerrainRuntimeBakePipelineState.HeightStreaming;
 
             case nameof(ExecuteSurfaceStage):
                 return TerrainRuntimeBakePipelineState.SurfaceMasks;
@@ -2059,6 +2240,7 @@ public static class TerrainRuntimeBakePipeline
                 run.lastStage,
                 failedStage,
                 run.heightStageExecuted,
+                run.heightStreamingStageExecuted,
                 run.surfaceStageExecuted,
                 run.collisionStageExecuted,
                 run.addressablesStageExecuted,
@@ -2077,23 +2259,27 @@ public static class TerrainRuntimeBakePipeline
                 failedStage,
                 run.initialPlan,
                 run.heightPlan,
+                run.heightStreamingPlan,
                 run.surfacePlan,
                 run.collisionPlan,
                 run.addressablesPlan,
                 run.sceneSyncPlan,
                 run.finalPlan,
                 run.heightStageExecuted,
+                run.heightStreamingStageExecuted,
                 run.surfaceStageExecuted,
                 run.collisionStageExecuted,
                 run.addressablesStageExecuted,
                 run.sceneSyncStageExecuted,
                 run.heightResult,
+                run.heightStreamingResult,
                 run.surfaceResult,
                 run.collisionResult,
                 run.addressablesResult,
                 run.sceneSyncResult,
                 run.startedAtUtc,
                 run.heightDurationSeconds,
+                run.heightStreamingDurationSeconds,
                 run.surfaceDurationSeconds,
                 run.collisionDurationSeconds,
                 run.addressablesDurationSeconds,
@@ -2226,6 +2412,7 @@ public static class TerrainRuntimeBakePipeline
                 false,
                 false,
                 false,
+                false,
                 null,
                 errorMessage,
                 "Unified runtime bake start was blocked."
@@ -2245,17 +2432,21 @@ public static class TerrainRuntimeBakePipeline
                 null,
                 null,
                 null,
+                null,
                 false,
                 false,
                 false,
                 false,
                 false,
+                false,
+                null,
                 null,
                 null,
                 null,
                 null,
                 null,
                 DateTime.UtcNow,
+                0d,
                 0d,
                 0d,
                 0d,
@@ -2332,6 +2523,9 @@ public static class TerrainRuntimeBakePipeline
         {
             case TerrainRuntimeBakePipelineState.Heightmaps:
                 return "Runtime Heightmaps";
+
+            case TerrainRuntimeBakePipelineState.HeightStreaming:
+                return "Height Streaming";
 
             case TerrainRuntimeBakePipelineState.SurfaceMasks:
                 return "Surface Masks";

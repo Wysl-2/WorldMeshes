@@ -13,6 +13,12 @@ public sealed class TerrainRuntimeBakeStateSummary
         private set;
     }
 
+    public int PendingHeightStreamingTileCount
+    {
+        get;
+        private set;
+    }
+
     public int PendingSurfaceTileCount
     {
         get;
@@ -26,6 +32,12 @@ public sealed class TerrainRuntimeBakeStateSummary
     }
 
     public bool FullHeightRebuildRequired
+    {
+        get;
+        private set;
+    }
+
+    public bool FullHeightStreamingRebuildRequired
     {
         get;
         private set;
@@ -86,11 +98,15 @@ public sealed class TerrainRuntimeBakeStateSummary
             return
                 PendingHeightTileCount > 0
                 ||
+                PendingHeightStreamingTileCount > 0
+                ||
                 PendingSurfaceTileCount > 0
                 ||
                 PendingCollisionChunkCount > 0
                 ||
                 FullHeightRebuildRequired
+                ||
+                FullHeightStreamingRebuildRequired
                 ||
                 FullSurfaceRebuildRequired
                 ||
@@ -106,9 +122,11 @@ public sealed class TerrainRuntimeBakeStateSummary
 
     internal TerrainRuntimeBakeStateSummary(
         int pendingHeightTileCount,
+        int pendingHeightStreamingTileCount,
         int pendingSurfaceTileCount,
         int pendingCollisionChunkCount,
         bool fullHeightRebuildRequired,
+        bool fullHeightStreamingRebuildRequired,
         bool fullSurfaceRebuildRequired,
         bool fullCollisionRebuildRequired,
         bool addressablesConfigurationDirty,
@@ -122,6 +140,9 @@ public sealed class TerrainRuntimeBakeStateSummary
         PendingHeightTileCount =
             pendingHeightTileCount;
 
+        PendingHeightStreamingTileCount =
+            pendingHeightStreamingTileCount;
+
         PendingSurfaceTileCount =
             pendingSurfaceTileCount;
 
@@ -130,6 +151,9 @@ public sealed class TerrainRuntimeBakeStateSummary
 
         FullHeightRebuildRequired =
             fullHeightRebuildRequired;
+
+        FullHeightStreamingRebuildRequired =
+            fullHeightStreamingRebuildRequired;
 
         FullSurfaceRebuildRequired =
             fullSurfaceRebuildRequired;

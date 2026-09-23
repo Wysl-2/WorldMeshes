@@ -51,12 +51,6 @@ public static class TerrainRuntimeInvalidationService
             heightTiles.Count == 0
         )
         {
-            /*
-             * Authoring identity changed but the incremental tile set cannot
-             * prove complete coverage. Do not invent a metadata-only runtime
-             * acknowledgement; conservatively rebuild the height dependency
-             * chain.
-             */
             return
                 InvalidateFullHeightDependencyChain(
                     currentAuthoringSignature,
@@ -99,6 +93,21 @@ public static class TerrainRuntimeInvalidationService
             .SetObservedAuthoringSignature(
                 currentAuthoringSignature
             );
+
+        if (
+            IsCurrentStreamingBaseline(
+                worldSettings
+            )
+        )
+        {
+            mutation.AddHeightStreamingTiles(
+                heightTiles
+            );
+        }
+        else
+        {
+            mutation.RequireFullHeightStreaming();
+        }
 
         TerrainSurfaceSettings surfaceSettings =
             AssetDatabase
@@ -264,6 +273,70 @@ public static class TerrainRuntimeInvalidationService
             );
     }
 
+    public static bool InvalidateHeightStreamingTiles(
+        WorldSettings worldSettings,
+        IEnumerable<Vector2Int> dirtyHeightTiles
+    )
+    {
+        if (worldSettings == null)
+        {
+            return false;
+        }
+
+        HashSet<Vector2Int> heightTiles =
+            new HashSet<Vector2Int>();
+
+        if (
+            !TerrainRuntimeBakeDependencyUtility
+                .TryCopyValidHeightTiles(
+                    worldSettings,
+                    dirtyHeightTiles,
+                    heightTiles,
+                    out _
+                )
+            ||
+            heightTiles.Count == 0
+        )
+        {
+            return
+                InvalidateFullHeightStreaming();
+        }
+
+        TerrainRuntimeBakeStateMutation mutation =
+            new TerrainRuntimeBakeStateMutation();
+
+        if (
+            IsCurrentStreamingBaseline(
+                worldSettings
+            )
+        )
+        {
+            mutation.AddHeightStreamingTiles(
+                heightTiles
+            );
+        }
+        else
+        {
+            mutation.RequireFullHeightStreaming();
+        }
+
+        return
+            TerrainRuntimeBakeStateService
+                .ApplyMutation(
+                    mutation
+                );
+    }
+
+    public static bool InvalidateFullHeightStreaming()
+    {
+        return
+            TerrainRuntimeBakeStateService
+                .ApplyMutation(
+                    new TerrainRuntimeBakeStateMutation()
+                        .RequireFullHeightStreaming()
+                );
+    }
+
     public static bool InvalidateSurfaceSettingsChanged()
     {
         TerrainRuntimeBakeStateMutation mutation =
@@ -319,6 +392,7 @@ public static class TerrainRuntimeInvalidationService
 
         mutation
             .RequireFullHeight()
+            .RequireFullHeightStreaming()
             .RequireFullSurface()
             .RequireFullCollision()
             .DirtyAddressablesContent()
@@ -337,6 +411,31 @@ public static class TerrainRuntimeInvalidationService
             TerrainRuntimeBakeStateService
                 .ApplyMutation(
                     mutation
+                );
+    }
+
+    private static bool IsCurrentStreamingBaseline(
+        WorldSettings worldSettings
+    )
+    {
+        if (worldSettings == null)
+        {
+            return false;
+        }
+
+        TerrainHeightmapManifest manifest =
+            AssetDatabase
+                .LoadAssetAtPath<TerrainHeightmapManifest>(
+                    TerrainRuntimeHeightAssetUtility
+                        .HeightmapManifestPath
+                );
+
+        return
+            TerrainGenerationStateUtility
+                .IsHeightStreamingManifestCurrent(
+                    manifest,
+                    worldSettings,
+                    worldSettings.heightmapGenerationRevision
                 );
     }
 }

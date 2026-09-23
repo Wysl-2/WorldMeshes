@@ -19,6 +19,14 @@ public sealed class TerrainRuntimeBakeStateMutation
             new HashSet<Vector2Int>();
 
     private readonly HashSet<Vector2Int>
+        heightStreamingTilesToAdd =
+            new HashSet<Vector2Int>();
+
+    private readonly HashSet<Vector2Int>
+        heightStreamingTilesToRemove =
+            new HashSet<Vector2Int>();
+
+    private readonly HashSet<Vector2Int>
         surfaceTilesToAdd =
             new HashSet<Vector2Int>();
 
@@ -40,6 +48,12 @@ public sealed class TerrainRuntimeBakeStateMutation
     internal IEnumerable<Vector2Int> HeightTilesToRemove =>
         heightTilesToRemove;
 
+    internal IEnumerable<Vector2Int> HeightStreamingTilesToAdd =>
+        heightStreamingTilesToAdd;
+
+    internal IEnumerable<Vector2Int> HeightStreamingTilesToRemove =>
+        heightStreamingTilesToRemove;
+
     internal IEnumerable<Vector2Int> SurfaceTilesToAdd =>
         surfaceTilesToAdd;
 
@@ -53,6 +67,12 @@ public sealed class TerrainRuntimeBakeStateMutation
         collisionChunksToRemove;
 
     internal bool ClearAllHeightTilesRequested
+    {
+        get;
+        private set;
+    }
+
+    internal bool ClearAllHeightStreamingTilesRequested
     {
         get;
         private set;
@@ -77,6 +97,18 @@ public sealed class TerrainRuntimeBakeStateMutation
     }
 
     internal bool ClearFullHeightRebuildRequired
+    {
+        get;
+        private set;
+    }
+
+    internal bool RequireFullHeightStreamingRebuild
+    {
+        get;
+        private set;
+    }
+
+    internal bool ClearFullHeightStreamingRebuildRequired
     {
         get;
         private set;
@@ -168,6 +200,38 @@ public sealed class TerrainRuntimeBakeStateMutation
         return this;
     }
 
+    public TerrainRuntimeBakeStateMutation AddHeightStreamingTiles(
+        IEnumerable<Vector2Int> coordinates
+    )
+    {
+        AddCoordinates(
+            heightStreamingTilesToAdd,
+            coordinates
+        );
+
+        return this;
+    }
+
+    public TerrainRuntimeBakeStateMutation RemoveHeightStreamingTiles(
+        IEnumerable<Vector2Int> coordinates
+    )
+    {
+        AddCoordinates(
+            heightStreamingTilesToRemove,
+            coordinates
+        );
+
+        return this;
+    }
+
+    public TerrainRuntimeBakeStateMutation ClearAllHeightStreamingTiles()
+    {
+        ClearAllHeightStreamingTilesRequested =
+            true;
+
+        return this;
+    }
+
     public TerrainRuntimeBakeStateMutation AddSurfaceTiles(
         IEnumerable<Vector2Int> coordinates
     )
@@ -243,6 +307,22 @@ public sealed class TerrainRuntimeBakeStateMutation
     public TerrainRuntimeBakeStateMutation ClearFullHeight()
     {
         ClearFullHeightRebuildRequired =
+            true;
+
+        return this;
+    }
+
+    public TerrainRuntimeBakeStateMutation RequireFullHeightStreaming()
+    {
+        RequireFullHeightStreamingRebuild =
+            true;
+
+        return this;
+    }
+
+    public TerrainRuntimeBakeStateMutation ClearFullHeightStreaming()
+    {
+        ClearFullHeightStreamingRebuildRequired =
             true;
 
         return this;

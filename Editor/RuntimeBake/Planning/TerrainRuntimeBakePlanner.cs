@@ -101,6 +101,9 @@ public static class TerrainRuntimeBakePlanner
         HashSet<Vector2Int> heightTiles =
             new HashSet<Vector2Int>();
 
+        HashSet<Vector2Int> heightStreamingTiles =
+            new HashSet<Vector2Int>();
+
         HashSet<Vector2Int> surfaceTiles =
             new HashSet<Vector2Int>();
 
@@ -130,7 +133,9 @@ public static class TerrainRuntimeBakePlanner
                     TerrainRuntimeBakeWorkMode.None,
                     TerrainRuntimeBakeWorkMode.None,
                     TerrainRuntimeBakeWorkMode.None,
+                    TerrainRuntimeBakeWorkMode.None,
                     heightTiles,
+                    heightStreamingTiles,
                     surfaceTiles,
                     collisionChunks,
                     false,
@@ -458,6 +463,235 @@ public static class TerrainRuntimeBakePlanner
         }
 
         heightTrace?.Complete();
+
+        TerrainRuntimeBakeTraceScope heightStreamingTrace =
+            diagnostics?.BeginTrace(
+                "TerrainRuntimeBakePlanner.EvaluateHeightStreaming"
+            );
+
+        // =================================================
+        // HEIGHT STREAMING
+        // =================================================
+
+        TerrainGenerationStateUtility.GenerationStatus
+            heightStreamingStatus =
+                TerrainGenerationStateUtility
+                    .GetHeightStreamingStatus(
+                        generationState
+                    );
+
+        bool streamingBaselineCurrent =
+            TerrainGenerationStateUtility
+                .IsHeightStreamingManifestCurrent(
+                    heightManifest,
+                    worldSettings,
+                    worldSettings.heightmapGenerationRevision
+                );
+
+        string currentHeightStreamingSignature =
+            TerrainGenerationStateUtility
+                .GetCurrentHeightStreamingGenerationSignature(
+                    worldSettings
+                );
+
+        bool streamingTargetMetadataCompatible =
+            heightManifest != null
+            &&
+            heightManifest.streamingPyramidCompilerVersion ==
+                TerrainGenerationStateUtility
+                    .RuntimeHeightStreamingCompilerVersion
+            &&
+            !string.IsNullOrEmpty(
+                currentHeightStreamingSignature
+            )
+            &&
+            heightManifest.streamingGenerationSignature ==
+                currentHeightStreamingSignature
+            &&
+            heightManifest.StreamingLevelCount > 0;
+
+        TerrainRuntimeBakeWorkMode heightStreamingMode =
+            TerrainRuntimeBakeWorkMode.None;
+
+        bool pendingHeightStreamingValid =
+            TerrainRuntimeBakeDependencyUtility
+                .TryCopyValidHeightTiles(
+                    worldSettings,
+                    snapshot.PendingHeightStreamingTiles,
+                    heightStreamingTiles,
+                    out string heightStreamingCoordinateError
+                );
+
+        if (
+            heightMode ==
+            TerrainRuntimeBakeWorkMode.Full
+        )
+        {
+            heightStreamingMode =
+                TerrainRuntimeBakeWorkMode.Full;
+
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.DependencyPropagation,
+                TerrainRuntimeBakeReasonTarget.HeightStreaming,
+                "A full authoritative Height rebuild requires a full Height Streaming rebuild.",
+                false,
+                0,
+                TerrainRuntimeBakeReasonTarget.Height
+            );
+        }
+        else if (!pendingHeightStreamingValid)
+        {
+            heightStreamingMode =
+                TerrainRuntimeBakeWorkMode.Full;
+
+            string reason =
+                "Persistent Height Streaming dirty coordinates do not match the current height-tile layout. " +
+                heightStreamingCoordinateError;
+
+            safetyReasons.Add(
+                reason
+            );
+
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.InvalidPersistentDirtyState,
+                TerrainRuntimeBakeReasonTarget.HeightStreaming,
+                reason,
+                true,
+                snapshot.PendingHeightStreamingTileCount
+            );
+        }
+        else if (snapshot.FullHeightStreamingRebuildRequired)
+        {
+            heightStreamingMode =
+                TerrainRuntimeBakeWorkMode.Full;
+
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.FullRebuildFlag,
+                TerrainRuntimeBakeReasonTarget.HeightStreaming,
+                "Persistent runtime bake state requires a full Height Streaming rebuild."
+            );
+        }
+        else
+        {
+            if (
+                heightMode ==
+                TerrainRuntimeBakeWorkMode.Incremental
+            )
+            {
+                int beforeDependencyCount =
+                    heightStreamingTiles.Count;
+
+                heightStreamingTiles.UnionWith(
+                    heightTiles
+                );
+
+                int addedCount =
+                    Mathf.Max(
+                        0,
+                        heightStreamingTiles.Count -
+                        beforeDependencyCount
+                    );
+
+                if (addedCount > 0)
+                {
+                    diagnostics?.AddPlannerReason(
+                        TerrainRuntimeBakeReasonCode.DependencyPropagation,
+                        TerrainRuntimeBakeReasonTarget.HeightStreaming,
+                        "Incremental authoritative Height work invalidates the corresponding Height Streaming families.",
+                        false,
+                        addedCount,
+                        TerrainRuntimeBakeReasonTarget.Height
+                    );
+                }
+            }
+
+            if (heightStreamingTiles.Count > 0)
+            {
+                if (
+                    streamingBaselineCurrent
+                    ||
+                    streamingTargetMetadataCompatible
+                )
+                {
+                    heightStreamingMode =
+                        TerrainRuntimeBakeWorkMode.Incremental;
+
+                    diagnostics?.AddPlannerReason(
+                        TerrainRuntimeBakeReasonCode.PendingHeightStreamingChange,
+                        TerrainRuntimeBakeReasonTarget.HeightStreaming,
+                        "Known Height Streaming dirty coordinates can be repaired incrementally.",
+                        false,
+                        heightStreamingTiles.Count
+                    );
+                }
+                else
+                {
+                    heightStreamingMode =
+                        TerrainRuntimeBakeWorkMode.Full;
+
+                    string reason =
+                        "Height Streaming is incomplete and no compatible local baseline can prove that the pending coordinate set is sufficient.";
+
+                    safetyReasons.Add(
+                        reason
+                    );
+
+                    diagnostics?.AddPlannerReason(
+                        TerrainRuntimeBakeReasonCode.NoProvableDirtySet,
+                        TerrainRuntimeBakeReasonTarget.HeightStreaming,
+                        reason,
+                        true,
+                        heightStreamingTiles.Count
+                    );
+                }
+            }
+            else if (
+                heightStreamingStatus ==
+                TerrainGenerationStateUtility
+                    .GenerationStatus.Current
+            )
+            {
+                heightStreamingMode =
+                    TerrainRuntimeBakeWorkMode.None;
+
+                diagnostics?.AddPlannerReason(
+                    TerrainRuntimeBakeReasonCode.GeneratedDataCurrent,
+                    TerrainRuntimeBakeReasonTarget.HeightStreaming,
+                    "Height Streaming is current; no work is required."
+                );
+            }
+            else
+            {
+                heightStreamingMode =
+                    TerrainRuntimeBakeWorkMode.Full;
+
+                diagnostics?.AddPlannerReason(
+                    heightStreamingStatus ==
+                        TerrainGenerationStateUtility.GenerationStatus.NotGenerated
+                        ? TerrainRuntimeBakeReasonCode.MissingGeneratedData
+                        : TerrainRuntimeBakeReasonCode.OutdatedGeneratedData,
+                    TerrainRuntimeBakeReasonTarget.HeightStreaming,
+                    "Height Streaming is missing or incompatible; a full derived pyramid rebuild is required.",
+                    true
+                );
+            }
+        }
+
+        if (
+            heightStreamingMode ==
+            TerrainRuntimeBakeWorkMode.Full
+        )
+        {
+            heightStreamingTiles.Clear();
+
+            TerrainRuntimeBakeDependencyUtility
+                .CollectAllHeightTiles(
+                    worldSettings,
+                    heightStreamingTiles
+                );
+        }
+
+        heightStreamingTrace?.Complete();
 
         TerrainRuntimeBakeTraceScope surfaceTrace =
             diagnostics?.BeginTrace(
@@ -1421,9 +1655,11 @@ public static class TerrainRuntimeBakePlanner
             CreatePlan(
                 snapshot,
                 heightMode,
+                heightStreamingMode,
                 surfaceMode,
                 collisionMode,
                 heightTiles,
+                heightStreamingTiles,
                 surfaceTiles,
                 collisionChunks,
                 addressablesConfigurationRequired,
@@ -1444,9 +1680,11 @@ public static class TerrainRuntimeBakePlanner
     private static TerrainRuntimeBakePlan CreatePlan(
         TerrainRuntimeBakeStateSnapshot snapshot,
         TerrainRuntimeBakeWorkMode heightMode,
+        TerrainRuntimeBakeWorkMode heightStreamingMode,
         TerrainRuntimeBakeWorkMode surfaceMode,
         TerrainRuntimeBakeWorkMode collisionMode,
         IEnumerable<Vector2Int> heightTiles,
+        IEnumerable<Vector2Int> heightStreamingTiles,
         IEnumerable<Vector2Int> surfaceTiles,
         IEnumerable<Vector2Int> collisionChunks,
         bool addressablesConfigurationRequired,
@@ -1464,9 +1702,11 @@ public static class TerrainRuntimeBakePlanner
         return
             new TerrainRuntimeBakePlan(
                 heightMode,
+                heightStreamingMode,
                 surfaceMode,
                 collisionMode,
                 heightTiles,
+                heightStreamingTiles,
                 surfaceTiles,
                 collisionChunks,
                 addressablesConfigurationRequired,

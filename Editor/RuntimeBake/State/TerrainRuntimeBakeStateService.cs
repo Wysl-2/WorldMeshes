@@ -32,9 +32,11 @@ public static class TerrainRuntimeBakeStateService
         return
             new TerrainRuntimeBakeStateSnapshot(
                 state.PendingHeightTiles,
+                state.PendingHeightStreamingTiles,
                 state.PendingSurfaceTiles,
                 state.PendingCollisionChunks,
                 state.FullHeightRebuildRequired,
+                state.FullHeightStreamingRebuildRequired,
                 state.FullSurfaceRebuildRequired,
                 state.FullCollisionRebuildRequired,
                 state.AddressablesConfigurationDirty,
@@ -61,9 +63,11 @@ public static class TerrainRuntimeBakeStateService
         return
             new TerrainRuntimeBakeStateSummary(
                 state.PendingHeightTiles.Count,
+                state.PendingHeightStreamingTiles.Count,
                 state.PendingSurfaceTiles.Count,
                 state.PendingCollisionChunks.Count,
                 state.FullHeightRebuildRequired,
+                state.FullHeightStreamingRebuildRequired,
                 state.FullSurfaceRebuildRequired,
                 state.FullCollisionRebuildRequired,
                 state.AddressablesConfigurationDirty,
@@ -105,6 +109,12 @@ public static class TerrainRuntimeBakeStateService
             AddCoordinates(
                 state.PendingHeightTiles,
                 mutation.HeightTilesToAdd
+            );
+
+        changed |=
+            AddCoordinates(
+                state.PendingHeightStreamingTiles,
+                mutation.HeightStreamingTilesToAdd
             );
 
         changed |=
@@ -173,6 +183,24 @@ public static class TerrainRuntimeBakeStateService
                 true;
         }
 
+        changed |=
+            RemoveCoordinates(
+                state.PendingHeightStreamingTiles,
+                mutation.HeightStreamingTilesToRemove
+            );
+
+        if (
+            mutation.ClearAllHeightStreamingTilesRequested
+            &&
+            state.PendingHeightStreamingTiles.Count > 0
+        )
+        {
+            state.PendingHeightStreamingTiles.Clear();
+
+            changed =
+                true;
+        }
+
         if (
             mutation.RequireFullHeightRebuild
             &&
@@ -193,6 +221,32 @@ public static class TerrainRuntimeBakeStateService
         )
         {
             state.FullHeightRebuildRequired =
+                false;
+
+            changed =
+                true;
+        }
+
+        if (
+            mutation.RequireFullHeightStreamingRebuild
+            &&
+            !state.FullHeightStreamingRebuildRequired
+        )
+        {
+            state.FullHeightStreamingRebuildRequired =
+                true;
+
+            changed =
+                true;
+        }
+
+        if (
+            mutation.ClearFullHeightStreamingRebuildRequired
+            &&
+            state.FullHeightStreamingRebuildRequired
+        )
+        {
+            state.FullHeightStreamingRebuildRequired =
                 false;
 
             changed =
@@ -448,6 +502,122 @@ public static class TerrainRuntimeBakeStateService
         }
 
         state.FullHeightRebuildRequired =
+            false;
+
+        CommitMutation(
+            state
+        );
+
+        return true;
+    }
+
+    // =====================================================
+    // HEIGHT STREAMING TILES
+    // =====================================================
+
+    public static bool MarkHeightStreamingTileDirty(
+        Vector2Int coordinate
+    )
+    {
+        return
+            MarkHeightStreamingTilesDirty(
+                SingleCoordinate(
+                    coordinate
+                )
+            );
+    }
+
+    public static bool MarkHeightStreamingTilesDirty(
+        IEnumerable<Vector2Int> coordinates
+    )
+    {
+        TerrainRuntimeBakeState state =
+            GetState();
+
+        if (
+            !AddCoordinates(
+                state.PendingHeightStreamingTiles,
+                coordinates
+            )
+        )
+        {
+            return false;
+        }
+
+        CommitMutation(
+            state
+        );
+
+        return true;
+    }
+
+    public static bool ClearHeightStreamingTile(
+        Vector2Int coordinate
+    )
+    {
+        return
+            ClearHeightStreamingTiles(
+                SingleCoordinate(
+                    coordinate
+                )
+            );
+    }
+
+    public static bool ClearHeightStreamingTiles(
+        IEnumerable<Vector2Int> coordinates
+    )
+    {
+        TerrainRuntimeBakeState state =
+            GetState();
+
+        if (
+            !RemoveCoordinates(
+                state.PendingHeightStreamingTiles,
+                coordinates
+            )
+        )
+        {
+            return false;
+        }
+
+        CommitMutation(
+            state
+        );
+
+        return true;
+    }
+
+    public static bool RequireFullHeightStreamingRebuild()
+    {
+        TerrainRuntimeBakeState state =
+            GetState();
+
+        if (state.FullHeightStreamingRebuildRequired)
+        {
+            return false;
+        }
+
+        state.FullHeightStreamingRebuildRequired =
+            true;
+
+        CommitMutation(
+            state
+        );
+
+        return true;
+    }
+
+    public static bool ClearFullHeightStreamingRebuildRequirement()
+    {
+        TerrainRuntimeBakeState state =
+            GetState();
+
+        if (!state.FullHeightStreamingRebuildRequired)
+        {
+            return false;
+        }
+
+        state.FullHeightStreamingRebuildRequired =
             false;
 
         CommitMutation(
@@ -829,11 +999,15 @@ public static class TerrainRuntimeBakeStateService
         bool changed =
             state.PendingHeightTiles.Count > 0
             ||
+            state.PendingHeightStreamingTiles.Count > 0
+            ||
             state.PendingSurfaceTiles.Count > 0
             ||
             state.PendingCollisionChunks.Count > 0
             ||
             state.FullHeightRebuildRequired
+            ||
+            state.FullHeightStreamingRebuildRequired
             ||
             state.FullSurfaceRebuildRequired
             ||
@@ -851,10 +1025,14 @@ public static class TerrainRuntimeBakeStateService
         }
 
         state.PendingHeightTiles.Clear();
+        state.PendingHeightStreamingTiles.Clear();
         state.PendingSurfaceTiles.Clear();
         state.PendingCollisionChunks.Clear();
 
         state.FullHeightRebuildRequired =
+            false;
+
+        state.FullHeightStreamingRebuildRequired =
             false;
 
         state.FullSurfaceRebuildRequired =
@@ -894,6 +1072,11 @@ public static class TerrainRuntimeBakeStateService
         storageChanged |=
             NormalizeCoordinates(
                 state.PendingHeightTiles
+            );
+
+        storageChanged |=
+            NormalizeCoordinates(
+                state.PendingHeightStreamingTiles
             );
 
         storageChanged |=

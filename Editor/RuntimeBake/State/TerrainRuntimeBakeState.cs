@@ -31,7 +31,7 @@ internal sealed class TerrainRuntimeBakeState :
     ScriptableSingleton<TerrainRuntimeBakeState>
 {
     internal const int CurrentSerializedVersion =
-        2;
+        3;
 
     [SerializeField]
     private int serializedVersion =
@@ -46,6 +46,10 @@ internal sealed class TerrainRuntimeBakeState :
         new List<Vector2Int>();
 
     [SerializeField]
+    private List<Vector2Int> pendingHeightStreamingTiles =
+        new List<Vector2Int>();
+
+    [SerializeField]
     private List<Vector2Int> pendingSurfaceTiles =
         new List<Vector2Int>();
 
@@ -55,6 +59,9 @@ internal sealed class TerrainRuntimeBakeState :
 
     [SerializeField]
     private bool fullHeightRebuildRequired;
+
+    [SerializeField]
+    private bool fullHeightStreamingRebuildRequired;
 
     [SerializeField]
     private bool fullSurfaceRebuildRequired;
@@ -116,6 +123,14 @@ internal sealed class TerrainRuntimeBakeState :
         }
     }
 
+    internal List<Vector2Int> PendingHeightStreamingTiles
+    {
+        get
+        {
+            return pendingHeightStreamingTiles;
+        }
+    }
+
     internal List<Vector2Int> PendingSurfaceTiles
     {
         get
@@ -142,6 +157,20 @@ internal sealed class TerrainRuntimeBakeState :
         set
         {
             fullHeightRebuildRequired =
+                value;
+        }
+    }
+
+    internal bool FullHeightStreamingRebuildRequired
+    {
+        get
+        {
+            return fullHeightStreamingRebuildRequired;
+        }
+
+        set
+        {
+            fullHeightStreamingRebuildRequired =
                 value;
         }
     }
@@ -307,6 +336,15 @@ internal sealed class TerrainRuntimeBakeState :
         if (pendingHeightTiles == null)
         {
             pendingHeightTiles =
+                new List<Vector2Int>();
+
+            changed =
+                true;
+        }
+
+        if (pendingHeightStreamingTiles == null)
+        {
+            pendingHeightStreamingTiles =
                 new List<Vector2Int>();
 
             changed =

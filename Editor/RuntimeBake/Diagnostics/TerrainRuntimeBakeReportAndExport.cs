@@ -209,6 +209,11 @@ public static class TerrainRuntimeBakeReportFormatter
         );
         AppendDuration(
             builder,
+            "Height Streaming",
+            result.HeightStreamingDurationSeconds
+        );
+        AppendDuration(
+            builder,
             "Surface Masks",
             result.SurfaceDurationSeconds
         );
@@ -1388,6 +1393,11 @@ public static class TerrainRuntimeBakeReportJsonExporter
             dto,
             "Heightmaps",
             result.HeightDurationSeconds
+        );
+        AddStageTiming(
+            dto,
+            "HeightStreaming",
+            result.HeightStreamingDurationSeconds
         );
         AddStageTiming(
             dto,

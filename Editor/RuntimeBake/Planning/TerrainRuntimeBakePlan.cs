@@ -21,6 +21,9 @@ public sealed class TerrainRuntimeBakePlan
         heightTiles;
 
     private readonly ReadOnlyCollection<Vector2Int>
+        heightStreamingTiles;
+
+    private readonly ReadOnlyCollection<Vector2Int>
         surfaceTiles;
 
     private readonly ReadOnlyCollection<Vector2Int>
@@ -30,6 +33,12 @@ public sealed class TerrainRuntimeBakePlan
         safetyEscalationReasons;
 
     public TerrainRuntimeBakeWorkMode HeightWorkMode
+    {
+        get;
+        private set;
+    }
+
+    public TerrainRuntimeBakeWorkMode HeightStreamingWorkMode
     {
         get;
         private set;
@@ -50,6 +59,9 @@ public sealed class TerrainRuntimeBakePlan
     public IReadOnlyList<Vector2Int> HeightTiles =>
         heightTiles;
 
+    public IReadOnlyList<Vector2Int> HeightStreamingTiles =>
+        heightStreamingTiles;
+
     public IReadOnlyList<Vector2Int> SurfaceTiles =>
         surfaceTiles;
 
@@ -58,6 +70,9 @@ public sealed class TerrainRuntimeBakePlan
 
     public int HeightTileCount =>
         heightTiles.Count;
+
+    public int HeightStreamingTileCount =>
+        heightStreamingTiles.Count;
 
     public int SurfaceTileCount =>
         surfaceTiles.Count;
@@ -142,6 +157,9 @@ public sealed class TerrainRuntimeBakePlan
                 HeightWorkMode !=
                     TerrainRuntimeBakeWorkMode.None
                 ||
+                HeightStreamingWorkMode !=
+                    TerrainRuntimeBakeWorkMode.None
+                ||
                 SurfaceWorkMode !=
                     TerrainRuntimeBakeWorkMode.None
                 ||
@@ -158,9 +176,11 @@ public sealed class TerrainRuntimeBakePlan
 
     internal TerrainRuntimeBakePlan(
         TerrainRuntimeBakeWorkMode heightWorkMode,
+        TerrainRuntimeBakeWorkMode heightStreamingWorkMode,
         TerrainRuntimeBakeWorkMode surfaceWorkMode,
         TerrainRuntimeBakeWorkMode collisionWorkMode,
         IEnumerable<Vector2Int> heightTiles,
+        IEnumerable<Vector2Int> heightStreamingTiles,
         IEnumerable<Vector2Int> surfaceTiles,
         IEnumerable<Vector2Int> collisionChunks,
         bool addressablesConfigurationRequired,
@@ -180,6 +200,9 @@ public sealed class TerrainRuntimeBakePlan
         HeightWorkMode =
             heightWorkMode;
 
+        HeightStreamingWorkMode =
+            heightStreamingWorkMode;
+
         SurfaceWorkMode =
             surfaceWorkMode;
 
@@ -189,6 +212,11 @@ public sealed class TerrainRuntimeBakePlan
         this.heightTiles =
             CreateSortedCoordinates(
                 heightTiles
+            );
+
+        this.heightStreamingTiles =
+            CreateSortedCoordinates(
+                heightStreamingTiles
             );
 
         this.surfaceTiles =

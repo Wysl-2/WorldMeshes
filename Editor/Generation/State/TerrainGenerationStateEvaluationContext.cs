@@ -48,6 +48,10 @@ internal sealed class TerrainGenerationStateEvaluationContext
     private bool heightmapStatusEvaluated;
 
     private TerrainGenerationStateUtility.GenerationStatus
+        heightStreamingStatus;
+    private bool heightStreamingStatusEvaluated;
+
+    private TerrainGenerationStateUtility.GenerationStatus
         surfaceMaskStatus;
     private bool surfaceMaskStatusEvaluated;
 
@@ -322,6 +326,31 @@ internal sealed class TerrainGenerationStateEvaluationContext
         return status;
     }
 
+    internal bool TryGetHeightStreamingStatus(
+        out TerrainGenerationStateUtility.GenerationStatus status
+    )
+    {
+        status =
+            heightStreamingStatus;
+
+        return
+            heightStreamingStatusEvaluated;
+    }
+
+    internal TerrainGenerationStateUtility.GenerationStatus
+        CacheHeightStreamingStatus(
+            TerrainGenerationStateUtility.GenerationStatus status
+        )
+    {
+        heightStreamingStatus =
+            status;
+
+        heightStreamingStatusEvaluated =
+            true;
+
+        return status;
+    }
+
     internal bool TryGetSurfaceMaskStatus(
         out TerrainGenerationStateUtility.GenerationStatus status
     )
@@ -393,6 +422,12 @@ internal readonly struct TerrainGenerationStateEvaluationResult
     }
 
     internal TerrainGenerationStateUtility.GenerationStatus
+        HeightStreamingStatus
+    {
+        get;
+    }
+
+    internal TerrainGenerationStateUtility.GenerationStatus
         SurfaceMaskStatus
     {
         get;
@@ -410,6 +445,8 @@ internal readonly struct TerrainGenerationStateEvaluationResult
         TerrainGenerationStateUtility.GenerationStatus
             heightmapStatus,
         TerrainGenerationStateUtility.GenerationStatus
+            heightStreamingStatus,
+        TerrainGenerationStateUtility.GenerationStatus
             surfaceMaskStatus,
         TerrainGenerationStateUtility.GenerationStatus
             collisionMeshStatus
@@ -420,6 +457,9 @@ internal readonly struct TerrainGenerationStateEvaluationResult
 
         HeightmapStatus =
             heightmapStatus;
+
+        HeightStreamingStatus =
+            heightStreamingStatus;
 
         SurfaceMaskStatus =
             surfaceMaskStatus;
@@ -482,6 +522,9 @@ public static partial class TerrainGenerationStateUtility
                     context
                 ),
                 GetHeightmapStatus(
+                    context
+                ),
+                GetHeightStreamingStatus(
                     context
                 ),
                 GetSurfaceMaskStatus(
