@@ -1488,6 +1488,9 @@ public static class TerrainRuntimeBakePlanner
             heightMode !=
                 TerrainRuntimeBakeWorkMode.None
             ||
+            heightStreamingMode !=
+                TerrainRuntimeBakeWorkMode.None
+            ||
             surfaceMode !=
                 TerrainRuntimeBakeWorkMode.None
             ||
@@ -1510,6 +1513,10 @@ public static class TerrainRuntimeBakePlanner
             authoringReady
             &&
             heightStatus ==
+                TerrainGenerationStateUtility
+                    .GenerationStatus.Current
+            &&
+            heightStreamingStatus ==
                 TerrainGenerationStateUtility
                     .GenerationStatus.Current
             &&

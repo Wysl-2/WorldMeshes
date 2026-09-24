@@ -31,7 +31,7 @@ internal sealed class TerrainRuntimeBakeState :
     ScriptableSingleton<TerrainRuntimeBakeState>
 {
     internal const int CurrentSerializedVersion =
-        3;
+        4;
 
     [SerializeField]
     private int serializedVersion =
@@ -317,8 +317,20 @@ internal sealed class TerrainRuntimeBakeState :
             CurrentSerializedVersion
         )
         {
+            bool requiresMrh04AddressablesMigration =
+                serializedVersion < 4;
+
             serializedVersion =
                 CurrentSerializedVersion;
+
+            if (requiresMrh04AddressablesMigration)
+            {
+                addressablesConfigurationDirty =
+                    true;
+
+                addressablesContentDirty =
+                    true;
+            }
 
             changed =
                 true;

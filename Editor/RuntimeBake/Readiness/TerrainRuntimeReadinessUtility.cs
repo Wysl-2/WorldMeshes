@@ -4,6 +4,7 @@ public sealed class TerrainRuntimeReadinessResult
 {
     public TerrainGenerationStateUtility.GenerationStatus AuthoringStatus { get; internal set; }
     public TerrainGenerationStateUtility.GenerationStatus HeightStatus { get; internal set; }
+    public TerrainGenerationStateUtility.GenerationStatus HeightStreamingStatus { get; internal set; }
     public TerrainGenerationStateUtility.GenerationStatus SurfaceStatus { get; internal set; }
     public TerrainGenerationStateUtility.GenerationStatus CollisionStatus { get; internal set; }
 
@@ -11,6 +12,9 @@ public sealed class TerrainRuntimeReadinessResult
     public TerrainRuntimeAddressablesValidationResult AddressablesValidation { get; internal set; }
     public TerrainRuntimeHierarchyReadinessResult HierarchyReadiness { get; internal set; }
     public TerrainRuntimeBakePlan Plan { get; internal set; }
+
+    public bool HeightStreamingClipmapCompatible { get; internal set; }
+    public string HeightStreamingClipmapCompatibilityError { get; internal set; }
 
     public bool IsReady { get; internal set; }
     public string ErrorMessage { get; internal set; }
@@ -131,6 +135,9 @@ public static class TerrainRuntimeReadinessUtility
         result.HeightStatus =
             generationState.HeightmapStatus;
 
+        result.HeightStreamingStatus =
+            generationState.HeightStreamingStatus;
+
         result.SurfaceStatus =
             generationState.SurfaceMaskStatus;
 
@@ -139,6 +146,16 @@ public static class TerrainRuntimeReadinessUtility
 
         result.AddressablesValidation =
             addressablesValidation;
+
+        result.HeightStreamingClipmapCompatible =
+            TerrainHeightStreamingPyramidPolicy
+                .TryValidateClipmapCompatibility(
+                    worldSettings,
+                    out string clipmapCompatibilityError
+                );
+
+        result.HeightStreamingClipmapCompatibilityError =
+            clipmapCompatibilityError ?? "";
 
         if (
             audit != null
@@ -182,6 +199,9 @@ public static class TerrainRuntimeReadinessUtility
                 TerrainGenerationStateUtility.GenerationStatus.Current
             && result.HeightStatus ==
                 TerrainGenerationStateUtility.GenerationStatus.Current
+            && result.HeightStreamingStatus ==
+                TerrainGenerationStateUtility.GenerationStatus.Current
+            && result.HeightStreamingClipmapCompatible
             && result.SurfaceStatus ==
                 TerrainGenerationStateUtility.GenerationStatus.Current
             && result.CollisionStatus ==
@@ -202,6 +222,15 @@ public static class TerrainRuntimeReadinessUtility
             {
                 result.ErrorMessage =
                     result.HierarchyReadiness.ErrorMessage;
+            }
+            else if (!result.HeightStreamingClipmapCompatible)
+            {
+                result.ErrorMessage =
+                    string.IsNullOrEmpty(
+                        result.HeightStreamingClipmapCompatibilityError
+                    )
+                        ? "Height Streaming is incompatible with the current clipmap configuration."
+                        : result.HeightStreamingClipmapCompatibilityError;
             }
             else if (
                 result.AddressablesValidation != null

@@ -13,6 +13,9 @@ public static class TerrainRuntimeAddressablesUtility
         public int heightRevision;
         public string heightSignature;
 
+        public int streamingGenerationRevision;
+        public string streamingGenerationSignature;
+
         public int surfaceRevision;
         public int surfaceSourceHeightRevision;
         public string surfaceSignature;
@@ -121,6 +124,7 @@ public static class TerrainRuntimeAddressablesUtility
 
         if (
             !TerrainHeightmapAddressablesUtility.ReconcileConfiguration(
+                worldSettings,
                 heightManifest,
                 stats,
                 out bool heightCancelled,
@@ -853,6 +857,7 @@ public static class TerrainRuntimeAddressablesUtility
         {
             if (
                 !TerrainHeightmapAddressablesUtility.ReconcileConfiguration(
+                    worldSettings,
                     heightManifest,
                     stats,
                     out bool heightCancelled,
@@ -1208,6 +1213,7 @@ public static class TerrainRuntimeAddressablesUtility
         {
             heightValid =
                 TerrainHeightmapAddressablesUtility.ValidateExistingConfiguration(
+                    worldSettings,
                     heightManifest,
                     out heightError
                 );
@@ -1473,6 +1479,17 @@ public static class TerrainRuntimeAddressablesUtility
         }
 
         if (
+            generationState.HeightStreamingStatus !=
+            TerrainGenerationStateUtility.GenerationStatus.Current
+        )
+        {
+            errorMessage =
+                "Height Streaming is not current.";
+
+            return false;
+        }
+
+        if (
             generationState.SurfaceMaskStatus !=
             TerrainGenerationStateUtility.GenerationStatus.Current
         )
@@ -1518,6 +1535,19 @@ public static class TerrainRuntimeAddressablesUtility
         }
 
         if (
+            TerrainGenerationStateUtility.GetHeightStreamingStatus(
+                worldSettings
+            )
+            != TerrainGenerationStateUtility.GenerationStatus.Current
+        )
+        {
+            errorMessage =
+                "Height Streaming is not current.";
+
+            return false;
+        }
+
+        if (
             TerrainGenerationStateUtility.GetSurfaceMaskStatus(
                 worldSettings
             )
@@ -1550,6 +1580,11 @@ public static class TerrainRuntimeAddressablesUtility
         WorldSettings worldSettings
     )
     {
+        TerrainHeightmapManifest heightManifest =
+            AssetDatabase.LoadAssetAtPath<TerrainHeightmapManifest>(
+                TerrainRuntimeHeightAssetUtility.HeightmapManifestPath
+            );
+
         return
             new GeneratedTargetIdentity
             {
@@ -1558,6 +1593,16 @@ public static class TerrainRuntimeAddressablesUtility
 
                 heightSignature =
                     worldSettings.lastGeneratedHeightSignature ?? "",
+
+                streamingGenerationRevision =
+                    heightManifest != null
+                        ? heightManifest.streamingGenerationRevision
+                        : -1,
+
+                streamingGenerationSignature =
+                    heightManifest != null
+                        ? heightManifest.streamingGenerationSignature ?? ""
+                        : "",
 
                 surfaceRevision =
                     worldSettings.surfaceMaskGenerationRevision,
@@ -1639,6 +1684,16 @@ public static class TerrainRuntimeAddressablesUtility
             return false;
         }
 
+        TerrainHeightmapManifest heightManifest =
+            AssetDatabase.LoadAssetAtPath<TerrainHeightmapManifest>(
+                TerrainRuntimeHeightAssetUtility.HeightmapManifestPath
+            );
+
+        if (heightManifest == null)
+        {
+            return false;
+        }
+
         return
             worldSettings.heightmapGenerationRevision
                 == target.heightRevision
@@ -1646,6 +1701,15 @@ public static class TerrainRuntimeAddressablesUtility
             string.Equals(
                 worldSettings.lastGeneratedHeightSignature ?? "",
                 target.heightSignature,
+                StringComparison.Ordinal
+            )
+            &&
+            heightManifest.streamingGenerationRevision ==
+                target.streamingGenerationRevision
+            &&
+            string.Equals(
+                heightManifest.streamingGenerationSignature ?? "",
+                target.streamingGenerationSignature,
                 StringComparison.Ordinal
             )
             &&

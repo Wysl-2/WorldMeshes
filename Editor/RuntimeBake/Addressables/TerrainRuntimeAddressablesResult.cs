@@ -186,6 +186,15 @@ internal sealed class TerrainAddressablesOperationStats
     public int groupsCreated;
     public int schemasCreatedOrChanged;
 
+    public int heightGeographicTileCount;
+    public int heightRepresentationLevelCount;
+    public int heightAuthoritativeAssetCount;
+    public int heightDerivedAssetCount;
+    public int heightExpectedEntryCount;
+    public int heightActualEntryCount;
+    public int heightManagedStrideLabelCount;
+    public double heightConfigurationReconciliationSeconds;
+
     public bool AnyConfigurationChanged =>
         heightConfigurationChanged
         ||
@@ -245,6 +254,8 @@ public sealed class TerrainRuntimeAddressablesResult
 
     public string BuildOutputPath { get; private set; }
     public double BuildDuration { get; private set; }
+
+    public TerrainHeightAddressablesScaleReport HeightScaleReport { get; private set; }
 
     public bool AddressablesConfigurationDirtyCleared { get; private set; }
     public bool AddressablesContentDirtyCleared { get; private set; }
@@ -321,6 +332,14 @@ public sealed class TerrainRuntimeAddressablesResult
 
         BuildOutputPath = buildOutputPath ?? "";
         BuildDuration = buildDuration;
+
+        HeightScaleReport =
+            TerrainHeightAddressablesScaleUtility
+                .CreateReport(
+                    stats,
+                    BuildOutputPath,
+                    BuildDuration
+                );
 
         AddressablesConfigurationDirtyCleared =
             addressablesConfigurationDirtyCleared;
@@ -464,6 +483,14 @@ public sealed class TerrainRuntimeAddressablesResult
                 "Build Duration: " +
                 BuildDuration.ToString("0.00") +
                 " seconds"
+            );
+        }
+
+        if (HeightScaleReport != null)
+        {
+            builder.AppendLine();
+            builder.Append(
+                HeightScaleReport.BuildDiagnosticReport()
             );
         }
 

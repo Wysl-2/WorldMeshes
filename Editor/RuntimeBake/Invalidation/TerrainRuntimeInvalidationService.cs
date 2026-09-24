@@ -320,6 +320,8 @@ public static class TerrainRuntimeInvalidationService
             mutation.RequireFullHeightStreaming();
         }
 
+        mutation.DirtyAddressablesContent();
+
         return
             TerrainRuntimeBakeStateService
                 .ApplyMutation(
@@ -334,6 +336,7 @@ public static class TerrainRuntimeInvalidationService
                 .ApplyMutation(
                     new TerrainRuntimeBakeStateMutation()
                         .RequireFullHeightStreaming()
+                        .DirtyAddressablesContent()
                 );
     }
 

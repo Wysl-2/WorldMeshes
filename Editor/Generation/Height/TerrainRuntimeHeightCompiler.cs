@@ -1592,7 +1592,13 @@ public static class TerrainRuntimeHeightCompiler
                     .RequireFullHeightStreaming();
             }
 
-            if (addressablesConfigurationDirty)
+            if (
+                addressablesConfigurationDirty
+                ||
+                heightStreamingSummary.CreatedAssetCount > 0
+                ||
+                heightStreamingSummary.RemovedAssetCount > 0
+            )
             {
                 mutation
                     .DirtyAddressablesConfiguration();
@@ -1775,6 +1781,9 @@ public static class TerrainRuntimeHeightCompiler
         List<Vector2Int> durableStreamingCoordinates =
             new List<Vector2Int>();
 
+        bool batchStreamingCreatedAsset =
+            false;
+
         if (preparedStreamingBatch != null)
         {
             foreach (
@@ -1782,6 +1791,16 @@ public static class TerrainRuntimeHeightCompiler
                 in preparedStreamingBatch
             )
             {
+                if (
+                    streamingResult != null
+                    &&
+                    streamingResult.CreatedAssetCount > 0
+                )
+                {
+                    batchStreamingCreatedAsset =
+                        true;
+                }
+
                 if (
                     streamingResult != null
                     &&
@@ -1808,7 +1827,11 @@ public static class TerrainRuntimeHeightCompiler
                 .DirtyAddressablesContent()
                 .DirtyRuntimeSceneMetadata();
 
-        if (batchCreatedAsset)
+        if (
+            batchCreatedAsset
+            ||
+            batchStreamingCreatedAsset
+        )
         {
             mutation
                 .DirtyAddressablesConfiguration();

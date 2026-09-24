@@ -369,6 +369,12 @@ public static class TerrainRuntimeHeightStreamingCompiler
                 List<Vector2Int> durableSuccessfulCoordinates =
                     new List<Vector2Int>();
 
+                bool batchOutputChanged =
+                    false;
+
+                bool batchCreatedAsset =
+                    false;
+
                 for (
                     int batchIndex = 0;
                     batchIndex < preparedBatch.Count;
@@ -377,6 +383,15 @@ public static class TerrainRuntimeHeightStreamingCompiler
                 {
                     TerrainHeightStreamingFamilyWriteResult result =
                         preparedBatch[batchIndex];
+
+                    if (result != null)
+                    {
+                        batchOutputChanged |=
+                            result.OutputMayHaveChanged;
+
+                        batchCreatedAsset |=
+                            result.CreatedAssetCount > 0;
+                    }
 
                     if (
                         result != null
@@ -423,7 +438,11 @@ public static class TerrainRuntimeHeightStreamingCompiler
                     plan.HeightStreamingWorkMode ==
                         TerrainRuntimeBakeWorkMode.Incremental
                     &&
-                    durableSuccessfulCoordinates.Count > 0
+                    (
+                        durableSuccessfulCoordinates.Count > 0
+                        ||
+                        batchOutputChanged
+                    )
                 )
                 {
                     TerrainRuntimeBakeStateMutation mutation =
@@ -431,6 +450,16 @@ public static class TerrainRuntimeHeightStreamingCompiler
                             .RemoveHeightStreamingTiles(
                                 durableSuccessfulCoordinates
                             );
+
+                    if (batchOutputChanged)
+                    {
+                        mutation.DirtyAddressablesContent();
+                    }
+
+                    if (batchCreatedAsset)
+                    {
+                        mutation.DirtyAddressablesConfiguration();
+                    }
 
                     TerrainRuntimeBakeStateService
                         .ApplyMutation(
@@ -595,6 +624,19 @@ public static class TerrainRuntimeHeightStreamingCompiler
                 );
         }
 
+        completionMutation
+            .DirtyAddressablesContent();
+
+        if (
+            summary.CreatedAssetCount > 0
+            ||
+            summary.RemovedAssetCount > 0
+        )
+        {
+            completionMutation
+                .DirtyAddressablesConfiguration();
+        }
+
         TerrainRuntimeBakeStateService
             .ApplyMutation(
                 completionMutation
@@ -699,6 +741,8 @@ public static class TerrainRuntimeHeightStreamingCompiler
             .ApplyMutation(
                 new TerrainRuntimeBakeStateMutation()
                     .RequireFullHeightStreaming()
+                    .DirtyAddressablesConfiguration()
+                    .DirtyAddressablesContent()
             );
     }
 

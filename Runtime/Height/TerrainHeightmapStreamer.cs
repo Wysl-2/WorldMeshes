@@ -1998,7 +1998,8 @@ public partial class TerrainHeightmapStreamer :
         {
             string address =
                 heightmapManifest
-                    .GetHeightTileAddress(
+                    .GetHeightRepresentationAddress(
+                        1,
                         tileCoordinate.x,
                         tileCoordinate.y
                     );
