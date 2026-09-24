@@ -237,6 +237,17 @@ public sealed class TerrainAnalysisTileData
         return true;
     }
 
+    /*
+     * Borrow the tile's backing storage for synchronous read-only consumers.
+     * The returned array remains owned by this TerrainAnalysisTileData. The
+     * caller must not modify it or retain it beyond this object's lifetime.
+     * Consumers that require independent ownership must use CopyValues().
+     */
+    internal float[] BorrowValuesForReadOnlyAccess()
+    {
+        return values;
+    }
+
     public float[] CopyValues()
     {
         float[] copy =

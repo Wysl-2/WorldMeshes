@@ -1100,6 +1100,14 @@ public static class TerrainSurfaceMaskCompiler
         private TerrainRuntimeBakePerformanceScope
             currentReadbackPerformance;
 
+        private bool postCommitBoundaryScheduled;
+
+        private TerrainSurfaceMaskGenerationOutcome?
+            pendingPostCommitTerminalOutcome;
+
+        private string pendingPostCommitTerminalError =
+            "";
+
         private bool terminal;
 
         public BuildState(
@@ -1366,6 +1374,24 @@ public static class TerrainSurfaceMaskCompiler
             int preparedCreatedCount = 0;
             int preparedUpdatedCount = 0;
 
+            int batchSamplesPerSide =
+                heightManifest.heightTileSamplesPerSide;
+
+            int expectedCount =
+                batchSamplesPerSide *
+                batchSamplesPerSide;
+
+            byte[] outputBuffer =
+                new byte[expectedCount];
+
+            using TerrainRuntimeBakeTrackedMemoryLease surfaceBufferMemory =
+                TerrainRuntimeBakePerformanceDiagnostics.TrackTemporaryMemory(
+                    "Surface.OutputScratchBuffer",
+                    TerrainRuntimeBakePipelineState.SurfaceMasks,
+                    TerrainRuntimeBakeTrackedMemoryCategory.SurfaceBuffer,
+                    outputBuffer.LongLength
+                );
+
             for (
                 int batchIndex = 0;
                 batchIndex < currentBatch.Count;
@@ -1427,11 +1453,14 @@ public static class TerrainSurfaceMaskCompiler
                     return;
                 }
 
-                float[] slopeValues = slopeData.CopyValues();
-                float[] curvatureValues = curvatureData.CopyValues();
+                float[] slopeValues =
+                    slopeData.BorrowValuesForReadOnlyAccess();
 
-                int samplesPerSide = slopeData.SamplesPerSide;
-                int expectedCount = samplesPerSide * samplesPerSide;
+                float[] curvatureValues =
+                    curvatureData.BorrowValuesForReadOnlyAccess();
+
+                int samplesPerSide =
+                    slopeData.SamplesPerSide;
 
                 if (
                     slopeValues == null
@@ -1457,18 +1486,6 @@ public static class TerrainSurfaceMaskCompiler
                     return;
                 }
 
-                byte[] output = new byte[expectedCount];
-
-                using TerrainRuntimeBakeTrackedMemoryLease surfaceBufferMemory =
-                    TerrainRuntimeBakePerformanceDiagnostics.TrackTemporaryMemory(
-                        "Surface.TileWorkingBuffers",
-                        TerrainRuntimeBakePipelineState.SurfaceMasks,
-                        TerrainRuntimeBakeTrackedMemoryCategory.SurfaceBuffer,
-                        ((long)slopeValues.Length + curvatureValues.Length) *
-                            sizeof(float) +
-                        output.Length
-                    );
-
                 for (int sampleZ = 0; sampleZ < samplesPerSide; sampleZ++)
                 {
                     for (int sampleX = 0; sampleX < samplesPerSide; sampleX++)
@@ -1492,7 +1509,7 @@ public static class TerrainSurfaceMaskCompiler
                                 curvatureValues[index]
                             );
 
-                        output[index] =
+                        outputBuffer[index] =
                             (byte)Mathf.Clamp(
                                 Mathf.RoundToInt(
                                     suitability * 255f
@@ -1522,7 +1539,7 @@ public static class TerrainSurfaceMaskCompiler
                     WriteSurfaceTile(
                         coordinate,
                         samplesPerSide,
-                        output,
+                        outputBuffer,
                         out bool topologyChanged,
                         out string writeError
                     );
@@ -1600,7 +1617,7 @@ public static class TerrainSurfaceMaskCompiler
                 )
             )
             {
-                FinishTerminal(
+                SchedulePostCommitBoundary(
                     TerrainSurfaceMaskGenerationOutcome.Cancelled,
                     "Package 10.2 validation intentionally cancelled Surface generation at a completed batch boundary."
                 );
@@ -1608,7 +1625,120 @@ public static class TerrainSurfaceMaskCompiler
                 return;
             }
 
-            EditorApplication.delayCall += ProcessNextBatch;
+            SchedulePostCommitBoundary();
+        }
+
+        private void SchedulePostCommitBoundary(
+            TerrainSurfaceMaskGenerationOutcome? terminalOutcome = null,
+            string terminalError = ""
+        )
+        {
+            if (
+                terminal
+                ||
+                activeBuild != this
+            )
+            {
+                return;
+            }
+
+            if (postCommitBoundaryScheduled)
+            {
+                FinishTerminal(
+                    TerrainSurfaceMaskGenerationOutcome.Failed,
+                    "Surface post-commit residency cleanup was scheduled more than once."
+                );
+
+                return;
+            }
+
+            pendingPostCommitTerminalOutcome =
+                terminalOutcome;
+
+            pendingPostCommitTerminalError =
+                terminalError ?? "";
+
+            ReleaseTransientBatchReferences();
+
+            postCommitBoundaryScheduled =
+                true;
+
+            EditorApplication.delayCall +=
+                ProcessPostCommitBoundary;
+        }
+
+        private void ProcessPostCommitBoundary()
+        {
+            if (
+                terminal
+                ||
+                activeBuild != this
+            )
+            {
+                return;
+            }
+
+            postCommitBoundaryScheduled =
+                false;
+
+            TerrainSurfaceMaskGenerationOutcome?
+                terminalOutcome =
+                    pendingPostCommitTerminalOutcome;
+
+            string terminalError =
+                pendingPostCommitTerminalError ?? "";
+
+            pendingPostCommitTerminalOutcome =
+                null;
+
+            pendingPostCommitTerminalError =
+                "";
+
+            if (
+                !TerrainSurfaceBakeResidencyUtility
+                    .TryReleaseUnusedAssets(
+                        worldSettings,
+                        heightManifest,
+                        surfaceManifest,
+                        surfaceSettings,
+                        out string residencyError
+                    )
+            )
+            {
+                FinishTerminal(
+                    TerrainSurfaceMaskGenerationOutcome.Failed,
+                    residencyError
+                );
+
+                return;
+            }
+
+            if (terminalOutcome.HasValue)
+            {
+                FinishTerminal(
+                    terminalOutcome.Value,
+                    terminalError
+                );
+
+                return;
+            }
+
+            ProcessNextBatch();
+        }
+
+        private void ReleaseTransientBatchReferences()
+        {
+            slopeBatch =
+                null;
+
+            curvatureBatch =
+                null;
+
+            currentBatch =
+                null;
+
+            batchError =
+                "";
         }
 
         private void FinalizeCompleteDataset()
@@ -2016,6 +2146,21 @@ public static class TerrainSurfaceMaskCompiler
             }
 
             terminal = true;
+
+            currentReadbackPerformance?.Dispose();
+            currentReadbackPerformance =
+                null;
+
+            ReleaseTransientBatchReferences();
+
+            postCommitBoundaryScheduled =
+                false;
+
+            pendingPostCommitTerminalOutcome =
+                null;
+
+            pendingPostCommitTerminalError =
+                "";
 
             EditorUtility.ClearProgressBar();
             if (
