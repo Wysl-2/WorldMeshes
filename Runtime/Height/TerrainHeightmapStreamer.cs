@@ -579,15 +579,23 @@ public partial class TerrainHeightmapStreamer :
     private void UpdateShaderCacheBindingState()
     {
         /*
+         * A prepared MRH06 cache set is intentionally not rebound until
+         * TerrainClipmapController applies the matching clipmap layout.
+         * Keep the previously bound cache/layout pair intact meanwhile.
+         */
+        if (multiresolutionBindingPending)
+        {
+            return;
+        }
+
+        /*
          * A cache becomes usable as soon as the normal streaming
          * process has loaded and populated it successfully.
          */
         bool shouldBeBound =
-            cacheReady
+            AreAllActiveHeightLodCachesReady()
             &&
             surfaceCacheReady
-            &&
-            heightCache != null
             &&
             surfaceMaskCache != null;
 
@@ -625,6 +633,13 @@ public partial class TerrainHeightmapStreamer :
 
     private void BindHeightCacheToClipmapRenderers()
     {
+        if (heightLodStates != null)
+        {
+            BindMultiresolutionHeightCachesToClipmapRenderers();
+
+            return;
+        }
+
         if (
             heightCache == null
             ||
@@ -910,27 +925,15 @@ public partial class TerrainHeightmapStreamer :
         }
 
         // -------------------------------------------------
-        // Cache dimensions
+        // MRH06 per-LOD Height + independent Surface caches
         // -------------------------------------------------
 
-        CalculateCacheDimensions();
-        CalculateSurfaceCacheDimensions();
-
-        if (
-            cacheWidth <= 0
-            ||
-            cacheHeight <= 0
-        )
+        if (!InitializeMultiresolutionHeightRuntime())
         {
-            Debug.LogError(
-                "TerrainHeightmapStreamer cannot initialize.\n\n" +
-
-                "Calculated height cache dimensions are invalid.",
-                this
-            );
-
             return false;
         }
+
+        CalculateSurfaceCacheDimensions();
 
         if (
             surfaceCacheWidth <= 0
@@ -945,21 +948,14 @@ public partial class TerrainHeightmapStreamer :
                 this
             );
 
-            return false;
-        }
+            ShutdownMultiresolutionHeightRuntime();
 
-        // -------------------------------------------------
-        // GPU cache buffers
-        // -------------------------------------------------
-
-        if (!CreateHeightCacheBuffers())
-        {
             return false;
         }
 
         if (!CreateDecoupledSurfaceMaskCacheBuffers())
         {
-            DestroyHeightCacheBuffers();
+            ShutdownMultiresolutionHeightRuntime();
 
             return false;
         }
@@ -2824,10 +2820,13 @@ public partial class TerrainHeightmapStreamer :
         hasRequestedClipmapCenter =
             false;
 
+        ShutdownMultiresolutionHeightRuntime();
+
+        // Legacy stride-1 residency is normally unused after MRH06, but
+        // release it defensively for development/inspection compatibility.
         ReleaseResidentTiles();
         ReleaseResidentSurfaceTiles();
 
-        DestroyHeightCacheBuffers();
         DestroySurfaceMaskCacheBuffers();
 
         initialized =

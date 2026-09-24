@@ -399,9 +399,46 @@ float SampleTerrainHeight(
 // CALCULATE TERRAIN NORMAL
 // =========================================================
 
+float ResolveTerrainNormalSampleSpacing(
+    float transitionWeight
+)
+{
+    float fallbackSpacing =
+        max(
+            _HeightSampleSpacing,
+            0.000001
+        );
+
+    float fineSpacing =
+        _HeightNormalSampleSpacingFine > 0.0
+            ? _HeightNormalSampleSpacingFine
+            : fallbackSpacing;
+
+    float coarseSpacing =
+        _HeightNormalSampleSpacingCoarse > 0.0
+            ? _HeightNormalSampleSpacingCoarse
+            : fallbackSpacing;
+
+    return
+        lerp(
+            max(
+                coarseSpacing,
+                0.000001
+            ),
+            max(
+                fineSpacing,
+                0.000001
+            ),
+            saturate(
+                transitionWeight
+            )
+        );
+}
+
 float3 CalculateTerrainNormal(
     float2 worldXZ,
-    float centerHeight
+    float centerHeight,
+    float normalSampleSpacing
 )
 {
     /*
@@ -410,7 +447,7 @@ float3 CalculateTerrainNormal(
      */
     float spacing =
         max(
-            _HeightSampleSpacing,
+            normalSampleSpacing,
             0.000001
         );
 
@@ -546,7 +583,8 @@ float ApplyTerrainHeightDisplacementPositionOnly(
 
 float ApplyTerrainHeightDisplacement(
     inout float3 positionWS,
-    out float3 normalWS
+    out float3 normalWS,
+    float transitionWeight
 )
 {
     normalWS =
@@ -566,10 +604,16 @@ float ApplyTerrainHeightDisplacement(
         return 0.0;
     }
 
+    float normalSampleSpacing =
+        ResolveTerrainNormalSampleSpacing(
+            transitionWeight
+        );
+
     normalWS =
         CalculateTerrainNormal(
             positionWS.xz,
-            positionWS.y
+            positionWS.y,
+            normalSampleSpacing
         );
 
     return 1.0;

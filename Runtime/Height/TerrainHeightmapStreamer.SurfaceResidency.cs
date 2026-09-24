@@ -148,7 +148,7 @@ public partial class TerrainHeightmapStreamer
         }
     }
 
-    private void TryBeginRequestedCacheTransition()
+    private void TryBeginRequestedLegacyCacheTransition()
     {
         if (
             !Application.isPlaying
@@ -251,6 +251,8 @@ public partial class TerrainHeightmapStreamer
             Mathf.Max(
                 1,
                 clipmapTileSpan
+                +
+                1
                 +
                 Mathf.Max(
                     0,

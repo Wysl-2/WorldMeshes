@@ -24,7 +24,7 @@ MonoBehaviour:
   heightOctaves: 4
   heightPersistence: 0.5
   heightLacunarity: 2
-  heightStreamingMaximumStride: 32
+  heightStreamingMaximumStride: 64
   collisionResolution: 64
   clipmapCenterResolution: 512
   clipmapLevelCount: 7

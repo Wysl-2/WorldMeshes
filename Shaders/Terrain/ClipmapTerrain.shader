@@ -184,6 +184,18 @@ Shader "Custom/ClipmapTerrain"
         ) = 1
 
         [HideInInspector]
+        _HeightNormalSampleSpacingFine(
+            "Height Normal Sample Spacing Fine",
+            Float
+        ) = 0
+
+        [HideInInspector]
+        _HeightNormalSampleSpacingCoarse(
+            "Height Normal Sample Spacing Coarse",
+            Float
+        ) = 0
+
+        [HideInInspector]
         _HeightCacheReady(
             "Height Cache Ready",
             Float
@@ -614,6 +626,8 @@ Shader "Custom/ClipmapTerrain"
                 float4 _HeightCacheSize;
                 float _HeightTileSamplesPerSide;
                 float _HeightSampleSpacing;
+                float _HeightNormalSampleSpacingFine;
+                float _HeightNormalSampleSpacingCoarse;
 
                 float4 _SurfaceMaskCacheOriginTile;
                 float4 _SurfaceMaskCacheSize;
@@ -915,7 +929,8 @@ Shader "Custom/ClipmapTerrain"
 
                 ApplyTerrainHeightDisplacement(
                     positionWS,
-                    normalWS
+                    normalWS,
+                    IN.clipmapData.x
                 );
 
                 OUT.positionWS =

@@ -16,7 +16,7 @@ using UnityEngine;
  * policy. Runtime and editor controllers can therefore share the
  * exact same hierarchy/stitch application behavior.
  */
-public sealed class TerrainClipmapLayoutApplier
+public sealed partial class TerrainClipmapLayoutApplier
 {
     // =====================================================
     // SHADER PROPERTY IDS

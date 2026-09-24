@@ -37,6 +37,18 @@ Shader "Hidden/WorldMeshes/ClipmapTerrainWireframe"
         ) = 1
 
         [HideInInspector]
+        _HeightNormalSampleSpacingFine(
+            "Height Normal Sample Spacing Fine",
+            Float
+        ) = 0
+
+        [HideInInspector]
+        _HeightNormalSampleSpacingCoarse(
+            "Height Normal Sample Spacing Coarse",
+            Float
+        ) = 0
+
+        [HideInInspector]
         _HeightCacheReady(
             "Height Cache Ready",
             Float
@@ -190,6 +202,8 @@ Shader "Hidden/WorldMeshes/ClipmapTerrainWireframe"
                 float4 _HeightCacheSize;
                 float _HeightTileSamplesPerSide;
                 float _HeightSampleSpacing;
+                float _HeightNormalSampleSpacingFine;
+                float _HeightNormalSampleSpacingCoarse;
 
                 float4 _WorldSizeXZ;
                 float _WorldBoundsReady;

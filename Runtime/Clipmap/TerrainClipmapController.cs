@@ -382,13 +382,13 @@ public class TerrainClipmapController :
         Vector3 coverageCenter =
             GetDesiredCoverageCenter();
 
-        streamer.RequestCoverageForClipmapCenter(
-            coverageCenter
+        streamer.RequestCoverageForClipmapLayout(
+            desiredLayout
         );
 
         bool canMove =
-            streamer.CanActiveTerrainCachesCoverClipmapAt(
-                coverageCenter
+            streamer.CanActiveCachesCoverLayout(
+                desiredLayout
             );
 
         if (!canMove)
@@ -396,8 +396,10 @@ public class TerrainClipmapController :
             hasBlockedCoverageRequest =
                 true;
 
+            // MRH06 stores the blocked proposed target position so the
+            // complete independently-snapped layout can be recalculated.
             blockedCoverageCenter =
-                coverageCenter;
+                targetWorldPosition;
 
             SetWaitingForHeightData(
                 true,
@@ -448,6 +450,31 @@ public class TerrainClipmapController :
             false;
 
         // =================================================
+        // ACTIVATE A PREPARED TERRAIN CACHE/LAYOUT PAIR
+        // =================================================
+
+        /*
+         * MRH06 keeps the old renderer/cache pair visible while a new
+         * multiresolution layout is prepared. If the streaming target moved
+         * again before this Update, publish the already-prepared pair first,
+         * then continue toward the newest request.
+         */
+        if (
+            streamer.HasPreparedCacheActivation
+            && streamer.TryGetPreparedClipmapLayout(
+                desiredLayout
+            )
+        )
+        {
+            ApplyDesiredLODGeometry();
+
+            if (streamer.HasPreparedCacheActivation)
+            {
+                return;
+            }
+        }
+
+        // =================================================
         // COMPLETE A BLOCKED GAMEPLAY COVERAGE REQUEST
         // =================================================
 
@@ -458,13 +485,25 @@ public class TerrainClipmapController :
          */
         if (hasBlockedCoverageRequest)
         {
-            streamer.RequestCoverageForClipmapCenter(
-                blockedCoverageCenter
+            if (
+                !TryUpdateDesiredLODLayout(
+                    blockedCoverageCenter
+                )
+            )
+            {
+                return;
+            }
+
+            Vector3 blockedCoverageLogCenter =
+                GetDesiredCoverageCenter();
+
+            streamer.RequestCoverageForClipmapLayout(
+                desiredLayout
             );
 
             if (
-                !streamer.CanActiveTerrainCachesCoverClipmapAt(
-                    blockedCoverageCenter
+                !streamer.CanActiveCachesCoverLayout(
+                    desiredLayout
                 )
             )
             {
@@ -476,7 +515,7 @@ public class TerrainClipmapController :
 
             SetWaitingForHeightData(
                 false,
-                blockedCoverageCenter
+                blockedCoverageLogCenter
             );
         }
 
@@ -510,8 +549,8 @@ public class TerrainClipmapController :
         // Request / prefetch desired cache coverage
         // -------------------------------------------------
 
-        streamer.RequestCoverageForClipmapCenter(
-            coverageCenter
+        streamer.RequestCoverageForClipmapLayout(
+            desiredLayout
         );
 
         // -------------------------------------------------
@@ -519,8 +558,8 @@ public class TerrainClipmapController :
         // -------------------------------------------------
 
         if (
-            !streamer.CanActiveTerrainCachesCoverClipmapAt(
-                coverageCenter
+            !streamer.CanActiveCachesCoverLayout(
+                desiredLayout
             )
         )
         {
@@ -677,6 +716,20 @@ public class TerrainClipmapController :
         {
             WarnMissingLODHierarchy(
                 errorMessage
+            );
+
+            return;
+        }
+
+        if (
+            streamer != null
+            && !streamer.ActivatePreparedCachesForLayout(
+                desiredLayout
+            )
+        )
+        {
+            WarnMissingLODHierarchy(
+                "The prepared multiresolution terrain caches could not be activated for the applied clipmap layout."
             );
 
             return;
