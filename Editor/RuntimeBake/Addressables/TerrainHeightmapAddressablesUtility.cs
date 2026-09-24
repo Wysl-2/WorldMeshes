@@ -14,39 +14,6 @@ public static class TerrainHeightmapAddressablesUtility
     public const string HeightStrideLabelPrefix =
         "TerrainHeight_Stride";
 
-    private readonly struct HeightRepresentationAssetRecord
-    {
-        public readonly int sampleStride;
-        public readonly int tileX;
-        public readonly int tileZ;
-        public readonly string assetPath;
-        public readonly string guid;
-        public readonly string address;
-        public readonly string strideLabel;
-        public readonly TerrainHeightStreamingLevelDescriptor descriptor;
-
-        public HeightRepresentationAssetRecord(
-            int sampleStride,
-            int tileX,
-            int tileZ,
-            string assetPath,
-            string guid,
-            string address,
-            string strideLabel,
-            TerrainHeightStreamingLevelDescriptor descriptor
-        )
-        {
-            this.sampleStride = sampleStride;
-            this.tileX = tileX;
-            this.tileZ = tileZ;
-            this.assetPath = assetPath ?? "";
-            this.guid = guid ?? "";
-            this.address = address ?? "";
-            this.strideLabel = strideLabel ?? "";
-            this.descriptor = descriptor;
-        }
-    }
-
     // =====================================================
     // READ-ONLY VALIDATION
     // =====================================================
@@ -60,12 +27,12 @@ public static class TerrainHeightmapAddressablesUtility
         errorMessage = "";
 
         if (
-            !TryCollectExpectedRepresentations(
+            !TryBuildRepresentationStrides(
                 worldSettings,
                 manifest,
-                out List<HeightRepresentationAssetRecord> records,
-                out HashSet<string> expectedGuids,
-                out HashSet<string> expectedStrideLabels,
+                out List<int> representationStrides,
+                out int tileGridWidth,
+                out int tileGridHeight,
                 out errorMessage
             )
         )
@@ -119,99 +86,172 @@ public static class TerrainHeightmapAddressablesUtility
             return false;
         }
 
+        HashSet<string> expectedStrideLabels =
+            new HashSet<string>();
+
         HashSet<string> registeredLabels =
             new HashSet<string>(
                 settings.GetLabels()
             );
 
-        foreach (string expectedLabel in expectedStrideLabels)
+        long expectedEntryCountLong =
+            (long)tileGridWidth *
+            tileGridHeight *
+            representationStrides.Count;
+
+        if (expectedEntryCountLong > int.MaxValue)
         {
-            if (!registeredLabels.Contains(expectedLabel))
+            errorMessage =
+                "Height Addressables expected entry count exceeds the supported Int32 range.";
+
+            return false;
+        }
+
+        foreach (int sampleStride in representationStrides)
+        {
+            if (
+                !TryGetValidatedDescriptor(
+                    manifest,
+                    sampleStride,
+                    tileGridWidth,
+                    tileGridHeight,
+                    out TerrainHeightStreamingLevelDescriptor descriptor,
+                    out errorMessage
+                )
+            )
+            {
+                return false;
+            }
+
+            string strideLabel =
+                GetStrideLabel(
+                    sampleStride
+                );
+
+            expectedStrideLabels.Add(
+                strideLabel
+            );
+
+            if (!registeredLabels.Contains(strideLabel))
             {
                 errorMessage =
                     "Height Addressables stride label is missing: " +
-                    expectedLabel;
+                    strideLabel;
 
                 return false;
+            }
+
+            for (int tileZ = 0; tileZ < tileGridHeight; tileZ++)
+            {
+                for (int tileX = 0; tileX < tileGridWidth; tileX++)
+                {
+                    if (
+                        !TryResolveHeightRepresentation(
+                            manifest,
+                            descriptor,
+                            sampleStride,
+                            tileX,
+                            tileZ,
+                            out string assetPath,
+                            out string guid,
+                            out string address,
+                            out errorMessage
+                        )
+                    )
+                    {
+                        return false;
+                    }
+
+                    AddressableAssetEntry entry =
+                        settings.FindAssetEntry(
+                            guid
+                        );
+
+                    if (entry == null)
+                    {
+                        errorMessage =
+                            "Height Addressables entry is missing:\n" +
+                            assetPath;
+
+                        return false;
+                    }
+
+                    if (entry.parentGroup != group)
+                    {
+                        errorMessage =
+                            "Height Addressables entry is in the wrong group:\n" +
+                            assetPath;
+
+                        return false;
+                    }
+
+                    if (entry.address != address)
+                    {
+                        errorMessage =
+                            "Height Addressables entry has an incorrect address:\n" +
+                            assetPath +
+                            "\n\nExpected: " +
+                            address +
+                            "\nActual: " +
+                            entry.address;
+
+                        return false;
+                    }
+
+                    int managedLabelCount = 0;
+                    bool hasExpectedLabel = false;
+
+                    foreach (string label in entry.labels)
+                    {
+                        if (!IsManagedStrideLabel(label))
+                        {
+                            continue;
+                        }
+
+                        managedLabelCount++;
+
+                        if (label == strideLabel)
+                        {
+                            hasExpectedLabel = true;
+                        }
+                    }
+
+                    if (
+                        !hasExpectedLabel
+                        ||
+                        managedLabelCount != 1
+                    )
+                    {
+                        errorMessage =
+                            "Height Addressables entry has incorrect managed stride labels:\n" +
+                            assetPath;
+
+                        return false;
+                    }
+                }
             }
         }
 
-        foreach (
-            HeightRepresentationAssetRecord record
-            in records
-        )
+        if (group.entries.Count != (int)expectedEntryCountLong)
         {
-            AddressableAssetEntry entry =
-                settings.FindAssetEntry(
-                    record.guid
-                );
+            errorMessage =
+                "Height Addressables group contains an obsolete/unexpected entry or has an unexpected entry count.";
 
-            if (entry == null)
-            {
-                errorMessage =
-                    "Height Addressables entry is missing:\n" +
-                    record.assetPath;
-
-                return false;
-            }
-
-            if (entry.parentGroup != group)
-            {
-                errorMessage =
-                    "Height Addressables entry is in the wrong group:\n" +
-                    record.assetPath;
-
-                return false;
-            }
-
-            if (entry.address != record.address)
-            {
-                errorMessage =
-                    "Height Addressables entry has an incorrect address:\n" +
-                    record.assetPath +
-                    "\n\nExpected: " +
-                    record.address +
-                    "\nActual: " +
-                    entry.address;
-
-                return false;
-            }
-
-            int managedLabelCount = 0;
-            bool hasExpectedLabel = false;
-
-            foreach (string label in entry.labels)
-            {
-                if (!IsManagedStrideLabel(label))
-                {
-                    continue;
-                }
-
-                managedLabelCount++;
-
-                if (label == record.strideLabel)
-                {
-                    hasExpectedLabel = true;
-                }
-            }
-
-            if (
-                !hasExpectedLabel
-                ||
-                managedLabelCount != 1
-            )
-            {
-                errorMessage =
-                    "Height Addressables entry has incorrect managed stride labels:\n" +
-                    record.assetPath;
-
-                return false;
-            }
+            return false;
         }
 
         foreach (AddressableAssetEntry entry in group.entries)
         {
-            if (!expectedGuids.Contains(entry.guid))
+            if (
+                !TryGetSingleManagedStrideLabel(
+                    entry,
+                    out string managedLabel
+                )
+                ||
+                !expectedStrideLabels.Contains(
+                    managedLabel
+                )
+            )
             {
                 errorMessage =
                     "Height Addressables group contains an obsolete/unexpected entry:\n" +
@@ -268,12 +308,12 @@ public static class TerrainHeightmapAddressablesUtility
         }
 
         if (
-            !TryCollectExpectedRepresentations(
+            !TryBuildRepresentationStrides(
                 worldSettings,
                 manifest,
-                out List<HeightRepresentationAssetRecord> records,
-                out HashSet<string> expectedGuids,
-                out HashSet<string> expectedStrideLabels,
+                out List<int> representationStrides,
+                out int tileGridWidth,
+                out int tileGridHeight,
                 out errorMessage
             )
         )
@@ -284,18 +324,40 @@ public static class TerrainHeightmapAddressablesUtility
             return false;
         }
 
-        int geographicTileCount =
-            Mathf.Max(1, manifest.heightTileGridWidth) *
-            Mathf.Max(1, manifest.heightTileGridHeight);
+        long geographicTileCountLong =
+            (long)tileGridWidth *
+            tileGridHeight;
 
-        int representationLevelCount =
-            expectedStrideLabels.Count;
+        long expectedEntryCountLong =
+            geographicTileCountLong *
+            representationStrides.Count;
+
+        if (
+            geographicTileCountLong > int.MaxValue
+            ||
+            expectedEntryCountLong > int.MaxValue
+        )
+        {
+            errorMessage =
+                "Height Addressables scale exceeds the supported Int32 entry range.";
+
+            stats.heightConfigurationReconciliationSeconds =
+                EditorApplication.timeSinceStartup - startedAt;
+
+            return false;
+        }
+
+        int geographicTileCount =
+            (int)geographicTileCountLong;
+
+        int expectedEntryCount =
+            (int)expectedEntryCountLong;
 
         stats.heightGeographicTileCount =
             geographicTileCount;
 
         stats.heightRepresentationLevelCount =
-            representationLevelCount;
+            representationStrides.Count;
 
         stats.heightAuthoritativeAssetCount =
             geographicTileCount;
@@ -303,14 +365,14 @@ public static class TerrainHeightmapAddressablesUtility
         stats.heightDerivedAssetCount =
             Mathf.Max(
                 0,
-                records.Count - geographicTileCount
+                expectedEntryCount - geographicTileCount
             );
 
         stats.heightExpectedEntryCount =
-            records.Count;
+            expectedEntryCount;
 
         stats.heightManagedStrideLabelCount =
-            expectedStrideLabels.Count;
+            representationStrides.Count;
 
         AddressableAssetSettings settings =
             AddressableAssetSettingsDefaultObject.GetSettings(
@@ -427,54 +489,141 @@ public static class TerrainHeightmapAddressablesUtility
             settingsChanged = true;
         }
 
+        HashSet<string> expectedStrideLabels =
+            new HashSet<string>();
+
         HashSet<string> registeredLabels =
             new HashSet<string>(
                 settings.GetLabels()
             );
 
-        foreach (string expectedLabel in expectedStrideLabels)
-        {
-            if (registeredLabels.Contains(expectedLabel))
-            {
-                continue;
-            }
-
-            using (WorldMeshesProfiler.AddressablesSetLabel.Auto())
-            {
-                settings.AddLabel(
-                    expectedLabel,
-                    true
-                );
-            }
-
-            registeredLabels.Add(
-                expectedLabel
-            );
-
-            stats.labelsUpdated++;
-            configurationChanged = true;
-            settingsChanged = true;
-        }
+        int processedEntries = 0;
 
         try
         {
-            for (
-                int recordIndex = 0;
-                recordIndex < records.Count;
-                recordIndex++
-            )
+            foreach (int sampleStride in representationStrides)
             {
-                HeightRepresentationAssetRecord record =
-                    records[recordIndex];
+                if (
+                    !TryGetValidatedDescriptor(
+                        manifest,
+                        sampleStride,
+                        tileGridWidth,
+                        tileGridHeight,
+                        out TerrainHeightStreamingLevelDescriptor descriptor,
+                        out errorMessage
+                    )
+                )
+                {
+                    return false;
+                }
 
-                cancelled =
-                    EditorUtility.DisplayCancelableProgressBar(
-                        "Preparing Heightmap Addressables",
-                        $"Stride {record.sampleStride}, Tile ({record.tileX}, {record.tileZ})\n\n" +
-                        $"{recordIndex + 1} / {records.Count}",
-                        records.Count > 0
-                            ? (float)recordIndex / records.Count
-                            : 1f
+                string strideLabel =
+                    GetStrideLabel(
+                        sampleStride
+                    );
+
+                expectedStrideLabels.Add(
+                    strideLabel
+                );
+
+                if (!registeredLabels.Contains(strideLabel))
+                {
+                    using (WorldMeshesProfiler.AddressablesSetLabel.Auto())
+                    {
+                        settings.AddLabel(
+                            strideLabel,
+                            true
+                        );
+                    }
+
+                    registeredLabels.Add(
+                        strideLabel
+                    );
+
+                    stats.labelsUpdated++;
+                    configurationChanged = true;
+                    settingsChanged = true;
+                }
+
+                HashSet<string> expectedStrideGuids =
+                    new HashSet<string>();
+
+                for (int tileZ = 0; tileZ < tileGridHeight; tileZ++)
+                {
+                    for (int tileX = 0; tileX < tileGridWidth; tileX++)
+                    {
+                        cancelled =
+                            EditorUtility.DisplayCancelableProgressBar(
+                                "Preparing Heightmap Addressables",
+                                $"Stride {sampleStride}, Tile ({tileX}, {tileZ})\n\n" +
+                                $"{processedEntries + 1} / {expectedEntryCount}",
+                                expectedEntryCount > 0
+                                    ? (float)processedEntries / expectedEntryCount
+                                    : 1f
+                            );
+
+                        if (cancelled)
+                        {
+                            break;
+                        }
+
+                        if (
+                            !TryResolveHeightRepresentation(
+                                manifest,
+                                descriptor,
+                                sampleStride,
+                                tileX,
+                                tileZ,
+                                out string assetPath,
+                                out string guid,
+                                out string address,
+                                out errorMessage
+                            )
+                        )
+                        {
+                            return false;
+                        }
+
+                        if (!expectedStrideGuids.Add(guid))
+                        {
+                            errorMessage =
+                                "Multiple Height representation identities resolve to the same GUID:\n" +
+                                guid;
+
+                            return false;
+                        }
+
+                        if (
+                            !ReconcileEntry(
+                                settings,
+                                group,
+                                guid,
+                                address,
+                                strideLabel,
+                                assetPath,
+                                stats,
+                                ref configurationChanged,
+                                ref settingsChanged,
+                                out errorMessage
+                            )
+                        )
+                        {
+                            return false;
+                        }
+
+                        processedEntries++;
+                    }
+
+                    if (cancelled)
+                    {
+                        break;
+                    }
+                }
+
+                stats.heightPeakStrideExpectedGuidCount =
+                    Mathf.Max(
+                        stats.heightPeakStrideExpectedGuidCount,
+                        expectedStrideGuids.Count
                     );
 
                 if (cancelled)
@@ -482,134 +631,32 @@ public static class TerrainHeightmapAddressablesUtility
                     break;
                 }
 
-                AddressableAssetEntry existingEntry =
-                    settings.FindAssetEntry(
-                        record.guid
-                    );
+                List<AddressableAssetEntry> staleStrideEntries =
+                    new List<AddressableAssetEntry>();
 
-                AddressableAssetEntry entry =
-                    existingEntry;
-
-                if (existingEntry == null)
+                foreach (AddressableAssetEntry entry in group.entries)
                 {
-                    using (WorldMeshesProfiler.AddressablesCreateOrMoveEntry.Auto())
+                    if (
+                        entry.labels.Contains(strideLabel)
+                        &&
+                        !expectedStrideGuids.Contains(entry.guid)
+                    )
                     {
-                        entry =
-                            settings.CreateOrMoveEntry(
-                                record.guid,
-                                group,
-                                false,
-                                true
-                            );
+                        staleStrideEntries.Add(entry);
                     }
-
-                    if (entry == null)
-                    {
-                        errorMessage =
-                            "Could not create Addressables entry for:\n" +
-                            record.assetPath;
-
-                        return false;
-                    }
-
-                    stats.entriesCreated++;
-                    configurationChanged = true;
-                    settingsChanged = true;
-                }
-                else if (existingEntry.parentGroup != group)
-                {
-                    using (WorldMeshesProfiler.AddressablesCreateOrMoveEntry.Auto())
-                    {
-                        entry =
-                            settings.CreateOrMoveEntry(
-                                record.guid,
-                                group,
-                                false,
-                                true
-                            );
-                    }
-
-                    if (entry == null)
-                    {
-                        errorMessage =
-                            "Could not move Addressables entry for:\n" +
-                            record.assetPath;
-
-                        return false;
-                    }
-
-                    stats.entriesMoved++;
-                    configurationChanged = true;
-                    settingsChanged = true;
                 }
 
-                if (entry.address != record.address)
+                foreach (AddressableAssetEntry staleEntry in staleStrideEntries)
                 {
-                    using (WorldMeshesProfiler.AddressablesSetAddress.Auto())
+                    using (WorldMeshesProfiler.AddressablesRemoveEntry.Auto())
                     {
-                        entry.SetAddress(
-                            record.address,
+                        group.RemoveAssetEntry(
+                            staleEntry,
                             true
                         );
                     }
 
-                    stats.addressesUpdated++;
-                    configurationChanged = true;
-                    settingsChanged = true;
-                }
-
-                List<string> labelsToRemove =
-                    new List<string>();
-
-                bool hasExpectedLabel = false;
-
-                foreach (string label in entry.labels)
-                {
-                    if (!IsManagedStrideLabel(label))
-                    {
-                        continue;
-                    }
-
-                    if (label == record.strideLabel)
-                    {
-                        hasExpectedLabel = true;
-                    }
-                    else
-                    {
-                        labelsToRemove.Add(label);
-                    }
-                }
-
-                if (
-                    labelsToRemove.Count > 0
-                    ||
-                    !hasExpectedLabel
-                )
-                {
-                    using (WorldMeshesProfiler.AddressablesSetLabel.Auto())
-                    {
-                        foreach (string label in labelsToRemove)
-                        {
-                            entry.SetLabel(
-                                label,
-                                false,
-                                false,
-                                true
-                            );
-                        }
-
-                        if (!hasExpectedLabel)
-                        {
-                            entry.SetLabel(
-                                record.strideLabel,
-                                true,
-                                false,
-                                true
-                            );
-                        }
-                    }
-
-                    stats.labelsUpdated++;
+                    stats.entriesRemoved++;
                     configurationChanged = true;
                     settingsChanged = true;
                 }
@@ -646,25 +693,30 @@ public static class TerrainHeightmapAddressablesUtility
             return false;
         }
 
-        List<AddressableAssetEntry> obsoleteEntries =
+        List<AddressableAssetEntry> malformedEntries =
             new List<AddressableAssetEntry>();
 
         foreach (AddressableAssetEntry entry in group.entries)
         {
-            if (!expectedGuids.Contains(entry.guid))
+            if (
+                !TryGetSingleManagedStrideLabel(
+                    entry,
+                    out string managedLabel
+                )
+                ||
+                !expectedStrideLabels.Contains(managedLabel)
+            )
             {
-                obsoleteEntries.Add(
-                    entry
-                );
+                malformedEntries.Add(entry);
             }
         }
 
-        foreach (AddressableAssetEntry obsoleteEntry in obsoleteEntries)
+        foreach (AddressableAssetEntry malformedEntry in malformedEntries)
         {
             using (WorldMeshesProfiler.AddressablesRemoveEntry.Auto())
             {
                 group.RemoveAssetEntry(
-                    obsoleteEntry,
+                    malformedEntry,
                     true
                 );
             }
@@ -685,9 +737,7 @@ public static class TerrainHeightmapAddressablesUtility
                 !expectedStrideLabels.Contains(label)
             )
             {
-                staleManagedLabels.Add(
-                    label
-                );
+                staleManagedLabels.Add(label);
             }
         }
 
@@ -733,27 +783,23 @@ public static class TerrainHeightmapAddressablesUtility
     }
 
     // =====================================================
-    // SHARED PREFLIGHT / EXPECTED RECORDS
+    // REPRESENTATION RESOLUTION
     // =====================================================
 
-    private static bool TryCollectExpectedRepresentations(
+    private static bool TryBuildRepresentationStrides(
         WorldSettings worldSettings,
         TerrainHeightmapManifest manifest,
-        out List<HeightRepresentationAssetRecord> records,
-        out HashSet<string> expectedGuids,
-        out HashSet<string> expectedStrideLabels,
+        out List<int> representationStrides,
+        out int tileGridWidth,
+        out int tileGridHeight,
         out string errorMessage
     )
     {
-        records =
-            new List<HeightRepresentationAssetRecord>();
+        representationStrides =
+            new List<int>();
 
-        expectedGuids =
-            new HashSet<string>();
-
-        expectedStrideLabels =
-            new HashSet<string>();
-
+        tileGridWidth = 0;
+        tileGridHeight = 0;
         errorMessage = "";
 
         if (
@@ -793,181 +839,345 @@ public static class TerrainHeightmapAddressablesUtility
             return false;
         }
 
-        List<int> representationStrides =
-            new List<int>(
-                derivedStrides.Count + 1
-            )
-            {
-                1
-            };
-
+        representationStrides.Add(1);
         representationStrides.AddRange(
             derivedStrides
         );
 
-        int tileGridWidth =
+        tileGridWidth =
             Mathf.Max(
                 1,
                 manifest.heightTileGridWidth
             );
 
-        int tileGridHeight =
+        tileGridHeight =
             Mathf.Max(
                 1,
                 manifest.heightTileGridHeight
             );
 
-        records.Capacity =
-            tileGridWidth *
-            tileGridHeight *
-            representationStrides.Count;
+        return true;
+    }
 
-        foreach (int sampleStride in representationStrides)
+    private static bool TryGetValidatedDescriptor(
+        TerrainHeightmapManifest manifest,
+        int sampleStride,
+        int tileGridWidth,
+        int tileGridHeight,
+        out TerrainHeightStreamingLevelDescriptor descriptor,
+        out string errorMessage
+    )
+    {
+        descriptor = default;
+        errorMessage = "";
+
+        if (
+            !manifest.TryGetHeightRepresentationDescriptor(
+                sampleStride,
+                out descriptor
+            )
+        )
         {
-            if (
-                !manifest.TryGetHeightRepresentationDescriptor(
-                    sampleStride,
-                    out TerrainHeightStreamingLevelDescriptor descriptor
-                )
-            )
-            {
-                errorMessage =
-                    $"Height representation stride {sampleStride} has no valid manifest descriptor.";
+            errorMessage =
+                $"Height representation stride {sampleStride} has no valid manifest descriptor.";
 
-                return false;
-            }
+            return false;
+        }
 
-            if (
-                descriptor.TileGridWidth !=
-                    tileGridWidth
-                ||
-                descriptor.TileGridHeight !=
-                    tileGridHeight
-                ||
-                descriptor.TextureFormat !=
-                    TextureFormat.RFloat
-            )
-            {
-                errorMessage =
-                    $"Height representation stride {sampleStride} has an incompatible descriptor.";
+        if (
+            descriptor.TileGridWidth != tileGridWidth
+            ||
+            descriptor.TileGridHeight != tileGridHeight
+            ||
+            descriptor.TextureFormat != TextureFormat.RFloat
+        )
+        {
+            errorMessage =
+                $"Height representation stride {sampleStride} has an incompatible descriptor.";
 
-                return false;
-            }
-
-            string strideLabel =
-                GetStrideLabel(
-                    sampleStride
-                );
-
-            expectedStrideLabels.Add(
-                strideLabel
-            );
-
-            for (int tileZ = 0; tileZ < tileGridHeight; tileZ++)
-            {
-                for (int tileX = 0; tileX < tileGridWidth; tileX++)
-                {
-                    string assetPath =
-                        sampleStride == 1
-                            ? TerrainRuntimeHeightAssetUtility
-                                .GetHeightTilePath(
-                                    tileX,
-                                    tileZ
-                                )
-                            : TerrainRuntimeHeightAssetUtility
-                                .GetStreamingHeightTilePath(
-                                    sampleStride,
-                                    tileX,
-                                    tileZ
-                                );
-
-                    Texture2D texture =
-                        AssetDatabase
-                            .LoadAssetAtPath<Texture2D>(
-                                assetPath
-                            );
-
-                    if (texture == null)
-                    {
-                        errorMessage =
-                            $"Missing runtime height representation stride {sampleStride}:\n" +
-                            assetPath;
-
-                        return false;
-                    }
-
-                    try
-                    {
-                        if (
-                            texture.width !=
-                                descriptor.SamplesPerSide
-                            ||
-                            texture.height !=
-                                descriptor.SamplesPerSide
-                            ||
-                            texture.format !=
-                                TextureFormat.RFloat
-                        )
-                        {
-                            errorMessage =
-                                $"Runtime height representation stride {sampleStride} has an invalid layout or format:\n" +
-                                assetPath;
-
-                            return false;
-                        }
-                    }
-                    finally
-                    {
-                        Resources.UnloadAsset(
-                            texture
-                        );
-                    }
-
-                    string guid =
-                        AssetDatabase.AssetPathToGUID(
-                            assetPath
-                        );
-
-                    if (string.IsNullOrEmpty(guid))
-                    {
-                        errorMessage =
-                            "Could not resolve runtime height representation GUID:\n" +
-                            assetPath;
-
-                        return false;
-                    }
-
-                    if (!expectedGuids.Add(guid))
-                    {
-                        errorMessage =
-                            "Multiple Height representation identities resolve to the same GUID:\n" +
-                            guid;
-
-                        return false;
-                    }
-
-                    records.Add(
-                        new HeightRepresentationAssetRecord(
-                            sampleStride,
-                            tileX,
-                            tileZ,
-                            assetPath,
-                            guid,
-                            manifest.GetHeightRepresentationAddress(
-                                sampleStride,
-                                tileX,
-                                tileZ
-                            ),
-                            strideLabel,
-                            descriptor
-                        )
-                    );
-                }
-            }
+            return false;
         }
 
         return true;
     }
+
+    private static bool TryResolveHeightRepresentation(
+        TerrainHeightmapManifest manifest,
+        TerrainHeightStreamingLevelDescriptor descriptor,
+        int sampleStride,
+        int tileX,
+        int tileZ,
+        out string assetPath,
+        out string guid,
+        out string address,
+        out string errorMessage
+    )
+    {
+        assetPath =
+            sampleStride == 1
+                ? TerrainRuntimeHeightAssetUtility
+                    .GetHeightTilePath(
+                        tileX,
+                        tileZ
+                    )
+                : TerrainRuntimeHeightAssetUtility
+                    .GetStreamingHeightTilePath(
+                        sampleStride,
+                        tileX,
+                        tileZ
+                    );
+
+        guid = "";
+        address = "";
+        errorMessage = "";
+
+        Texture2D texture =
+            AssetDatabase.LoadAssetAtPath<Texture2D>(
+                assetPath
+            );
+
+        if (texture == null)
+        {
+            errorMessage =
+                $"Missing runtime height representation stride {sampleStride}:\n" +
+                assetPath;
+
+            return false;
+        }
+
+        try
+        {
+            if (
+                texture.width != descriptor.SamplesPerSide
+                ||
+                texture.height != descriptor.SamplesPerSide
+                ||
+                texture.format != TextureFormat.RFloat
+            )
+            {
+                errorMessage =
+                    $"Runtime height representation stride {sampleStride} has an invalid layout or format:\n" +
+                    assetPath;
+
+                return false;
+            }
+        }
+        finally
+        {
+            Resources.UnloadAsset(
+                texture
+            );
+        }
+
+        guid =
+            AssetDatabase.AssetPathToGUID(
+                assetPath
+            );
+
+        if (string.IsNullOrEmpty(guid))
+        {
+            errorMessage =
+                "Could not resolve runtime height representation GUID:\n" +
+                assetPath;
+
+            return false;
+        }
+
+        address =
+            manifest.GetHeightRepresentationAddress(
+                sampleStride,
+                tileX,
+                tileZ
+            );
+
+        return true;
+    }
+
+    // =====================================================
+    // ENTRY RECONCILIATION
+    // =====================================================
+
+    private static bool ReconcileEntry(
+        AddressableAssetSettings settings,
+        AddressableAssetGroup group,
+        string guid,
+        string expectedAddress,
+        string expectedStrideLabel,
+        string assetPath,
+        TerrainAddressablesOperationStats stats,
+        ref bool configurationChanged,
+        ref bool settingsChanged,
+        out string errorMessage
+    )
+    {
+        errorMessage = "";
+
+        AddressableAssetEntry existingEntry =
+            settings.FindAssetEntry(
+                guid
+            );
+
+        AddressableAssetEntry entry =
+            existingEntry;
+
+        if (existingEntry == null)
+        {
+            using (WorldMeshesProfiler.AddressablesCreateOrMoveEntry.Auto())
+            {
+                entry =
+                    settings.CreateOrMoveEntry(
+                        guid,
+                        group,
+                        false,
+                        true
+                    );
+            }
+
+            if (entry == null)
+            {
+                errorMessage =
+                    "Could not create Addressables entry for:\n" +
+                    assetPath;
+
+                return false;
+            }
+
+            stats.entriesCreated++;
+            configurationChanged = true;
+            settingsChanged = true;
+        }
+        else if (existingEntry.parentGroup != group)
+        {
+            using (WorldMeshesProfiler.AddressablesCreateOrMoveEntry.Auto())
+            {
+                entry =
+                    settings.CreateOrMoveEntry(
+                        guid,
+                        group,
+                        false,
+                        true
+                    );
+            }
+
+            if (entry == null)
+            {
+                errorMessage =
+                    "Could not move Addressables entry for:\n" +
+                    assetPath;
+
+                return false;
+            }
+
+            stats.entriesMoved++;
+            configurationChanged = true;
+            settingsChanged = true;
+        }
+
+        if (entry.address != expectedAddress)
+        {
+            using (WorldMeshesProfiler.AddressablesSetAddress.Auto())
+            {
+                entry.SetAddress(
+                    expectedAddress,
+                    true
+                );
+            }
+
+            stats.addressesUpdated++;
+            configurationChanged = true;
+            settingsChanged = true;
+        }
+
+        List<string> labelsToRemove =
+            new List<string>();
+
+        bool hasExpectedLabel = false;
+
+        foreach (string label in entry.labels)
+        {
+            if (!IsManagedStrideLabel(label))
+            {
+                continue;
+            }
+
+            if (label == expectedStrideLabel)
+            {
+                hasExpectedLabel = true;
+            }
+            else
+            {
+                labelsToRemove.Add(label);
+            }
+        }
+
+        if (
+            labelsToRemove.Count > 0
+            ||
+            !hasExpectedLabel
+        )
+        {
+            using (WorldMeshesProfiler.AddressablesSetLabel.Auto())
+            {
+                foreach (string label in labelsToRemove)
+                {
+                    entry.SetLabel(
+                        label,
+                        false,
+                        false,
+                        true
+                    );
+                }
+
+                if (!hasExpectedLabel)
+                {
+                    entry.SetLabel(
+                        expectedStrideLabel,
+                        true,
+                        false,
+                        true
+                    );
+                }
+            }
+
+            stats.labelsUpdated++;
+            configurationChanged = true;
+            settingsChanged = true;
+        }
+
+        return true;
+    }
+
+    private static bool TryGetSingleManagedStrideLabel(
+        AddressableAssetEntry entry,
+        out string managedLabel
+    )
+    {
+        managedLabel = "";
+        int managedLabelCount = 0;
+
+        if (entry == null)
+        {
+            return false;
+        }
+
+        foreach (string label in entry.labels)
+        {
+            if (!IsManagedStrideLabel(label))
+            {
+                continue;
+            }
+
+            managedLabel = label;
+            managedLabelCount++;
+        }
+
+        return
+            managedLabelCount == 1;
+    }
+
+    // =====================================================
+    // SHARED PREFLIGHT
+    // =====================================================
 
     private static bool ValidateManifest(
         WorldSettings worldSettings,

@@ -567,19 +567,28 @@ public static class TerrainSurfaceMaskAddressablesUtility
             return false;
         }
 
-        if (
-            texture.width != manifest.samplesPerSide
-            ||
-            texture.height != manifest.samplesPerSide
-            ||
-            texture.format != TextureFormat.R8
-        )
+        try
         {
-            errorMessage =
-                "Runtime surface-mask tile has an invalid layout or format:\n" +
-                assetPath;
+            if (
+                texture.width != manifest.samplesPerSide
+                ||
+                texture.height != manifest.samplesPerSide
+                ||
+                texture.format != TextureFormat.R8
+            )
+            {
+                errorMessage =
+                    "Runtime surface-mask tile has an invalid layout or format:\n" +
+                    assetPath;
 
-            return false;
+                return false;
+            }
+        }
+        finally
+        {
+            Resources.UnloadAsset(
+                texture
+            );
         }
 
         guid =

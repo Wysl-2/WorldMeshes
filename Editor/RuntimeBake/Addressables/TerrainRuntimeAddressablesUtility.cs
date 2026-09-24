@@ -36,15 +36,6 @@ public static class TerrainRuntimeAddressablesUtility
     // PACKAGE 09 ADVANCED MAINTENANCE
     // =====================================================
 
-    /*
-     * Explicit structural reconciliation for the Package 09 Advanced Runtime
-     * Tools UI. This performs the same lower-level reconciliation used by
-     * Package 07 without forcing an Addressables content build.
-     *
-     * Persistent state acknowledgement remains owned here rather than by UI
-     * code. Any structural mutation marks player content dirty. Collision
-     * preparation metadata changes mark runtime scene metadata dirty.
-     */
     public static bool ReconfigureAllRuntimeAddressables(
         WorldSettings worldSettings
     )
@@ -58,9 +49,7 @@ public static class TerrainRuntimeAddressablesUtility
             return false;
         }
 
-        if (
-            EditorApplication.isPlayingOrWillChangePlaymode
-        )
+        if (EditorApplication.isPlayingOrWillChangePlaymode)
         {
             Debug.LogError(
                 "Runtime Addressables configuration cannot be changed while entering or running Play Mode."
@@ -123,6 +112,20 @@ public static class TerrainRuntimeAddressablesUtility
             new TerrainAddressablesOperationStats();
 
         if (
+            !TerrainRuntimeAddressablesScaleUtility.TryPopulateStats(
+                worldSettings,
+                heightManifest,
+                surfaceManifest,
+                stats,
+                out string scaleError
+            )
+        )
+        {
+            Debug.LogError(scaleError);
+            return false;
+        }
+
+        if (
             !TerrainHeightmapAddressablesUtility.ReconcileConfiguration(
                 worldSettings,
                 heightManifest,
@@ -140,6 +143,22 @@ public static class TerrainRuntimeAddressablesUtility
                     : heightError
             );
 
+            return false;
+        }
+
+        if (
+            !TryReleaseConfigurationBoundary(
+                worldSettings,
+                heightManifest,
+                surfaceManifest,
+                stats,
+                "Addressables.AfterHeightResidencyRelease",
+                out string heightResidencyError
+            )
+        )
+        {
+            MarkConfigurationRepairRequired();
+            Debug.LogError(heightResidencyError);
             return false;
         }
 
@@ -164,6 +183,22 @@ public static class TerrainRuntimeAddressablesUtility
         }
 
         if (
+            !TryReleaseConfigurationBoundary(
+                worldSettings,
+                heightManifest,
+                surfaceManifest,
+                stats,
+                "Addressables.AfterSurfaceResidencyRelease",
+                out string surfaceResidencyError
+            )
+        )
+        {
+            MarkConfigurationRepairRequired();
+            Debug.LogError(surfaceResidencyError);
+            return false;
+        }
+
+        if (
             !TerrainCollisionAddressablesUtility.ReconcileConfiguration(
                 worldSettings,
                 stats,
@@ -184,6 +219,22 @@ public static class TerrainRuntimeAddressablesUtility
         }
 
         if (
+            !TryReleaseConfigurationBoundary(
+                worldSettings,
+                heightManifest,
+                surfaceManifest,
+                stats,
+                "Addressables.AfterCollisionResidencyRelease",
+                out string collisionResidencyError
+            )
+        )
+        {
+            MarkConfigurationRepairRequired();
+            Debug.LogError(collisionResidencyError);
+            return false;
+        }
+
+        if (
             !TerrainCollisionAddressablesUtility.RefreshRuntimeMetadata(
                 worldSettings,
                 out bool metadataChanged,
@@ -193,11 +244,7 @@ public static class TerrainRuntimeAddressablesUtility
         )
         {
             MarkConfigurationRepairRequired();
-
-            Debug.LogError(
-                metadataError
-            );
-
+            Debug.LogError(metadataError);
             return false;
         }
 
@@ -231,8 +278,7 @@ public static class TerrainRuntimeAddressablesUtility
         TerrainRuntimeBakeStateMutation mutation =
             new TerrainRuntimeBakeStateMutation();
 
-        bool hasMutation =
-            false;
+        bool hasMutation = false;
 
         if (stats.AnyConfigurationChanged)
         {
@@ -240,11 +286,7 @@ public static class TerrainRuntimeAddressablesUtility
             hasMutation = true;
         }
 
-        if (
-            metadataChanged
-            ||
-            manifestCreated
-        )
+        if (metadataChanged || manifestCreated)
         {
             mutation.DirtyRuntimeSceneMetadata();
             hasMutation = true;
@@ -268,46 +310,24 @@ public static class TerrainRuntimeAddressablesUtility
 
         Debug.Log(
             "Runtime Addressables structural reconfiguration complete.\n\n" +
-            "Height Configuration Changed: " +
-            stats.heightConfigurationChanged +
-            "\n" +
-            "Surface Configuration Changed: " +
-            stats.surfaceConfigurationChanged +
-            "\n" +
-            "Collision Configuration Changed: " +
-            stats.collisionConfigurationChanged +
-            "\n" +
-            "Collision Markers Regenerated: " +
-            stats.collisionMarkersRegenerated +
-            "\n" +
-            "Collision Markers Reused: " +
-            stats.collisionMarkersReused +
-            "\n" +
-            "Entries Created: " +
-            stats.entriesCreated +
-            "\n" +
-            "Entries Moved: " +
-            stats.entriesMoved +
-            "\n" +
-            "Entries Removed: " +
-            stats.entriesRemoved +
-            "\n" +
+            "Height Configuration Changed: " + stats.heightConfigurationChanged + "\n" +
+            "Surface Configuration Changed: " + stats.surfaceConfigurationChanged + "\n" +
+            "Collision Configuration Changed: " + stats.collisionConfigurationChanged + "\n" +
+            "Collision Markers Regenerated: " + stats.collisionMarkersRegenerated + "\n" +
+            "Collision Markers Reused: " + stats.collisionMarkersReused + "\n" +
+            "Entries Created: " + stats.entriesCreated + "\n" +
+            "Entries Moved: " + stats.entriesMoved + "\n" +
+            "Entries Removed: " + stats.entriesRemoved + "\n" +
+            "Residency Releases: " + stats.residencyReleaseCount + "\n" +
+            "Expected WorldMeshes Entries: " + stats.expectedTotalManagedEntryCount + "\n" +
+            "Expected WorldMeshes Bundles: " + stats.expectedTotalBundleCount + "\n" +
             "Addressables Content Dirty: " +
-            TerrainRuntimeBakeStateService
-                .GetSnapshot()
-                .AddressablesContentDirty
+            TerrainRuntimeBakeStateService.GetSnapshot().AddressablesContentDirty
         );
 
         return true;
     }
 
-    /*
-     * Explicit player-content rebuild for Advanced Runtime Tools. Unlike the
-     * legacy raw BuildAddressablesContent wrapper, this validates structural
-     * readiness, preserves target identity, refreshes collision preparation
-     * metadata, and acknowledges Addressables Content dirty only when the
-     * completed build still matches the generated target.
-     */
     public static bool RebuildAddressablesContentAndAcknowledge(
         WorldSettings worldSettings
     )
@@ -321,9 +341,7 @@ public static class TerrainRuntimeAddressablesUtility
             return false;
         }
 
-        if (
-            EditorApplication.isPlayingOrWillChangePlaymode
-        )
+        if (EditorApplication.isPlayingOrWillChangePlaymode)
         {
             Debug.LogError(
                 "Addressables content cannot be rebuilt while entering or running Play Mode."
@@ -367,11 +385,48 @@ public static class TerrainRuntimeAddressablesUtility
         if (!validation.IsValid)
         {
             MarkConfigurationRepairRequired();
+            Debug.LogError(validation.BuildDiagnosticReport());
+            return false;
+        }
 
-            Debug.LogError(
-                validation.BuildDiagnosticReport()
+        TerrainHeightmapManifest heightManifest =
+            AssetDatabase.LoadAssetAtPath<TerrainHeightmapManifest>(
+                TerrainRuntimeHeightAssetUtility.HeightmapManifestPath
             );
 
+        TerrainSurfaceMaskManifest surfaceManifest =
+            AssetDatabase.LoadAssetAtPath<TerrainSurfaceMaskManifest>(
+                TerrainRuntimeSurfaceMaskAssetUtility.SurfaceMaskManifestPath
+            );
+
+        if (
+            heightManifest == null
+            ||
+            surfaceManifest == null
+        )
+        {
+            TerrainRuntimeBakeStateService.MarkAddressablesContentDirty();
+            Debug.LogError(
+                "Addressables content rebuild requires the current Height and Surface manifests."
+            );
+            return false;
+        }
+
+        TerrainAddressablesOperationStats stats =
+            new TerrainAddressablesOperationStats();
+
+        if (
+            !TerrainRuntimeAddressablesScaleUtility.TryPopulateStats(
+                worldSettings,
+                heightManifest,
+                surfaceManifest,
+                stats,
+                out string scaleError
+            )
+        )
+        {
+            TerrainRuntimeBakeStateService.MarkAddressablesContentDirty();
+            Debug.LogError(scaleError);
             return false;
         }
 
@@ -392,24 +447,17 @@ public static class TerrainRuntimeAddressablesUtility
             )
         )
         {
-            Debug.LogError(
-                metadataError
-            );
-
-            TerrainRuntimeBakeStateService
-                .MarkAddressablesContentDirty();
-
+            Debug.LogError(metadataError);
+            TerrainRuntimeBakeStateService.MarkAddressablesContentDirty();
             return false;
         }
 
         if (manifestCreated)
         {
             MarkConfigurationRepairRequired();
-
             Debug.LogError(
                 "Collision runtime metadata unexpectedly created a new prepared manifest while rebuilding Addressables content. Run Reconfigure Addressables before rebuilding player content."
             );
-
             return false;
         }
 
@@ -419,76 +467,54 @@ public static class TerrainRuntimeAddressablesUtility
                 new TerrainRuntimeBakeStateMutation();
 
             mutation.DirtyRuntimeSceneMetadata();
-
-            TerrainRuntimeBakeStateService.ApplyMutation(
-                mutation
-            );
+            TerrainRuntimeBakeStateService.ApplyMutation(mutation);
 
             expectedStateRevision =
-                TerrainRuntimeBakeStateService
-                    .GetSnapshot()
-                    .StateRevision;
+                TerrainRuntimeBakeStateService.GetSnapshot().StateRevision;
         }
 
         if (
-            !TargetStillCurrent(
-                worldSettings,
-                target
-            )
+            !TargetStillCurrent(worldSettings, target)
             ||
-            TerrainRuntimeBakeStateService
-                .GetSnapshot()
-                .StateRevision !=
+            TerrainRuntimeBakeStateService.GetSnapshot().StateRevision !=
                 expectedStateRevision
         )
         {
-            TerrainRuntimeBakeStateService
-                .MarkAddressablesContentDirty();
-
+            TerrainRuntimeBakeStateService.MarkAddressablesContentDirty();
             Debug.LogError(
                 "Runtime generated data or bake state changed before the Addressables content rebuild could start. Content remains dirty."
             );
-
             return false;
         }
 
         if (
             !TryBuildAddressablesContent(
+                worldSettings,
+                heightManifest,
+                surfaceManifest,
+                stats,
                 out string outputPath,
                 out double duration,
                 out string buildError
             )
         )
         {
-            TerrainRuntimeBakeStateService
-                .MarkAddressablesContentDirty();
-
-            Debug.LogError(
-                buildError
-            );
-
+            TerrainRuntimeBakeStateService.MarkAddressablesContentDirty();
+            Debug.LogError(buildError);
             return false;
         }
 
         if (
-            !TargetStillCurrent(
-                worldSettings,
-                target
-            )
+            !TargetStillCurrent(worldSettings, target)
             ||
-            TerrainRuntimeBakeStateService
-                .GetSnapshot()
-                .StateRevision !=
+            TerrainRuntimeBakeStateService.GetSnapshot().StateRevision !=
                 expectedStateRevision
         )
         {
-            TerrainRuntimeBakeStateService
-                .MarkAddressablesContentDirty();
-
+            TerrainRuntimeBakeStateService.MarkAddressablesContentDirty();
             Debug.LogError(
                 "Runtime generated data or bake state changed while Addressables player content was building. The completed build was not acknowledged and Content remains dirty."
             );
-
             return false;
         }
 
@@ -505,17 +531,18 @@ public static class TerrainRuntimeAddressablesUtility
             "Addressables player content rebuild complete.\n\n" +
             "Output Path:\n" +
             outputPath +
-            "\n\n" +
-            "Build Duration: " +
+            "\n\nBuild Duration: " +
             duration.ToString("0.00") +
-            " seconds"
+            " seconds\n" +
+            "Residency Releases: " +
+            stats.residencyReleaseCount
         );
 
         return true;
     }
 
     // =====================================================
-    // PLANNED PACKAGE 07 OPERATION
+    // PLANNED RUNTIME-BAKE OPERATION
     // =====================================================
 
     public static TerrainRuntimeAddressablesResult
@@ -550,9 +577,7 @@ public static class TerrainRuntimeAddressablesUtility
         }
 
         TerrainRuntimeAddressablesOperationMode mode =
-            GetOperationMode(
-                plan
-            );
+            GetOperationMode(plan);
 
         bool configurationRequired =
             plan.AddressablesConfigurationRequired;
@@ -639,10 +664,7 @@ public static class TerrainRuntimeAddressablesUtility
             );
         }
 
-        if (
-            mode ==
-            TerrainRuntimeAddressablesOperationMode.None
-        )
+        if (mode == TerrainRuntimeAddressablesOperationMode.None)
         {
             return CreateResult(
                 TerrainRuntimeAddressablesOutcome.NoWork,
@@ -722,40 +744,47 @@ public static class TerrainRuntimeAddressablesUtility
             );
         }
 
-        GeneratedTargetIdentity target =
-            CaptureGeneratedTarget(
-                worldSettings
+        if (
+            !TerrainRuntimeAddressablesScaleUtility.TryPopulateStats(
+                worldSettings,
+                heightManifest,
+                surfaceManifest,
+                stats,
+                out string scaleError
+            )
+        )
+        {
+            return CreateResult(
+                TerrainRuntimeAddressablesOutcome.Failed,
+                mode,
+                configurationRequired,
+                false,
+                contentRequired,
+                false,
+                stats,
+                "",
+                0d,
+                false,
+                false,
+                scaleError,
+                "Addressables scale validation failed before configuration/build work began."
             );
+        }
+
+        GeneratedTargetIdentity target =
+            CaptureGeneratedTarget(worldSettings);
 
         long expectedStateRevision =
             plan.SourceStateRevision;
 
-        bool configurationPerformed =
-            false;
+        bool configurationPerformed = false;
+        bool contentBuildPerformed = false;
+        bool configurationDirtyCleared = false;
+        bool contentDirtyCleared = false;
+        string buildOutputPath = "";
+        double buildDuration = 0d;
 
-        bool contentBuildPerformed =
-            false;
-
-        bool configurationDirtyCleared =
-            false;
-
-        bool contentDirtyCleared =
-            false;
-
-        string buildOutputPath =
-            "";
-
-        double buildDuration =
-            0d;
-
-        // =================================================
-        // CONTENT-ONLY READ-ONLY VALIDATION
-        // =================================================
-
-        if (
-            mode ==
-            TerrainRuntimeAddressablesOperationMode.ContentOnly
-        )
+        if (mode == TerrainRuntimeAddressablesOperationMode.ContentOnly)
         {
             TerrainRuntimeAddressablesValidationResult validation =
                 ValidateExistingRuntimeConfiguration(
@@ -816,11 +845,6 @@ public static class TerrainRuntimeAddressablesUtility
                 );
             }
 
-            /*
-             * A structurally valid ContentOnly path should never create the
-             * manifest because validation requires the previous complete
-             * structural manifest. Treat unexpected creation conservatively.
-             */
             if (manifestCreated)
             {
                 MarkConfigurationRepairRequired();
@@ -846,14 +870,7 @@ public static class TerrainRuntimeAddressablesUtility
                 metadataChanged;
         }
 
-        // =================================================
-        // STRUCTURAL CONFIGURATION
-        // =================================================
-
-        if (
-            mode ==
-            TerrainRuntimeAddressablesOperationMode.ConfigureAndBuild
-        )
+        if (mode == TerrainRuntimeAddressablesOperationMode.ConfigureAndBuild)
         {
             if (
                 !TerrainHeightmapAddressablesUtility.ReconcileConfiguration(
@@ -883,6 +900,36 @@ public static class TerrainRuntimeAddressablesUtility
                     false,
                     heightError,
                     "Addressables structural configuration did not complete. Configuration and content remain dirty."
+                );
+            }
+
+            if (
+                !TryReleaseConfigurationBoundary(
+                    worldSettings,
+                    heightManifest,
+                    surfaceManifest,
+                    stats,
+                    "Addressables.AfterHeightResidencyRelease",
+                    out string heightResidencyError
+                )
+            )
+            {
+                MarkConfigurationRepairRequired();
+
+                return CreateResult(
+                    TerrainRuntimeAddressablesOutcome.Failed,
+                    mode,
+                    true,
+                    true,
+                    true,
+                    false,
+                    stats,
+                    "",
+                    0d,
+                    false,
+                    false,
+                    heightResidencyError,
+                    "Height Addressables configuration became durable, but its residency boundary failed."
                 );
             }
 
@@ -917,6 +964,36 @@ public static class TerrainRuntimeAddressablesUtility
             }
 
             if (
+                !TryReleaseConfigurationBoundary(
+                    worldSettings,
+                    heightManifest,
+                    surfaceManifest,
+                    stats,
+                    "Addressables.AfterSurfaceResidencyRelease",
+                    out string surfaceResidencyError
+                )
+            )
+            {
+                MarkConfigurationRepairRequired();
+
+                return CreateResult(
+                    TerrainRuntimeAddressablesOutcome.Failed,
+                    mode,
+                    true,
+                    true,
+                    true,
+                    false,
+                    stats,
+                    "",
+                    0d,
+                    false,
+                    false,
+                    surfaceResidencyError,
+                    "Surface Addressables configuration became durable, but its residency boundary failed."
+                );
+            }
+
+            if (
                 !TerrainCollisionAddressablesUtility.ReconcileConfiguration(
                     worldSettings,
                     stats,
@@ -946,8 +1023,37 @@ public static class TerrainRuntimeAddressablesUtility
                 );
             }
 
-            configurationPerformed =
-                true;
+            if (
+                !TryReleaseConfigurationBoundary(
+                    worldSettings,
+                    heightManifest,
+                    surfaceManifest,
+                    stats,
+                    "Addressables.AfterCollisionResidencyRelease",
+                    out string collisionResidencyError
+                )
+            )
+            {
+                MarkConfigurationRepairRequired();
+
+                return CreateResult(
+                    TerrainRuntimeAddressablesOutcome.Failed,
+                    mode,
+                    true,
+                    true,
+                    true,
+                    false,
+                    stats,
+                    "",
+                    0d,
+                    false,
+                    false,
+                    collisionResidencyError,
+                    "Collision Addressables configuration became durable, but its residency boundary failed."
+                );
+            }
+
+            configurationPerformed = true;
 
             if (
                 !TerrainCollisionAddressablesUtility.RefreshRuntimeMetadata(
@@ -984,14 +1090,9 @@ public static class TerrainRuntimeAddressablesUtility
                 manifestCreated;
 
             if (
-                !TargetStillCurrent(
-                    worldSettings,
-                    target
-                )
+                !TargetStillCurrent(worldSettings, target)
                 ||
-                TerrainRuntimeBakeStateService
-                    .GetSnapshot()
-                    .StateRevision !=
+                TerrainRuntimeBakeStateService.GetSnapshot().StateRevision !=
                     expectedStateRevision
             )
             {
@@ -1024,9 +1125,7 @@ public static class TerrainRuntimeAddressablesUtility
                         .ClearAddressablesConfigurationDirty();
 
                 expectedStateRevision =
-                    TerrainRuntimeBakeStateService
-                        .GetSnapshot()
-                        .StateRevision;
+                    TerrainRuntimeBakeStateService.GetSnapshot().StateRevision;
             }
 
             if (stats.collisionManifestCreated)
@@ -1035,33 +1134,19 @@ public static class TerrainRuntimeAddressablesUtility
                     new TerrainRuntimeBakeStateMutation();
 
                 sceneMutation.DirtyRuntimeSceneMetadata();
-
-                TerrainRuntimeBakeStateService.ApplyMutation(
-                    sceneMutation
-                );
+                TerrainRuntimeBakeStateService.ApplyMutation(sceneMutation);
 
                 expectedStateRevision =
-                    TerrainRuntimeBakeStateService
-                        .GetSnapshot()
-                        .StateRevision;
+                    TerrainRuntimeBakeStateService.GetSnapshot().StateRevision;
             }
         }
-
-        // =================================================
-        // CONTENT BUILD
-        // =================================================
 
         if (contentRequired)
         {
             if (
-                !TargetStillCurrent(
-                    worldSettings,
-                    target
-                )
+                !TargetStillCurrent(worldSettings, target)
                 ||
-                TerrainRuntimeBakeStateService
-                    .GetSnapshot()
-                    .StateRevision !=
+                TerrainRuntimeBakeStateService.GetSnapshot().StateRevision !=
                     expectedStateRevision
             )
             {
@@ -1082,19 +1167,21 @@ public static class TerrainRuntimeAddressablesUtility
                 );
             }
 
-            contentBuildPerformed =
-                true;
+            contentBuildPerformed = true;
 
             if (
                 !TryBuildAddressablesContent(
+                    worldSettings,
+                    heightManifest,
+                    surfaceManifest,
+                    stats,
                     out buildOutputPath,
                     out buildDuration,
                     out string buildError
                 )
             )
             {
-                TerrainRuntimeBakeStateService
-                    .MarkAddressablesContentDirty();
+                TerrainRuntimeBakeStateService.MarkAddressablesContentDirty();
 
                 return CreateResult(
                     TerrainRuntimeAddressablesOutcome.Failed,
@@ -1116,17 +1203,14 @@ public static class TerrainRuntimeAddressablesUtility
             }
 
             if (
-                !TargetStillCurrent(
-                    worldSettings,
-                    target
-                )
+                !TargetStillCurrent(worldSettings, target)
                 ||
-                TerrainRuntimeBakeStateService
-                    .GetSnapshot()
-                    .StateRevision !=
+                TerrainRuntimeBakeStateService.GetSnapshot().StateRevision !=
                     expectedStateRevision
             )
             {
+                TerrainRuntimeBakeStateService.MarkAddressablesContentDirty();
+
                 return CreateResult(
                     TerrainRuntimeAddressablesOutcome.StalePlan,
                     mode,
@@ -1154,14 +1238,11 @@ public static class TerrainRuntimeAddressablesUtility
                         .ClearAddressablesContentDirty();
 
                 expectedStateRevision =
-                    TerrainRuntimeBakeStateService
-                        .GetSnapshot()
-                        .StateRevision;
+                    TerrainRuntimeBakeStateService.GetSnapshot().StateRevision;
             }
         }
 
-        TerrainRuntimeIntegrityAuditUtility
-            .InvalidateCachedAudit();
+        TerrainRuntimeIntegrityAuditUtility.InvalidateCachedAudit();
 
         return CreateResult(
             TerrainRuntimeAddressablesOutcome.Completed,
@@ -1234,17 +1315,13 @@ public static class TerrainRuntimeAddressablesUtility
         bool markerValid =
             TerrainCollisionBakeMarkerUtility.ValidateExistingBakeMarkers(
                 worldSettings,
-                out List<
-                    TerrainCollisionBakeMarkerUtility.BakeMarkerRecord
-                > markerRecords,
+                out List<TerrainCollisionBakeMarkerUtility.BakeMarkerRecord>
+                    markerRecords,
                 out string markerError
             );
 
-        bool collisionValid =
-            false;
-
-        string collisionError =
-            "";
+        bool collisionValid = false;
+        string collisionError = "";
 
         if (markerValid)
         {
@@ -1296,18 +1373,52 @@ public static class TerrainRuntimeAddressablesUtility
 
     public static bool BuildAddressablesContent()
     {
+        WorldSettings worldSettings =
+            AssetDatabase.LoadAssetAtPath<WorldSettings>(
+                WorldMeshesPaths.WorldSettingsAssetPath
+            );
+
+        TerrainHeightmapManifest heightManifest =
+            AssetDatabase.LoadAssetAtPath<TerrainHeightmapManifest>(
+                TerrainRuntimeHeightAssetUtility.HeightmapManifestPath
+            );
+
+        TerrainSurfaceMaskManifest surfaceManifest =
+            AssetDatabase.LoadAssetAtPath<TerrainSurfaceMaskManifest>(
+                TerrainRuntimeSurfaceMaskAssetUtility.SurfaceMaskManifestPath
+            );
+
+        if (
+            worldSettings == null
+            ||
+            heightManifest == null
+            ||
+            surfaceManifest == null
+        )
+        {
+            Debug.LogError(
+                "Addressables content build requires WorldSettings and current Height/Surface manifests."
+            );
+
+            return false;
+        }
+
+        TerrainAddressablesOperationStats stats =
+            new TerrainAddressablesOperationStats();
+
         if (
             !TryBuildAddressablesContent(
+                worldSettings,
+                heightManifest,
+                surfaceManifest,
+                stats,
                 out string outputPath,
                 out double duration,
                 out string errorMessage
             )
         )
         {
-            Debug.LogError(
-                errorMessage
-            );
-
+            Debug.LogError(errorMessage);
             return false;
         }
 
@@ -1315,31 +1426,35 @@ public static class TerrainRuntimeAddressablesUtility
             "Addressables content build complete.\n\n" +
             "Output Path:\n" +
             outputPath +
-            "\n\n" +
-            "Build Duration: " +
+            "\n\nBuild Duration: " +
             duration.ToString("0.00") +
-            " seconds"
+            " seconds\n" +
+            "Residency Releases: " +
+            stats.residencyReleaseCount
         );
 
         return true;
     }
 
     private static bool TryBuildAddressablesContent(
+        WorldSettings worldSettings,
+        TerrainHeightmapManifest heightManifest,
+        TerrainSurfaceMaskManifest surfaceManifest,
+        TerrainAddressablesOperationStats stats,
         out string outputPath,
         out double duration,
         out string errorMessage
     )
     {
-        using TerrainRuntimeBakePerformanceScope buildPerformance =
-            TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
-                "Addressables.BuildPlayerContent",
-                TerrainRuntimeBakePipelineState.Addressables,
-                TerrainRuntimeBakePerformanceCategory.Addressables
-            );
-
         outputPath = "";
         duration = 0d;
         errorMessage = "";
+
+        if (stats == null)
+        {
+            stats =
+                new TerrainAddressablesOperationStats();
+        }
 
         if (EditorApplication.isPlayingOrWillChangePlaymode)
         {
@@ -1362,61 +1477,275 @@ public static class TerrainRuntimeAddressablesUtility
             return false;
         }
 
-        /*
-         * Do not force AssetDatabase.Refresh here. ContentOnly work intentionally
-         * avoids broad reimport/refresh churn; SaveAssets is sufficient before
-         * Unity's normal Addressables builder runs.
-         */
-        using (
-            TerrainRuntimeBakePerformanceScope savePerformance =
-                TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
-                    "Addressables.PreBuildSaveAssets",
-                    TerrainRuntimeBakePipelineState.Addressables,
-                    TerrainRuntimeBakePerformanceCategory.AssetDatabase
-                )
+        if (
+            !TerrainRuntimeAddressablesScaleUtility.TryPopulateStats(
+                worldSettings,
+                heightManifest,
+                surfaceManifest,
+                stats,
+                out string scaleError
+            )
         )
-        using (WorldMeshesProfiler.AddressablesPreBuildSaveAssets.Auto())
         {
+            errorMessage = scaleError;
+            return false;
+        }
+
+        try
+        {
+            using (
+                TerrainRuntimeBakePerformanceScope savePerformance =
+                    TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
+                        "Addressables.PreBuildSaveAssets",
+                        TerrainRuntimeBakePipelineState.Addressables,
+                        TerrainRuntimeBakePerformanceCategory.AssetDatabase
+                    )
+            )
+            using (WorldMeshesProfiler.AddressablesPreBuildSaveAssets.Auto())
             using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
             {
                 AssetDatabase.SaveAssets();
             }
         }
+        catch (Exception exception)
+        {
+            errorMessage =
+                "Could not persist Addressables configuration before the player-content build.\n\n" +
+                exception.Message;
+
+            return false;
+        }
+
+        if (
+            !TerrainRuntimeAddressablesResidencyUtility.TryPrepareForContentBuild(
+                worldSettings,
+                heightManifest,
+                surfaceManifest,
+                out TerrainAddressablesMemorySnapshot beforeCleanup,
+                out TerrainAddressablesMemorySnapshot afterCleanup,
+                out string cleanupError
+            )
+        )
+        {
+            stats.managedBytesBeforeContentBuild =
+                beforeCleanup.ManagedHeapBytes;
+            stats.unityAllocatedBytesBeforeContentBuild =
+                beforeCleanup.UnityAllocatedBytes;
+            stats.processWorkingSetBytesBeforeContentBuild =
+                beforeCleanup.ProcessWorkingSetBytes;
+
+            errorMessage = cleanupError;
+            return false;
+        }
+
+        stats.residencyReleaseCount++;
+        stats.managedBytesBeforeContentBuild =
+            beforeCleanup.ManagedHeapBytes;
+        stats.managedBytesAfterPreBuildCleanup =
+            afterCleanup.ManagedHeapBytes;
+        stats.unityAllocatedBytesBeforeContentBuild =
+            beforeCleanup.UnityAllocatedBytes;
+        stats.unityAllocatedBytesAfterPreBuildCleanup =
+            afterCleanup.UnityAllocatedBytes;
+        stats.processWorkingSetBytesBeforeContentBuild =
+            beforeCleanup.ProcessWorkingSetBytes;
+        stats.processWorkingSetBytesAfterPreBuildCleanup =
+            afterCleanup.ProcessWorkingSetBytes;
 
         Debug.Log(
-            "Building Addressables player content..."
+            "Building Addressables player content...\n\n" +
+            "Expected WorldMeshes Entries: " +
+            stats.expectedTotalManagedEntryCount +
+            "\nExpected WorldMeshes Bundles: " +
+            stats.expectedTotalBundleCount
         );
 
-        AddressablesPlayerBuildResult result;
+        AddressablesPlayerBuildResult result =
+            null;
 
-        using (WorldMeshesProfiler.AddressablesBuildPlayerContent.Auto())
+        string buildExceptionError =
+            "";
+
+        string postBuildCleanupError =
+            "";
+
+        double buildStartedAt =
+            EditorApplication.timeSinceStartup;
+
+        try
         {
-            AddressableAssetSettings.BuildPlayerContent(
-                out result
+            using TerrainRuntimeBakePerformanceScope buildPerformance =
+                TerrainRuntimeBakePerformanceDiagnostics.BeginOperation(
+                    "Addressables.BuildPlayerContent",
+                    TerrainRuntimeBakePipelineState.Addressables,
+                    TerrainRuntimeBakePerformanceCategory.Addressables
+                );
+
+            using (WorldMeshesProfiler.AddressablesBuildPlayerContent.Auto())
+            {
+                AddressableAssetSettings.BuildPlayerContent(
+                    out result
+                );
+            }
+        }
+        catch (OutOfMemoryException exception)
+        {
+            buildExceptionError =
+                "Addressables player content build exhausted managed memory.\n\n" +
+                exception.Message;
+        }
+        catch (Exception exception)
+        {
+            buildExceptionError =
+                "Addressables player content build threw an exception.\n\n" +
+                exception.Message;
+        }
+        finally
+        {
+            TerrainAddressablesMemorySnapshot afterBuild =
+                TerrainRuntimeAddressablesResidencyUtility
+                    .CaptureMemorySnapshot();
+
+            stats.processWorkingSetBytesAfterContentBuild =
+                afterBuild.ProcessWorkingSetBytes;
+
+            if (
+                TerrainRuntimeAddressablesResidencyUtility.TryReleaseUnusedAssets(
+                    worldSettings,
+                    heightManifest,
+                    surfaceManifest,
+                    "Addressables.PostBuildResidencyRelease",
+                    out string residencyError
+                )
+            )
+            {
+                stats.residencyReleaseCount++;
+            }
+            else
+            {
+                postBuildCleanupError =
+                    residencyError;
+            }
+
+            TerrainAddressablesMemorySnapshot afterPostBuildCleanup =
+                TerrainRuntimeAddressablesResidencyUtility
+                    .CaptureMemorySnapshot();
+
+            stats.processWorkingSetBytesAfterPostBuildCleanup =
+                afterPostBuildCleanup.ProcessWorkingSetBytes;
+        }
+
+        double elapsedBuildDuration =
+            Math.Max(
+                0d,
+                EditorApplication.timeSinceStartup -
+                buildStartedAt
             );
+
+        if (result != null)
+        {
+            outputPath =
+                result.OutputPath ?? "";
+
+            duration =
+                result.Duration > 0d
+                    ? result.Duration
+                    : elapsedBuildDuration;
+        }
+        else
+        {
+            duration =
+                elapsedBuildDuration;
+        }
+
+        if (!string.IsNullOrEmpty(buildExceptionError))
+        {
+            errorMessage =
+                AppendCleanupError(
+                    buildExceptionError,
+                    postBuildCleanupError
+                );
+
+            return false;
         }
 
         if (result == null)
         {
             errorMessage =
-                "Addressables content build failed: no build result was returned.";
+                AppendCleanupError(
+                    "Addressables content build failed: no build result was returned.",
+                    postBuildCleanupError
+                );
 
             return false;
         }
 
-        outputPath =
-            result.OutputPath ?? "";
-
-        duration =
-            result.Duration;
-
         if (!string.IsNullOrEmpty(result.Error))
         {
             errorMessage =
-                "Addressables content build failed.\n\n" +
-                result.Error;
+                AppendCleanupError(
+                    "Addressables content build failed.\n\n" +
+                    result.Error,
+                    postBuildCleanupError
+                );
 
             return false;
+        }
+
+        if (!string.IsNullOrEmpty(postBuildCleanupError))
+        {
+            errorMessage =
+                "Addressables player content was built, but post-build residency cleanup failed.\n\n" +
+                postBuildCleanupError;
+
+            return false;
+        }
+
+        return true;
+    }
+
+    private static string AppendCleanupError(
+        string primaryError,
+        string cleanupError
+    )
+    {
+        if (string.IsNullOrEmpty(cleanupError))
+        {
+            return primaryError ?? "";
+        }
+
+        return
+            (primaryError ?? "") +
+            "\n\nPost-build residency cleanup also failed.\n\n" +
+            cleanupError;
+    }
+
+    private static bool TryReleaseConfigurationBoundary(
+        WorldSettings worldSettings,
+        TerrainHeightmapManifest heightManifest,
+        TerrainSurfaceMaskManifest surfaceManifest,
+        TerrainAddressablesOperationStats stats,
+        string performanceName,
+        out string errorMessage
+    )
+    {
+        if (
+            !TerrainRuntimeAddressablesResidencyUtility
+                .TryReleaseConfigurationResidency(
+                    worldSettings,
+                    heightManifest,
+                    surfaceManifest,
+                    performanceName,
+                    out errorMessage
+                )
+        )
+        {
+            return false;
+        }
+
+        if (stats != null)
+        {
+            stats.residencyReleaseCount++;
         }
 
         return true;
@@ -1433,24 +1762,20 @@ public static class TerrainRuntimeAddressablesUtility
     {
         if (plan == null)
         {
-            return
-                TerrainRuntimeAddressablesOperationMode.None;
+            return TerrainRuntimeAddressablesOperationMode.None;
         }
 
         if (plan.AddressablesConfigurationRequired)
         {
-            return
-                TerrainRuntimeAddressablesOperationMode.ConfigureAndBuild;
+            return TerrainRuntimeAddressablesOperationMode.ConfigureAndBuild;
         }
 
         if (plan.AddressablesContentBuildRequired)
         {
-            return
-                TerrainRuntimeAddressablesOperationMode.ContentOnly;
+            return TerrainRuntimeAddressablesOperationMode.ContentOnly;
         }
 
-        return
-            TerrainRuntimeAddressablesOperationMode.None;
+        return TerrainRuntimeAddressablesOperationMode.None;
     }
 
     private static bool GeneratedDatasetsAreOperationallyCurrent(
@@ -1472,9 +1797,7 @@ public static class TerrainRuntimeAddressablesUtility
             TerrainGenerationStateUtility.GenerationStatus.Current
         )
         {
-            errorMessage =
-                "Runtime Heightmaps are not current.";
-
+            errorMessage = "Runtime Heightmaps are not current.";
             return false;
         }
 
@@ -1483,9 +1806,7 @@ public static class TerrainRuntimeAddressablesUtility
             TerrainGenerationStateUtility.GenerationStatus.Current
         )
         {
-            errorMessage =
-                "Height Streaming is not current.";
-
+            errorMessage = "Height Streaming is not current.";
             return false;
         }
 
@@ -1494,9 +1815,7 @@ public static class TerrainRuntimeAddressablesUtility
             TerrainGenerationStateUtility.GenerationStatus.Current
         )
         {
-            errorMessage =
-                "Runtime Surface Masks are not current.";
-
+            errorMessage = "Runtime Surface Masks are not current.";
             return false;
         }
 
@@ -1505,9 +1824,7 @@ public static class TerrainRuntimeAddressablesUtility
             TerrainGenerationStateUtility.GenerationStatus.Current
         )
         {
-            errorMessage =
-                "Runtime Collision Meshes are not current.";
-
+            errorMessage = "Runtime Collision Meshes are not current.";
             return false;
         }
 
@@ -1522,54 +1839,38 @@ public static class TerrainRuntimeAddressablesUtility
         errorMessage = "";
 
         if (
-            TerrainGenerationStateUtility.GetHeightmapStatus(
-                worldSettings
-            )
+            TerrainGenerationStateUtility.GetHeightmapStatus(worldSettings)
             != TerrainGenerationStateUtility.GenerationStatus.Current
         )
         {
-            errorMessage =
-                "Runtime Heightmaps are not current.";
-
+            errorMessage = "Runtime Heightmaps are not current.";
             return false;
         }
 
         if (
-            TerrainGenerationStateUtility.GetHeightStreamingStatus(
-                worldSettings
-            )
+            TerrainGenerationStateUtility.GetHeightStreamingStatus(worldSettings)
             != TerrainGenerationStateUtility.GenerationStatus.Current
         )
         {
-            errorMessage =
-                "Height Streaming is not current.";
-
+            errorMessage = "Height Streaming is not current.";
             return false;
         }
 
         if (
-            TerrainGenerationStateUtility.GetSurfaceMaskStatus(
-                worldSettings
-            )
+            TerrainGenerationStateUtility.GetSurfaceMaskStatus(worldSettings)
             != TerrainGenerationStateUtility.GenerationStatus.Current
         )
         {
-            errorMessage =
-                "Runtime Surface Masks are not current.";
-
+            errorMessage = "Runtime Surface Masks are not current.";
             return false;
         }
 
         if (
-            TerrainGenerationStateUtility.GetCollisionMeshStatus(
-                worldSettings
-            )
+            TerrainGenerationStateUtility.GetCollisionMeshStatus(worldSettings)
             != TerrainGenerationStateUtility.GenerationStatus.Current
         )
         {
-            errorMessage =
-                "Runtime Collision Meshes are not current.";
-
+            errorMessage = "Runtime Collision Meshes are not current.";
             return false;
         }
 
@@ -1623,22 +1924,13 @@ public static class TerrainRuntimeAddressablesUtility
                     worldSettings.lastGeneratedCollisionSignature ?? "",
 
                 gridWidth =
-                    Mathf.Max(
-                        1,
-                        worldSettings.gridWidth
-                    ),
+                    Mathf.Max(1, worldSettings.gridWidth),
 
                 gridHeight =
-                    Mathf.Max(
-                        1,
-                        worldSettings.gridHeight
-                    ),
+                    Mathf.Max(1, worldSettings.gridHeight),
 
                 chunkSize =
-                    Mathf.Max(
-                        0.01f,
-                        worldSettings.chunkSize
-                    ),
+                    Mathf.Max(0.01f, worldSettings.chunkSize),
 
                 heightfieldResolutionPerChunk =
                     Mathf.Max(
@@ -1647,16 +1939,10 @@ public static class TerrainRuntimeAddressablesUtility
                     ),
 
                 heightTileChunkSpan =
-                    Mathf.Max(
-                        1,
-                        worldSettings.heightTileChunkSpan
-                    ),
+                    Mathf.Max(1, worldSettings.heightTileChunkSpan),
 
                 collisionResolution =
-                    Mathf.Max(
-                        1,
-                        worldSettings.collisionResolution
-                    )
+                    Mathf.Max(1, worldSettings.collisionResolution)
             };
     }
 
@@ -1665,11 +1951,7 @@ public static class TerrainRuntimeAddressablesUtility
         GeneratedTargetIdentity target
     )
     {
-        if (
-            worldSettings == null
-            ||
-            target == null
-        )
+        if (worldSettings == null || target == null)
         {
             return false;
         }
@@ -1695,8 +1977,7 @@ public static class TerrainRuntimeAddressablesUtility
         }
 
         return
-            worldSettings.heightmapGenerationRevision
-                == target.heightRevision
+            worldSettings.heightmapGenerationRevision == target.heightRevision
             &&
             string.Equals(
                 worldSettings.lastGeneratedHeightSignature ?? "",
@@ -1713,11 +1994,10 @@ public static class TerrainRuntimeAddressablesUtility
                 StringComparison.Ordinal
             )
             &&
-            worldSettings.surfaceMaskGenerationRevision
-                == target.surfaceRevision
+            worldSettings.surfaceMaskGenerationRevision == target.surfaceRevision
             &&
-            worldSettings.surfaceSourceHeightmapGenerationRevision
-                == target.surfaceSourceHeightRevision
+            worldSettings.surfaceSourceHeightmapGenerationRevision ==
+                target.surfaceSourceHeightRevision
             &&
             string.Equals(
                 worldSettings.lastGeneratedSurfaceSignature ?? "",
@@ -1725,11 +2005,10 @@ public static class TerrainRuntimeAddressablesUtility
                 StringComparison.Ordinal
             )
             &&
-            worldSettings.collisionMeshGenerationRevision
-                == target.collisionRevision
+            worldSettings.collisionMeshGenerationRevision == target.collisionRevision
             &&
-            worldSettings.collisionSourceHeightmapGenerationRevision
-                == target.collisionSourceHeightRevision
+            worldSettings.collisionSourceHeightmapGenerationRevision ==
+                target.collisionSourceHeightRevision
             &&
             string.Equals(
                 worldSettings.lastGeneratedCollisionSignature ?? "",
@@ -1737,34 +2016,23 @@ public static class TerrainRuntimeAddressablesUtility
                 StringComparison.Ordinal
             )
             &&
-            Mathf.Max(1, worldSettings.gridWidth)
-                == target.gridWidth
+            Mathf.Max(1, worldSettings.gridWidth) == target.gridWidth
             &&
-            Mathf.Max(1, worldSettings.gridHeight)
-                == target.gridHeight
+            Mathf.Max(1, worldSettings.gridHeight) == target.gridHeight
             &&
             Mathf.Approximately(
                 Mathf.Max(0.01f, worldSettings.chunkSize),
                 target.chunkSize
             )
             &&
-            Mathf.Max(
-                1,
-                worldSettings.heightfieldResolutionPerChunk
-            )
-                == target.heightfieldResolutionPerChunk
+            Mathf.Max(1, worldSettings.heightfieldResolutionPerChunk) ==
+                target.heightfieldResolutionPerChunk
             &&
-            Mathf.Max(
-                1,
-                worldSettings.heightTileChunkSpan
-            )
-                == target.heightTileChunkSpan
+            Mathf.Max(1, worldSettings.heightTileChunkSpan) ==
+                target.heightTileChunkSpan
             &&
-            Mathf.Max(
-                1,
-                worldSettings.collisionResolution
-            )
-                == target.collisionResolution;
+            Mathf.Max(1, worldSettings.collisionResolution) ==
+                target.collisionResolution;
     }
 
     // =====================================================

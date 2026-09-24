@@ -162,8 +162,8 @@ public sealed class TerrainRuntimeAddressablesValidationResult
 }
 
 /*
- * Aggregated mutation statistics shared internally by the structural
- * reconciliation utilities. This is deliberately editor-only.
+ * Aggregated mutation and ARH01 hardening statistics shared internally by the
+ * structural reconciliation and content-build utilities.
  */
 internal sealed class TerrainAddressablesOperationStats
 {
@@ -194,6 +194,32 @@ internal sealed class TerrainAddressablesOperationStats
     public int heightActualEntryCount;
     public int heightManagedStrideLabelCount;
     public double heightConfigurationReconciliationSeconds;
+
+    public int heightPeakStrideExpectedGuidCount;
+    public int collisionPeakRegionExpectedGuidCount;
+
+    public int residencyReleaseCount;
+
+    public long managedBytesBeforeContentBuild = -1L;
+    public long managedBytesAfterPreBuildCleanup = -1L;
+
+    public long unityAllocatedBytesBeforeContentBuild = -1L;
+    public long unityAllocatedBytesAfterPreBuildCleanup = -1L;
+
+    public long processWorkingSetBytesBeforeContentBuild = -1L;
+    public long processWorkingSetBytesAfterPreBuildCleanup = -1L;
+    public long processWorkingSetBytesAfterContentBuild = -1L;
+    public long processWorkingSetBytesAfterPostBuildCleanup = -1L;
+
+    public long expectedHeightEntryCount;
+    public long expectedHeightBundleCount;
+    public long expectedSurfaceEntryCount;
+    public long expectedSurfaceBundleCount;
+    public long expectedCollisionMeshEntryCount;
+    public long expectedCollisionMarkerEntryCount;
+    public long expectedCollisionBundleCount;
+    public long expectedTotalManagedEntryCount;
+    public long expectedTotalBundleCount;
 
     public bool AnyConfigurationChanged =>
         heightConfigurationChanged
@@ -252,10 +278,24 @@ public sealed class TerrainRuntimeAddressablesResult
     public int GroupsCreated { get; private set; }
     public int SchemasCreatedOrChanged { get; private set; }
 
+    public int ResidencyReleaseCount { get; private set; }
+    public int HeightPeakStrideExpectedGuidCount { get; private set; }
+    public int CollisionPeakRegionExpectedGuidCount { get; private set; }
+
+    public long ManagedBytesBeforeContentBuild { get; private set; }
+    public long ManagedBytesAfterPreBuildCleanup { get; private set; }
+    public long UnityAllocatedBytesBeforeContentBuild { get; private set; }
+    public long UnityAllocatedBytesAfterPreBuildCleanup { get; private set; }
+    public long ProcessWorkingSetBytesBeforeContentBuild { get; private set; }
+    public long ProcessWorkingSetBytesAfterPreBuildCleanup { get; private set; }
+    public long ProcessWorkingSetBytesAfterContentBuild { get; private set; }
+    public long ProcessWorkingSetBytesAfterPostBuildCleanup { get; private set; }
+
     public string BuildOutputPath { get; private set; }
     public double BuildDuration { get; private set; }
 
     public TerrainHeightAddressablesScaleReport HeightScaleReport { get; private set; }
+    public TerrainRuntimeAddressablesScaleReport AddressablesScaleReport { get; private set; }
 
     public bool AddressablesConfigurationDirtyCleared { get; private set; }
     public bool AddressablesContentDirtyCleared { get; private set; }
@@ -330,6 +370,39 @@ public sealed class TerrainRuntimeAddressablesResult
         SchemasCreatedOrChanged =
             stats != null ? stats.schemasCreatedOrChanged : 0;
 
+        ResidencyReleaseCount =
+            stats != null ? stats.residencyReleaseCount : 0;
+
+        HeightPeakStrideExpectedGuidCount =
+            stats != null ? stats.heightPeakStrideExpectedGuidCount : 0;
+
+        CollisionPeakRegionExpectedGuidCount =
+            stats != null ? stats.collisionPeakRegionExpectedGuidCount : 0;
+
+        ManagedBytesBeforeContentBuild =
+            stats != null ? stats.managedBytesBeforeContentBuild : -1L;
+
+        ManagedBytesAfterPreBuildCleanup =
+            stats != null ? stats.managedBytesAfterPreBuildCleanup : -1L;
+
+        UnityAllocatedBytesBeforeContentBuild =
+            stats != null ? stats.unityAllocatedBytesBeforeContentBuild : -1L;
+
+        UnityAllocatedBytesAfterPreBuildCleanup =
+            stats != null ? stats.unityAllocatedBytesAfterPreBuildCleanup : -1L;
+
+        ProcessWorkingSetBytesBeforeContentBuild =
+            stats != null ? stats.processWorkingSetBytesBeforeContentBuild : -1L;
+
+        ProcessWorkingSetBytesAfterPreBuildCleanup =
+            stats != null ? stats.processWorkingSetBytesAfterPreBuildCleanup : -1L;
+
+        ProcessWorkingSetBytesAfterContentBuild =
+            stats != null ? stats.processWorkingSetBytesAfterContentBuild : -1L;
+
+        ProcessWorkingSetBytesAfterPostBuildCleanup =
+            stats != null ? stats.processWorkingSetBytesAfterPostBuildCleanup : -1L;
+
         BuildOutputPath = buildOutputPath ?? "";
         BuildDuration = buildDuration;
 
@@ -339,6 +412,12 @@ public sealed class TerrainRuntimeAddressablesResult
                     stats,
                     BuildOutputPath,
                     BuildDuration
+                );
+
+        AddressablesScaleReport =
+            TerrainRuntimeAddressablesScaleUtility
+                .CreateReport(
+                    stats
                 );
 
         AddressablesConfigurationDirtyCleared =
@@ -469,6 +548,29 @@ public sealed class TerrainRuntimeAddressablesResult
             AddressablesContentDirtyCleared
         );
 
+        builder.AppendLine();
+        builder.AppendLine("Addressables Memory Hardening");
+        builder.AppendLine(
+            "Residency Releases: " +
+            ResidencyReleaseCount
+        );
+        builder.AppendLine(
+            "Peak Height Stride Expected GUIDs: " +
+            HeightPeakStrideExpectedGuidCount
+        );
+        builder.AppendLine(
+            "Peak Collision Region Expected GUIDs: " +
+            CollisionPeakRegionExpectedGuidCount
+        );
+        AppendBytes(builder, "Managed Heap Before Build", ManagedBytesBeforeContentBuild);
+        AppendBytes(builder, "Managed Heap After Pre-Build Cleanup", ManagedBytesAfterPreBuildCleanup);
+        AppendBytes(builder, "Unity Allocated Before Build", UnityAllocatedBytesBeforeContentBuild);
+        AppendBytes(builder, "Unity Allocated After Pre-Build Cleanup", UnityAllocatedBytesAfterPreBuildCleanup);
+        AppendBytes(builder, "Process Working Set Before Build", ProcessWorkingSetBytesBeforeContentBuild);
+        AppendBytes(builder, "Process Working Set After Pre-Build Cleanup", ProcessWorkingSetBytesAfterPreBuildCleanup);
+        AppendBytes(builder, "Process Working Set After Build", ProcessWorkingSetBytesAfterContentBuild);
+        AppendBytes(builder, "Process Working Set After Post-Build Cleanup", ProcessWorkingSetBytesAfterPostBuildCleanup);
+
         if (!string.IsNullOrEmpty(BuildOutputPath))
         {
             builder.AppendLine();
@@ -483,6 +585,14 @@ public sealed class TerrainRuntimeAddressablesResult
                 "Build Duration: " +
                 BuildDuration.ToString("0.00") +
                 " seconds"
+            );
+        }
+
+        if (AddressablesScaleReport != null)
+        {
+            builder.AppendLine();
+            builder.Append(
+                AddressablesScaleReport.BuildDiagnosticReport()
             );
         }
 
@@ -513,5 +623,20 @@ public sealed class TerrainRuntimeAddressablesResult
         }
 
         return builder.ToString();
+    }
+
+    private static void AppendBytes(
+        StringBuilder builder,
+        string label,
+        long bytes
+    )
+    {
+        builder.AppendLine(
+            label +
+            ": " +
+            (bytes >= 0L
+                ? bytes.ToString()
+                : "Unavailable")
+        );
     }
 }

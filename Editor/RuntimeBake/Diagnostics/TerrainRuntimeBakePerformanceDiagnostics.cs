@@ -25,6 +25,7 @@ public enum TerrainRuntimeBakeTrackedMemoryCategory
     HeightAssetResidency,
     SurfaceBuffer,
     CollisionBuffer,
+    AddressablesConfigurationBuffer,
     OtherTemporary
 }
 
