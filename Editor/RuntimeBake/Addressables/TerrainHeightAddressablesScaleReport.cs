@@ -9,6 +9,8 @@ public sealed class TerrainHeightAddressablesScaleReport
     public int ExpectedHeightEntryCount { get; internal set; }
     public int ActualHeightEntryCount { get; internal set; }
     public int ManagedStrideLabelCount { get; internal set; }
+    public int PackingRegionTileSpan { get; internal set; }
+    public int PackingRegionCount { get; internal set; }
     public string PackingMode { get; internal set; }
     public int ExpectedHeightBundleCount { get; internal set; }
     public int BuiltBundleFileCount { get; internal set; }
@@ -29,6 +31,8 @@ public sealed class TerrainHeightAddressablesScaleReport
         builder.AppendLine("Expected Height Entries: " + ExpectedHeightEntryCount);
         builder.AppendLine("Actual Height Entries: " + ActualHeightEntryCount);
         builder.AppendLine("Managed Stride Labels: " + ManagedStrideLabelCount);
+        builder.AppendLine("Packing Region Tile Span: " + PackingRegionTileSpan);
+        builder.AppendLine("Packing Region Count: " + PackingRegionCount);
         builder.AppendLine("Packing Mode: " + (PackingMode ?? ""));
         builder.AppendLine("Expected Height Bundles: " + ExpectedHeightBundleCount);
         builder.AppendLine(

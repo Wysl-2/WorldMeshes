@@ -47,10 +47,30 @@ internal static class TerrainHeightAddressablesScaleUtility
                 ? stats.heightManagedStrideLabelCount
                 : 0;
 
+        int packingRegionTileSpan =
+            stats != null
+                ? stats.heightPackingRegionTileSpan
+                : 0;
+
+        int packingRegionCount =
+            stats != null
+                ? stats.heightPackingRegionCount
+                : 0;
+
         TerrainHeightmapManifest manifest =
             AssetDatabase.LoadAssetAtPath<TerrainHeightmapManifest>(
                 TerrainRuntimeHeightAssetUtility.HeightmapManifestPath
             );
+
+        int tileGridWidth =
+            manifest != null
+                ? Math.Max(1, manifest.heightTileGridWidth)
+                : 0;
+
+        int tileGridHeight =
+            manifest != null
+                ? Math.Max(1, manifest.heightTileGridHeight)
+                : 0;
 
         if (
             manifest != null
@@ -65,8 +85,8 @@ internal static class TerrainHeightAddressablesScaleUtility
         )
         {
             geographicTileCount =
-                Math.Max(1, manifest.heightTileGridWidth) *
-                Math.Max(1, manifest.heightTileGridHeight);
+                tileGridWidth *
+                tileGridHeight;
 
             representationLevelCount =
                 Math.Max(1, manifest.StreamingLevelCount + 1);
@@ -84,6 +104,32 @@ internal static class TerrainHeightAddressablesScaleUtility
 
             managedStrideLabelCount =
                 representationLevelCount;
+        }
+
+        if (
+            manifest != null
+            &&
+            (
+                packingRegionTileSpan <= 0
+                ||
+                packingRegionCount <= 0
+            )
+        )
+        {
+            packingRegionTileSpan =
+                TerrainHeightAddressablesPackingPolicy
+                    .RegionTileSpan;
+
+            packingRegionCount =
+                TerrainHeightAddressablesPackingPolicy
+                    .GetRegionGridWidth(
+                        tileGridWidth
+                    )
+                *
+                TerrainHeightAddressablesPackingPolicy
+                    .GetRegionGridHeight(
+                        tileGridHeight
+                    );
         }
 
         AddressableAssetSettings settings =
@@ -106,6 +152,38 @@ internal static class TerrainHeightAddressablesScaleUtility
             }
         }
 
+        long expectedHeightBundleCountLong =
+            stats != null
+                ? stats.expectedHeightBundleCount
+                : 0L;
+
+        if (
+            expectedHeightBundleCountLong <= 0L
+            &&
+            tileGridWidth > 0
+            &&
+            tileGridHeight > 0
+            &&
+            representationLevelCount > 0
+        )
+        {
+            expectedHeightBundleCountLong =
+                TerrainHeightAddressablesPackingPolicy
+                    .EstimateHeightBundleCount(
+                        tileGridWidth,
+                        tileGridHeight,
+                        representationLevelCount
+                    );
+        }
+
+        int expectedHeightBundleCount =
+            expectedHeightBundleCountLong > int.MaxValue
+                ? int.MaxValue
+                : (int)Math.Max(
+                    0L,
+                    expectedHeightBundleCountLong
+                );
+
         TerrainHeightAddressablesScaleReport report =
             new TerrainHeightAddressablesScaleReport
             {
@@ -116,16 +194,14 @@ internal static class TerrainHeightAddressablesScaleUtility
                 ExpectedHeightEntryCount = expectedEntryCount,
                 ActualHeightEntryCount = actualEntryCount,
                 ManagedStrideLabelCount = managedStrideLabelCount,
+                PackingRegionTileSpan = packingRegionTileSpan,
+                PackingRegionCount = packingRegionCount,
                 PackingMode =
                     TerrainHeightAddressablesPackingPolicy
                         .ExpectedBundleMode
                         .ToString(),
                 ExpectedHeightBundleCount =
-                    TerrainHeightAddressablesPackingPolicy
-                        .EstimateHeightBundleCount(
-                            expectedEntryCount,
-                            representationLevelCount
-                        ),
+                    expectedHeightBundleCount,
                 BuiltBundleFileCount = -1,
                 CatalogPayloadBytes = -1L,
                 HeightConfigurationReconciliationSeconds =
@@ -138,12 +214,15 @@ internal static class TerrainHeightAddressablesScaleUtility
 
         TryInspectBuildOutput(
             report.BuildOutputPath,
-            out int bundleCount,
+            out int bundleCountMeasured,
             out long catalogBytes
         );
 
-        report.BuiltBundleFileCount = bundleCount;
-        report.CatalogPayloadBytes = catalogBytes;
+        report.BuiltBundleFileCount =
+            bundleCountMeasured;
+
+        report.CatalogPayloadBytes =
+            catalogBytes;
 
         return report;
     }
@@ -233,7 +312,8 @@ internal static class TerrainHeightAddressablesScaleUtility
 
             if (foundCatalogPayload)
             {
-                catalogBytes = measuredCatalogBytes;
+                catalogBytes =
+                    measuredCatalogBytes;
             }
         }
         catch

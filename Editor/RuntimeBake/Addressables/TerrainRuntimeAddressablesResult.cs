@@ -162,8 +162,8 @@ public sealed class TerrainRuntimeAddressablesValidationResult
 }
 
 /*
- * Aggregated mutation and ARH01 hardening statistics shared internally by the
- * structural reconciliation and content-build utilities.
+ * Aggregated mutation, ARH01 memory-hardening, and ARH02 spatial-packing
+ * statistics shared internally by Addressables reconciliation/build utilities.
  */
 internal sealed class TerrainAddressablesOperationStats
 {
@@ -193,7 +193,14 @@ internal sealed class TerrainAddressablesOperationStats
     public int heightExpectedEntryCount;
     public int heightActualEntryCount;
     public int heightManagedStrideLabelCount;
+    public int heightManagedRegionLabelCount;
+    public int heightPackingRegionTileSpan;
+    public int heightPackingRegionCount;
     public double heightConfigurationReconciliationSeconds;
+
+    public int surfaceManagedRegionLabelCount;
+    public int surfacePackingRegionTileSpan;
+    public int surfacePackingRegionCount;
 
     public int heightPeakStrideExpectedGuidCount;
     public int collisionPeakRegionExpectedGuidCount;
@@ -281,6 +288,14 @@ public sealed class TerrainRuntimeAddressablesResult
     public int ResidencyReleaseCount { get; private set; }
     public int HeightPeakStrideExpectedGuidCount { get; private set; }
     public int CollisionPeakRegionExpectedGuidCount { get; private set; }
+
+    public int HeightManagedRegionLabelCount { get; private set; }
+    public int HeightPackingRegionTileSpan { get; private set; }
+    public int HeightPackingRegionCount { get; private set; }
+
+    public int SurfaceManagedRegionLabelCount { get; private set; }
+    public int SurfacePackingRegionTileSpan { get; private set; }
+    public int SurfacePackingRegionCount { get; private set; }
 
     public long ManagedBytesBeforeContentBuild { get; private set; }
     public long ManagedBytesAfterPreBuildCleanup { get; private set; }
@@ -378,6 +393,24 @@ public sealed class TerrainRuntimeAddressablesResult
 
         CollisionPeakRegionExpectedGuidCount =
             stats != null ? stats.collisionPeakRegionExpectedGuidCount : 0;
+
+        HeightManagedRegionLabelCount =
+            stats != null ? stats.heightManagedRegionLabelCount : 0;
+
+        HeightPackingRegionTileSpan =
+            stats != null ? stats.heightPackingRegionTileSpan : 0;
+
+        HeightPackingRegionCount =
+            stats != null ? stats.heightPackingRegionCount : 0;
+
+        SurfaceManagedRegionLabelCount =
+            stats != null ? stats.surfaceManagedRegionLabelCount : 0;
+
+        SurfacePackingRegionTileSpan =
+            stats != null ? stats.surfacePackingRegionTileSpan : 0;
+
+        SurfacePackingRegionCount =
+            stats != null ? stats.surfacePackingRegionCount : 0;
 
         ManagedBytesBeforeContentBuild =
             stats != null ? stats.managedBytesBeforeContentBuild : -1L;
@@ -546,6 +579,33 @@ public sealed class TerrainRuntimeAddressablesResult
         builder.AppendLine(
             "Addressables Content Dirty Cleared: " +
             AddressablesContentDirtyCleared
+        );
+
+        builder.AppendLine();
+        builder.AppendLine("Addressables Spatial Packing");
+        builder.AppendLine(
+            "Height Packing Region Tile Span: " +
+            HeightPackingRegionTileSpan
+        );
+        builder.AppendLine(
+            "Height Packing Region Count: " +
+            HeightPackingRegionCount
+        );
+        builder.AppendLine(
+            "Height Managed Region Labels: " +
+            HeightManagedRegionLabelCount
+        );
+        builder.AppendLine(
+            "Surface Packing Region Tile Span: " +
+            SurfacePackingRegionTileSpan
+        );
+        builder.AppendLine(
+            "Surface Packing Region Count: " +
+            SurfacePackingRegionCount
+        );
+        builder.AppendLine(
+            "Surface Managed Region Labels: " +
+            SurfaceManagedRegionLabelCount
         );
 
         builder.AppendLine();

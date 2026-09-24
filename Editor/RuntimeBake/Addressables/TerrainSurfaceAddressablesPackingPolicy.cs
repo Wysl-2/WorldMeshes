@@ -2,18 +2,17 @@ using System;
 using UnityEditor.AddressableAssets.Settings.GroupSchemas;
 
 /*
- * Physical packing policy for the multiresolution Height Addressables group.
- * Runtime code consumes logical (stride,x,z) addresses and remains independent
- * from this policy. ARH02 groups entries by representation stride and spatial
- * tile region so physical bundle count scales with regions rather than entries.
+ * Physical packing policy for generated Surface Mask Addressables.
+ * Logical tile addresses remain unchanged; ARH02 groups nearby tiles into
+ * deterministic spatial bundles through one tool-owned region label.
  */
-internal static class TerrainHeightAddressablesPackingPolicy
+internal static class TerrainSurfaceAddressablesPackingPolicy
 {
     internal const int RegionTileSpan =
         4;
 
     internal const string RegionLabelPrefix =
-        "TerrainHeight_Region_";
+        "TerrainSurface_Region_";
 
     internal static BundledAssetGroupSchema.BundlePackingMode
         ExpectedBundleMode =>
@@ -88,32 +87,19 @@ internal static class TerrainHeightAddressablesPackingPolicy
             );
     }
 
-    internal static long EstimateHeightBundleCount(
+    internal static long EstimateSurfaceBundleCount(
         int tileGridWidth,
-        int tileGridHeight,
-        int representationLevelCount
+        int tileGridHeight
     )
     {
-        long regionGridWidth =
-            GetRegionGridWidth(
+        return
+            (long)GetRegionGridWidth(
                 tileGridWidth
-            );
-
-        long regionGridHeight =
+            )
+            *
             GetRegionGridHeight(
                 tileGridHeight
             );
-
-        long safeLevelCount =
-            Math.Max(
-                0,
-                representationLevelCount
-            );
-
-        return
-            regionGridWidth *
-            regionGridHeight *
-            safeLevelCount;
     }
 
     private static int GetRegionGridSize(

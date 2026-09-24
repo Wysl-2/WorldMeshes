@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEditor.AddressableAssets;
@@ -59,8 +60,9 @@ public static class TerrainSurfaceMaskAddressablesUtility
         if (
             schema == null
             ||
-            schema.BundleMode
-                != BundledAssetGroupSchema.BundlePackingMode.PackSeparately
+            schema.BundleMode !=
+                TerrainSurfaceAddressablesPackingPolicy
+                    .ExpectedBundleMode
             ||
             !schema.IncludeAddressInCatalog
         )
@@ -70,9 +72,6 @@ public static class TerrainSurfaceMaskAddressablesUtility
 
             return false;
         }
-
-        HashSet<string> expectedGuids =
-            new HashSet<string>();
 
         int tileGridWidth =
             Mathf.Max(
@@ -85,6 +84,44 @@ public static class TerrainSurfaceMaskAddressablesUtility
                 1,
                 manifest.tileGridHeight
             );
+
+        long expectedTileCountLong =
+            (long)tileGridWidth *
+            tileGridHeight;
+
+        if (expectedTileCountLong > int.MaxValue)
+        {
+            errorMessage =
+                "Surface Addressables expected entry count exceeds the supported Int32 range.";
+
+            return false;
+        }
+
+        HashSet<string> expectedGuids =
+            new HashSet<string>();
+
+        HashSet<string> expectedRegionLabels =
+            BuildExpectedRegionLabels(
+                tileGridWidth,
+                tileGridHeight
+            );
+
+        HashSet<string> registeredLabels =
+            new HashSet<string>(
+                settings.GetLabels()
+            );
+
+        foreach (string regionLabel in expectedRegionLabels)
+        {
+            if (!registeredLabels.Contains(regionLabel))
+            {
+                errorMessage =
+                    "Surface Addressables region label is missing: " +
+                    regionLabel;
+
+                return false;
+            }
+        }
 
         for (int tileZ = 0; tileZ < tileGridHeight; tileZ++)
         {
@@ -105,9 +142,14 @@ public static class TerrainSurfaceMaskAddressablesUtility
                     return false;
                 }
 
-                expectedGuids.Add(
-                    guid
-                );
+                if (!expectedGuids.Add(guid))
+                {
+                    errorMessage =
+                        "Multiple Surface tile identities resolve to the same GUID:\n" +
+                        guid;
+
+                    return false;
+                }
 
                 AddressableAssetEntry entry =
                     settings.FindAssetEntry(
@@ -144,16 +186,71 @@ public static class TerrainSurfaceMaskAddressablesUtility
 
                     return false;
                 }
+
+                string expectedRegionLabel =
+                    TerrainSurfaceAddressablesPackingPolicy
+                        .GetRegionLabel(
+                            tileX,
+                            tileZ
+                        );
+
+                if (
+                    !EntryHasExactRegionLabel(
+                        entry,
+                        expectedRegionLabel
+                    )
+                )
+                {
+                    errorMessage =
+                        "Surface Addressables entry has incorrect deterministic packing labels:\n" +
+                        assetPath;
+
+                    return false;
+                }
             }
+        }
+
+        if (group.entries.Count != (int)expectedTileCountLong)
+        {
+            errorMessage =
+                "Surface Addressables group contains an obsolete/unexpected entry or has an unexpected entry count.";
+
+            return false;
         }
 
         foreach (AddressableAssetEntry entry in group.entries)
         {
-            if (!expectedGuids.Contains(entry.guid))
+            if (
+                !expectedGuids.Contains(entry.guid)
+                ||
+                !TryGetSingleManagedRegionLabel(
+                    entry,
+                    out string regionLabel
+                )
+                ||
+                !expectedRegionLabels.Contains(regionLabel)
+            )
             {
                 errorMessage =
-                    "Surface Addressables group contains an obsolete/unexpected entry:\n" +
+                    "Surface Addressables group contains an obsolete/unexpected or incorrectly labelled entry:\n" +
                     entry.address;
+
+                return false;
+            }
+        }
+
+        foreach (string label in settings.GetLabels())
+        {
+            if (
+                TerrainSurfaceAddressablesPackingPolicy
+                    .IsManagedRegionLabel(label)
+                &&
+                !expectedRegionLabels.Contains(label)
+            )
+            {
+                errorMessage =
+                    "Surface Addressables settings contain an obsolete managed region label: " +
+                    label;
 
                 return false;
             }
@@ -264,12 +361,14 @@ public static class TerrainSurfaceMaskAddressablesUtility
         bool schemaChanged = false;
 
         if (
-            schema.BundleMode
-            != BundledAssetGroupSchema.BundlePackingMode.PackSeparately
+            schema.BundleMode !=
+                TerrainSurfaceAddressablesPackingPolicy
+                    .ExpectedBundleMode
         )
         {
             schema.BundleMode =
-                BundledAssetGroupSchema.BundlePackingMode.PackSeparately;
+                TerrainSurfaceAddressablesPackingPolicy
+                    .ExpectedBundleMode;
 
             schemaChanged = true;
         }
@@ -302,14 +401,89 @@ public static class TerrainSurfaceMaskAddressablesUtility
                 manifest.tileGridHeight
             );
 
-        int expectedTileCount =
-            tileGridWidth *
+        long expectedTileCountLong =
+            (long)tileGridWidth *
             tileGridHeight;
+
+        int regionGridWidth =
+            TerrainSurfaceAddressablesPackingPolicy
+                .GetRegionGridWidth(
+                    tileGridWidth
+                );
+
+        int regionGridHeight =
+            TerrainSurfaceAddressablesPackingPolicy
+                .GetRegionGridHeight(
+                    tileGridHeight
+                );
+
+        long regionCountLong =
+            (long)regionGridWidth *
+            regionGridHeight;
+
+        if (
+            expectedTileCountLong > int.MaxValue
+            ||
+            regionCountLong > int.MaxValue
+        )
+        {
+            errorMessage =
+                "Surface Addressables scale exceeds the supported Int32 entry or region range.";
+
+            return false;
+        }
+
+        int expectedTileCount =
+            (int)expectedTileCountLong;
+
+        stats.surfacePackingRegionTileSpan =
+            TerrainSurfaceAddressablesPackingPolicy
+                .RegionTileSpan;
+
+        stats.surfacePackingRegionCount =
+            (int)regionCountLong;
+
+        stats.surfaceManagedRegionLabelCount =
+            (int)regionCountLong;
 
         int currentTile = 0;
 
         HashSet<string> expectedGuids =
             new HashSet<string>();
+
+        HashSet<string> expectedRegionLabels =
+            BuildExpectedRegionLabels(
+                tileGridWidth,
+                tileGridHeight
+            );
+
+        HashSet<string> registeredLabels =
+            new HashSet<string>(
+                settings.GetLabels()
+            );
+
+        foreach (string regionLabel in expectedRegionLabels)
+        {
+            if (registeredLabels.Contains(regionLabel))
+            {
+                continue;
+            }
+
+            using (WorldMeshesProfiler.AddressablesSetLabel.Auto())
+            {
+                settings.AddLabel(
+                    regionLabel,
+                    true
+                );
+            }
+
+            registeredLabels.Add(
+                regionLabel
+            );
+
+            stats.labelsUpdated++;
+            configurationChanged = true;
+        }
 
         try
         {
@@ -353,81 +527,37 @@ public static class TerrainSurfaceMaskAddressablesUtility
                         return false;
                     }
 
-                    expectedGuids.Add(
-                        guid
-                    );
-
-                    AddressableAssetEntry existingEntry =
-                        settings.FindAssetEntry(
-                            guid
-                        );
-
-                    AddressableAssetEntry entry =
-                        existingEntry;
-
-                    if (existingEntry == null)
+                    if (!expectedGuids.Add(guid))
                     {
-                        using (WorldMeshesProfiler.AddressablesCreateOrMoveEntry.Auto())
-                        {
-                            entry =
-                                settings.CreateOrMoveEntry(
-                                    guid,
-                                    group,
-                                    false,
-                                    true
-                                );
-                        }
+                        errorMessage =
+                            "Multiple Surface tile identities resolve to the same GUID:\n" +
+                            guid;
 
-                        if (entry == null)
-                        {
-                            errorMessage =
-                                "Could not create Addressables entry for:\n" +
-                                assetPath;
-
-                            return false;
-                        }
-
-                        stats.entriesCreated++;
-                        configurationChanged = true;
-                    }
-                    else if (existingEntry.parentGroup != group)
-                    {
-                        using (WorldMeshesProfiler.AddressablesCreateOrMoveEntry.Auto())
-                        {
-                            entry =
-                                settings.CreateOrMoveEntry(
-                                    guid,
-                                    group,
-                                    false,
-                                    true
-                                );
-                        }
-
-                        if (entry == null)
-                        {
-                            errorMessage =
-                                "Could not move Addressables entry for:\n" +
-                                assetPath;
-
-                            return false;
-                        }
-
-                        stats.entriesMoved++;
-                        configurationChanged = true;
+                        return false;
                     }
 
-                    if (entry.address != expectedAddress)
-                    {
-                        using (WorldMeshesProfiler.AddressablesSetAddress.Auto())
-                        {
-                            entry.SetAddress(
-                                expectedAddress,
-                                true
+                    string expectedRegionLabel =
+                        TerrainSurfaceAddressablesPackingPolicy
+                            .GetRegionLabel(
+                                tileX,
+                                tileZ
                             );
-                        }
 
-                        stats.addressesUpdated++;
-                        configurationChanged = true;
+                    if (
+                        !ReconcileEntry(
+                            settings,
+                            group,
+                            guid,
+                            expectedAddress,
+                            expectedRegionLabel,
+                            assetPath,
+                            stats,
+                            ref configurationChanged,
+                            out errorMessage
+                        )
+                    )
+                    {
+                        return false;
                     }
 
                     currentTile++;
@@ -450,6 +580,7 @@ public static class TerrainSurfaceMaskAddressablesUtility
             {
                 stats.surfaceConfigurationChanged = true;
                 EditorUtility.SetDirty(settings);
+
                 using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
                 {
                     AssetDatabase.SaveAssets();
@@ -464,7 +595,16 @@ public static class TerrainSurfaceMaskAddressablesUtility
 
         foreach (AddressableAssetEntry entry in group.entries)
         {
-            if (!expectedGuids.Contains(entry.guid))
+            if (
+                !expectedGuids.Contains(entry.guid)
+                ||
+                !TryGetSingleManagedRegionLabel(
+                    entry,
+                    out string regionLabel
+                )
+                ||
+                !expectedRegionLabels.Contains(regionLabel)
+            )
             {
                 obsoleteEntries.Add(
                     entry
@@ -486,6 +626,38 @@ public static class TerrainSurfaceMaskAddressablesUtility
             configurationChanged = true;
         }
 
+        List<string> staleRegionLabels =
+            new List<string>();
+
+        foreach (string label in settings.GetLabels())
+        {
+            if (
+                TerrainSurfaceAddressablesPackingPolicy
+                    .IsManagedRegionLabel(label)
+                &&
+                !expectedRegionLabels.Contains(label)
+            )
+            {
+                staleRegionLabels.Add(
+                    label
+                );
+            }
+        }
+
+        foreach (string staleRegionLabel in staleRegionLabels)
+        {
+            using (WorldMeshesProfiler.AddressablesSetLabel.Auto())
+            {
+                settings.RemoveLabel(
+                    staleRegionLabel,
+                    true
+                );
+            }
+
+            stats.labelsUpdated++;
+            configurationChanged = true;
+        }
+
         if (configurationChanged)
         {
             stats.surfaceConfigurationChanged = true;
@@ -501,6 +673,228 @@ public static class TerrainSurfaceMaskAddressablesUtility
         }
 
         return true;
+    }
+
+    // =====================================================
+    // ENTRY RECONCILIATION
+    // =====================================================
+
+    private static bool ReconcileEntry(
+        AddressableAssetSettings settings,
+        AddressableAssetGroup group,
+        string guid,
+        string expectedAddress,
+        string expectedRegionLabel,
+        string assetPath,
+        TerrainAddressablesOperationStats stats,
+        ref bool configurationChanged,
+        out string errorMessage
+    )
+    {
+        errorMessage = "";
+
+        AddressableAssetEntry existingEntry =
+            settings.FindAssetEntry(
+                guid
+            );
+
+        AddressableAssetEntry entry =
+            existingEntry;
+
+        if (existingEntry == null)
+        {
+            using (WorldMeshesProfiler.AddressablesCreateOrMoveEntry.Auto())
+            {
+                entry =
+                    settings.CreateOrMoveEntry(
+                        guid,
+                        group,
+                        false,
+                        true
+                    );
+            }
+
+            if (entry == null)
+            {
+                errorMessage =
+                    "Could not create Addressables entry for:\n" +
+                    assetPath;
+
+                return false;
+            }
+
+            stats.entriesCreated++;
+            configurationChanged = true;
+        }
+        else if (existingEntry.parentGroup != group)
+        {
+            using (WorldMeshesProfiler.AddressablesCreateOrMoveEntry.Auto())
+            {
+                entry =
+                    settings.CreateOrMoveEntry(
+                        guid,
+                        group,
+                        false,
+                        true
+                    );
+            }
+
+            if (entry == null)
+            {
+                errorMessage =
+                    "Could not move Addressables entry for:\n" +
+                    assetPath;
+
+                return false;
+            }
+
+            stats.entriesMoved++;
+            configurationChanged = true;
+        }
+
+        if (entry.address != expectedAddress)
+        {
+            using (WorldMeshesProfiler.AddressablesSetAddress.Auto())
+            {
+                entry.SetAddress(
+                    expectedAddress,
+                    true
+                );
+            }
+
+            stats.addressesUpdated++;
+            configurationChanged = true;
+        }
+
+        if (
+            !EntryHasExactRegionLabel(
+                entry,
+                expectedRegionLabel
+            )
+        )
+        {
+            List<string> existingLabels =
+                new List<string>(
+                    entry.labels
+                );
+
+            using (WorldMeshesProfiler.AddressablesSetLabel.Auto())
+            {
+                foreach (string label in existingLabels)
+                {
+                    entry.SetLabel(
+                        label,
+                        false,
+                        false,
+                        true
+                    );
+                }
+
+                entry.SetLabel(
+                    expectedRegionLabel,
+                    true,
+                    false,
+                    true
+                );
+            }
+
+            stats.labelsUpdated++;
+            configurationChanged = true;
+        }
+
+        return true;
+    }
+
+    private static bool EntryHasExactRegionLabel(
+        AddressableAssetEntry entry,
+        string expectedRegionLabel
+    )
+    {
+        return
+            entry != null
+            &&
+            entry.labels.Count == 1
+            &&
+            entry.labels.Contains(
+                expectedRegionLabel
+            );
+    }
+
+    private static bool TryGetSingleManagedRegionLabel(
+        AddressableAssetEntry entry,
+        out string regionLabel
+    )
+    {
+        regionLabel = "";
+
+        if (
+            entry == null
+            ||
+            entry.labels.Count != 1
+        )
+        {
+            return false;
+        }
+
+        foreach (string label in entry.labels)
+        {
+            if (
+                !TerrainSurfaceAddressablesPackingPolicy
+                    .IsManagedRegionLabel(label)
+            )
+            {
+                return false;
+            }
+
+            regionLabel =
+                label;
+        }
+
+        return
+            !string.IsNullOrEmpty(
+                regionLabel
+            );
+    }
+
+    private static HashSet<string> BuildExpectedRegionLabels(
+        int tileGridWidth,
+        int tileGridHeight
+    )
+    {
+        int regionGridWidth =
+            TerrainSurfaceAddressablesPackingPolicy
+                .GetRegionGridWidth(
+                    tileGridWidth
+                );
+
+        int regionGridHeight =
+            TerrainSurfaceAddressablesPackingPolicy
+                .GetRegionGridHeight(
+                    tileGridHeight
+                );
+
+        HashSet<string> labels =
+            new HashSet<string>();
+
+        for (int regionZ = 0; regionZ < regionGridHeight; regionZ++)
+        {
+            for (int regionX = 0; regionX < regionGridWidth; regionX++)
+            {
+                labels.Add(
+                    TerrainSurfaceAddressablesPackingPolicy
+                        .GetRegionLabel(
+                            regionX *
+                                TerrainSurfaceAddressablesPackingPolicy
+                                    .RegionTileSpan,
+                            regionZ *
+                                TerrainSurfaceAddressablesPackingPolicy
+                                    .RegionTileSpan
+                        )
+                );
+            }
+        }
+
+        return labels;
     }
 
     // =====================================================

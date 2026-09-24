@@ -89,10 +89,28 @@ public static class TerrainHeightmapAddressablesUtility
         HashSet<string> expectedStrideLabels =
             new HashSet<string>();
 
+        HashSet<string> expectedRegionLabels =
+            BuildExpectedRegionLabels(
+                tileGridWidth,
+                tileGridHeight
+            );
+
         HashSet<string> registeredLabels =
             new HashSet<string>(
                 settings.GetLabels()
             );
+
+        foreach (string regionLabel in expectedRegionLabels)
+        {
+            if (!registeredLabels.Contains(regionLabel))
+            {
+                errorMessage =
+                    "Height Addressables region label is missing: " +
+                    regionLabel;
+
+                return false;
+            }
+        }
 
         long expectedEntryCountLong =
             (long)tileGridWidth *
@@ -198,32 +216,23 @@ public static class TerrainHeightmapAddressablesUtility
                         return false;
                     }
 
-                    int managedLabelCount = 0;
-                    bool hasExpectedLabel = false;
-
-                    foreach (string label in entry.labels)
-                    {
-                        if (!IsManagedStrideLabel(label))
-                        {
-                            continue;
-                        }
-
-                        managedLabelCount++;
-
-                        if (label == strideLabel)
-                        {
-                            hasExpectedLabel = true;
-                        }
-                    }
+                    string regionLabel =
+                        TerrainHeightAddressablesPackingPolicy
+                            .GetRegionLabel(
+                                tileX,
+                                tileZ
+                            );
 
                     if (
-                        !hasExpectedLabel
-                        ||
-                        managedLabelCount != 1
+                        !EntryHasExactManagedLabels(
+                            entry,
+                            strideLabel,
+                            regionLabel
+                        )
                     )
                     {
                         errorMessage =
-                            "Height Addressables entry has incorrect managed stride labels:\n" +
+                            "Height Addressables entry has incorrect deterministic packing labels:\n" +
                             assetPath;
 
                         return false;
@@ -243,18 +252,23 @@ public static class TerrainHeightmapAddressablesUtility
         foreach (AddressableAssetEntry entry in group.entries)
         {
             if (
-                !TryGetSingleManagedStrideLabel(
+                !TryGetExactManagedLabels(
                     entry,
-                    out string managedLabel
+                    out string managedStrideLabel,
+                    out string managedRegionLabel
                 )
                 ||
                 !expectedStrideLabels.Contains(
-                    managedLabel
+                    managedStrideLabel
+                )
+                ||
+                !expectedRegionLabels.Contains(
+                    managedRegionLabel
                 )
             )
             {
                 errorMessage =
-                    "Height Addressables group contains an obsolete/unexpected entry:\n" +
+                    "Height Addressables group contains an obsolete/unexpected or incorrectly labelled entry:\n" +
                     entry.address;
 
                 return false;
@@ -271,6 +285,20 @@ public static class TerrainHeightmapAddressablesUtility
             {
                 errorMessage =
                     "Height Addressables settings contain an obsolete managed stride label: " +
+                    label;
+
+                return false;
+            }
+
+            if (
+                TerrainHeightAddressablesPackingPolicy
+                    .IsManagedRegionLabel(label)
+                &&
+                !expectedRegionLabels.Contains(label)
+            )
+            {
+                errorMessage =
+                    "Height Addressables settings contain an obsolete managed region label: " +
                     label;
 
                 return false;
@@ -332,14 +360,32 @@ public static class TerrainHeightmapAddressablesUtility
             geographicTileCountLong *
             representationStrides.Count;
 
+        int regionGridWidth =
+            TerrainHeightAddressablesPackingPolicy
+                .GetRegionGridWidth(
+                    tileGridWidth
+                );
+
+        int regionGridHeight =
+            TerrainHeightAddressablesPackingPolicy
+                .GetRegionGridHeight(
+                    tileGridHeight
+                );
+
+        long regionCountLong =
+            (long)regionGridWidth *
+            regionGridHeight;
+
         if (
             geographicTileCountLong > int.MaxValue
             ||
             expectedEntryCountLong > int.MaxValue
+            ||
+            regionCountLong > int.MaxValue
         )
         {
             errorMessage =
-                "Height Addressables scale exceeds the supported Int32 entry range.";
+                "Height Addressables scale exceeds the supported Int32 entry or region range.";
 
             stats.heightConfigurationReconciliationSeconds =
                 EditorApplication.timeSinceStartup - startedAt;
@@ -373,6 +419,16 @@ public static class TerrainHeightmapAddressablesUtility
 
         stats.heightManagedStrideLabelCount =
             representationStrides.Count;
+
+        stats.heightPackingRegionTileSpan =
+            TerrainHeightAddressablesPackingPolicy
+                .RegionTileSpan;
+
+        stats.heightPackingRegionCount =
+            (int)regionCountLong;
+
+        stats.heightManagedRegionLabelCount =
+            (int)regionCountLong;
 
         AddressableAssetSettings settings =
             AddressableAssetSettingsDefaultObject.GetSettings(
@@ -492,10 +548,40 @@ public static class TerrainHeightmapAddressablesUtility
         HashSet<string> expectedStrideLabels =
             new HashSet<string>();
 
+        HashSet<string> expectedRegionLabels =
+            BuildExpectedRegionLabels(
+                tileGridWidth,
+                tileGridHeight
+            );
+
         HashSet<string> registeredLabels =
             new HashSet<string>(
                 settings.GetLabels()
             );
+
+        foreach (string regionLabel in expectedRegionLabels)
+        {
+            if (registeredLabels.Contains(regionLabel))
+            {
+                continue;
+            }
+
+            using (WorldMeshesProfiler.AddressablesSetLabel.Auto())
+            {
+                settings.AddLabel(
+                    regionLabel,
+                    true
+                );
+            }
+
+            registeredLabels.Add(
+                regionLabel
+            );
+
+            stats.labelsUpdated++;
+            configurationChanged = true;
+            settingsChanged = true;
+        }
 
         int processedEntries = 0;
 
@@ -593,6 +679,13 @@ public static class TerrainHeightmapAddressablesUtility
                             return false;
                         }
 
+                        string regionLabel =
+                            TerrainHeightAddressablesPackingPolicy
+                                .GetRegionLabel(
+                                    tileX,
+                                    tileZ
+                                );
+
                         if (
                             !ReconcileEntry(
                                 settings,
@@ -600,6 +693,7 @@ public static class TerrainHeightmapAddressablesUtility
                                 guid,
                                 address,
                                 strideLabel,
+                                regionLabel,
                                 assetPath,
                                 stats,
                                 ref configurationChanged,
@@ -699,12 +793,15 @@ public static class TerrainHeightmapAddressablesUtility
         foreach (AddressableAssetEntry entry in group.entries)
         {
             if (
-                !TryGetSingleManagedStrideLabel(
+                !TryGetExactManagedLabels(
                     entry,
-                    out string managedLabel
+                    out string managedStrideLabel,
+                    out string managedRegionLabel
                 )
                 ||
-                !expectedStrideLabels.Contains(managedLabel)
+                !expectedStrideLabels.Contains(managedStrideLabel)
+                ||
+                !expectedRegionLabels.Contains(managedRegionLabel)
             )
             {
                 malformedEntries.Add(entry);
@@ -735,6 +832,18 @@ public static class TerrainHeightmapAddressablesUtility
                 IsManagedStrideLabel(label)
                 &&
                 !expectedStrideLabels.Contains(label)
+            )
+            {
+                staleManagedLabels.Add(label);
+
+                continue;
+            }
+
+            if (
+                TerrainHeightAddressablesPackingPolicy
+                    .IsManagedRegionLabel(label)
+                &&
+                !expectedRegionLabels.Contains(label)
             )
             {
                 staleManagedLabels.Add(label);
@@ -1003,6 +1112,7 @@ public static class TerrainHeightmapAddressablesUtility
         string guid,
         string expectedAddress,
         string expectedStrideLabel,
+        string expectedRegionLabel,
         string assetPath,
         TerrainAddressablesOperationStats stats,
         ref bool configurationChanged,
@@ -1088,37 +1198,22 @@ public static class TerrainHeightmapAddressablesUtility
             settingsChanged = true;
         }
 
-        List<string> labelsToRemove =
-            new List<string>();
-
-        bool hasExpectedLabel = false;
-
-        foreach (string label in entry.labels)
-        {
-            if (!IsManagedStrideLabel(label))
-            {
-                continue;
-            }
-
-            if (label == expectedStrideLabel)
-            {
-                hasExpectedLabel = true;
-            }
-            else
-            {
-                labelsToRemove.Add(label);
-            }
-        }
-
         if (
-            labelsToRemove.Count > 0
-            ||
-            !hasExpectedLabel
+            !EntryHasExactManagedLabels(
+                entry,
+                expectedStrideLabel,
+                expectedRegionLabel
+            )
         )
         {
+            List<string> existingLabels =
+                new List<string>(
+                    entry.labels
+                );
+
             using (WorldMeshesProfiler.AddressablesSetLabel.Auto())
             {
-                foreach (string label in labelsToRemove)
+                foreach (string label in existingLabels)
                 {
                     entry.SetLabel(
                         label,
@@ -1128,15 +1223,19 @@ public static class TerrainHeightmapAddressablesUtility
                     );
                 }
 
-                if (!hasExpectedLabel)
-                {
-                    entry.SetLabel(
-                        expectedStrideLabel,
-                        true,
-                        false,
-                        true
-                    );
-                }
+                entry.SetLabel(
+                    expectedStrideLabel,
+                    true,
+                    false,
+                    true
+                );
+
+                entry.SetLabel(
+                    expectedRegionLabel,
+                    true,
+                    false,
+                    true
+                );
             }
 
             stats.labelsUpdated++;
@@ -1147,32 +1246,124 @@ public static class TerrainHeightmapAddressablesUtility
         return true;
     }
 
-    private static bool TryGetSingleManagedStrideLabel(
+    private static bool EntryHasExactManagedLabels(
         AddressableAssetEntry entry,
-        out string managedLabel
+        string expectedStrideLabel,
+        string expectedRegionLabel
     )
     {
-        managedLabel = "";
-        int managedLabelCount = 0;
+        return
+            entry != null
+            &&
+            entry.labels.Count == 2
+            &&
+            entry.labels.Contains(
+                expectedStrideLabel
+            )
+            &&
+            entry.labels.Contains(
+                expectedRegionLabel
+            );
+    }
 
-        if (entry == null)
+    private static bool TryGetExactManagedLabels(
+        AddressableAssetEntry entry,
+        out string strideLabel,
+        out string regionLabel
+    )
+    {
+        strideLabel = "";
+        regionLabel = "";
+
+        if (
+            entry == null
+            ||
+            entry.labels.Count != 2
+        )
         {
             return false;
         }
 
+        int strideLabelCount = 0;
+        int regionLabelCount = 0;
+
         foreach (string label in entry.labels)
         {
-            if (!IsManagedStrideLabel(label))
+            if (IsManagedStrideLabel(label))
             {
+                strideLabel =
+                    label;
+
+                strideLabelCount++;
+
                 continue;
             }
 
-            managedLabel = label;
-            managedLabelCount++;
+            if (
+                TerrainHeightAddressablesPackingPolicy
+                    .IsManagedRegionLabel(label)
+            )
+            {
+                regionLabel =
+                    label;
+
+                regionLabelCount++;
+
+                continue;
+            }
+
+            return false;
         }
 
         return
-            managedLabelCount == 1;
+            strideLabelCount == 1
+            &&
+            regionLabelCount == 1;
+    }
+
+    // =====================================================
+    // LABEL / REGION HELPERS
+    // =====================================================
+
+    private static HashSet<string> BuildExpectedRegionLabels(
+        int tileGridWidth,
+        int tileGridHeight
+    )
+    {
+        int regionGridWidth =
+            TerrainHeightAddressablesPackingPolicy
+                .GetRegionGridWidth(
+                    tileGridWidth
+                );
+
+        int regionGridHeight =
+            TerrainHeightAddressablesPackingPolicy
+                .GetRegionGridHeight(
+                    tileGridHeight
+                );
+
+        HashSet<string> labels =
+            new HashSet<string>();
+
+        for (int regionZ = 0; regionZ < regionGridHeight; regionZ++)
+        {
+            for (int regionX = 0; regionX < regionGridWidth; regionX++)
+            {
+                labels.Add(
+                    TerrainHeightAddressablesPackingPolicy
+                        .GetRegionLabel(
+                            regionX *
+                                TerrainHeightAddressablesPackingPolicy
+                                    .RegionTileSpan,
+                            regionZ *
+                                TerrainHeightAddressablesPackingPolicy
+                                    .RegionTileSpan
+                        )
+                );
+            }
+        }
+
+        return labels;
     }
 
     // =====================================================

@@ -30,9 +30,21 @@ internal static class TerrainRuntimeAddressablesScaleUtility
             return false;
         }
 
+        int heightTileGridWidth =
+            Mathf.Max(
+                1,
+                heightManifest.heightTileGridWidth
+            );
+
+        int heightTileGridHeight =
+            Mathf.Max(
+                1,
+                heightManifest.heightTileGridHeight
+            );
+
         long heightGeographicTileCount =
-            (long)Mathf.Max(1, heightManifest.heightTileGridWidth) *
-            Mathf.Max(1, heightManifest.heightTileGridHeight);
+            (long)heightTileGridWidth *
+            heightTileGridHeight;
 
         long heightRepresentationLevelCount =
             Math.Max(
@@ -44,9 +56,21 @@ internal static class TerrainRuntimeAddressablesScaleUtility
             heightGeographicTileCount *
             heightRepresentationLevelCount;
 
+        int surfaceTileGridWidth =
+            Mathf.Max(
+                1,
+                surfaceManifest.tileGridWidth
+            );
+
+        int surfaceTileGridHeight =
+            Mathf.Max(
+                1,
+                surfaceManifest.tileGridHeight
+            );
+
         long surfaceEntryCount =
-            (long)Mathf.Max(1, surfaceManifest.tileGridWidth) *
-            Mathf.Max(1, surfaceManifest.tileGridHeight);
+            (long)surfaceTileGridWidth *
+            surfaceTileGridHeight;
 
         long collisionMeshEntryCount =
             (long)Mathf.Max(1, worldSettings.gridWidth) *
@@ -72,16 +96,54 @@ internal static class TerrainRuntimeAddressablesScaleUtility
             collisionRegionGridWidth *
             collisionRegionGridHeight;
 
+        int heightRegionGridWidth =
+            TerrainHeightAddressablesPackingPolicy
+                .GetRegionGridWidth(
+                    heightTileGridWidth
+                );
+
+        int heightRegionGridHeight =
+            TerrainHeightAddressablesPackingPolicy
+                .GetRegionGridHeight(
+                    heightTileGridHeight
+                );
+
+        long heightRegionCount =
+            (long)heightRegionGridWidth *
+            heightRegionGridHeight;
+
+        int surfaceRegionGridWidth =
+            TerrainSurfaceAddressablesPackingPolicy
+                .GetRegionGridWidth(
+                    surfaceTileGridWidth
+                );
+
+        int surfaceRegionGridHeight =
+            TerrainSurfaceAddressablesPackingPolicy
+                .GetRegionGridHeight(
+                    surfaceTileGridHeight
+                );
+
+        long surfaceRegionCount =
+            (long)surfaceRegionGridWidth *
+            surfaceRegionGridHeight;
+
         if (
             heightEntryCount > int.MaxValue
             ||
             heightGeographicTileCount > int.MaxValue
             ||
             heightRepresentationLevelCount > int.MaxValue
+            ||
+            heightRegionCount > int.MaxValue
+            ||
+            surfaceEntryCount > int.MaxValue
+            ||
+            surfaceRegionCount > int.MaxValue
         )
         {
             errorMessage =
-                "Height Addressables scale exceeds the supported Int32 range.";
+                "Height/Surface Addressables scale exceeds the supported Int32 range.";
 
             return false;
         }
@@ -95,17 +157,17 @@ internal static class TerrainRuntimeAddressablesScaleUtility
         long heightBundleCount =
             TerrainHeightAddressablesPackingPolicy
                 .EstimateHeightBundleCount(
-                    heightEntryCountInt,
+                    heightTileGridWidth,
+                    heightTileGridHeight,
                     representationLevelCountInt
                 );
 
-        /*
-         * ARH01 intentionally preserves existing packing topology:
-         * Surface is PackSeparately and Collision is PackTogetherByLabel
-         * using one region label per packaging region.
-         */
         long surfaceBundleCount =
-            surfaceEntryCount;
+            TerrainSurfaceAddressablesPackingPolicy
+                .EstimateSurfaceBundleCount(
+                    surfaceTileGridWidth,
+                    surfaceTileGridHeight
+                );
 
         long collisionBundleCount =
             collisionMarkerEntryCount;
@@ -141,6 +203,26 @@ internal static class TerrainRuntimeAddressablesScaleUtility
             heightBundleCount +
             surfaceBundleCount +
             collisionBundleCount;
+
+        stats.heightPackingRegionTileSpan =
+            TerrainHeightAddressablesPackingPolicy
+                .RegionTileSpan;
+
+        stats.heightPackingRegionCount =
+            (int)heightRegionCount;
+
+        stats.heightManagedRegionLabelCount =
+            (int)heightRegionCount;
+
+        stats.surfacePackingRegionTileSpan =
+            TerrainSurfaceAddressablesPackingPolicy
+                .RegionTileSpan;
+
+        stats.surfacePackingRegionCount =
+            (int)surfaceRegionCount;
+
+        stats.surfaceManagedRegionLabelCount =
+            (int)surfaceRegionCount;
 
         if (stats.heightGeographicTileCount <= 0)
         {
@@ -184,8 +266,12 @@ internal static class TerrainRuntimeAddressablesScaleUtility
             new TerrainRuntimeAddressablesScaleReport(
                 stats != null ? stats.expectedHeightEntryCount : 0L,
                 stats != null ? stats.expectedHeightBundleCount : 0L,
+                stats != null ? stats.heightPackingRegionTileSpan : 0,
+                stats != null ? stats.heightPackingRegionCount : 0,
                 stats != null ? stats.expectedSurfaceEntryCount : 0L,
                 stats != null ? stats.expectedSurfaceBundleCount : 0L,
+                stats != null ? stats.surfacePackingRegionTileSpan : 0,
+                stats != null ? stats.surfacePackingRegionCount : 0,
                 stats != null ? stats.expectedCollisionMeshEntryCount : 0L,
                 stats != null ? stats.expectedCollisionMarkerEntryCount : 0L,
                 stats != null ? stats.expectedCollisionBundleCount : 0L,
@@ -199,8 +285,14 @@ public sealed class TerrainRuntimeAddressablesScaleReport
 {
     public long ExpectedHeightEntryCount { get; private set; }
     public long ExpectedHeightBundleCount { get; private set; }
+    public int HeightPackingRegionTileSpan { get; private set; }
+    public int HeightPackingRegionCount { get; private set; }
+
     public long ExpectedSurfaceEntryCount { get; private set; }
     public long ExpectedSurfaceBundleCount { get; private set; }
+    public int SurfacePackingRegionTileSpan { get; private set; }
+    public int SurfacePackingRegionCount { get; private set; }
+
     public long ExpectedCollisionMeshEntryCount { get; private set; }
     public long ExpectedCollisionMarkerEntryCount { get; private set; }
     public long ExpectedCollisionBundleCount { get; private set; }
@@ -210,8 +302,12 @@ public sealed class TerrainRuntimeAddressablesScaleReport
     internal TerrainRuntimeAddressablesScaleReport(
         long expectedHeightEntryCount,
         long expectedHeightBundleCount,
+        int heightPackingRegionTileSpan,
+        int heightPackingRegionCount,
         long expectedSurfaceEntryCount,
         long expectedSurfaceBundleCount,
+        int surfacePackingRegionTileSpan,
+        int surfacePackingRegionCount,
         long expectedCollisionMeshEntryCount,
         long expectedCollisionMarkerEntryCount,
         long expectedCollisionBundleCount,
@@ -221,8 +317,14 @@ public sealed class TerrainRuntimeAddressablesScaleReport
     {
         ExpectedHeightEntryCount = expectedHeightEntryCount;
         ExpectedHeightBundleCount = expectedHeightBundleCount;
+        HeightPackingRegionTileSpan = heightPackingRegionTileSpan;
+        HeightPackingRegionCount = heightPackingRegionCount;
+
         ExpectedSurfaceEntryCount = expectedSurfaceEntryCount;
         ExpectedSurfaceBundleCount = expectedSurfaceBundleCount;
+        SurfacePackingRegionTileSpan = surfacePackingRegionTileSpan;
+        SurfacePackingRegionCount = surfacePackingRegionCount;
+
         ExpectedCollisionMeshEntryCount = expectedCollisionMeshEntryCount;
         ExpectedCollisionMarkerEntryCount = expectedCollisionMarkerEntryCount;
         ExpectedCollisionBundleCount = expectedCollisionBundleCount;
@@ -236,8 +338,12 @@ public sealed class TerrainRuntimeAddressablesScaleReport
 
         builder.AppendLine("WorldMeshes Addressables Scale");
         builder.AppendLine("Expected Height Entries: " + ExpectedHeightEntryCount);
+        builder.AppendLine("Height Packing Region Tile Span: " + HeightPackingRegionTileSpan);
+        builder.AppendLine("Height Packing Region Count: " + HeightPackingRegionCount);
         builder.AppendLine("Expected Height Bundles: " + ExpectedHeightBundleCount);
         builder.AppendLine("Expected Surface Entries: " + ExpectedSurfaceEntryCount);
+        builder.AppendLine("Surface Packing Region Tile Span: " + SurfacePackingRegionTileSpan);
+        builder.AppendLine("Surface Packing Region Count: " + SurfacePackingRegionCount);
         builder.AppendLine("Expected Surface Bundles: " + ExpectedSurfaceBundleCount);
         builder.AppendLine("Expected Collision Mesh Entries: " + ExpectedCollisionMeshEntryCount);
         builder.AppendLine("Expected Collision Marker Entries: " + ExpectedCollisionMarkerEntryCount);
