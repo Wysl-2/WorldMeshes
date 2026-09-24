@@ -366,30 +366,7 @@ public partial class TerrainHeightmapStreamer :
             return;
         }
 
-        Vector2Int desiredOrigin =
-            CalculateRequestedCacheOrigin();
-
-        requestedOriginTile =
-            desiredOrigin;
-
-        if (loadRoutine != null)
-        {
-            return;
-        }
-
-        if (
-            cacheReady
-            &&
-            desiredOrigin ==
-            cacheOriginTile
-        )
-        {
-            return;
-        }
-
-        BeginLoadWindow(
-            desiredOrigin
-        );
+        TryBeginRequestedCacheTransition();
     }
 
     // =====================================================
@@ -537,12 +514,7 @@ public partial class TerrainHeightmapStreamer :
             return;
         }
 
-        requestedOriginTile =
-            CalculateRequestedCacheOrigin();
-
-        BeginLoadWindow(
-            requestedOriginTile
-        );
+        TryBeginRequestedCacheTransition();
     }
 
     // =====================================================
@@ -589,40 +561,15 @@ public partial class TerrainHeightmapStreamer :
         }
 
         // =====================================================
-        // REQUIRED WINDOW
+        // REQUIRED TERRAIN CACHE WINDOWS
         // =====================================================
 
-        Vector2Int desiredOrigin =
-            CalculateRequestedCacheOrigin();
-
-        requestedOriginTile =
-            desiredOrigin;
-
         /*
-         * Do not interrupt an in-progress load.
-         *
-         * If the target moves while the current load is running,
-         * the desired origin will be recalculated after that load
-         * completes.
+         * MRH05 calculates Height and Surface requests independently, then
+         * coordinates them through one composite transition so neither cache
+         * becomes visible before all required terrain data is ready.
          */
-        if (loadRoutine != null)
-        {
-            return;
-        }
-
-        if (
-            cacheReady
-            &&
-            desiredOrigin ==
-            cacheOriginTile
-        )
-        {
-            return;
-        }
-
-        BeginLoadWindow(
-            desiredOrigin
-        );
+        TryBeginRequestedCacheTransition();
     }
 
     // =====================================================
@@ -637,6 +584,8 @@ public partial class TerrainHeightmapStreamer :
          */
         bool shouldBeBound =
             cacheReady
+            &&
+            surfaceCacheReady
             &&
             heightCache != null
             &&
@@ -823,6 +772,12 @@ public partial class TerrainHeightmapStreamer :
         cacheReady =
             false;
 
+        surfaceCacheReady =
+            false;
+
+        surfaceTransitionState =
+            TerrainSurfaceCacheTransitionState.Idle;
+
         // -------------------------------------------------
         // WorldSettings
         // -------------------------------------------------
@@ -959,6 +914,7 @@ public partial class TerrainHeightmapStreamer :
         // -------------------------------------------------
 
         CalculateCacheDimensions();
+        CalculateSurfaceCacheDimensions();
 
         if (
             cacheWidth <= 0
@@ -976,6 +932,22 @@ public partial class TerrainHeightmapStreamer :
             return false;
         }
 
+        if (
+            surfaceCacheWidth <= 0
+            ||
+            surfaceCacheHeight <= 0
+        )
+        {
+            Debug.LogError(
+                "TerrainHeightmapStreamer cannot initialize.\n\n" +
+
+                "Calculated surface-mask cache dimensions are invalid.",
+                this
+            );
+
+            return false;
+        }
+
         // -------------------------------------------------
         // GPU cache buffers
         // -------------------------------------------------
@@ -985,7 +957,7 @@ public partial class TerrainHeightmapStreamer :
             return false;
         }
 
-        if (!CreateSurfaceMaskCacheBuffers())
+        if (!CreateDecoupledSurfaceMaskCacheBuffers())
         {
             DestroyHeightCacheBuffers();
 
@@ -2864,7 +2836,20 @@ public partial class TerrainHeightmapStreamer :
         cacheReady =
             false;
 
+        surfaceCacheReady =
+            false;
+
+        surfaceCacheOriginTile =
+            Vector2Int.zero;
+
+        requestedSurfaceOriginTile =
+            Vector2Int.zero;
+
+        surfaceTransitionState =
+            TerrainSurfaceCacheTransitionState.Idle;
+
         NotifyActiveCacheCoverageIfChanged();
+        NotifyActiveSurfaceCacheCoverageIfChanged();
     }
 
     // =====================================================

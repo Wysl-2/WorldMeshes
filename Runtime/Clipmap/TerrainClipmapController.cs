@@ -387,7 +387,7 @@ public class TerrainClipmapController :
         );
 
         bool canMove =
-            streamer.CanActiveCacheCoverClipmapAt(
+            streamer.CanActiveTerrainCachesCoverClipmapAt(
                 coverageCenter
             );
 
@@ -463,7 +463,7 @@ public class TerrainClipmapController :
             );
 
             if (
-                !streamer.CanActiveCacheCoverClipmapAt(
+                !streamer.CanActiveTerrainCachesCoverClipmapAt(
                     blockedCoverageCenter
                 )
             )
@@ -519,7 +519,7 @@ public class TerrainClipmapController :
         // -------------------------------------------------
 
         if (
-            !streamer.CanActiveCacheCoverClipmapAt(
+            !streamer.CanActiveTerrainCachesCoverClipmapAt(
                 coverageCenter
             )
         )

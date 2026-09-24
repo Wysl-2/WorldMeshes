@@ -4,11 +4,11 @@ using UnityEngine.AddressableAssets;
 using UnityEngine.ResourceManagement.AsyncOperations;
 
 /*
- * Stage 8 surface-mask half of TerrainHeightmapStreamer.
+ * Surface-mask resource half of TerrainHeightmapStreamer.
  *
- * The core streamer continues to own the cache window/origin and transition
- * coroutine. This partial owns the synchronized surface resources so height
- * and surface caches can be staged and committed together.
+ * MRH05 moves Surface cache geometry, readiness and coverage ownership into
+ * TerrainHeightmapStreamer.SurfaceResidency.cs while this partial continues
+ * to own Surface Addressable handles and GPU texture resources.
  */
 public partial class TerrainHeightmapStreamer
 {
@@ -706,10 +706,10 @@ public partial class TerrainHeightmapStreamer
                 .TryBind(
                     transform,
                     surfaceMaskCache,
-                    cacheOriginTile,
+                    surfaceCacheOriginTile,
                     new Vector2Int(
-                        cacheWidth,
-                        cacheHeight
+                        surfaceCacheWidth,
+                        surfaceCacheHeight
                     ),
                     surfaceMaskManifest
                         .samplesPerSide,
