@@ -4,7 +4,7 @@ using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-public class TerrainClipmapDisplacementValidator :
+public partial class TerrainClipmapDisplacementValidator :
     MonoBehaviour
 {
     // =====================================================
@@ -188,10 +188,13 @@ public class TerrainClipmapDisplacementValidator :
             return;
         }
 
-        if (validateOnStart)
-        {
-            BeginValidation();
-        }
+        /*
+         * MRH07 runtime validation is intentionally manual.
+         *
+         * Keep the serialized validateOnStart field for scene/prefab
+         * compatibility, but do not automatically begin GPU readback or
+         * displacement validation during normal Play Mode startup.
+         */
     }
 
     // =====================================================
@@ -209,6 +212,8 @@ public class TerrainClipmapDisplacementValidator :
             validationRoutine =
                 null;
         }
+
+        CancelMrh07Validation();
     }
 
     // =====================================================

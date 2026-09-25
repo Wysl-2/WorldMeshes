@@ -29,7 +29,7 @@ MonoBehaviour:
   clipmapCenterResolution: 512
   clipmapLevelCount: 7
   clipmapBaseSampleStep: 1
-  clipmapLODOuterResolutions: 0401000000020000000200008001000000010000c0000000
+  clipmapLODOuterResolutions: 040100000001000000010000000100000001000000010000
   lastGeneratedHeightSignature: f711f2cb965166e1184688fd2d55a94a3d7d5627eb4dcac56f9fc9f03184ce60
   heightmapGenerationRevision: 3
   lastGeneratedSurfaceSignature: ccf2645219039ae0b9b12af35baea3dbfba0492393e1cda8d33cb2d05de03e6d

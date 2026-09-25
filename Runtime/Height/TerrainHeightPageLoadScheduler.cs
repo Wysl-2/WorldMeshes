@@ -5,17 +5,11 @@ using UnityEngine.AddressableAssets;
 using UnityEngine.ResourceManagement.AsyncOperations;
 
 /*
- * MRH06 basic bounded height-page scheduler.
+ * Bounded multiresolution height-page scheduler.
  *
- * It intentionally implements only the minimum runtime policy required for
- * safe multiresolution activation:
- *
- *   required before prefetch
- *   near LOD before far LOD
- *   bounded concurrent Addressables loads
- *   one queued/in-flight request per (stride, x, z)
- *
- * MRH09 owns more advanced prediction and source-residency optimization.
+ * MRH07 adds validation/diagnostic counters only. Scheduling policy remains:
+ * required before prefetch, near LOD before far LOD, bounded concurrency, and
+ * one queued/in-flight request per (stride, coordinate).
  */
 internal sealed class TerrainHeightPageLoadScheduler
 {
@@ -41,16 +35,22 @@ internal sealed class TerrainHeightPageLoadScheduler
     private readonly List<Request> inFlight =
         new List<Request>();
 
-    private readonly Dictionary<
-        TerrainHeightPageKey,
-        Request
-    > requestsByKey =
-        new Dictionary<TerrainHeightPageKey, Request>();
+    private readonly Dictionary<TerrainHeightPageKey, Request>
+        requestsByKey =
+            new Dictionary<TerrainHeightPageKey, Request>();
 
     private readonly HashSet<int> failedRequiredGenerations =
         new HashSet<int>();
 
     private long nextSequence;
+
+    private int peakActiveLoadCount;
+    private long requestsStarted;
+    private long coalescedRequestCount;
+    private long prefetchPromotedToRequiredCount;
+    private long staleQueuedRequestDiscardCount;
+    private int priorityViolationCount;
+    private int duplicateStartViolationCount;
 
     public int MaxConcurrentLoads { get; set; } = 8;
 
@@ -66,11 +66,7 @@ internal sealed class TerrainHeightPageLoadScheduler
         {
             int count = 0;
 
-            for (
-                int index = 0;
-                index < queued.Count;
-                index++
-            )
+            for (int index = 0; index < queued.Count; index++)
             {
                 if (queued[index].Required)
                 {
@@ -129,12 +125,17 @@ internal sealed class TerrainHeightPageLoadScheduler
             )
         )
         {
+            coalescedRequestCount++;
+
             if (required)
             {
+                if (!existing.Required)
+                {
+                    prefetchPromotedToRequiredCount++;
+                }
+
                 existing.Required = true;
-                existing.RequiredGenerations.Add(
-                    generation
-                );
+                existing.RequiredGenerations.Add(generation);
             }
 
             existing.Generation =
@@ -173,19 +174,11 @@ internal sealed class TerrainHeightPageLoadScheduler
 
         if (required)
         {
-            request.RequiredGenerations.Add(
-                generation
-            );
+            request.RequiredGenerations.Add(generation);
         }
 
-        requestsByKey.Add(
-            key,
-            request
-        );
-
-        queued.Add(
-            request
-        );
+        requestsByKey.Add(key, request);
+        queued.Add(request);
     }
 
     public void Pump()
@@ -197,9 +190,7 @@ internal sealed class TerrainHeightPageLoadScheduler
             return;
         }
 
-        queued.Sort(
-            CompareRequests
-        );
+        queued.Sort(CompareRequests);
 
         int limit =
             Mathf.Max(
@@ -212,14 +203,15 @@ internal sealed class TerrainHeightPageLoadScheduler
             && queued.Count > 0
         )
         {
-            Request request =
-                queued[0];
+            Request request = queued[0];
+
+            if (!request.Required && HasQueuedRequiredRequest())
+            {
+                priorityViolationCount++;
+            }
 
             queued.RemoveAt(0);
-
-            StartRequest(
-                request
-            );
+            StartRequest(request);
         }
     }
 
@@ -237,9 +229,7 @@ internal sealed class TerrainHeightPageLoadScheduler
         int generation
     )
     {
-        failedRequiredGenerations.Remove(
-            generation
-        );
+        failedRequiredGenerations.Remove(generation);
     }
 
     public void DiscardQueuedOlderThan(
@@ -252,19 +242,101 @@ internal sealed class TerrainHeightPageLoadScheduler
             index--
         )
         {
-            Request request =
-                queued[index];
+            Request request = queued[index];
 
-            if (
-                request.Generation >= generation
-            )
+            if (request.Generation >= generation)
             {
                 continue;
             }
 
             queued.RemoveAt(index);
             requestsByKey.Remove(request.Key);
+            staleQueuedRequestDiscardCount++;
         }
+    }
+
+    internal void GetCountsForLod(
+        int level,
+        out int queuedRequired,
+        out int queuedPrefetch,
+        out int inFlightRequired,
+        out int inFlightPrefetch
+    )
+    {
+        queuedRequired = 0;
+        queuedPrefetch = 0;
+        inFlightRequired = 0;
+        inFlightPrefetch = 0;
+
+        for (int index = 0; index < queued.Count; index++)
+        {
+            Request request = queued[index];
+
+            if (request.Owner == null || request.Owner.Level != level)
+            {
+                continue;
+            }
+
+            if (request.Required)
+            {
+                queuedRequired++;
+            }
+            else
+            {
+                queuedPrefetch++;
+            }
+        }
+
+        for (int index = 0; index < inFlight.Count; index++)
+        {
+            Request request = inFlight[index];
+
+            if (request.Owner == null || request.Owner.Level != level)
+            {
+                continue;
+            }
+
+            if (request.Required)
+            {
+                inFlightRequired++;
+            }
+            else
+            {
+                inFlightPrefetch++;
+            }
+        }
+    }
+
+    internal TerrainHeightSchedulerDiagnosticsSnapshot
+        GetDiagnosticsSnapshot()
+    {
+        return
+            new TerrainHeightSchedulerDiagnosticsSnapshot(
+                Mathf.Max(1, MaxConcurrentLoads),
+                ActiveLoadCount,
+                QueuedRequiredCount,
+                QueuedPrefetchCount,
+                peakActiveLoadCount,
+                requestsStarted,
+                coalescedRequestCount,
+                prefetchPromotedToRequiredCount,
+                staleQueuedRequestDiscardCount,
+                priorityViolationCount,
+                duplicateStartViolationCount
+            );
+    }
+
+    internal void ResetDiagnosticsCounters()
+    {
+        peakActiveLoadCount =
+            ActiveLoadCount;
+
+        requestsStarted = 0L;
+        coalescedRequestCount = 0L;
+        prefetchPromotedToRequiredCount = 0L;
+        staleQueuedRequestDiscardCount = 0L;
+        priorityViolationCount = 0;
+        duplicateStartViolationCount = 0;
     }
 
     public void Shutdown()
@@ -277,17 +349,14 @@ internal sealed class TerrainHeightPageLoadScheduler
             index++
         )
         {
-            Request request =
-                inFlight[index];
+            Request request = inFlight[index];
 
             if (
                 request.Started
                 && request.Handle.IsValid()
             )
             {
-                Addressables.Release(
-                    request.Handle
-                );
+                Addressables.Release(request.Handle);
             }
         }
 
@@ -300,6 +369,15 @@ internal sealed class TerrainHeightPageLoadScheduler
         Request request
     )
     {
+        if (HasInFlightKey(request.Key))
+        {
+            duplicateStartViolationCount++;
+
+            requestsByKey.Remove(request.Key);
+            MarkRequiredFailure(request);
+            return;
+        }
+
         try
         {
             request.Handle =
@@ -308,20 +386,19 @@ internal sealed class TerrainHeightPageLoadScheduler
                 );
 
             request.Started = true;
+            inFlight.Add(request);
 
-            inFlight.Add(
-                request
-            );
+            requestsStarted++;
+            peakActiveLoadCount =
+                Mathf.Max(
+                    peakActiveLoadCount,
+                    inFlight.Count
+                );
         }
         catch (Exception)
         {
-            requestsByKey.Remove(
-                request.Key
-            );
-
-            MarkRequiredFailure(
-                request
-            );
+            requestsByKey.Remove(request.Key);
+            MarkRequiredFailure(request);
         }
     }
 
@@ -333,8 +410,7 @@ internal sealed class TerrainHeightPageLoadScheduler
             index--
         )
         {
-            Request request =
-                inFlight[index];
+            Request request = inFlight[index];
 
             if (!request.Handle.IsDone)
             {
@@ -357,15 +433,10 @@ internal sealed class TerrainHeightPageLoadScheduler
             {
                 if (request.Handle.IsValid())
                 {
-                    Addressables.Release(
-                        request.Handle
-                    );
+                    Addressables.Release(request.Handle);
                 }
 
-                MarkRequiredFailure(
-                    request
-                );
-
+                MarkRequiredFailure(request);
                 continue;
             }
 
@@ -390,27 +461,48 @@ internal sealed class TerrainHeightPageLoadScheduler
                 && previous.Handle.IsValid()
             )
             {
-                Addressables.Release(
-                    previous.Handle
-                );
+                Addressables.Release(previous.Handle);
             }
 
             request.Owner.ResidentPages[
                 page.Coordinate
-            ] =
-                page;
+            ] = page;
         }
     }
 
+    private bool HasQueuedRequiredRequest()
+    {
+        for (int index = 0; index < queued.Count; index++)
+        {
+            if (queued[index].Required)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool HasInFlightKey(
+        TerrainHeightPageKey key
+    )
+    {
+        for (int index = 0; index < inFlight.Count; index++)
+        {
+            if (inFlight[index].Key.Equals(key))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private void MarkRequiredFailure(
         Request request
     )
     {
-        if (
-            request == null
-            || !request.Required
-        )
+        if (request == null || !request.Required)
         {
             return;
         }
@@ -429,9 +521,7 @@ internal sealed class TerrainHeightPageLoadScheduler
             in request.RequiredGenerations
         )
         {
-            failedRequiredGenerations.Add(
-                generation
-            );
+            failedRequiredGenerations.Add(generation);
         }
     }
 
@@ -440,10 +530,7 @@ internal sealed class TerrainHeightPageLoadScheduler
         Texture2D texture
     )
     {
-        if (
-            owner == null
-            || texture == null
-        )
+        if (owner == null || texture == null)
         {
             return false;
         }
@@ -464,10 +551,7 @@ internal sealed class TerrainHeightPageLoadScheduler
     {
         if (left.Required != right.Required)
         {
-            return
-                left.Required
-                    ? -1
-                    : 1;
+            return left.Required ? -1 : 1;
         }
 
         int levelComparison =

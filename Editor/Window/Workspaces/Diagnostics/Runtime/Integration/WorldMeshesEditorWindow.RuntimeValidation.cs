@@ -3,6 +3,14 @@ using UnityEngine;
 
 public partial class WorldMeshesEditorWindow : EditorWindow
 {
+    private void OnInspectorUpdate()
+    {
+        if (EditorApplication.isPlaying)
+        {
+            Repaint();
+        }
+    }
+
     private void DrawRuntimeValidationSettings()
     {
         GUILayout.BeginVertical(
@@ -16,141 +24,458 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         );
 
         EditorGUILayout.HelpBox(
-            "Runtime validation is development tooling only.\n\n" +
-            "Height-cache validation performs a full GPU readback " +
-            "and exact comparison against the currently loaded " +
-            "source heightmap tiles.\n\n" +
-            "It never runs automatically during normal streaming.",
+            "MRH07 runtime validation is manual development tooling. " +
+            "Live snapshots are lightweight; GPU readback and stress tests " +
+            "only run when explicitly requested.",
             MessageType.Info
         );
-
-        // =====================================================
-        // PLAY MODE REQUIRED
-        // =====================================================
 
         if (!EditorApplication.isPlaying)
         {
             EditorGUILayout.HelpBox(
-                "Enter Play Mode before validating the runtime " +
-                "height cache.",
+                "Enter Play Mode to run multiresolution runtime validation.",
                 MessageType.Warning
             );
 
-            EditorGUI.BeginDisabledGroup(
-                true
-            );
-
-            GUILayout.Button(
-                "Validate Current Height Cache",
-                GUILayout.ExpandWidth(true)
-            );
-
-            EditorGUI.EndDisabledGroup();
-
             GUILayout.EndVertical();
-
             return;
         }
 
-        // =====================================================
-        // VALIDATOR
-        // =====================================================
+        TerrainHeightmapStreamer streamer =
+            FindRuntimeHeightmapStreamer();
 
-        TerrainHeightmapCacheValidator validator =
+        TerrainHeightmapCacheValidator cacheValidator =
             FindRuntimeHeightmapCacheValidator();
 
-        if (validator == null)
+        TerrainClipmapDisplacementValidator displacementValidator =
+            FindRuntimeClipmapDisplacementValidator();
+
+        if (
+            streamer == null
+            || cacheValidator == null
+            || displacementValidator == null
+        )
         {
             EditorGUILayout.HelpBox(
-                "TerrainHeightmapCacheValidator was not found on " +
-                "WorldRoot/Clipmap.\n\n" +
-                "Exit Play Mode and run Setup / Repair World Hierarchy.",
+                "Required runtime validation components were not found on " +
+                "WorldRoot/Clipmap.\n\nExit Play Mode and run Setup / Repair " +
+                "World Hierarchy.",
                 MessageType.Warning
             );
 
-            EditorGUI.BeginDisabledGroup(
-                true
-            );
-
-            GUILayout.Button(
-                "Validate Current Height Cache",
-                GUILayout.ExpandWidth(true)
-            );
-
-            EditorGUI.EndDisabledGroup();
-
             GUILayout.EndVertical();
-
             return;
         }
 
-        // =====================================================
-        // CURRENT STATUS
-        // =====================================================
-
-        if (validator.IsValidating)
-        {
-            EditorGUILayout.HelpBox(
-                "Height-cache validation is currently running.",
-                MessageType.Info
-            );
-        }
-        else if (
-            validator.HasValidatedCurrentCache
-        )
-        {
-            if (validator.LastValidationPassed)
-            {
-                EditorGUILayout.HelpBox(
-                    "The current height cache passed validation.",
-                    MessageType.Info
-                );
-            }
-            else
-            {
-                EditorGUILayout.HelpBox(
-                    "The current height cache failed validation. " +
-                    "See the Console for details.",
-                    MessageType.Error
-                );
-            }
-        }
-        else
-        {
-            EditorGUILayout.HelpBox(
-                "The current height cache has not been manually " +
-                "validated.",
-                MessageType.None
-            );
-        }
-
-        // =====================================================
-        // VALIDATE
-        // =====================================================
-
-        EditorGUI.BeginDisabledGroup(
-            validator.IsValidating
+        DrawMrh07LiveRuntimeState(
+            streamer
         );
 
-        if (
-            GUILayout.Button(
-                "Validate Current Height Cache",
-                GUILayout.ExpandWidth(true)
-            )
-        )
-        {
-            validator.BeginValidation();
+        bool anyValidationRunning =
+            cacheValidator.IsValidating
+            || displacementValidator.IsValidating
+            || displacementValidator.IsMrh07ValidationRunning;
 
-            Repaint();
-        }
+        DrawWorkspaceSectionGap();
 
-        EditorGUI.EndDisabledGroup();
+        DrawMrh07ValidationAction(
+            "Height Cache Validation",
+            cacheValidator.CacheValidationStatus,
+            cacheValidator.CacheValidationSummary,
+            "Validate All Height LOD Caches",
+            anyValidationRunning,
+            cacheValidator.BeginValidation
+        );
+
+        DrawWorkspaceSectionGap();
+
+        DrawMrh07ValidationAction(
+            "Cross-Resolution Validation",
+            cacheValidator.CrossResolutionValidationStatus,
+            cacheValidator.CrossResolutionValidationSummary,
+            "Validate Cross-Resolution Height Consistency",
+            anyValidationRunning,
+            cacheValidator.BeginCrossResolutionValidation
+        );
+
+        DrawWorkspaceSectionGap();
+
+        DrawMrh07ValidationAction(
+            "Renderer / Displacement / Stitch Validation",
+            displacementValidator.MultiresolutionValidationStatus,
+            displacementValidator.MultiresolutionValidationSummary,
+            "Validate Renderer Bindings & Displacement",
+            anyValidationRunning,
+            displacementValidator.BeginMultiresolutionValidation
+        );
+
+        DrawWorkspaceSectionGap();
+
+        EditorGUILayout.HelpBox(
+            "Independent-anchor stress temporarily moves the runtime clipmap " +
+            "and cache requests without moving the Player/streaming source. " +
+            "The gameplay layout is restored afterward.",
+            MessageType.None
+        );
+
+        DrawMrh07ValidationAction(
+            "Independent Anchor Stress",
+            displacementValidator.IndependentAnchorValidationStatus,
+            displacementValidator.IndependentAnchorValidationSummary,
+            "Run Independent-Anchor Stress Validation",
+            anyValidationRunning,
+            displacementValidator.BeginIndependentAnchorStressValidation
+        );
+
+        DrawWorkspaceSectionGap();
+
+        EditorGUILayout.HelpBox(
+            "Scheduler stress submits deterministic nearby, rapid, and distant " +
+            "layout requests. It verifies bounded concurrency and scheduler " +
+            "diagnostic invariants, then restores the gameplay layout.",
+            MessageType.None
+        );
+
+        DrawMrh07ValidationAction(
+            "Height Scheduler Stress",
+            displacementValidator.SchedulerStressValidationStatus,
+            displacementValidator.SchedulerStressValidationSummary,
+            "Run Height Scheduler Stress Test",
+            anyValidationRunning,
+            displacementValidator.BeginSchedulerStressValidation
+        );
 
         GUILayout.EndVertical();
     }
 
+    private void DrawMrh07LiveRuntimeState(
+        TerrainHeightmapStreamer streamer
+    )
+    {
+        GUILayout.Space(4f);
+
+        GUILayout.Label(
+            "Live Multiresolution Streaming State",
+            EditorStyles.boldLabel
+        );
+
+        EditorGUILayout.LabelField(
+            "Height LOD States",
+            streamer.HeightLodRuntimeStateCount.ToString()
+        );
+
+        EditorGUILayout.LabelField(
+            "Transition Running",
+            streamer.MultiresolutionTransitionRunning
+                ? "Yes"
+                : "No"
+        );
+
+        EditorGUILayout.LabelField(
+            "Prepared Activation Pending",
+            streamer.PreparedMultiresolutionActivationPending
+                ? "Yes"
+                : "No"
+        );
+
+        if (
+            streamer.TryGetHeightSchedulerDiagnostics(
+                out TerrainHeightSchedulerDiagnosticsSnapshot scheduler
+            )
+        )
+        {
+            EditorGUILayout.LabelField(
+                "Scheduler Active / Limit",
+                $"{scheduler.ActiveLoadCount} / {scheduler.ConcurrencyLimit}"
+            );
+
+            EditorGUILayout.LabelField(
+                "Scheduler Required Queue",
+                scheduler.QueuedRequiredCount.ToString()
+            );
+
+            EditorGUILayout.LabelField(
+                "Scheduler Prefetch Queue",
+                scheduler.QueuedPrefetchCount.ToString()
+            );
+
+            EditorGUILayout.LabelField(
+                "Scheduler Peak Active",
+                scheduler.PeakActiveLoadCount.ToString()
+            );
+        }
+
+        EditorGUILayout.LabelField(
+            "Surface Ready",
+            streamer.SurfaceCacheReady
+                ? "Yes"
+                : "No"
+        );
+
+        EditorGUILayout.LabelField(
+            "Surface Origin",
+            streamer.SurfaceCacheOriginTile.ToString()
+        );
+
+        EditorGUILayout.LabelField(
+            "Surface Cache Size",
+            $"{streamer.SurfaceCacheWidth} x {streamer.SurfaceCacheHeight}"
+        );
+
+        EditorGUILayout.LabelField(
+            "Surface Resident Pages",
+            streamer.ResidentSurfaceTileCount.ToString()
+        );
+
+        EditorGUILayout.LabelField(
+            "Surface GPU Estimate",
+            FormatMrh07Bytes(
+                streamer.EstimatedSurfaceGpuCacheBytes
+            )
+        );
+
+        GUILayout.Space(5f);
+
+        for (
+            int level = 0;
+            level < streamer.HeightLodRuntimeStateCount;
+            level++
+        )
+        {
+            if (
+                !streamer.TryGetHeightLodDiagnostics(
+                    level,
+                    out TerrainHeightLodDiagnosticsSnapshot lod
+                )
+            )
+            {
+                continue;
+            }
+
+            GUILayout.BeginVertical(
+                EditorStyles.helpBox
+            );
+
+            GUILayout.Label(
+                $"LOD{lod.Level}  |  Stride {lod.SampleStride}",
+                EditorStyles.boldLabel
+            );
+
+            EditorGUILayout.LabelField(
+                "Sample Spacing",
+                lod.SampleSpacing.ToString("R")
+            );
+
+            EditorGUILayout.LabelField(
+                "Page Resolution",
+                $"{lod.SamplesPerSide} x {lod.SamplesPerSide}"
+            );
+
+            EditorGUILayout.LabelField(
+                "Cache Origin",
+                lod.CacheOrigin.ToString()
+            );
+
+            EditorGUILayout.LabelField(
+                "Cache Size",
+                $"{lod.CacheWidth} x {lod.CacheHeight}"
+            );
+
+            EditorGUILayout.LabelField(
+                "Required Pages",
+                FormatMrh07PageRect(
+                    lod.ActiveRequiredPages
+                )
+            );
+
+            EditorGUILayout.LabelField(
+                "Requested Prefetch",
+                FormatMrh07PageRect(
+                    lod.RequestedPrefetchPages
+                )
+            );
+
+            EditorGUILayout.LabelField(
+                "Active Valid / Resident",
+                $"{lod.ActiveValidPageCount} / {lod.ResidentPageCount}"
+            );
+
+            EditorGUILayout.LabelField(
+                "Queued Required / Prefetch",
+                $"{lod.QueuedRequiredPageCount} / {lod.QueuedPrefetchPageCount}"
+            );
+
+            EditorGUILayout.LabelField(
+                "In Flight Required / Prefetch",
+                $"{lod.InFlightRequiredPageCount} / {lod.InFlightPrefetchPageCount}"
+            );
+
+            EditorGUILayout.LabelField(
+                "Transition State",
+                lod.TransitionState.ToString()
+            );
+
+            EditorGUILayout.LabelField(
+                "Ready",
+                lod.CacheReady
+                    ? "Yes"
+                    : "No"
+            );
+
+            EditorGUILayout.LabelField(
+                "GPU Active / Staging",
+                FormatMrh07Bytes(lod.EstimatedActiveGpuBytes) +
+                " / " +
+                FormatMrh07Bytes(lod.EstimatedStagingGpuBytes)
+            );
+
+            GUILayout.EndVertical();
+        }
+    }
+
+    private void DrawMrh07ValidationAction(
+        string title,
+        TerrainRuntimeValidationStatus status,
+        string summary,
+        string buttonLabel,
+        bool anyValidationRunning,
+        System.Action action
+    )
+    {
+        GUILayout.BeginVertical(
+            EditorStyles.helpBox
+        );
+
+        GUILayout.Label(
+            title,
+            EditorStyles.boldLabel
+        );
+
+        EditorGUILayout.LabelField(
+            "Status",
+            status.ToString()
+        );
+
+        if (!string.IsNullOrEmpty(summary))
+        {
+            EditorGUILayout.HelpBox(
+                summary,
+                Mrh07MessageTypeForStatus(status)
+            );
+        }
+
+        EditorGUI.BeginDisabledGroup(
+            anyValidationRunning
+        );
+
+        if (
+            GUILayout.Button(
+                buttonLabel,
+                GUILayout.ExpandWidth(true)
+            )
+        )
+        {
+            action?.Invoke();
+            Repaint();
+        }
+
+        EditorGUI.EndDisabledGroup();
+        GUILayout.EndVertical();
+    }
+
+    private static MessageType Mrh07MessageTypeForStatus(
+        TerrainRuntimeValidationStatus status
+    )
+    {
+        switch (status)
+        {
+            case TerrainRuntimeValidationStatus.Failed:
+                return MessageType.Error;
+
+            case TerrainRuntimeValidationStatus.Running:
+                return MessageType.Info;
+
+            case TerrainRuntimeValidationStatus.Passed:
+                return MessageType.Info;
+
+            case TerrainRuntimeValidationStatus.Inconclusive:
+                return MessageType.Warning;
+
+            default:
+                return MessageType.None;
+        }
+    }
+
+    private static string FormatMrh07Bytes(
+        long bytes
+    )
+    {
+        if (bytes <= 0L)
+        {
+            return "0 MiB";
+        }
+
+        double mib =
+            bytes /
+            (1024d * 1024d);
+
+        return
+            mib.ToString("N2") +
+            " MiB";
+    }
+
+    private static string FormatMrh07PageRect(
+        TerrainHeightPageRect pages
+    )
+    {
+        if (!pages.IsValid)
+        {
+            return "None";
+        }
+
+        return
+            $"({pages.Minimum.x}, {pages.Minimum.y}) -> " +
+            $"({pages.Maximum.x}, {pages.Maximum.y}) " +
+            $"[{pages.Width} x {pages.Height}]";
+    }
+
+    private TerrainHeightmapStreamer
+        FindRuntimeHeightmapStreamer()
+    {
+        Transform clipmapRoot =
+            FindRuntimeClipmapRoot();
+
+        return
+            clipmapRoot != null
+                ? clipmapRoot.GetComponent<TerrainHeightmapStreamer>()
+                : null;
+    }
+
     private TerrainHeightmapCacheValidator
         FindRuntimeHeightmapCacheValidator()
+    {
+        Transform clipmapRoot =
+            FindRuntimeClipmapRoot();
+
+        return
+            clipmapRoot != null
+                ? clipmapRoot.GetComponent<TerrainHeightmapCacheValidator>()
+                : null;
+    }
+
+    private TerrainClipmapDisplacementValidator
+        FindRuntimeClipmapDisplacementValidator()
+    {
+        Transform clipmapRoot =
+            FindRuntimeClipmapRoot();
+
+        return
+            clipmapRoot != null
+                ? clipmapRoot.GetComponent<TerrainClipmapDisplacementValidator>()
+                : null;
+    }
+
+    private Transform FindRuntimeClipmapRoot()
     {
         GameObject worldRoot =
             GameObject.Find(
@@ -163,19 +488,10 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             return null;
         }
 
-        Transform clipmapRoot =
+        return
             worldRoot.transform.Find(
                 TerrainWorldHierarchyGenerator
                     .ClipmapRootName
             );
-
-        if (clipmapRoot == null)
-        {
-            return null;
-        }
-
-        return
-            clipmapRoot
-                .GetComponent<TerrainHeightmapCacheValidator>();
     }
 }
