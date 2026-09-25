@@ -268,18 +268,4 @@ public sealed partial class TerrainClipmapLayoutApplier
         }
     }
 
-    private static bool LooksLikeManagedClipmapRenderer(
-        string name
-    )
-    {
-        if (string.IsNullOrEmpty(name))
-        {
-            return false;
-        }
-
-        return
-            name.StartsWith("Center_LOD")
-            || name.StartsWith("Ring_LOD")
-            || name.StartsWith("Stitch_LOD");
-    }
 }

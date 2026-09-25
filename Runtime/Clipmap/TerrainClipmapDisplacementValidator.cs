@@ -189,11 +189,10 @@ public partial class TerrainClipmapDisplacementValidator :
         }
 
         /*
-         * MRH07 runtime validation is intentionally manual.
-         *
-         * Keep the serialized validateOnStart field for scene/prefab
-         * compatibility, but do not automatically begin GPU readback or
-         * displacement validation during normal Play Mode startup.
+         * Runtime validation is intentionally manual. Keep the serialized
+         * validateOnStart field for scene/prefab compatibility, but do not
+         * automatically begin GPU readback or displacement validation during
+         * normal Play Mode startup.
          */
     }
 
@@ -223,78 +222,12 @@ public partial class TerrainClipmapDisplacementValidator :
     [ContextMenu("Validate Clipmap Displacement")]
     public void BeginValidation()
     {
-        if (!Application.isPlaying)
-        {
-            Debug.LogWarning(
-                "Clipmap displacement validation can only " +
-                "run in Play Mode.",
-                this
-            );
-
-            return;
-        }
-
-        if (validationRoutine != null)
-        {
-            return;
-        }
-
-        if (streamer == null)
-        {
-            streamer =
-                GetComponent<TerrainHeightmapStreamer>();
-        }
-
-        if (boundsController == null)
-        {
-            boundsController =
-                GetComponent<TerrainClipmapBoundsController>();
-        }
-
-        if (clipmapController == null)
-        {
-            clipmapController =
-                GetComponent<TerrainClipmapController>();
-        }
-
-        if (
-            streamer == null
-            ||
-            boundsController == null
-            ||
-            clipmapController == null
-        )
-        {
-            Debug.LogError(
-                "Cannot validate clipmap displacement.\n\n" +
-                "TerrainHeightmapStreamer, " +
-                "TerrainClipmapBoundsController, and " +
-                "TerrainClipmapController are required.",
-                this
-            );
-
-            return;
-        }
-
-        if (clipmapController.IsWaitingForHeightData)
-        {
-            Debug.LogWarning(
-                "Clipmap displacement validation was not started " +
-                "because clipmap movement is currently waiting " +
-                "for height-cache coverage.",
-                this
-            );
-
-            return;
-        }
-
-        lastValidationPassed =
-            false;
-
-        validationRoutine =
-            StartCoroutine(
-                WaitForCacheAndValidate()
-            );
+        /*
+         * The authoritative runtime displacement validation is now the
+         * semantic multiresolution validator. Preserve this public/context
+         * menu entry point while routing it to the same validation path.
+         */
+        BeginMultiresolutionValidation();
     }
 
     // =====================================================

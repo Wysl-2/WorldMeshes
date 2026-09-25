@@ -4,11 +4,11 @@ using UnityEngine;
 public sealed partial class TerrainClipmapLayoutApplier
 {
     /*
-     * MRH06 authoritative renderer-role enumeration.
+     * Authoritative renderer-role enumeration.
      *
-     * TerrainClipmapLayoutApplier already owns generated hierarchy lookup.
-     * Height binding, validation and diagnostics consume this semantic list
-     * rather than independently interpreting renderer names.
+     * TerrainClipmapLayoutApplier owns generated hierarchy lookup. Height
+     * binding, validation and diagnostics consume this semantic list rather
+     * than independently interpreting renderer names.
      */
     public bool TryGetRendererBindings(
         List<TerrainClipmapRendererBinding> output,
@@ -168,5 +168,20 @@ public sealed partial class TerrainClipmapLayoutApplier
         }
 
         return true;
+    }
+
+    private static bool LooksLikeManagedClipmapRenderer(
+        string name
+    )
+    {
+        if (string.IsNullOrEmpty(name))
+        {
+            return false;
+        }
+
+        return
+            name.StartsWith("Center_LOD")
+            || name.StartsWith("Ring_LOD")
+            || name.StartsWith("Stitch_LOD");
     }
 }

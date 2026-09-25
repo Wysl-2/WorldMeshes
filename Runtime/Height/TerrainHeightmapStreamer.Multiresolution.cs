@@ -1,15 +1,12 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.AddressableAssets;
-using UnityEngine.ResourceManagement.AsyncOperations;
 
 /*
- * MRH06 runtime Height activation.
+ * Multiresolution runtime Height activation.
  *
- * The legacy singular fields in TerrainHeightmapStreamer remain only as an
- * LOD0 compatibility view. Production Height ownership lives here as one
- * state per clipmap LOD.
+ * Production Height residency is owned by one TerrainHeightLodRuntimeState
+ * per clipmap LOD. Source Texture2Ds remain transient scheduler resources.
  */
 public partial class TerrainHeightmapStreamer
 {
@@ -332,8 +329,6 @@ public partial class TerrainHeightmapStreamer
             transform,
             worldSettings
         );
-
-        RefreshLegacyHeightCompatibilityView();
 
         return true;
     }
@@ -1401,147 +1396,6 @@ public partial class TerrainHeightmapStreamer
     }
 
     // =====================================================
-    // HEIGHT PAGE QUEUE
-    // =====================================================
-
-    private void EnqueueHeightPlanPages(
-        TerrainHeightLayoutCoveragePlan plan
-    )
-    {
-        if (
-            plan == null
-            || heightPageLoadScheduler == null
-        )
-        {
-            return;
-        }
-
-        for (
-            int level = 0;
-            level < plan.LevelCount;
-            level++
-        )
-        {
-            TerrainHeightLodRuntimeState state =
-                heightLodStates[level];
-
-            TerrainHeightLodCoveragePlan levelPlan =
-                plan.Levels[level];
-
-            state.RequestedRequiredPages =
-                levelPlan.RequiredPages;
-
-            state.RequestedPrefetchPages =
-                levelPlan.PrefetchPages;
-
-            state.RequestedCacheOrigin =
-                levelPlan.RequestedCacheOrigin;
-
-            state.RequestGeneration =
-                plan.Generation;
-
-            EnqueuePageRect(
-                state,
-                levelPlan.RequiredPages,
-                levelPlan.RequiredPages,
-                true,
-                plan.Generation
-            );
-
-            EnqueuePageRect(
-                state,
-                levelPlan.PrefetchPages,
-                levelPlan.RequiredPages,
-                false,
-                plan.Generation
-            );
-        }
-    }
-
-    private void EnqueuePageRect(
-        TerrainHeightLodRuntimeState state,
-        TerrainHeightPageRect pages,
-        TerrainHeightPageRect requiredPages,
-        bool requiredPass,
-        int generation
-    )
-    {
-        if (!pages.IsValid)
-        {
-            return;
-        }
-
-        int centerX =
-            (requiredPages.Minimum.x + requiredPages.Maximum.x) / 2;
-
-        int centerZ =
-            (requiredPages.Minimum.y + requiredPages.Maximum.y) / 2;
-
-        for (
-            int tileZ = pages.Minimum.y;
-            tileZ <= pages.Maximum.y;
-            tileZ++
-        )
-        {
-            for (
-                int tileX = pages.Minimum.x;
-                tileX <= pages.Maximum.x;
-                tileX++
-            )
-            {
-                Vector2Int coordinate =
-                    new Vector2Int(
-                        tileX,
-                        tileZ
-                    );
-
-                bool isRequired =
-                    requiredPages.Contains(
-                        coordinate
-                    );
-
-                if (
-                    requiredPass != isRequired
-                )
-                {
-                    continue;
-                }
-
-                if (state.HasLoadedPage(coordinate))
-                {
-                    continue;
-                }
-
-                string address =
-                    heightmapManifest
-                        .GetHeightRepresentationAddress(
-                            state.SampleStride,
-                            tileX,
-                            tileZ
-                        );
-
-                int distancePriority =
-                    Mathf.Abs(
-                        tileX - centerX
-                    )
-                    +
-                    Mathf.Abs(
-                        tileZ - centerZ
-                    );
-
-                heightPageLoadScheduler.Enqueue(
-                    state,
-                    coordinate,
-                    address,
-                    isRequired,
-                    generation,
-                    distancePriority
-                );
-            }
-        }
-    }
-
-    // =====================================================
     // MULTI-LOD TRANSITION
     // =====================================================
 
@@ -1745,7 +1599,7 @@ public partial class TerrainHeightmapStreamer
                     yield break;
                 }
 
-                AsyncOperationHandle<Texture2D> handle =
+                var handle =
                     surfaceTile.handle;
 
                 if (!handle.IsDone)
@@ -1802,7 +1656,7 @@ public partial class TerrainHeightmapStreamer
                 TerrainSurfaceCacheTransitionState.PopulatingStaging;
 
             if (
-                !TryPopulateDecoupledSurfaceStagingCache(
+                !TryPopulateSurfaceStagingCache(
                     plan.SurfaceRequestedOrigin,
                     out string surfaceStagingError
                 )
@@ -1899,8 +1753,6 @@ public partial class TerrainHeightmapStreamer
                 TerrainSurfaceCacheTransitionState.Idle;
         }
 
-        RefreshLegacyHeightCompatibilityView();
-
         preparedHeightLayoutGeneration =
             generation;
 
@@ -1944,7 +1796,7 @@ public partial class TerrainHeightmapStreamer
         )
         {
             heightPageLoadScheduler
-                .DiscardQueuedOlderThan(
+                .DiscardQueuedOptionalOlderThan(
                     latestRequestedHeightPlan.Generation
                 );
         }
@@ -1972,129 +1824,6 @@ public partial class TerrainHeightmapStreamer
                 );
             }
         }
-    }
-
-    private bool TryPopulateLodStagingCache(
-        TerrainHeightLodRuntimeState state,
-        TerrainHeightLodCoveragePlan plan,
-        out string errorMessage
-    )
-    {
-        errorMessage = "";
-
-        if (
-            state == null
-            || state.StagingCache == null
-        )
-        {
-            errorMessage =
-                "A Height LOD staging cache is unavailable.";
-
-            return false;
-        }
-
-        state.StagingValidPages.Clear();
-
-        for (
-            int localZ = 0;
-            localZ < state.CacheHeight;
-            localZ++
-        )
-        {
-            for (
-                int localX = 0;
-                localX < state.CacheWidth;
-                localX++
-            )
-            {
-                Vector2Int coordinate =
-                    new Vector2Int(
-                        plan.RequestedCacheOrigin.x + localX,
-                        plan.RequestedCacheOrigin.y + localZ
-                    );
-
-                if (
-                    coordinate.x < 0
-                    || coordinate.y < 0
-                    || coordinate.x >= state.Descriptor.TileGridWidth
-                    || coordinate.y >= state.Descriptor.TileGridHeight
-                )
-                {
-                    continue;
-                }
-
-                if (
-                    !state.ResidentPages.TryGetValue(
-                        coordinate,
-                        out TerrainHeightResidentPage page
-                    )
-                    || page == null
-                    || page.State != TerrainHeightResidentPageState.Loaded
-                    || page.Texture == null
-                )
-                {
-                    if (plan.RequiredPages.Contains(coordinate))
-                    {
-                        errorMessage =
-                            $"Mandatory Height page ({coordinate.x}, {coordinate.y}) is unavailable while staging LOD{state.Level}.";
-
-                        return false;
-                    }
-
-                    continue;
-                }
-
-                int slice =
-                    localX +
-                    localZ * state.CacheWidth;
-
-                try
-                {
-                    Graphics.CopyTexture(
-                        page.Texture,
-                        0,
-                        0,
-                        state.StagingCache,
-                        slice,
-                        0
-                    );
-                }
-                catch (System.Exception exception)
-                {
-                    errorMessage =
-                        $"Could not copy Height page ({coordinate.x}, {coordinate.y}) into LOD{state.Level} staging cache.\n\n" +
-                        exception.Message;
-
-                    return false;
-                }
-
-                state.StagingValidPages.Add(
-                    coordinate
-                );
-            }
-        }
-
-        foreach (
-            Vector2Int coordinate
-            in EnumeratePageRect(
-                plan.RequiredPages
-            )
-        )
-        {
-            if (
-                !state.StagingValidPages.Contains(
-                    coordinate
-                )
-            )
-            {
-                errorMessage =
-                    $"LOD{state.Level} staging cache did not receive mandatory Height page ({coordinate.x}, {coordinate.y}).";
-
-                return false;
-            }
-        }
-
-        return true;
     }
 
     private void FailMultiresolutionTransition(
@@ -2156,41 +1885,6 @@ public partial class TerrainHeightmapStreamer
     // =====================================================
     // COVERAGE / RESIDENCY TESTS
     // =====================================================
-
-    private bool AreAllRequiredHeightPagesResident(
-        TerrainHeightLayoutCoveragePlan plan
-    )
-    {
-        if (plan == null)
-        {
-            return false;
-        }
-
-        for (
-            int level = 0;
-            level < plan.LevelCount;
-            level++
-        )
-        {
-            TerrainHeightLodRuntimeState state =
-                heightLodStates[level];
-
-            foreach (
-                Vector2Int coordinate
-                in EnumeratePageRect(
-                    plan.Levels[level].RequiredPages
-                )
-            )
-            {
-                if (!state.HasLoadedPage(coordinate))
-                {
-                    return false;
-                }
-            }
-        }
-
-        return true;
-    }
 
     private bool AreAllRequiredHeightPagesActive(
         TerrainHeightLayoutCoveragePlan plan
@@ -2281,140 +1975,6 @@ public partial class TerrainHeightmapStreamer
                         tileZ
                     );
             }
-        }
-    }
-
-    // =====================================================
-    // SOURCE RESIDENCY RELEASE
-    // =====================================================
-
-    private void ReleaseHeightPagesOutsideActiveCaches()
-    {
-        if (heightLodStates == null)
-        {
-            return;
-        }
-
-        for (
-            int level = 0;
-            level < heightLodStates.Length;
-            level++
-        )
-        {
-            TerrainHeightLodRuntimeState state =
-                heightLodStates[level];
-
-            if (state == null)
-            {
-                continue;
-            }
-
-            TerrainHeightPageRect keep =
-                state.ActiveCachePages;
-
-            List<Vector2Int> release =
-                new List<Vector2Int>();
-
-            foreach (
-                KeyValuePair<Vector2Int, TerrainHeightResidentPage> pair
-                in state.ResidentPages
-            )
-            {
-                if (!keep.Contains(pair.Key))
-                {
-                    release.Add(pair.Key);
-                }
-            }
-
-            for (
-                int index = 0;
-                index < release.Count;
-                index++
-            )
-            {
-                ReleaseLodResidentPage(
-                    state,
-                    release[index]
-                );
-            }
-        }
-    }
-
-    private void ReleaseFailedGenerationPages(
-        TerrainHeightLodRuntimeState state,
-        int generation
-    )
-    {
-        if (state == null)
-        {
-            return;
-        }
-
-        TerrainHeightPageRect active =
-            state.ActiveCachePages;
-
-        List<Vector2Int> release =
-            new List<Vector2Int>();
-
-        foreach (
-            KeyValuePair<Vector2Int, TerrainHeightResidentPage> pair
-            in state.ResidentPages
-        )
-        {
-            TerrainHeightResidentPage page =
-                pair.Value;
-
-            if (
-                page != null
-                && page.LastRequestGeneration == generation
-                && !active.Contains(pair.Key)
-            )
-            {
-                release.Add(pair.Key);
-            }
-        }
-
-        for (
-            int index = 0;
-            index < release.Count;
-            index++
-        )
-        {
-            ReleaseLodResidentPage(
-                state,
-                release[index]
-            );
-        }
-    }
-
-    private static void ReleaseLodResidentPage(
-        TerrainHeightLodRuntimeState state,
-        Vector2Int coordinate
-    )
-    {
-        if (
-            state == null
-            || !state.ResidentPages.TryGetValue(
-                coordinate,
-                out TerrainHeightResidentPage page
-            )
-        )
-        {
-            return;
-        }
-
-        state.ResidentPages.Remove(
-            coordinate
-        );
-
-        if (
-            page != null
-            && page.Handle.IsValid()
-        )
-        {
-            Addressables.Release(
-                page.Handle
-            );
         }
     }
 
@@ -2556,54 +2116,6 @@ public partial class TerrainHeightmapStreamer
     }
 
     // =====================================================
-    // LOD0 LEGACY COMPATIBILITY VIEW
-    // =====================================================
-
-    private void RefreshLegacyHeightCompatibilityView()
-    {
-        if (
-            heightLodStates == null
-            || heightLodStates.Length == 0
-            || heightLodStates[0] == null
-        )
-        {
-            heightCache = null;
-            stagingHeightCache = null;
-            cacheOriginTile = Vector2Int.zero;
-            requestedOriginTile = Vector2Int.zero;
-            cacheWidth = 0;
-            cacheHeight = 0;
-            cacheReady = false;
-
-            return;
-        }
-
-        TerrainHeightLodRuntimeState lod0 =
-            heightLodStates[0];
-
-        heightCache =
-            lod0.ActiveCache;
-
-        stagingHeightCache =
-            lod0.StagingCache;
-
-        cacheOriginTile =
-            lod0.ActiveCacheOrigin;
-
-        requestedOriginTile =
-            lod0.RequestedCacheOrigin;
-
-        cacheWidth =
-            lod0.CacheWidth;
-
-        cacheHeight =
-            lod0.CacheHeight;
-
-        cacheReady =
-            lod0.CacheReady;
-    }
-
-    // =====================================================
     // SHUTDOWN
     // =====================================================
 
@@ -2636,23 +2148,6 @@ public partial class TerrainHeightmapStreamer
                     continue;
                 }
 
-                List<Vector2Int> coordinates =
-                    new List<Vector2Int>(
-                        state.ResidentPages.Keys
-                    );
-
-                for (
-                    int index = 0;
-                    index < coordinates.Count;
-                    index++
-                )
-                {
-                    ReleaseLodResidentPage(
-                        state,
-                        coordinates[index]
-                    );
-                }
-
                 if (state.ActiveCache != null)
                 {
                     Destroy(
@@ -2674,6 +2169,9 @@ public partial class TerrainHeightmapStreamer
                 state.ActiveValidPages.Clear();
                 state.StagingValidPages.Clear();
                 state.CacheReady = false;
+                state.TransitionState = TerrainHeightLodTransitionState.Idle;
+                state.StagingGeneration = 0;
+                state.StagingRequiredPages = default;
             }
         }
 
@@ -2684,13 +2182,5 @@ public partial class TerrainHeightmapStreamer
         multiresolutionBindingPending = false;
         multiresolutionBindingLayoutApplier = null;
         multiresolutionRendererBindings.Clear();
-
-        heightCache = null;
-        stagingHeightCache = null;
-        cacheOriginTile = Vector2Int.zero;
-        requestedOriginTile = Vector2Int.zero;
-        cacheWidth = 0;
-        cacheHeight = 0;
-        cacheReady = false;
     }
 }

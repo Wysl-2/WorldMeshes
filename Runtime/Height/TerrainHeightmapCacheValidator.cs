@@ -295,10 +295,9 @@ public class TerrainHeightmapCacheValidator :
                         activePages[pageIndex];
 
                     if (
-                        !streamer.TryGetHeightLodPageForInspection(
+                        !streamer.TryGetHeightLodCacheSliceForInspection(
                             level,
                             coordinate,
-                            out _,
                             out int slice,
                             out bool activeValid,
                             out _
@@ -642,19 +641,17 @@ public class TerrainHeightmapCacheValidator :
                     pairHadOverlap = true;
 
                     if (
-                        !streamer.TryGetHeightLodPageForInspection(
+                        !streamer.TryGetHeightLodCacheSliceForInspection(
                             fineLevel,
                             coordinate,
-                            out _,
                             out int fineSlice,
                             out bool fineValid,
                             out _
                         )
                         ||
-                        !streamer.TryGetHeightLodPageForInspection(
+                        !streamer.TryGetHeightLodCacheSliceForInspection(
                             coarseLevel,
                             coordinate,
-                            out _,
                             out int coarseSlice,
                             out bool coarseValid,
                             out _
@@ -1039,19 +1036,17 @@ public class TerrainHeightmapCacheValidator :
         BoundaryResult result = default;
 
         if (
-            !streamer.TryGetHeightLodPageForInspection(
+            !streamer.TryGetHeightLodCacheSliceForInspection(
                 level,
                 firstCoordinate,
-                out _,
                 out int firstSlice,
                 out bool firstValid,
                 out _
             )
             ||
-            !streamer.TryGetHeightLodPageForInspection(
+            !streamer.TryGetHeightLodCacheSliceForInspection(
                 level,
                 secondCoordinate,
-                out _,
                 out int secondSlice,
                 out bool secondValid,
                 out _

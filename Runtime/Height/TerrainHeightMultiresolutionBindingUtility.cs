@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /*
- * Per-renderer MRH06 Height cache binding.
+ * Per-renderer multiresolution Height cache binding.
  *
  * Center/ring renderers use their own LOD cache. A stitch uses the finer
  * adjacent LOD cache through TerrainClipmapRendererRole.HeightOwnerLevel.

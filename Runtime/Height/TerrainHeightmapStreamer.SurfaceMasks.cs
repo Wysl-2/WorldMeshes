@@ -4,11 +4,10 @@ using UnityEngine.AddressableAssets;
 using UnityEngine.ResourceManagement.AsyncOperations;
 
 /*
- * Surface-mask resource half of TerrainHeightmapStreamer.
+ * Surface-mask resource ownership for TerrainHeightmapStreamer.
  *
- * MRH05 moves Surface cache geometry, readiness and coverage ownership into
- * TerrainHeightmapStreamer.SurfaceResidency.cs while this partial continues
- * to own Surface Addressable handles and GPU texture resources.
+ * Surface cache geometry and transition state live in the SurfaceResidency
+ * partial. This partial owns Surface Addressable handles and GPU resources.
  */
 public partial class TerrainHeightmapStreamer
 {
@@ -239,13 +238,27 @@ public partial class TerrainHeightmapStreamer
     {
         DestroySurfaceMaskCacheBuffers();
 
+        if (
+            surfaceMaskManifest == null
+            || surfaceCacheWidth <= 0
+            || surfaceCacheHeight <= 0
+        )
+        {
+            Debug.LogError(
+                "TerrainHeightmapStreamer cannot create the Surface cache because its cache dimensions are invalid.",
+                this
+            );
+
+            return false;
+        }
+
         int samplesPerSide =
             surfaceMaskManifest
                 .samplesPerSide;
 
         int sliceCount =
-            cacheWidth *
-            cacheHeight;
+            surfaceCacheWidth *
+            surfaceCacheHeight;
 
         try
         {
@@ -268,7 +281,7 @@ public partial class TerrainHeightmapStreamer
         )
         {
             Debug.LogError(
-                "TerrainHeightmapStreamer could not create the double-buffered GPU surface-mask cache.\n\n" +
+                "TerrainHeightmapStreamer could not create the independently sized double-buffered GPU Surface cache.\n\n" +
                 exception.Message,
                 this
             );
@@ -606,13 +619,13 @@ public partial class TerrainHeightmapStreamer
 
         for (
             int localZ = 0;
-            localZ < cacheHeight;
+            localZ < surfaceCacheHeight;
             localZ++
         )
         {
             for (
                 int localX = 0;
-                localX < cacheWidth;
+                localX < surfaceCacheWidth;
                 localX++
             )
             {
@@ -640,8 +653,8 @@ public partial class TerrainHeightmapStreamer
                     !TryResolveCacheSlice(
                         coordinate,
                         origin,
-                        cacheWidth,
-                        cacheHeight,
+                        surfaceCacheWidth,
+                        surfaceCacheHeight,
                         out int slice
                     )
                 )

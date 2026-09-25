@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.ResourceManagement.AsyncOperations;
 
 public enum TerrainHeightLodTransitionState
 {
@@ -8,12 +7,6 @@ public enum TerrainHeightLodTransitionState
     WaitingForRequiredPages,
     PopulatingStaging,
     CommitPending
-}
-
-public enum TerrainHeightResidentPageState
-{
-    Loaded,
-    Failed
 }
 
 public readonly struct TerrainHeightPageKey :
@@ -55,21 +48,12 @@ public readonly struct TerrainHeightPageKey :
 }
 
 /*
- * Retained temporarily for compatibility with legacy helper code.
- * Production source loading no longer populates ResidentPages; Addressable
- * source ownership lives in TerrainHeightPageLoadScheduler.
+ * Durable runtime state for one clipmap Height LOD.
+ *
+ * Addressable source textures are transient transport resources owned by
+ * TerrainHeightPageLoadScheduler. This state owns only cache geometry,
+ * transition metadata, GPU cache references, and page-validity sets.
  */
-internal sealed class TerrainHeightResidentPage
-{
-    public Vector2Int Coordinate;
-    public int SampleStride;
-    public string Address;
-    public AsyncOperationHandle<Texture2D> Handle;
-    public Texture2D Texture;
-    public int LastRequestGeneration;
-    public TerrainHeightResidentPageState State;
-}
-
 internal sealed class TerrainHeightLodRuntimeState
 {
     public int Level { get; }
@@ -98,9 +82,6 @@ internal sealed class TerrainHeightLodRuntimeState
 
     public int RequestGeneration;
     public int StagingGeneration;
-
-    public readonly Dictionary<Vector2Int, TerrainHeightResidentPage> ResidentPages =
-        new Dictionary<Vector2Int, TerrainHeightResidentPage>();
 
     public readonly HashSet<Vector2Int> ActiveValidPages =
         new HashSet<Vector2Int>();
@@ -155,17 +136,5 @@ internal sealed class TerrainHeightLodRuntimeState
                 )
             );
         }
-    }
-
-    public bool HasLoadedPage(Vector2Int coordinate)
-    {
-        return
-            ResidentPages.TryGetValue(
-                coordinate,
-                out TerrainHeightResidentPage page
-            )
-            && page != null
-            && page.State == TerrainHeightResidentPageState.Loaded
-            && page.Texture != null;
     }
 }

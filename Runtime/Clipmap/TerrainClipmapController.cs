@@ -396,8 +396,8 @@ public class TerrainClipmapController :
             hasBlockedCoverageRequest =
                 true;
 
-            // MRH06 stores the blocked proposed target position so the
-            // complete independently-snapped layout can be recalculated.
+            // Store the blocked proposed target position so the complete
+            // independently snapped layout can be recalculated.
             blockedCoverageCenter =
                 targetWorldPosition;
 
@@ -454,9 +454,9 @@ public class TerrainClipmapController :
         // =================================================
 
         /*
-         * MRH06 keeps the old renderer/cache pair visible while a new
+         * Keep the old renderer/cache pair visible while a new
          * multiresolution layout is prepared. If the streaming target moved
-         * again before this Update, publish the already-prepared pair first,
+         * again before this Update, publish the already prepared pair first,
          * then continue toward the newest request.
          */
         if (

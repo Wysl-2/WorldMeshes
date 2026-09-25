@@ -1,11 +1,14 @@
 using UnityEngine;
 
+/*
+ * Low-level Height shader readiness reset.
+ *
+ * Production Height binding is semantic and per-renderer through
+ * TerrainHeightMultiresolutionBindingUtility. This utility only disables
+ * existing Height bindings while preserving unrelated property-block state.
+ */
 public static class TerrainHeightCacheBindingUtility
 {
-    // =====================================================
-    // SHADER PROPERTY IDS
-    // =====================================================
-
     private static readonly int HeightCachePropertyId =
         Shader.PropertyToID(
             "_HeightCache"
@@ -35,265 +38,6 @@ public static class TerrainHeightCacheBindingUtility
         Shader.PropertyToID(
             "_HeightCacheReady"
         );
-
-    // =====================================================
-    // BIND
-    // =====================================================
-
-    public static bool TryBind(
-        Transform clipmapRoot,
-        Texture heightCache,
-        Vector2Int cacheOriginTile,
-        Vector2Int cacheSize,
-        int heightTileSamplesPerSide,
-        float heightSampleSpacing,
-        Vector2 worldSizeXZ,
-        out int boundRendererCount,
-        out string errorMessage
-    )
-    {
-        boundRendererCount =
-            0;
-
-        errorMessage =
-            "";
-
-        if (clipmapRoot == null)
-        {
-            errorMessage =
-                "Clipmap root is null.";
-
-            return false;
-        }
-
-        if (heightCache == null)
-        {
-            errorMessage =
-                "Height cache texture is null.";
-
-            return false;
-        }
-
-        if (
-            cacheSize.x <= 0
-            ||
-            cacheSize.y <= 0
-        )
-        {
-            errorMessage =
-                "Height cache dimensions must be greater than zero.";
-
-            return false;
-        }
-
-        if (heightTileSamplesPerSide <= 1)
-        {
-            errorMessage =
-                "Height tile sample count is invalid.";
-
-            return false;
-        }
-
-        if (
-            !IsFinite(
-                heightSampleSpacing
-            )
-            ||
-            heightSampleSpacing <= 0f
-        )
-        {
-            errorMessage =
-                "Height sample spacing is invalid.";
-
-            return false;
-        }
-
-        if (
-            !IsFinite(
-                worldSizeXZ.x
-            )
-            ||
-            !IsFinite(
-                worldSizeXZ.y
-            )
-            ||
-            worldSizeXZ.x <= 0f
-            ||
-            worldSizeXZ.y <= 0f
-        )
-        {
-            errorMessage =
-                "World size is invalid.";
-
-            return false;
-        }
-
-        /*
-         * World bounds are logically independent from the height
-         * cache, but cache binding still refreshes them as a
-         * defensive guarantee for old scenes or initialization
-         * order differences.
-         *
-         * TerrainHeightCacheBindingUtility.Disable(...) does NOT
-         * disable world bounds.
-         */
-        if (
-            !TerrainClipmapWorldBoundsBindingUtility
-                .TryBind(
-                    clipmapRoot,
-                    worldSizeXZ,
-                    out _,
-                    out string worldBoundsError
-                )
-        )
-        {
-            errorMessage =
-                "The clipmap world bounds could not be bound.\n\n" +
-                worldBoundsError;
-
-            return false;
-        }
-
-        MeshRenderer[] renderers =
-            clipmapRoot
-                .GetComponentsInChildren<MeshRenderer>(
-                    true
-                );
-
-        if (
-            renderers == null
-            ||
-            renderers.Length == 0
-        )
-        {
-            errorMessage =
-                "No child MeshRenderer components were found " +
-                "under the clipmap root.";
-
-            return false;
-        }
-
-        MaterialPropertyBlock propertyBlock =
-            new MaterialPropertyBlock();
-
-        /*
-         * Surface settings are runtime configuration, not material-owned
-         * suitability state. The editor creates the default Resources asset
-         * automatically; a missing asset is tolerated here so height-cache
-         * binding itself remains robust during first import/domain reload.
-         */
-        TerrainSurfaceSettings surfaceSettings =
-            TerrainSurfaceSettings.LoadDefault();
-
-        Vector4 cacheOrigin =
-            new Vector4(
-                cacheOriginTile.x,
-                cacheOriginTile.y,
-                0f,
-                0f
-            );
-
-        Vector4 cacheDimensions =
-            new Vector4(
-                cacheSize.x,
-                cacheSize.y,
-                0f,
-                0f
-            );
-
-        foreach (
-            MeshRenderer meshRenderer
-            in renderers
-        )
-        {
-            if (
-                !IsClipmapTerrainRenderer(
-                    meshRenderer
-                )
-            )
-            {
-                continue;
-            }
-
-            /*
-             * Preserve unrelated renderer overrides.
-             *
-             * TerrainClipmapLayoutApplier uses the same
-             * MaterialPropertyBlock mechanism for
-             * _ClipmapTransitionOffset, and the world-bounds
-             * controller owns _WorldSizeXZ/_WorldBoundsReady.
-             */
-            meshRenderer.GetPropertyBlock(
-                propertyBlock
-            );
-
-            if (surfaceSettings != null)
-            {
-                TerrainSurfaceSettingsBindingUtility
-                    .TryApplyToPropertyBlock(
-                        propertyBlock,
-                        surfaceSettings,
-                        out _
-                    );
-            }
-
-            propertyBlock.SetTexture(
-                HeightCachePropertyId,
-                heightCache
-            );
-
-            propertyBlock.SetVector(
-                HeightCacheOriginTilePropertyId,
-                cacheOrigin
-            );
-
-            propertyBlock.SetVector(
-                HeightCacheSizePropertyId,
-                cacheDimensions
-            );
-
-            propertyBlock.SetFloat(
-                HeightTileSamplesPerSidePropertyId,
-                heightTileSamplesPerSide
-            );
-
-            propertyBlock.SetFloat(
-                HeightSampleSpacingPropertyId,
-                heightSampleSpacing
-            );
-
-            /*
-             * Set readiness last. At this point the texture and
-             * all height-cache layout metadata are valid.
-             */
-            propertyBlock.SetFloat(
-                HeightCacheReadyPropertyId,
-                1f
-            );
-
-            meshRenderer.SetPropertyBlock(
-                propertyBlock
-            );
-
-            boundRendererCount++;
-        }
-
-        if (boundRendererCount <= 0)
-        {
-            errorMessage =
-                "No clipmap terrain renderer was found using a " +
-                "material with the expected height-cache shader " +
-                "properties.";
-
-            return false;
-        }
-
-        return true;
-    }
-
-    // =====================================================
-    // DISABLE
-    // =====================================================
 
     public static int Disable(
         Transform clipmapRoot
@@ -326,11 +70,7 @@ public static class TerrainHeightCacheBindingUtility
             in renderers
         )
         {
-            if (
-                !IsClipmapTerrainRenderer(
-                    meshRenderer
-                )
-            )
+            if (!IsClipmapTerrainRenderer(meshRenderer))
             {
                 continue;
             }
@@ -339,14 +79,6 @@ public static class TerrainHeightCacheBindingUtility
                 propertyBlock
             );
 
-            /*
-             * There is no need to clear the texture reference.
-             * Setting readiness to zero prevents the shader from
-             * sampling the cache, while preserving every unrelated
-             * property-block override.
-             *
-             * Critically, logical world bounds remain enabled.
-             */
             propertyBlock.SetFloat(
                 HeightCacheReadyPropertyId,
                 0f
@@ -362,18 +94,13 @@ public static class TerrainHeightCacheBindingUtility
         return disabledRendererCount;
     }
 
-    // =====================================================
-    // MATERIAL COMPATIBILITY
-    // =====================================================
-
     private static bool IsClipmapTerrainRenderer(
         MeshRenderer meshRenderer
     )
     {
         if (
             meshRenderer == null
-            ||
-            meshRenderer.sharedMaterial == null
+            || meshRenderer.sharedMaterial == null
         )
         {
             return false;
@@ -386,39 +113,20 @@ public static class TerrainHeightCacheBindingUtility
             material.HasProperty(
                 HeightCachePropertyId
             )
-            &&
-            material.HasProperty(
+            && material.HasProperty(
                 HeightCacheOriginTilePropertyId
             )
-            &&
-            material.HasProperty(
+            && material.HasProperty(
                 HeightCacheSizePropertyId
             )
-            &&
-            material.HasProperty(
+            && material.HasProperty(
                 HeightTileSamplesPerSidePropertyId
             )
-            &&
-            material.HasProperty(
+            && material.HasProperty(
                 HeightSampleSpacingPropertyId
             )
-            &&
-            material.HasProperty(
+            && material.HasProperty(
                 HeightCacheReadyPropertyId
-            );
-    }
-
-    private static bool IsFinite(
-        float value
-    )
-    {
-        return
-            !float.IsNaN(
-                value
-            )
-            &&
-            !float.IsInfinity(
-                value
             );
     }
 }

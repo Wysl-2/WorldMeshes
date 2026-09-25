@@ -2,11 +2,11 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /*
- * MRH07 read-only multiresolution runtime diagnostics and validator access.
+ * Read-only multiresolution runtime diagnostics and validator access.
  *
  * No mutable runtime collections are exposed. Validation obtains short-lived
- * snapshots and page references while the existing cache-inspection lock is
- * held.
+ * snapshots and cache-slice metadata while the existing cache-inspection lock
+ * is held.
  */
 public partial class TerrainHeightmapStreamer
 {
@@ -207,16 +207,14 @@ public partial class TerrainHeightmapStreamer
         return true;
     }
 
-    internal bool TryGetHeightLodPageForInspection(
+    internal bool TryGetHeightLodCacheSliceForInspection(
         int level,
         Vector2Int coordinate,
-        out Texture2D sourceTexture,
         out int cacheSlice,
         out bool activeValid,
         out bool required
     )
     {
-        sourceTexture = null;
         cacheSlice = -1;
         activeValid = false;
         required = false;
@@ -267,12 +265,6 @@ public partial class TerrainHeightmapStreamer
             local.x +
             local.y * state.CacheWidth;
 
-        /*
-         * Production streaming no longer retains Addressable source textures.
-         * Validation receives the cache slice here and acquires its own
-         * short-lived source handle only when an explicit validation runs.
-         */
-        sourceTexture = null;
         return activeValid;
     }
 

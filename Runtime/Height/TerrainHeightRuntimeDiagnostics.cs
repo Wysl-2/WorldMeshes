@@ -12,7 +12,6 @@ public readonly struct TerrainHeightLodDiagnosticsSnapshot
     public TerrainHeightPageRect ActiveRequiredPages { get; }
     public TerrainHeightPageRect RequestedRequiredPages { get; }
     public TerrainHeightPageRect RequestedPrefetchPages { get; }
-    public int ResidentPageCount { get; }
     public int ActiveValidPageCount { get; }
     public int StagingValidPageCount { get; }
     public int QueuedRequiredPageCount { get; }
@@ -42,7 +41,6 @@ public readonly struct TerrainHeightLodDiagnosticsSnapshot
         ActiveRequiredPages = state.ActiveRequiredPages;
         RequestedRequiredPages = state.RequestedRequiredPages;
         RequestedPrefetchPages = state.RequestedPrefetchPages;
-        ResidentPageCount = state.ResidentPages.Count;
         ActiveValidPageCount = state.ActiveValidPages.Count;
         StagingValidPageCount = state.StagingValidPages.Count;
         QueuedRequiredPageCount = queuedRequired;

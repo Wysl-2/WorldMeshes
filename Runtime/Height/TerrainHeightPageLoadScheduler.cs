@@ -124,30 +124,6 @@ internal sealed class TerrainHeightPageLoadScheduler
         TerrainHeightLodRuntimeState owner,
         Vector2Int coordinate,
         string address,
-        bool required,
-        int generation,
-        int distancePriority
-    )
-    {
-        Enqueue(
-            owner,
-            coordinate,
-            address,
-            null,
-            -1,
-            required,
-            required
-                ? TerrainHeightPagePriorityClass.VisibleRequired
-                : TerrainHeightPagePriorityClass.GuardPrefetch,
-            generation,
-            distancePriority
-        );
-    }
-
-    public void Enqueue(
-        TerrainHeightLodRuntimeState owner,
-        Vector2Int coordinate,
-        string address,
         Texture2DArray destinationCache,
         int destinationSlice,
         bool required,
@@ -555,11 +531,6 @@ internal sealed class TerrainHeightPageLoadScheduler
     public void ClearRequiredFailure(int generation)
     {
         failedRequiredGenerations.Remove(generation);
-    }
-
-    public void DiscardQueuedOlderThan(int generation)
-    {
-        DiscardQueuedOptionalOlderThan(generation);
     }
 
     public void RecordRepeatedPlanSubmissionSkip()
