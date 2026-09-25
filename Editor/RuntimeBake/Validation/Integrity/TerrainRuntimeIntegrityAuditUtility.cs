@@ -4,12 +4,16 @@ using UnityEngine;
 
 public sealed class TerrainRuntimeGeneratedDataIntegrityResult
 {
+    private const int MaxIssueSamples = 128;
+
     public string DatasetName { get; internal set; }
     public bool ManifestPresent { get; internal set; }
     public bool ManifestComplete { get; internal set; }
     public bool ManifestCompatible { get; internal set; }
     public int ExpectedAssetCount { get; internal set; }
     public int PresentAssetCount { get; internal set; }
+    public int MissingAssetCount { get; internal set; }
+    public int WrongAssetTypeCount { get; internal set; }
     public List<Vector2Int> MissingCoordinates { get; internal set; } = new List<Vector2Int>();
     public List<string> MissingAssetPaths { get; internal set; } = new List<string>();
     public List<string> WrongAssetTypes { get; internal set; } = new List<string>();
@@ -21,10 +25,66 @@ public sealed class TerrainRuntimeGeneratedDataIntegrityResult
         && ManifestCompatible
         && ExpectedAssetCount > 0
         && PresentAssetCount == ExpectedAssetCount
-        && MissingCoordinates.Count == 0
-        && MissingAssetPaths.Count == 0
-        && WrongAssetTypes.Count == 0
+        && MissingAssetCount == 0
+        && WrongAssetTypeCount == 0
         && Errors.Count == 0;
+
+    /*
+     * Aggregate counters are authoritative. Detailed issue collections are
+     * bounded diagnostic samples so audit result memory does not scale with
+     * the total number of invalid generated outputs.
+     */
+    internal void RecordMissingAsset(
+        Vector2Int coordinate,
+        string assetPath
+    )
+    {
+        MissingAssetCount++;
+        RecordCoordinateSample(coordinate);
+
+        if (MissingAssetPaths.Count < MaxIssueSamples)
+        {
+            MissingAssetPaths.Add(
+                assetPath ?? ""
+            );
+        }
+    }
+
+    internal void RecordWrongAssetType(
+        Vector2Int coordinate,
+        string assetPath,
+        System.Type actualType
+    )
+    {
+        WrongAssetTypeCount++;
+        RecordCoordinateSample(coordinate);
+
+        if (WrongAssetTypes.Count < MaxIssueSamples)
+        {
+            WrongAssetTypes.Add(
+                (assetPath ?? "") +
+                " (" +
+                (
+                    actualType != null
+                        ? actualType.Name
+                        : "Unknown"
+                ) +
+                ")"
+            );
+        }
+    }
+
+    private void RecordCoordinateSample(
+        Vector2Int coordinate
+    )
+    {
+        if (MissingCoordinates.Count < MaxIssueSamples)
+        {
+            MissingCoordinates.Add(
+                coordinate
+            );
+        }
+    }
 }
 
 public sealed class TerrainRuntimeIntegrityAuditResult
@@ -253,28 +313,31 @@ public static class TerrainRuntimeIntegrityAuditUtility
                     TerrainRuntimeHeightAssetUtility
                         .GetHeightTilePath(x, z);
 
-                Texture2D texture =
-                    AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+                System.Type assetType =
+                    AssetDatabase.GetMainAssetTypeAtPath(path);
 
-                if (texture != null)
+                if (assetType == typeof(Texture2D))
                 {
                     result.PresentAssetCount++;
                     continue;
                 }
 
-                result.MissingCoordinates.Add(new Vector2Int(x, z));
+                Vector2Int coordinate =
+                    new Vector2Int(x, z);
 
-                Object main =
-                    AssetDatabase.LoadMainAssetAtPath(path);
-
-                if (main == null)
+                if (assetType == null)
                 {
-                    result.MissingAssetPaths.Add(path);
+                    result.RecordMissingAsset(
+                        coordinate,
+                        path
+                    );
                 }
                 else
                 {
-                    result.WrongAssetTypes.Add(
-                        path + " (" + main.GetType().Name + ")"
+                    result.RecordWrongAssetType(
+                        coordinate,
+                        path,
+                        assetType
                     );
                 }
             }
@@ -348,28 +411,31 @@ public static class TerrainRuntimeIntegrityAuditUtility
                     TerrainRuntimeSurfaceMaskAssetUtility
                         .GetSurfaceTilePath(x, z);
 
-                Texture2D texture =
-                    AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+                System.Type assetType =
+                    AssetDatabase.GetMainAssetTypeAtPath(path);
 
-                if (texture != null)
+                if (assetType == typeof(Texture2D))
                 {
                     result.PresentAssetCount++;
                     continue;
                 }
 
-                result.MissingCoordinates.Add(new Vector2Int(x, z));
+                Vector2Int coordinate =
+                    new Vector2Int(x, z);
 
-                Object main =
-                    AssetDatabase.LoadMainAssetAtPath(path);
-
-                if (main == null)
+                if (assetType == null)
                 {
-                    result.MissingAssetPaths.Add(path);
+                    result.RecordMissingAsset(
+                        coordinate,
+                        path
+                    );
                 }
                 else
                 {
-                    result.WrongAssetTypes.Add(
-                        path + " (" + main.GetType().Name + ")"
+                    result.RecordWrongAssetType(
+                        coordinate,
+                        path,
+                        assetType
                     );
                 }
             }
@@ -434,28 +500,31 @@ public static class TerrainRuntimeIntegrityAuditUtility
                     TerrainCollisionMeshGenerator
                         .GetCollisionMeshPath(x, z);
 
-                Mesh mesh =
-                    AssetDatabase.LoadAssetAtPath<Mesh>(path);
+                System.Type assetType =
+                    AssetDatabase.GetMainAssetTypeAtPath(path);
 
-                if (mesh != null)
+                if (assetType == typeof(Mesh))
                 {
                     result.PresentAssetCount++;
                     continue;
                 }
 
-                result.MissingCoordinates.Add(new Vector2Int(x, z));
+                Vector2Int coordinate =
+                    new Vector2Int(x, z);
 
-                Object main =
-                    AssetDatabase.LoadMainAssetAtPath(path);
-
-                if (main == null)
+                if (assetType == null)
                 {
-                    result.MissingAssetPaths.Add(path);
+                    result.RecordMissingAsset(
+                        coordinate,
+                        path
+                    );
                 }
                 else
                 {
-                    result.WrongAssetTypes.Add(
-                        path + " (" + main.GetType().Name + ")"
+                    result.RecordWrongAssetType(
+                        coordinate,
+                        path,
+                        assetType
                     );
                 }
             }

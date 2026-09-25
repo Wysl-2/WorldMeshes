@@ -681,10 +681,11 @@ public partial class WorldMeshesEditorWindow :
     }
 
     /*
-     * Routine Diagnostics display code shares one short-lived generation-state
-     * evaluation, then retains only the immutable status results. Repaint and
-     * Layout passes therefore do not recalculate authoring signatures until
-     * the existing Diagnostics invalidation path observes a real input change.
+     * Routine Diagnostics display code uses operational generation state only,
+     * then retains the immutable status results across IMGUI passes. Physical
+     * generated-output integrity verification is explicit validation work and
+     * must never be triggered by Layout/Repaint, including continuous Play Mode
+     * repaint used by live runtime diagnostics.
      */
     private TerrainGenerationStateEvaluationResult
         GetRuntimeBakeDiagnosticsGenerationState()
@@ -695,7 +696,7 @@ public partial class WorldMeshesEditorWindow :
         {
             runtimeBakeDiagnosticsGenerationState =
                 TerrainGenerationStateUtility
-                    .EvaluateGenerationState(
+                    .EvaluateOperationalGenerationState(
                         worldSettings,
                         terrainAuthoringData
                     );
