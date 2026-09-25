@@ -14,9 +14,11 @@ public sealed class TerrainRuntimeGeneratedDataIntegrityResult
     public int PresentAssetCount { get; internal set; }
     public int MissingAssetCount { get; internal set; }
     public int WrongAssetTypeCount { get; internal set; }
+    public int UnexpectedAssetCount { get; internal set; }
     public List<Vector2Int> MissingCoordinates { get; internal set; } = new List<Vector2Int>();
     public List<string> MissingAssetPaths { get; internal set; } = new List<string>();
     public List<string> WrongAssetTypes { get; internal set; } = new List<string>();
+    public List<string> UnexpectedAssetPaths { get; internal set; } = new List<string>();
     public List<string> Errors { get; internal set; } = new List<string>();
 
     public bool IsValid =>
@@ -27,6 +29,7 @@ public sealed class TerrainRuntimeGeneratedDataIntegrityResult
         && PresentAssetCount == ExpectedAssetCount
         && MissingAssetCount == 0
         && WrongAssetTypeCount == 0
+        && UnexpectedAssetCount == 0
         && Errors.Count == 0;
 
     /*
@@ -74,6 +77,20 @@ public sealed class TerrainRuntimeGeneratedDataIntegrityResult
         }
     }
 
+    internal void RecordUnexpectedAsset(
+        Vector2Int coordinate,
+        string assetPath
+    )
+    {
+        UnexpectedAssetCount++;
+        RecordCoordinateSample(coordinate);
+
+        if (UnexpectedAssetPaths.Count < MaxIssueSamples)
+        {
+            UnexpectedAssetPaths.Add(assetPath ?? "");
+        }
+    }
+
     private void RecordCoordinateSample(
         Vector2Int coordinate
     )
@@ -90,12 +107,14 @@ public sealed class TerrainRuntimeGeneratedDataIntegrityResult
 public sealed class TerrainRuntimeIntegrityAuditResult
 {
     public TerrainRuntimeGeneratedDataIntegrityResult Height { get; internal set; }
+    public TerrainRuntimeGeneratedDataIntegrityResult HeightStreaming { get; internal set; }
     public TerrainRuntimeGeneratedDataIntegrityResult Surface { get; internal set; }
     public TerrainRuntimeGeneratedDataIntegrityResult Collision { get; internal set; }
     public TerrainRuntimeAddressablesValidationResult Addressables { get; internal set; }
 
     public bool GeneratedDataValid =>
         Height != null && Height.IsValid
+        && HeightStreaming != null && HeightStreaming.IsValid
         && Surface != null && Surface.IsValid
         && Collision != null && Collision.IsValid;
 
@@ -144,6 +163,7 @@ public static class TerrainRuntimeIntegrityAuditUtility
                     new TerrainRuntimeIntegrityAuditResult
                     {
                         Height = ValidateHeight(worldSettings),
+                        HeightStreaming = TerrainRuntimeHeightStreamingIntegrityUtility.Validate(worldSettings),
                         Surface = ValidateSurface(worldSettings),
                         Collision = ValidateCollision(worldSettings)
                     };
@@ -553,6 +573,11 @@ public static class TerrainRuntimeIntegrityAuditUtility
             return "<null>";
         }
 
+        TerrainHeightmapManifest heightManifest =
+            AssetDatabase.LoadAssetAtPath<TerrainHeightmapManifest>(
+                TerrainRuntimeHeightAssetUtility.HeightmapManifestPath
+            );
+
         return
             worldSettings.GetInstanceID() + "|" +
             worldSettings.gridWidth + "|" +
@@ -560,9 +585,16 @@ public static class TerrainRuntimeIntegrityAuditUtility
             worldSettings.chunkSize + "|" +
             worldSettings.heightfieldResolutionPerChunk + "|" +
             worldSettings.heightTileChunkSpan + "|" +
+            worldSettings.heightStreamingMaximumStride + "|" +
             worldSettings.collisionResolution + "|" +
             worldSettings.heightmapGenerationRevision + "|" +
             worldSettings.lastGeneratedHeightSignature + "|" +
+            (heightManifest != null ? heightManifest.streamingPyramidCompilerVersion : -1) + "|" +
+            (heightManifest != null ? heightManifest.streamingSourceHeightmapGenerationRevision : -1) + "|" +
+            (heightManifest != null ? heightManifest.streamingGenerationRevision : -1) + "|" +
+            (heightManifest != null ? heightManifest.streamingGenerationSignature : "") + "|" +
+            (heightManifest != null ? heightManifest.StreamingLevelCount : -1) + "|" +
+            (heightManifest != null && heightManifest.streamingPyramidIsComplete) + "|" +
             worldSettings.surfaceMaskGenerationRevision + "|" +
             worldSettings.lastGeneratedSurfaceSignature + "|" +
             worldSettings.collisionMeshGenerationRevision + "|" +

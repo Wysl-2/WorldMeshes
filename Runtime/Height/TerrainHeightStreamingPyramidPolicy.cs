@@ -452,11 +452,38 @@ public static class TerrainHeightStreamingPyramidPolicy
             return false;
         }
 
+        return TryGetRequiredStrideForClipmapLevel(
+            worldSettings.clipmapBaseSampleStep,
+            level,
+            out sampleStride,
+            out errorMessage
+        );
+    }
+
+    public static bool TryGetRequiredStrideForClipmapLevel(
+        int baseSampleStep,
+        int level,
+        out int sampleStride,
+        out string errorMessage
+    )
+    {
+        sampleStride = 0;
+        errorMessage = "";
+
+        if (
+            level < 0
+            || level >= TerrainClipmapTopologyUtility.MaximumLevelCount
+        )
+        {
+            errorMessage =
+                "The requested clipmap level is outside the supported range.";
+            return false;
+        }
+
         long stride =
             Mathf.Max(
                 1,
-                worldSettings
-                    .clipmapBaseSampleStep
+                baseSampleStep
             );
 
         for (

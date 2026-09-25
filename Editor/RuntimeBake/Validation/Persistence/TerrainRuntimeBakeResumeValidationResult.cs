@@ -7,11 +7,13 @@ public enum TerrainRuntimeBakeResumeValidationScenario
 {
     None,
     HeightCancellation,
+    HeightStreamingCancellation,
     SurfaceCancellation,
     CollisionCancellation,
     CancelDuringAddressables,
     CancelBeforeSceneSync,
     FailureAfterHeight,
+    FailureAfterHeightStreaming,
     FailureAfterSurface,
     FailureAfterCollision,
     AddressablesFailureResume,
@@ -29,6 +31,7 @@ public enum TerrainRuntimeBakeResumeValidationOutcome
 public sealed class TerrainRuntimeBakeResumeValidationResult
 {
     private readonly ReadOnlyCollection<Vector2Int> repeatedHeightCoordinates;
+    private readonly ReadOnlyCollection<Vector2Int> repeatedHeightStreamingCoordinates;
     private readonly ReadOnlyCollection<Vector2Int> repeatedSurfaceCoordinates;
     private readonly ReadOnlyCollection<Vector2Int> repeatedCollisionCoordinates;
 
@@ -47,6 +50,7 @@ public sealed class TerrainRuntimeBakeResumeValidationResult
     public bool FinalPlanCurrent { get; private set; }
 
     public IReadOnlyList<Vector2Int> RepeatedHeightCoordinates => repeatedHeightCoordinates;
+    public IReadOnlyList<Vector2Int> RepeatedHeightStreamingCoordinates => repeatedHeightStreamingCoordinates;
     public IReadOnlyList<Vector2Int> RepeatedSurfaceCoordinates => repeatedSurfaceCoordinates;
     public IReadOnlyList<Vector2Int> RepeatedCollisionCoordinates => repeatedCollisionCoordinates;
 
@@ -68,6 +72,7 @@ public sealed class TerrainRuntimeBakeResumeValidationResult
         bool upstreamStageRepeated,
         bool finalPlanCurrent,
         IEnumerable<Vector2Int> repeatedHeightCoordinates,
+        IEnumerable<Vector2Int> repeatedHeightStreamingCoordinates,
         IEnumerable<Vector2Int> repeatedSurfaceCoordinates,
         IEnumerable<Vector2Int> repeatedCollisionCoordinates,
         string errorMessage,
@@ -87,6 +92,7 @@ public sealed class TerrainRuntimeBakeResumeValidationResult
         FinalPlanCurrent = finalPlanCurrent;
 
         this.repeatedHeightCoordinates = Copy(repeatedHeightCoordinates).AsReadOnly();
+        this.repeatedHeightStreamingCoordinates = Copy(repeatedHeightStreamingCoordinates).AsReadOnly();
         this.repeatedSurfaceCoordinates = Copy(repeatedSurfaceCoordinates).AsReadOnly();
         this.repeatedCollisionCoordinates = Copy(repeatedCollisionCoordinates).AsReadOnly();
 
@@ -125,6 +131,7 @@ public sealed class TerrainRuntimeBakeResumeValidationResult
             builder.AppendLine("Post-Interruption Persistent State:");
             builder.AppendLine("  Revision: " + PostInterruptionState.StateRevision);
             builder.AppendLine("  Height Pending: " + PostInterruptionState.PendingHeightTileCount);
+            builder.AppendLine("  Height Streaming Pending: " + PostInterruptionState.PendingHeightStreamingTileCount);
             builder.AppendLine("  Surface Pending: " + PostInterruptionState.PendingSurfaceTileCount);
             builder.AppendLine("  Collision Pending: " + PostInterruptionState.PendingCollisionChunkCount);
             builder.AppendLine("  Addressables Config Dirty: " + PostInterruptionState.AddressablesConfigurationDirty);
@@ -137,6 +144,7 @@ public sealed class TerrainRuntimeBakeResumeValidationResult
         builder.AppendLine("  Started At Expected Work: " + ResumeStartedAtExpectedWork);
         builder.AppendLine("  Upstream Stage Repeated: " + UpstreamStageRepeated);
         builder.AppendLine("  Repeated Height Coordinates: " + repeatedHeightCoordinates.Count);
+        builder.AppendLine("  Repeated Height Streaming Coordinates: " + repeatedHeightStreamingCoordinates.Count);
         builder.AppendLine("  Repeated Surface Coordinates: " + repeatedSurfaceCoordinates.Count);
         builder.AppendLine("  Repeated Collision Coordinates: " + repeatedCollisionCoordinates.Count);
 
@@ -144,6 +152,7 @@ public sealed class TerrainRuntimeBakeResumeValidationResult
         {
             builder.AppendLine("  Pipeline Outcome: " + ResumedPipelineResult.Outcome);
             builder.AppendLine("  Height Executed: " + ResumedPipelineResult.HeightStageExecuted);
+            builder.AppendLine("  Height Streaming Executed: " + ResumedPipelineResult.HeightStreamingStageExecuted);
             builder.AppendLine("  Surface Executed: " + ResumedPipelineResult.SurfaceStageExecuted);
             builder.AppendLine("  Collision Executed: " + ResumedPipelineResult.CollisionStageExecuted);
             builder.AppendLine("  Addressables Executed: " + ResumedPipelineResult.AddressablesStageExecuted);

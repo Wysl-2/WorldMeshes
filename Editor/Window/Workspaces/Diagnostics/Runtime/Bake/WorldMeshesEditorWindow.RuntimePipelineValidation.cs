@@ -194,6 +194,7 @@ public partial class WorldMeshesEditorWindow :
         EditorGUILayout.LabelField("Final Plan Current", result.FinalPlanCurrent ? "Yes" : "No");
 
         DrawRuntimeStageValidationRow("Heightmaps", result.HeightValidation);
+        DrawRuntimeStageValidationRow("Height Streaming", result.HeightStreamingValidation);
         DrawRuntimeStageValidationRow("Surface Masks", result.SurfaceValidation);
         DrawRuntimeStageValidationRow("Collision", result.CollisionValidation);
 
@@ -271,6 +272,7 @@ public partial class WorldMeshesEditorWindow :
         GUILayout.Label("Last Pipeline Stage Timings", EditorStyles.boldLabel);
 
         EditorGUILayout.LabelField("Heightmaps", result.HeightDurationSeconds.ToString("0.00") + " s");
+        EditorGUILayout.LabelField("Height Streaming", result.HeightStreamingDurationSeconds.ToString("0.00") + " s");
         EditorGUILayout.LabelField("Surface Masks", result.SurfaceDurationSeconds.ToString("0.00") + " s");
         EditorGUILayout.LabelField("Collision", result.CollisionDurationSeconds.ToString("0.00") + " s");
         EditorGUILayout.LabelField("Addressables", result.AddressablesDurationSeconds.ToString("0.00") + " s");
@@ -300,6 +302,12 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.LabelField(
+            "Height Streaming",
+            runtimeFingerprintBaseline.HeightStreamingAssetCount +
+            " / " + runtimeFingerprintBaseline.ExpectedHeightStreamingAssetCount
+        );
+
+        EditorGUILayout.LabelField(
             "Surface Masks",
             runtimeFingerprintBaseline.SurfaceAssetCount +
             " / " + runtimeFingerprintBaseline.ExpectedSurfaceAssetCount
@@ -314,6 +322,11 @@ public partial class WorldMeshesEditorWindow :
         DrawRuntimeFingerprintHash(
             "Height Dataset Hash",
             runtimeFingerprintBaseline.HeightDatasetFingerprint
+        );
+
+        DrawRuntimeFingerprintHash(
+            "Height Streaming Dataset Hash",
+            runtimeFingerprintBaseline.HeightStreamingDatasetFingerprint
         );
 
         DrawRuntimeFingerprintHash(

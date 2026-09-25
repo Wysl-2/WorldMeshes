@@ -32,9 +32,11 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         GUILayout.Label("Current Persistent Bake State", EditorStyles.boldLabel);
         EditorGUILayout.LabelField("State Revision", snapshot.StateRevision.ToString());
         EditorGUILayout.LabelField("Pending Height Tiles", snapshot.PendingHeightTileCount.ToString());
+        EditorGUILayout.LabelField("Pending Height Streaming Tiles", snapshot.PendingHeightStreamingTileCount.ToString());
         EditorGUILayout.LabelField("Pending Surface Tiles", snapshot.PendingSurfaceTileCount.ToString());
         EditorGUILayout.LabelField("Pending Collision Chunks", snapshot.PendingCollisionChunkCount.ToString());
         EditorGUILayout.LabelField("Full Height", snapshot.FullHeightRebuildRequired ? "Required" : "No");
+        EditorGUILayout.LabelField("Full Height Streaming", snapshot.FullHeightStreamingRebuildRequired ? "Required" : "No");
         EditorGUILayout.LabelField("Full Surface", snapshot.FullSurfaceRebuildRequired ? "Required" : "No");
         EditorGUILayout.LabelField("Full Collision", snapshot.FullCollisionRebuildRequired ? "Required" : "No");
         EditorGUILayout.LabelField("Addressables Configuration", snapshot.AddressablesConfigurationDirty ? "Dirty" : "Current");
@@ -70,6 +72,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                     "WorldMeshes runtime bake persistence checkpoint captured.\n" +
                     "State Revision: " + checkpoint.stateRevision + "\n" +
                     "Height Pending: " + checkpoint.pendingHeightTiles.Count + "\n" +
+                    "Height Streaming Pending: " + checkpoint.pendingHeightStreamingTiles.Count + "\n" +
                     "Surface Pending: " + checkpoint.pendingSurfaceTiles.Count + "\n" +
                     "Collision Pending: " + checkpoint.pendingCollisionChunks.Count
                 );
@@ -137,6 +140,12 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         );
 
         DrawResumeValidationButton(
+            "Validate Height Streaming Cancellation + Resume",
+            TerrainRuntimeBakeResumeValidationScenario.HeightStreamingCancellation,
+            busy
+        );
+
+        DrawResumeValidationButton(
             "Validate Surface Cancellation + Resume",
             TerrainRuntimeBakeResumeValidationScenario.SurfaceCancellation,
             busy
@@ -166,6 +175,12 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         DrawResumeValidationButton(
             "Validate Failure After Height",
             TerrainRuntimeBakeResumeValidationScenario.FailureAfterHeight,
+            busy
+        );
+
+        DrawResumeValidationButton(
+            "Validate Failure After Height Streaming",
+            TerrainRuntimeBakeResumeValidationScenario.FailureAfterHeightStreaming,
             busy
         );
 
@@ -229,8 +244,9 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             EditorGUILayout.LabelField("Last Scenario", displayResume.Scenario.ToString());
             EditorGUILayout.LabelField("Last Outcome", displayResume.Outcome.ToString());
             EditorGUILayout.LabelField(
-                "Repeated Height / Surface / Collision",
+                "Repeated Height / Streaming / Surface / Collision",
                 displayResume.RepeatedHeightCoordinates.Count + " / " +
+                displayResume.RepeatedHeightStreamingCoordinates.Count + " / " +
                 displayResume.RepeatedSurfaceCoordinates.Count + " / " +
                 displayResume.RepeatedCollisionCoordinates.Count
             );

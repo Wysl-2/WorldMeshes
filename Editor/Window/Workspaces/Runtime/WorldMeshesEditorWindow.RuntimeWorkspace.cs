@@ -540,6 +540,11 @@ public partial class WorldMeshesEditorWindow :
             );
 
             EditorGUILayout.LabelField(
+                "Height Streaming",
+                "Full rebuild"
+            );
+
+            EditorGUILayout.LabelField(
                 "Surface Masks",
                 "Full rebuild"
             );
@@ -574,6 +579,23 @@ public partial class WorldMeshesEditorWindow :
                     plan.HeightTileCount,
                     "tile",
                     "tiles",
+                    initialBake
+                )
+            );
+        }
+
+        if (
+            plan.HeightStreamingWorkMode !=
+            TerrainRuntimeBakeWorkMode.None
+        )
+        {
+            EditorGUILayout.LabelField(
+                "Height Streaming",
+                GetGeneratedWorkLabel(
+                    plan.HeightStreamingWorkMode,
+                    plan.HeightStreamingTileCount,
+                    "tile family",
+                    "tile families",
                     initialBake
                 )
             );
@@ -719,6 +741,10 @@ public partial class WorldMeshesEditorWindow :
                 generationState.HeightmapStatus;
 
         TerrainGenerationStateUtility.GenerationStatus
+            heightStreamingStatus =
+                generationState.HeightStreamingStatus;
+
+        TerrainGenerationStateUtility.GenerationStatus
             surfaceStatus =
                 generationState.SurfaceMaskStatus;
 
@@ -737,6 +763,13 @@ public partial class WorldMeshesEditorWindow :
             "Runtime Heightmaps",
             GetGenerationReadinessLabel(
                 heightStatus
+            )
+        );
+
+        EditorGUILayout.LabelField(
+            "Height Streaming",
+            GetGenerationReadinessLabel(
+                heightStreamingStatus
             )
         );
 
@@ -1114,6 +1147,50 @@ public partial class WorldMeshesEditorWindow :
         GUILayout.Space(5f);
 
         GUILayout.Label(
+            "Height Streaming",
+            EditorStyles.boldLabel
+        );
+
+        EditorGUILayout.LabelField(
+            "Generation Revision",
+            heightManifest != null
+                ? heightManifest.streamingGenerationRevision.ToString()
+                : "-"
+        );
+
+        EditorGUILayout.LabelField(
+            "Source Height Revision",
+            heightManifest != null
+                ? heightManifest.streamingSourceHeightmapGenerationRevision.ToString()
+                : "-"
+        );
+
+        EditorGUILayout.LabelField(
+            "Derived Levels",
+            heightManifest != null
+                ? heightManifest.StreamingLevelCount.ToString()
+                : "-"
+        );
+
+        EditorGUILayout.LabelField(
+            "Maximum Stride",
+            TerrainHeightStreamingPyramidPolicy
+                .GetConfiguredMaximumStride(worldSettings)
+                .ToString()
+        );
+
+        EditorGUILayout.LabelField(
+            "Manifest",
+            GetManifestStatusLabel(
+                heightManifest != null,
+                heightManifest != null
+                && heightManifest.streamingPyramidIsComplete
+            )
+        );
+
+        GUILayout.Space(5f);
+
+        GUILayout.Label(
             "Surface Masks",
             EditorStyles.boldLabel
         );
@@ -1345,6 +1422,9 @@ public partial class WorldMeshesEditorWindow :
 
         bool allGeneratedCurrent =
             heightCurrent
+            &&
+            generationState.HeightStreamingStatus ==
+                TerrainGenerationStateUtility.GenerationStatus.Current
             &&
             surfaceStatus ==
                 TerrainGenerationStateUtility
@@ -1881,6 +1961,9 @@ public partial class WorldMeshesEditorWindow :
         {
             case TerrainRuntimeBakePipelineState.Heightmaps:
                 return "Runtime Heightmaps";
+
+            case TerrainRuntimeBakePipelineState.HeightStreaming:
+                return "Height Streaming";
 
             case TerrainRuntimeBakePipelineState.SurfaceMasks:
                 return "Surface Masks";

@@ -67,6 +67,23 @@ public static class TerrainRuntimeOutputFingerprintUtility
             hash.AppendData(safeBytes);
         }
 
+        public void WriteNativeBytes(NativeArray<byte> bytes)
+        {
+            WriteInt32(bytes.Length);
+
+            const int ScratchSize = 64 * 1024;
+            byte[] scratch = new byte[Math.Min(ScratchSize, Math.Max(1, bytes.Length))];
+            int offset = 0;
+
+            while (offset < bytes.Length)
+            {
+                int count = Math.Min(scratch.Length, bytes.Length - offset);
+                NativeArray<byte>.Copy(bytes, offset, scratch, 0, count);
+                hash.AppendData(scratch, 0, count);
+                offset += count;
+            }
+        }
+
         public string Finish()
         {
             if (finished)
@@ -94,6 +111,9 @@ public static class TerrainRuntimeOutputFingerprintUtility
     )
     {
         List<TerrainRuntimeOutputFingerprint> height =
+            new List<TerrainRuntimeOutputFingerprint>();
+
+        List<TerrainRuntimeOutputFingerprint> heightStreaming =
             new List<TerrainRuntimeOutputFingerprint>();
 
         List<TerrainRuntimeOutputFingerprint> surface =
@@ -153,6 +173,11 @@ public static class TerrainRuntimeOutputFingerprintUtility
                 TerrainRuntimeHeightAssetUtility.HeightmapManifestPath
             );
 
+        int heightStreamingRevision =
+            heightManifest != null
+                ? heightManifest.streamingGenerationRevision
+                : 0;
+
         TerrainSurfaceMaskManifest surfaceManifest =
             AssetDatabase.LoadAssetAtPath<TerrainSurfaceMaskManifest>(
                 TerrainRuntimeSurfaceMaskAssetUtility.SurfaceMaskManifestPath
@@ -209,6 +234,14 @@ public static class TerrainRuntimeOutputFingerprintUtility
         }
 
         if (
+            TerrainGenerationStateUtility.GetHeightStreamingStatus(worldSettings)
+            != TerrainGenerationStateUtility.GenerationStatus.Current
+        )
+        {
+            issues.Add("Runtime Height Streaming is not current.");
+        }
+
+        if (
             TerrainGenerationStateUtility.GetSurfaceMaskStatus(worldSettings)
             != TerrainGenerationStateUtility.GenerationStatus.Current
         )
@@ -225,11 +258,31 @@ public static class TerrainRuntimeOutputFingerprintUtility
         }
 
         List<Vector2Int> heightCoordinates = CollectAllHeightTiles(worldSettings);
+        List<int> heightStreamingStrides = new List<int>();
+
+        if (
+            !TerrainHeightStreamingPyramidPolicy.TryGetDerivedStrides(
+                worldSettings,
+                heightStreamingStrides,
+                out string heightStreamingPolicyError
+            )
+        )
+        {
+            issues.Add(
+                "Runtime Height Streaming policy is invalid: " +
+                heightStreamingPolicyError
+            );
+        }
+
         List<Vector2Int> surfaceCoordinates = CollectAllHeightTiles(worldSettings);
         List<Vector2Int> collisionCoordinates = CollectAllCollisionChunks(worldSettings);
 
+        int expectedHeightStreamingCount =
+            heightCoordinates.Count * heightStreamingStrides.Count;
+
         int total =
             heightCoordinates.Count
+            + expectedHeightStreamingCount
             + surfaceCoordinates.Count
             + collisionCoordinates.Count;
 
@@ -269,6 +322,55 @@ public static class TerrainRuntimeOutputFingerprintUtility
                 else
                 {
                     issues.Add(issue);
+                }
+            }
+
+            if (!cancelled)
+            {
+                for (int strideIndex = 0; strideIndex < heightStreamingStrides.Count; strideIndex++)
+                {
+                    int sampleStride = heightStreamingStrides[strideIndex];
+
+                    for (int index = 0; index < heightCoordinates.Count; index++)
+                    {
+                        Vector2Int coordinate = heightCoordinates[index];
+
+                        if (ShowProgress(
+                            "Fingerprinting Runtime Height Streaming stride " + sampleStride,
+                            coordinate,
+                            completed,
+                            total
+                        ))
+                        {
+                            cancelled = true;
+                            break;
+                        }
+
+                        completed++;
+
+                        if (
+                            TryFingerprintHeightStreaming(
+                                sampleStride,
+                                coordinate,
+                                worldSettings,
+                                heightManifest,
+                                out TerrainRuntimeOutputFingerprint fingerprint,
+                                out string issue
+                            )
+                        )
+                        {
+                            heightStreaming.Add(fingerprint);
+                        }
+                        else
+                        {
+                            issues.Add(issue);
+                        }
+                    }
+
+                    if (cancelled)
+                    {
+                        break;
+                    }
                 }
             }
 
@@ -365,6 +467,8 @@ public static class TerrainRuntimeOutputFingerprintUtility
         bool targetStable =
             startState.StateRevision == endState.StateRevision
             && worldSettings.heightmapGenerationRevision == heightRevision
+            && heightManifest != null
+            && heightManifest.streamingGenerationRevision == heightStreamingRevision
             && worldSettings.surfaceMaskGenerationRevision == surfaceRevision
             && worldSettings.collisionMeshGenerationRevision == collisionRevision;
 
@@ -376,10 +480,12 @@ public static class TerrainRuntimeOutputFingerprintUtility
         }
 
         SortFingerprints(height);
+        SortFingerprints(heightStreaming);
         SortFingerprints(surface);
         SortFingerprints(collision);
 
         string heightDatasetHash = ComputeDatasetHash(height);
+        string heightStreamingDatasetHash = ComputeDatasetHash(heightStreaming);
         string surfaceDatasetHash = ComputeDatasetHash(surface);
         string collisionDatasetHash = ComputeDatasetHash(collision);
 
@@ -389,17 +495,21 @@ public static class TerrainRuntimeOutputFingerprintUtility
             && targetStable
             && issues.Count == 0
             && height.Count == heightCoordinates.Count
+            && heightStreaming.Count == expectedHeightStreamingCount
             && surface.Count == surfaceCoordinates.Count
             && collision.Count == collisionCoordinates.Count;
 
         return new TerrainRuntimeOutputFingerprintSnapshot(
             height,
+            heightStreaming,
             surface,
             collision,
             heightCoordinates.Count,
+            expectedHeightStreamingCount,
             surfaceCoordinates.Count,
             collisionCoordinates.Count,
             heightDatasetHash,
+            heightStreamingDatasetHash,
             surfaceDatasetHash,
             collisionDatasetHash,
             complete,
@@ -517,8 +627,56 @@ public static class TerrainRuntimeOutputFingerprintUtility
 
         return TryFingerprintTexture(
             TerrainRuntimeOutputFingerprintKind.Heightmap,
+            1,
             coordinate,
             TerrainRuntimeHeightAssetUtility.GetHeightTilePath(
+                coordinate.x,
+                coordinate.y
+            ),
+            TextureFormat.RFloat,
+            expectedSamples,
+            out fingerprint,
+            out issue
+        );
+    }
+
+    private static bool TryFingerprintHeightStreaming(
+        int sampleStride,
+        Vector2Int coordinate,
+        WorldSettings worldSettings,
+        TerrainHeightmapManifest manifest,
+        out TerrainRuntimeOutputFingerprint fingerprint,
+        out string issue
+    )
+    {
+        int expectedSamples =
+            TerrainHeightStreamingPyramidPolicy.GetSamplesPerSide(
+                worldSettings,
+                sampleStride
+            );
+
+        if (
+            manifest == null
+            || !manifest.TryGetStreamingLevelDescriptor(
+                sampleStride,
+                out TerrainHeightStreamingLevelDescriptor descriptor
+            )
+            || descriptor.SamplesPerSide != expectedSamples
+        )
+        {
+            fingerprint = null;
+            issue =
+                "Height Streaming descriptor is missing or incompatible for stride " +
+                sampleStride + ".";
+            return false;
+        }
+
+        return TryFingerprintTexture(
+            TerrainRuntimeOutputFingerprintKind.Heightmap,
+            sampleStride,
+            coordinate,
+            TerrainRuntimeHeightAssetUtility.GetStreamingHeightTilePath(
+                sampleStride,
                 coordinate.x,
                 coordinate.y
             ),
@@ -544,6 +702,7 @@ public static class TerrainRuntimeOutputFingerprintUtility
 
         return TryFingerprintTexture(
             TerrainRuntimeOutputFingerprintKind.SurfaceMask,
+            0,
             coordinate,
             TerrainRuntimeSurfaceMaskAssetUtility.GetSurfaceTilePath(
                 coordinate.x,
@@ -558,6 +717,7 @@ public static class TerrainRuntimeOutputFingerprintUtility
 
     private static bool TryFingerprintTexture(
         TerrainRuntimeOutputFingerprintKind kind,
+        int variant,
         Vector2Int coordinate,
         string assetPath,
         TextureFormat expectedFormat,
@@ -597,25 +757,26 @@ public static class TerrainRuntimeOutputFingerprintUtility
         try
         {
             NativeArray<byte> rawData = texture.GetRawTextureData<byte>();
-            byte[] payload = rawData.ToArray();
 
             string payloadHash;
 
             using (HashWriter writer = new HashWriter())
             {
                 writer.WriteInt32((int)kind);
+                writer.WriteInt32(variant);
                 writer.WriteInt32(coordinate.x);
                 writer.WriteInt32(coordinate.y);
                 writer.WriteInt32(texture.width);
                 writer.WriteInt32(texture.height);
                 writer.WriteInt32((int)texture.format);
                 writer.WriteInt32(texture.mipmapCount);
-                writer.WriteBytes(payload);
+                writer.WriteNativeBytes(rawData);
                 payloadHash = writer.Finish();
             }
 
             fingerprint = new TerrainRuntimeOutputFingerprint(
                 kind,
+                variant,
                 coordinate,
                 assetPath,
                 AssetDatabase.AssetPathToGUID(assetPath),
@@ -637,6 +798,13 @@ public static class TerrainRuntimeOutputFingerprintUtility
                 coordinate.x + ", " + coordinate.y + "): " +
                 exception.Message;
             return false;
+        }
+        finally
+        {
+            if (texture != null)
+            {
+                Resources.UnloadAsset(texture);
+            }
         }
     }
 
@@ -673,6 +841,7 @@ public static class TerrainRuntimeOutputFingerprintUtility
             using (HashWriter writer = new HashWriter())
             {
                 writer.WriteInt32((int)TerrainRuntimeOutputFingerprintKind.CollisionMesh);
+                writer.WriteInt32(0);
                 writer.WriteInt32(coordinate.x);
                 writer.WriteInt32(coordinate.y);
                 writer.WriteInt32(vertices.Length);
@@ -708,6 +877,7 @@ public static class TerrainRuntimeOutputFingerprintUtility
 
             fingerprint = new TerrainRuntimeOutputFingerprint(
                 TerrainRuntimeOutputFingerprintKind.CollisionMesh,
+                0,
                 coordinate,
                 assetPath,
                 AssetDatabase.AssetPathToGUID(assetPath),
@@ -749,6 +919,7 @@ public static class TerrainRuntimeOutputFingerprintUtility
             {
                 TerrainRuntimeOutputFingerprint fingerprint = fingerprints[index];
                 writer.WriteInt32((int)fingerprint.Kind);
+                writer.WriteInt32(fingerprint.Variant);
                 writer.WriteInt32(fingerprint.Coordinate.x);
                 writer.WriteInt32(fingerprint.Coordinate.y);
                 writer.WriteString(fingerprint.PayloadHash);
@@ -829,10 +1000,16 @@ public static class TerrainRuntimeOutputFingerprintUtility
     {
         fingerprints.Sort(
             (left, right) =>
-                TerrainRuntimeBakeStageValidationResult.CompareCoordinates(
-                    left.Coordinate,
-                    right.Coordinate
-                )
+            {
+                int variant = left.Variant.CompareTo(right.Variant);
+
+                return variant != 0
+                    ? variant
+                    : TerrainRuntimeBakeStageValidationResult.CompareCoordinates(
+                        left.Coordinate,
+                        right.Coordinate
+                    );
+            }
         );
     }
 
@@ -863,9 +1040,12 @@ public static class TerrainRuntimeOutputFingerprintUtility
             null,
             null,
             null,
+            null,
             0,
             0,
             0,
+            0,
+            "",
             "",
             "",
             "",

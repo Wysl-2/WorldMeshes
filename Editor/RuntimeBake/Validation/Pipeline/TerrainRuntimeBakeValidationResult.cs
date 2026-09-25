@@ -278,6 +278,7 @@ public sealed class TerrainRuntimeBakeValidationResult
     public TerrainRuntimeBakePlan InitialPlan { get; private set; }
 
     public TerrainRuntimeBakeStageValidationResult HeightValidation { get; private set; }
+    public TerrainRuntimeBakeStageValidationResult HeightStreamingValidation { get; private set; }
     public TerrainRuntimeBakeStageValidationResult SurfaceValidation { get; private set; }
     public TerrainRuntimeBakeStageValidationResult CollisionValidation { get; private set; }
     public TerrainRuntimeAddressablesStageValidationResult AddressablesValidation { get; private set; }
@@ -298,6 +299,7 @@ public sealed class TerrainRuntimeBakeValidationResult
         TerrainRuntimeBakePipelineResult pipelineResult,
         TerrainRuntimeBakePlan initialPlan,
         TerrainRuntimeBakeStageValidationResult heightValidation,
+        TerrainRuntimeBakeStageValidationResult heightStreamingValidation,
         TerrainRuntimeBakeStageValidationResult surfaceValidation,
         TerrainRuntimeBakeStageValidationResult collisionValidation,
         TerrainRuntimeAddressablesStageValidationResult addressablesValidation,
@@ -313,6 +315,7 @@ public sealed class TerrainRuntimeBakeValidationResult
         PipelineResult = pipelineResult;
         InitialPlan = initialPlan;
         HeightValidation = heightValidation;
+        HeightStreamingValidation = heightStreamingValidation;
         SurfaceValidation = surfaceValidation;
         CollisionValidation = collisionValidation;
         AddressablesValidation = addressablesValidation;
@@ -350,6 +353,7 @@ public sealed class TerrainRuntimeBakeValidationResult
         }
 
         AppendCoordinateStage(builder, "Heightmaps", HeightValidation);
+        AppendCoordinateStage(builder, "Height Streaming", HeightStreamingValidation);
         AppendCoordinateStage(builder, "Surface Masks", SurfaceValidation);
         AppendCoordinateStage(builder, "Collision", CollisionValidation);
         AppendAddressables(builder);
@@ -505,6 +509,7 @@ public sealed class TerrainRuntimeBakeValidationResult
         builder.AppendLine();
         builder.AppendLine("Stage Timings:");
         builder.AppendLine("  Heightmaps: " + PipelineResult.HeightDurationSeconds.ToString("0.00") + " seconds");
+        builder.AppendLine("  Height Streaming: " + PipelineResult.HeightStreamingDurationSeconds.ToString("0.00") + " seconds");
         builder.AppendLine("  Surface Masks: " + PipelineResult.SurfaceDurationSeconds.ToString("0.00") + " seconds");
         builder.AppendLine("  Collision: " + PipelineResult.CollisionDurationSeconds.ToString("0.00") + " seconds");
         builder.AppendLine("  Addressables: " + PipelineResult.AddressablesDurationSeconds.ToString("0.00") + " seconds");

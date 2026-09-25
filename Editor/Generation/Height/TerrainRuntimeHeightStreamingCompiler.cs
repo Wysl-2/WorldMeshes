@@ -571,6 +571,12 @@ public static class TerrainRuntimeHeightStreamingCompiler
                 );
         }
 
+        int removedObsoleteAssetCount =
+            plan.HeightStreamingWorkMode == TerrainRuntimeBakeWorkMode.Full
+                ? TerrainHeightStreamingObsoleteAssetUtility
+                    .RemoveUnexpectedStreamingAssets(worldSettings)
+                : 0;
+
         compileContext
             .FinalizeAfterAuthoritativeSourceConfirmed(
                 worldSettings
@@ -631,6 +637,8 @@ public static class TerrainRuntimeHeightStreamingCompiler
             summary.CreatedAssetCount > 0
             ||
             summary.RemovedAssetCount > 0
+            ||
+            removedObsoleteAssetCount > 0
         )
         {
             completionMutation
@@ -652,7 +660,7 @@ public static class TerrainRuntimeHeightStreamingCompiler
                 unprocessedTiles,
                 summary.CreatedAssetCount,
                 summary.UpdatedAssetCount,
-                summary.RemovedAssetCount,
+                summary.RemovedAssetCount + removedObsoleteAssetCount,
                 true,
                 revisionBefore,
                 manifest.streamingGenerationRevision,

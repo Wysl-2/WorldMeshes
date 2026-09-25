@@ -712,6 +712,8 @@ public sealed class TerrainRuntimeEquivalenceComparisonResult
 
     public TerrainRuntimeEquivalenceDatasetComparison Collision { get; private set; }
 
+    public bool HeightStreamingMatches { get; private set; }
+
     public bool HeightRangeMetadataMatches { get; private set; }
 
     public int TotalExpected =>
@@ -746,18 +748,21 @@ public sealed class TerrainRuntimeEquivalenceComparisonResult
         && Surface.ExactMatch
         && Collision != null
         && Collision.ExactMatch
+        && HeightStreamingMatches
         && HeightRangeMetadataMatches;
 
     internal TerrainRuntimeEquivalenceComparisonResult(
         TerrainRuntimeEquivalenceDatasetComparison height,
         TerrainRuntimeEquivalenceDatasetComparison surface,
         TerrainRuntimeEquivalenceDatasetComparison collision,
+        bool heightStreamingMatches,
         bool heightRangeMetadataMatches
     )
     {
         Height = height;
         Surface = surface;
         Collision = collision;
+        HeightStreamingMatches = heightStreamingMatches;
 
         HeightRangeMetadataMatches =
             heightRangeMetadataMatches;
@@ -988,6 +993,15 @@ public sealed class TerrainRuntimeEquivalenceValidationResult
             AppendDataset(
                 builder,
                 Comparison.Collision
+            );
+
+            builder.AppendLine(
+                "  Height Streaming Pyramid: " +
+                (
+                    Comparison.HeightStreamingMatches
+                        ? "MATCH"
+                        : "DIFFERENT"
+                )
             );
 
             builder.AppendLine(
@@ -2553,6 +2567,7 @@ public static class TerrainRuntimeEquivalenceComparisonUtility
                 height,
                 surface,
                 collision,
+                baseComparison.HeightStreamingExactMatch,
                 heightRangeMatch
             );
     }

@@ -10,11 +10,12 @@ public enum TerrainRuntimeOutputFingerprintKind
 /*
  * Small immutable payload identity record. GUID/path are diagnostic metadata;
  * PayloadHash is derived only from deterministic generated content plus the
- * logical coordinate/structural shape of that payload.
+ * logical representation/coordinate/structural shape of that payload.
  */
 public sealed class TerrainRuntimeOutputFingerprint
 {
     public TerrainRuntimeOutputFingerprintKind Kind { get; private set; }
+    public int Variant { get; private set; }
     public Vector2Int Coordinate { get; private set; }
 
     public string AssetPath { get; private set; }
@@ -31,6 +32,7 @@ public sealed class TerrainRuntimeOutputFingerprint
 
     internal TerrainRuntimeOutputFingerprint(
         TerrainRuntimeOutputFingerprintKind kind,
+        int variant,
         Vector2Int coordinate,
         string assetPath,
         string assetGuid,
@@ -44,6 +46,7 @@ public sealed class TerrainRuntimeOutputFingerprint
     )
     {
         Kind = kind;
+        Variant = Mathf.Max(0, variant);
         Coordinate = coordinate;
         AssetPath = assetPath ?? "";
         AssetGuid = assetGuid ?? "";

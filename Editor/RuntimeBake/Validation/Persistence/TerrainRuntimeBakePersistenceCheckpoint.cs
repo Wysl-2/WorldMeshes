@@ -11,7 +11,7 @@ using UnityEngine;
 [Serializable]
 public sealed class TerrainRuntimeBakePersistenceCheckpoint
 {
-    public const int CurrentFormatVersion = 1;
+    public const int CurrentFormatVersion = 2;
 
     [Serializable]
     public struct CoordinateRecord
@@ -39,6 +39,9 @@ public sealed class TerrainRuntimeBakePersistenceCheckpoint
     public List<CoordinateRecord> pendingHeightTiles =
         new List<CoordinateRecord>();
 
+    public List<CoordinateRecord> pendingHeightStreamingTiles =
+        new List<CoordinateRecord>();
+
     public List<CoordinateRecord> pendingSurfaceTiles =
         new List<CoordinateRecord>();
 
@@ -46,6 +49,7 @@ public sealed class TerrainRuntimeBakePersistenceCheckpoint
         new List<CoordinateRecord>();
 
     public bool fullHeightRebuildRequired;
+    public bool fullHeightStreamingRebuildRequired;
     public bool fullSurfaceRebuildRequired;
     public bool fullCollisionRebuildRequired;
 
@@ -78,6 +82,7 @@ public sealed class TerrainRuntimeBakePersistenceCheckpoint
                 stateRevision = snapshot.StateRevision,
                 serializedBakeStateVersion = snapshot.SerializedVersion,
                 fullHeightRebuildRequired = snapshot.FullHeightRebuildRequired,
+                fullHeightStreamingRebuildRequired = snapshot.FullHeightStreamingRebuildRequired,
                 fullSurfaceRebuildRequired = snapshot.FullSurfaceRebuildRequired,
                 fullCollisionRebuildRequired = snapshot.FullCollisionRebuildRequired,
                 addressablesConfigurationDirty = snapshot.AddressablesConfigurationDirty,
@@ -90,6 +95,7 @@ public sealed class TerrainRuntimeBakePersistenceCheckpoint
             };
 
         checkpoint.pendingHeightTiles = CopyCoordinates(snapshot.PendingHeightTiles);
+        checkpoint.pendingHeightStreamingTiles = CopyCoordinates(snapshot.PendingHeightStreamingTiles);
         checkpoint.pendingSurfaceTiles = CopyCoordinates(snapshot.PendingSurfaceTiles);
         checkpoint.pendingCollisionChunks = CopyCoordinates(snapshot.PendingCollisionChunks);
 
@@ -99,6 +105,11 @@ public sealed class TerrainRuntimeBakePersistenceCheckpoint
     public List<Vector2Int> GetPendingHeightTiles()
     {
         return ToCoordinates(pendingHeightTiles);
+    }
+
+    public List<Vector2Int> GetPendingHeightStreamingTiles()
+    {
+        return ToCoordinates(pendingHeightStreamingTiles);
     }
 
     public List<Vector2Int> GetPendingSurfaceTiles()

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Text;
@@ -47,6 +48,8 @@ public sealed class TerrainRuntimeOutputFingerprintComparison
     public TerrainRuntimeOutputFingerprintStreamComparison Surface { get; private set; }
     public TerrainRuntimeOutputFingerprintStreamComparison Collision { get; private set; }
 
+    public bool HeightStreamingExactMatch { get; private set; }
+
     public bool BaselineComplete => Baseline != null && Baseline.IsComplete;
     public bool CurrentComplete => Current != null && Current.IsComplete;
 
@@ -54,6 +57,7 @@ public sealed class TerrainRuntimeOutputFingerprintComparison
         BaselineComplete
         && CurrentComplete
         && Height != null && Height.ExactMatch
+        && HeightStreamingExactMatch
         && Surface != null && Surface.ExactMatch
         && Collision != null && Collision.ExactMatch;
 
@@ -70,6 +74,18 @@ public sealed class TerrainRuntimeOutputFingerprintComparison
         Height = height;
         Surface = surface;
         Collision = collision;
+
+        HeightStreamingExactMatch =
+            baseline != null
+            && current != null
+            && baseline.ExpectedHeightStreamingAssetCount == current.ExpectedHeightStreamingAssetCount
+            && baseline.HeightStreamingAssetCount == current.HeightStreamingAssetCount
+            && baseline.HeightStreamingAssetCount == baseline.ExpectedHeightStreamingAssetCount
+            && string.Equals(
+                baseline.HeightStreamingDatasetFingerprint,
+                current.HeightStreamingDatasetFingerprint,
+                StringComparison.Ordinal
+            );
     }
 
     public string BuildDiagnosticReport()
@@ -81,6 +97,23 @@ public sealed class TerrainRuntimeOutputFingerprintComparison
         builder.AppendLine("Current Complete: " + CurrentComplete);
 
         AppendStream(builder, Height);
+
+        builder.AppendLine();
+        builder.AppendLine("Height Streaming:");
+        builder.AppendLine(
+            "  Baseline: " +
+            (Baseline != null ? Baseline.HeightStreamingAssetCount : 0) +
+            " / " +
+            (Baseline != null ? Baseline.ExpectedHeightStreamingAssetCount : 0)
+        );
+        builder.AppendLine(
+            "  Current: " +
+            (Current != null ? Current.HeightStreamingAssetCount : 0) +
+            " / " +
+            (Current != null ? Current.ExpectedHeightStreamingAssetCount : 0)
+        );
+        builder.AppendLine("  " + (HeightStreamingExactMatch ? "MATCH" : "DIFFERENT"));
+
         AppendStream(builder, Surface);
         AppendStream(builder, Collision);
 

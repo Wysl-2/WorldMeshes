@@ -111,15 +111,43 @@ public static partial class TerrainGenerationStateUtility
                 );
         }
 
+        bool metadataCurrent =
+            IsHeightStreamingManifestCurrent(
+                manifest,
+                worldSettings,
+                worldSettings.heightmapGenerationRevision
+            );
+
+        if (!metadataCurrent)
+        {
+            return
+                context.CacheHeightStreamingStatus(
+                    GenerationStatus.OutOfDate
+                );
+        }
+
+        if (context.RequiresDeepIntegrityVerification)
+        {
+            TerrainRuntimeGeneratedDataIntegrityResult streamingIntegrity =
+                context.IntegrityAudit != null
+                    ? context.IntegrityAudit.HeightStreaming
+                    : null;
+
+            if (
+                streamingIntegrity == null
+                || !streamingIntegrity.IsValid
+            )
+            {
+                return
+                    context.CacheHeightStreamingStatus(
+                        GenerationStatus.OutOfDate
+                    );
+            }
+        }
+
         return
             context.CacheHeightStreamingStatus(
-                IsHeightStreamingManifestCurrent(
-                    manifest,
-                    worldSettings,
-                    worldSettings.heightmapGenerationRevision
-                )
-                    ? GenerationStatus.Current
-                    : GenerationStatus.OutOfDate
+                GenerationStatus.Current
             );
     }
 

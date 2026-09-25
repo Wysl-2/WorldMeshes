@@ -104,6 +104,80 @@ public partial class WorldMeshesEditorWindow :
             GetCollisionPreparedManifestStatusLabel()
         );
 
+        GUILayout.Space(5f);
+        GUILayout.Label(
+            "Height Addressables Scale",
+            EditorStyles.boldLabel
+        );
+
+        TerrainHeightAddressablesScaleReport scaleReport =
+            TerrainHeightAddressablesScaleUtility.CreateReport(
+                null,
+                "",
+                0d
+            );
+
+        EditorGUILayout.LabelField(
+            "Geographic Height Pages",
+            scaleReport.GeographicTileCount.ToString("N0")
+        );
+        EditorGUILayout.LabelField(
+            "Height Representations",
+            scaleReport.RepresentationLevelCount.ToString("N0")
+        );
+        EditorGUILayout.LabelField(
+            "Derived Height Assets",
+            scaleReport.DerivedAssetCount.ToString("N0")
+        );
+        EditorGUILayout.LabelField(
+            "Height Entries Expected / Actual",
+            scaleReport.ExpectedHeightEntryCount.ToString("N0") +
+            " / " +
+            scaleReport.ActualHeightEntryCount.ToString("N0")
+        );
+        EditorGUILayout.LabelField(
+            "Packing Regions",
+            scaleReport.PackingRegionCount.ToString("N0")
+        );
+        EditorGUILayout.LabelField(
+            "Expected Height Bundles",
+            scaleReport.ExpectedHeightBundleCount.ToString("N0")
+        );
+
+        TerrainRuntimeAddressablesResult lastAddressablesResult =
+            TerrainRuntimeBakePipeline.LastResult != null
+                ? TerrainRuntimeBakePipeline.LastResult.AddressablesResult
+                : null;
+
+        TerrainHeightAddressablesScaleReport lastScale =
+            lastAddressablesResult != null
+                ? lastAddressablesResult.HeightScaleReport
+                : null;
+
+        if (lastScale != null)
+        {
+            EditorGUILayout.LabelField(
+                "Last Built Bundle Files",
+                lastScale.BuiltBundleFileCount >= 0
+                    ? lastScale.BuiltBundleFileCount.ToString("N0")
+                    : "Unavailable"
+            );
+            EditorGUILayout.LabelField(
+                "Last Catalog Payload Bytes",
+                lastScale.CatalogPayloadBytes >= 0L
+                    ? lastScale.CatalogPayloadBytes.ToString("N0")
+                    : "Unavailable"
+            );
+            EditorGUILayout.LabelField(
+                "Height Reconciliation",
+                lastScale.HeightConfigurationReconciliationSeconds.ToString("0.00") + " s"
+            );
+            EditorGUILayout.LabelField(
+                "Addressables Build",
+                lastScale.AddressablesBuildSeconds.ToString("0.00") + " s"
+            );
+        }
+
         if (plan.IsBlocked)
         {
             GUILayout.Space(5f);

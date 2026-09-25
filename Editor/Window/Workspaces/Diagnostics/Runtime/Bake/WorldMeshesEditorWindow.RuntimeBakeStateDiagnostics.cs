@@ -74,6 +74,13 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.LabelField(
+            "Height Streaming Tiles",
+            summary
+                .PendingHeightStreamingTileCount
+                .ToString()
+        );
+
+        EditorGUILayout.LabelField(
             "Surface Tiles",
             summary
                 .PendingSurfaceTileCount
@@ -101,6 +108,14 @@ public partial class WorldMeshesEditorWindow :
             GetRuntimeBakeStateYesNo(
                 summary
                     .FullHeightRebuildRequired
+            )
+        );
+
+        EditorGUILayout.LabelField(
+            "Height Streaming",
+            GetRuntimeBakeStateYesNo(
+                summary
+                    .FullHeightStreamingRebuildRequired
             )
         );
 
@@ -302,6 +317,12 @@ public partial class WorldMeshesEditorWindow :
 
         AppendRuntimeBakeCoordinates(
             builder,
+            "Height Streaming Tiles",
+            snapshot.PendingHeightStreamingTiles
+        );
+
+        AppendRuntimeBakeCoordinates(
+            builder,
             "Collision Chunks",
             snapshot.PendingCollisionChunks
         );
@@ -309,6 +330,11 @@ public partial class WorldMeshesEditorWindow :
         builder.AppendLine(
             "Full Height Rebuild: " +
             snapshot.FullHeightRebuildRequired
+        );
+
+        builder.AppendLine(
+            "Full Height Streaming Rebuild: " +
+            snapshot.FullHeightStreamingRebuildRequired
         );
 
         builder.AppendLine(

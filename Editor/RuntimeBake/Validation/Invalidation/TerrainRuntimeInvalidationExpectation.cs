@@ -5,26 +5,32 @@ using UnityEngine;
 public sealed class TerrainRuntimeInvalidationExpectation
 {
     private readonly ReadOnlyCollection<Vector2Int> stateHeightCoordinates;
+    private readonly ReadOnlyCollection<Vector2Int> stateHeightStreamingCoordinates;
     private readonly ReadOnlyCollection<Vector2Int> stateSurfaceCoordinates;
     private readonly ReadOnlyCollection<Vector2Int> stateCollisionCoordinates;
 
     private readonly ReadOnlyCollection<Vector2Int> planHeightCoordinates;
+    private readonly ReadOnlyCollection<Vector2Int> planHeightStreamingCoordinates;
     private readonly ReadOnlyCollection<Vector2Int> planSurfaceCoordinates;
     private readonly ReadOnlyCollection<Vector2Int> planCollisionCoordinates;
 
     public TerrainRuntimeBakeWorkMode ExpectedHeightMode { get; private set; }
+    public TerrainRuntimeBakeWorkMode ExpectedHeightStreamingMode { get; private set; }
     public TerrainRuntimeBakeWorkMode ExpectedSurfaceMode { get; private set; }
     public TerrainRuntimeBakeWorkMode ExpectedCollisionMode { get; private set; }
 
     public IReadOnlyList<Vector2Int> StateHeightCoordinates => stateHeightCoordinates;
+    public IReadOnlyList<Vector2Int> StateHeightStreamingCoordinates => stateHeightStreamingCoordinates;
     public IReadOnlyList<Vector2Int> StateSurfaceCoordinates => stateSurfaceCoordinates;
     public IReadOnlyList<Vector2Int> StateCollisionCoordinates => stateCollisionCoordinates;
 
     public IReadOnlyList<Vector2Int> PlanHeightCoordinates => planHeightCoordinates;
+    public IReadOnlyList<Vector2Int> PlanHeightStreamingCoordinates => planHeightStreamingCoordinates;
     public IReadOnlyList<Vector2Int> PlanSurfaceCoordinates => planSurfaceCoordinates;
     public IReadOnlyList<Vector2Int> PlanCollisionCoordinates => planCollisionCoordinates;
 
     public bool ExpectedFullHeight { get; private set; }
+    public bool ExpectedFullHeightStreaming { get; private set; }
     public bool ExpectedFullSurface { get; private set; }
     public bool ExpectedFullCollision { get; private set; }
 
@@ -61,18 +67,22 @@ public sealed class TerrainRuntimeInvalidationExpectation
     )
     {
         ExpectedHeightMode = heightMode;
+        ExpectedHeightStreamingMode = heightMode;
         ExpectedSurfaceMode = surfaceMode;
         ExpectedCollisionMode = collisionMode;
 
         this.stateHeightCoordinates = CreateSortedCoordinates(stateHeightCoordinates);
+        this.stateHeightStreamingCoordinates = CreateSortedCoordinates(stateHeightCoordinates);
         this.stateSurfaceCoordinates = CreateSortedCoordinates(stateSurfaceCoordinates);
         this.stateCollisionCoordinates = CreateSortedCoordinates(stateCollisionCoordinates);
 
         this.planHeightCoordinates = CreateSortedCoordinates(planHeightCoordinates);
+        this.planHeightStreamingCoordinates = CreateSortedCoordinates(planHeightCoordinates);
         this.planSurfaceCoordinates = CreateSortedCoordinates(planSurfaceCoordinates);
         this.planCollisionCoordinates = CreateSortedCoordinates(planCollisionCoordinates);
 
         ExpectedFullHeight = fullHeight;
+        ExpectedFullHeightStreaming = fullHeight;
         ExpectedFullSurface = fullSurface;
         ExpectedFullCollision = fullCollision;
 

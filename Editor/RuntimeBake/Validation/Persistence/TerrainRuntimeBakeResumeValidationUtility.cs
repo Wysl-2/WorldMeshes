@@ -223,6 +223,16 @@ public static class TerrainRuntimeBakeResumeValidationUtility
                 : null
         );
 
+        List<Vector2Int> repeatedHeightStreaming = FindRepeatedAcknowledgedCoordinates(
+            interruptedResult != null && interruptedResult.HeightStreamingResult != null
+                ? interruptedResult.HeightStreamingResult.SucceededTiles
+                : null,
+            postState != null ? postState.PendingHeightStreamingTiles : null,
+            resumedResult != null && resumedResult.HeightStreamingResult != null
+                ? resumedResult.HeightStreamingResult.RequestedTiles
+                : null
+        );
+
         List<Vector2Int> repeatedSurface = FindRepeatedAcknowledgedCoordinates(
             interruptedResult != null && interruptedResult.SurfaceResult != null
                 ? interruptedResult.SurfaceResult.SucceededTiles
@@ -266,6 +276,7 @@ public static class TerrainRuntimeBakeResumeValidationUtility
             resumeStartedAtExpectedWork
             && !upstreamRepeated
             && repeatedHeight.Count == 0
+            && repeatedHeightStreaming.Count == 0
             && repeatedSurface.Count == 0
             && repeatedCollision.Count == 0
             && finalPlanCurrent
@@ -287,6 +298,7 @@ public static class TerrainRuntimeBakeResumeValidationUtility
                 upstreamRepeated,
                 finalPlanCurrent,
                 repeatedHeight,
+                repeatedHeightStreaming,
                 repeatedSurface,
                 repeatedCollision,
                 passed
@@ -309,6 +321,13 @@ public static class TerrainRuntimeBakeResumeValidationUtility
             case TerrainRuntimeBakeResumeValidationScenario.HeightCancellation:
                 TerrainRuntimeBakeValidationHooks.ConfigureCoordinateCancellation(
                     TerrainRuntimeBakePipelineState.Heightmaps,
+                    0.25f
+                );
+                break;
+
+            case TerrainRuntimeBakeResumeValidationScenario.HeightStreamingCancellation:
+                TerrainRuntimeBakeValidationHooks.ConfigureCoordinateCancellation(
+                    TerrainRuntimeBakePipelineState.HeightStreaming,
                     0.25f
                 );
                 break;
@@ -336,6 +355,12 @@ public static class TerrainRuntimeBakeResumeValidationUtility
                 break;
 
             case TerrainRuntimeBakeResumeValidationScenario.FailureAfterHeight:
+                TerrainRuntimeBakeValidationHooks.ConfigureFailureBeforeStage(
+                    TerrainRuntimeBakePipelineState.HeightStreaming
+                );
+                break;
+
+            case TerrainRuntimeBakeResumeValidationScenario.FailureAfterHeightStreaming:
                 TerrainRuntimeBakeValidationHooks.ConfigureFailureBeforeStage(
                     TerrainRuntimeBakePipelineState.SurfaceMasks
                 );
@@ -380,6 +405,14 @@ public static class TerrainRuntimeBakeResumeValidationUtility
                 }
                 return true;
 
+            case TerrainRuntimeBakeResumeValidationScenario.HeightStreamingCancellation:
+                if (plan.HeightStreamingWorkMode != TerrainRuntimeBakeWorkMode.Incremental || plan.HeightStreamingTileCount < 2)
+                {
+                    errorMessage = "Height Streaming cancellation validation requires at least two pending Incremental Height Streaming tiles.";
+                    return false;
+                }
+                return true;
+
             case TerrainRuntimeBakeResumeValidationScenario.SurfaceCancellation:
                 if (plan.SurfaceWorkMode != TerrainRuntimeBakeWorkMode.Incremental || plan.SurfaceTileCount < 2)
                 {
@@ -400,6 +433,14 @@ public static class TerrainRuntimeBakeResumeValidationUtility
                 if (plan.HeightWorkMode != TerrainRuntimeBakeWorkMode.Incremental || plan.HeightTileCount == 0)
                 {
                     errorMessage = "Failure-after-Height validation requires pending Incremental Height work.";
+                    return false;
+                }
+                return true;
+
+            case TerrainRuntimeBakeResumeValidationScenario.FailureAfterHeightStreaming:
+                if (plan.HeightStreamingWorkMode == TerrainRuntimeBakeWorkMode.None)
+                {
+                    errorMessage = "Failure-after-Height-Streaming validation requires pending Height Streaming work.";
                     return false;
                 }
                 return true;
@@ -426,6 +467,7 @@ public static class TerrainRuntimeBakeResumeValidationUtility
                     !plan.AddressablesConfigurationRequired
                     && !plan.AddressablesContentBuildRequired
                     && plan.HeightWorkMode == TerrainRuntimeBakeWorkMode.None
+                    && plan.HeightStreamingWorkMode == TerrainRuntimeBakeWorkMode.None
                     && plan.SurfaceWorkMode == TerrainRuntimeBakeWorkMode.None
                     && plan.CollisionWorkMode == TerrainRuntimeBakeWorkMode.None
                 )
@@ -463,6 +505,7 @@ public static class TerrainRuntimeBakeResumeValidationUtility
         switch (scenario)
         {
             case TerrainRuntimeBakeResumeValidationScenario.HeightCancellation:
+            case TerrainRuntimeBakeResumeValidationScenario.HeightStreamingCancellation:
             case TerrainRuntimeBakeResumeValidationScenario.SurfaceCancellation:
             case TerrainRuntimeBakeResumeValidationScenario.CollisionCancellation:
             case TerrainRuntimeBakeResumeValidationScenario.CancelDuringAddressables:
@@ -531,6 +574,13 @@ public static class TerrainRuntimeBakeResumeValidationUtility
                 && SetsEqual(expectedPlan.HeightTiles, resumedResult.HeightPlan.HeightTiles);
         }
 
+        if (expectedPlan.HeightStreamingWorkMode != TerrainRuntimeBakeWorkMode.None)
+        {
+            return resumedResult.HeightStreamingPlan != null
+                && resumedResult.HeightStreamingPlan.HeightStreamingWorkMode == expectedPlan.HeightStreamingWorkMode
+                && SetsEqual(expectedPlan.HeightStreamingTiles, resumedResult.HeightStreamingPlan.HeightStreamingTiles);
+        }
+
         if (expectedPlan.SurfaceWorkMode != TerrainRuntimeBakeWorkMode.None)
         {
             return resumedResult.SurfacePlan != null
@@ -584,6 +634,16 @@ public static class TerrainRuntimeBakeResumeValidationUtility
         }
 
         if (resumedResult.HeightStageExecuted)
+        {
+            return true;
+        }
+
+        if (expectedPlan.HeightStreamingWorkMode != TerrainRuntimeBakeWorkMode.None)
+        {
+            return false;
+        }
+
+        if (resumedResult.HeightStreamingStageExecuted)
         {
             return true;
         }
@@ -662,6 +722,7 @@ public static class TerrainRuntimeBakeResumeValidationUtility
                 null,
                 null,
                 null,
+                null,
                 errorMessage,
                 "Resume validation did not start."
             );
@@ -709,6 +770,7 @@ public static class TerrainRuntimeBakeResumeValidationUtility
                 false,
                 false,
                 false,
+                null,
                 null,
                 null,
                 null,

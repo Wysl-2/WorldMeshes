@@ -228,7 +228,11 @@ public static class TerrainRuntimeBakePersistenceValidationUtility
                 0,
                 0,
                 0,
+                0,
+                0,
                 false,
+                null,
+                null,
                 null,
                 null,
                 null,
@@ -285,6 +289,8 @@ public static class TerrainRuntimeBakePersistenceValidationUtility
             : "";
 
         List<Vector2Int> expectedHeight = checkpoint.GetPendingHeightTiles();
+        List<Vector2Int> expectedHeightStreaming =
+            checkpoint.GetPendingHeightStreamingTiles();
         List<Vector2Int> expectedSurface = checkpoint.GetPendingSurfaceTiles();
         List<Vector2Int> expectedCollision = checkpoint.GetPendingCollisionChunks();
 
@@ -293,6 +299,13 @@ public static class TerrainRuntimeBakePersistenceValidationUtility
             current.PendingHeightTiles,
             out List<Vector2Int> missingHeight,
             out List<Vector2Int> unexpectedHeight
+        );
+
+        CompareCoordinates(
+            expectedHeightStreaming,
+            current.PendingHeightStreamingTiles,
+            out List<Vector2Int> missingHeightStreaming,
+            out List<Vector2Int> unexpectedHeightStreaming
         );
 
         CompareCoordinates(
@@ -313,6 +326,7 @@ public static class TerrainRuntimeBakePersistenceValidationUtility
 
         bool fullFlagsMatch =
             checkpoint.fullHeightRebuildRequired == current.FullHeightRebuildRequired
+            && checkpoint.fullHeightStreamingRebuildRequired == current.FullHeightStreamingRebuildRequired
             && checkpoint.fullSurfaceRebuildRequired == current.FullSurfaceRebuildRequired
             && checkpoint.fullCollisionRebuildRequired == current.FullCollisionRebuildRequired;
 
@@ -350,6 +364,8 @@ public static class TerrainRuntimeBakePersistenceValidationUtility
         bool coordinatesMatch =
             missingHeight.Count == 0
             && unexpectedHeight.Count == 0
+            && missingHeightStreaming.Count == 0
+            && unexpectedHeightStreaming.Count == 0
             && missingSurface.Count == 0
             && unexpectedSurface.Count == 0
             && missingCollision.Count == 0
@@ -377,6 +393,8 @@ public static class TerrainRuntimeBakePersistenceValidationUtility
             current.StateRevision,
             expectedHeight.Count,
             current.PendingHeightTileCount,
+            expectedHeightStreaming.Count,
+            current.PendingHeightStreamingTileCount,
             expectedSurface.Count,
             current.PendingSurfaceTileCount,
             expectedCollision.Count,
@@ -384,6 +402,8 @@ public static class TerrainRuntimeBakePersistenceValidationUtility
             revisionMatches,
             missingHeight,
             unexpectedHeight,
+            missingHeightStreaming,
+            unexpectedHeightStreaming,
             missingSurface,
             unexpectedSurface,
             missingCollision,

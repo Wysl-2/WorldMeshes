@@ -969,6 +969,13 @@ public static class TerrainRuntimeInvalidationValidationUtility
         );
 
         CompareSets(
+            expectation.PlanHeightStreamingCoordinates,
+            plan.HeightStreamingTiles,
+            out List<Vector2Int> missingHeightStreaming,
+            out List<Vector2Int> unexpectedHeightStreaming
+        );
+
+        CompareSets(
             expectation.PlanSurfaceCoordinates,
             plan.SurfaceTiles,
             out List<Vector2Int> missingSurface,
@@ -988,6 +995,10 @@ public static class TerrainRuntimeInvalidationValidationUtility
                 state.PendingHeightTiles
             )
             && SetEquals(
+                expectation.StateHeightStreamingCoordinates,
+                state.PendingHeightStreamingTiles
+            )
+            && SetEquals(
                 expectation.StateSurfaceCoordinates,
                 state.PendingSurfaceTiles
             )
@@ -997,6 +1008,8 @@ public static class TerrainRuntimeInvalidationValidationUtility
             )
             && state.FullHeightRebuildRequired ==
                 expectation.ExpectedFullHeight
+            && state.FullHeightStreamingRebuildRequired ==
+                expectation.ExpectedFullHeightStreaming
             && state.FullSurfaceRebuildRequired ==
                 expectation.ExpectedFullSurface
             && state.FullCollisionRebuildRequired ==
@@ -1012,12 +1025,16 @@ public static class TerrainRuntimeInvalidationValidationUtility
             !plan.IsBlocked
             && plan.HeightWorkMode ==
                 expectation.ExpectedHeightMode
+            && plan.HeightStreamingWorkMode ==
+                expectation.ExpectedHeightStreamingMode
             && plan.SurfaceWorkMode ==
                 expectation.ExpectedSurfaceMode
             && plan.CollisionWorkMode ==
                 expectation.ExpectedCollisionMode
             && missingHeight.Count == 0
             && unexpectedHeight.Count == 0
+            && missingHeightStreaming.Count == 0
+            && unexpectedHeightStreaming.Count == 0
             && missingSurface.Count == 0
             && unexpectedSurface.Count == 0
             && missingCollision.Count == 0
@@ -1034,6 +1051,12 @@ public static class TerrainRuntimeInvalidationValidationUtility
                 expectation.ExpectedHeightMode !=
                     TerrainRuntimeBakeWorkMode.Full
                 && plan.HeightWorkMode ==
+                    TerrainRuntimeBakeWorkMode.Full
+            )
+            || (
+                expectation.ExpectedHeightStreamingMode !=
+                    TerrainRuntimeBakeWorkMode.Full
+                && plan.HeightStreamingWorkMode ==
                     TerrainRuntimeBakeWorkMode.Full
             )
             || (
@@ -1054,6 +1077,12 @@ public static class TerrainRuntimeInvalidationValidationUtility
                 expectation.ExpectedHeightMode ==
                     TerrainRuntimeBakeWorkMode.Full
                 && plan.HeightWorkMode !=
+                    TerrainRuntimeBakeWorkMode.Full
+            )
+            || (
+                expectation.ExpectedHeightStreamingMode ==
+                    TerrainRuntimeBakeWorkMode.Full
+                && plan.HeightStreamingWorkMode !=
                     TerrainRuntimeBakeWorkMode.Full
             )
             || (

@@ -6,24 +6,29 @@ using System.Text;
 public sealed class TerrainRuntimeOutputFingerprintSnapshot
 {
     private readonly ReadOnlyCollection<TerrainRuntimeOutputFingerprint> heightFingerprints;
+    private readonly ReadOnlyCollection<TerrainRuntimeOutputFingerprint> heightStreamingFingerprints;
     private readonly ReadOnlyCollection<TerrainRuntimeOutputFingerprint> surfaceFingerprints;
     private readonly ReadOnlyCollection<TerrainRuntimeOutputFingerprint> collisionFingerprints;
     private readonly ReadOnlyCollection<string> issues;
 
     public IReadOnlyList<TerrainRuntimeOutputFingerprint> HeightFingerprints => heightFingerprints;
+    public IReadOnlyList<TerrainRuntimeOutputFingerprint> HeightStreamingFingerprints => heightStreamingFingerprints;
     public IReadOnlyList<TerrainRuntimeOutputFingerprint> SurfaceFingerprints => surfaceFingerprints;
     public IReadOnlyList<TerrainRuntimeOutputFingerprint> CollisionFingerprints => collisionFingerprints;
     public IReadOnlyList<string> Issues => issues;
 
     public int ExpectedHeightAssetCount { get; private set; }
+    public int ExpectedHeightStreamingAssetCount { get; private set; }
     public int ExpectedSurfaceAssetCount { get; private set; }
     public int ExpectedCollisionAssetCount { get; private set; }
 
     public int HeightAssetCount => heightFingerprints.Count;
+    public int HeightStreamingAssetCount => heightStreamingFingerprints.Count;
     public int SurfaceAssetCount => surfaceFingerprints.Count;
     public int CollisionAssetCount => collisionFingerprints.Count;
 
     public string HeightDatasetFingerprint { get; private set; }
+    public string HeightStreamingDatasetFingerprint { get; private set; }
     public string SurfaceDatasetFingerprint { get; private set; }
     public string CollisionDatasetFingerprint { get; private set; }
 
@@ -37,12 +42,15 @@ public sealed class TerrainRuntimeOutputFingerprintSnapshot
 
     internal TerrainRuntimeOutputFingerprintSnapshot(
         IEnumerable<TerrainRuntimeOutputFingerprint> height,
+        IEnumerable<TerrainRuntimeOutputFingerprint> heightStreaming,
         IEnumerable<TerrainRuntimeOutputFingerprint> surface,
         IEnumerable<TerrainRuntimeOutputFingerprint> collision,
         int expectedHeightAssetCount,
+        int expectedHeightStreamingAssetCount,
         int expectedSurfaceAssetCount,
         int expectedCollisionAssetCount,
         string heightDatasetFingerprint,
+        string heightStreamingDatasetFingerprint,
         string surfaceDatasetFingerprint,
         string collisionDatasetFingerprint,
         bool isComplete,
@@ -56,6 +64,10 @@ public sealed class TerrainRuntimeOutputFingerprintSnapshot
             height ?? new TerrainRuntimeOutputFingerprint[0]
         ).AsReadOnly();
 
+        heightStreamingFingerprints = new List<TerrainRuntimeOutputFingerprint>(
+            heightStreaming ?? new TerrainRuntimeOutputFingerprint[0]
+        ).AsReadOnly();
+
         surfaceFingerprints = new List<TerrainRuntimeOutputFingerprint>(
             surface ?? new TerrainRuntimeOutputFingerprint[0]
         ).AsReadOnly();
@@ -67,10 +79,12 @@ public sealed class TerrainRuntimeOutputFingerprintSnapshot
         this.issues = new List<string>(issues ?? new string[0]).AsReadOnly();
 
         ExpectedHeightAssetCount = Math.Max(0, expectedHeightAssetCount);
+        ExpectedHeightStreamingAssetCount = Math.Max(0, expectedHeightStreamingAssetCount);
         ExpectedSurfaceAssetCount = Math.Max(0, expectedSurfaceAssetCount);
         ExpectedCollisionAssetCount = Math.Max(0, expectedCollisionAssetCount);
 
         HeightDatasetFingerprint = heightDatasetFingerprint ?? "";
+        HeightStreamingDatasetFingerprint = heightStreamingDatasetFingerprint ?? "";
         SurfaceDatasetFingerprint = surfaceDatasetFingerprint ?? "";
         CollisionDatasetFingerprint = collisionDatasetFingerprint ?? "";
 
@@ -94,6 +108,9 @@ public sealed class TerrainRuntimeOutputFingerprintSnapshot
             "Heightmaps: " + HeightAssetCount + " / " + ExpectedHeightAssetCount
         );
         builder.AppendLine(
+            "Height Streaming: " + HeightStreamingAssetCount + " / " + ExpectedHeightStreamingAssetCount
+        );
+        builder.AppendLine(
             "Surface Masks: " + SurfaceAssetCount + " / " + ExpectedSurfaceAssetCount
         );
         builder.AppendLine(
@@ -101,6 +118,7 @@ public sealed class TerrainRuntimeOutputFingerprintSnapshot
         );
         builder.AppendLine();
         builder.AppendLine("Height Dataset Hash: " + GetHashLabel(HeightDatasetFingerprint));
+        builder.AppendLine("Height Streaming Dataset Hash: " + GetHashLabel(HeightStreamingDatasetFingerprint));
         builder.AppendLine("Surface Dataset Hash: " + GetHashLabel(SurfaceDatasetFingerprint));
         builder.AppendLine("Collision Dataset Hash: " + GetHashLabel(CollisionDatasetFingerprint));
 

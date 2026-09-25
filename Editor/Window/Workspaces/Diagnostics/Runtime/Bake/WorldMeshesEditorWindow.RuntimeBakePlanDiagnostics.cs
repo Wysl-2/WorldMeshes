@@ -45,6 +45,15 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.LabelField(
+            "Height Streaming",
+            FormatRuntimeBakePlanStage(
+                plan.HeightStreamingWorkMode,
+                plan.HeightStreamingTileCount,
+                "tiles"
+            )
+        );
+
+        EditorGUILayout.LabelField(
             "Surface Masks",
             FormatRuntimeBakePlanStage(
                 plan.SurfaceWorkMode,
@@ -232,6 +241,15 @@ public partial class WorldMeshesEditorWindow :
             FormatRuntimeBakePlanStage(
                 plan.HeightWorkMode,
                 plan.HeightTileCount,
+                "tiles"
+            )
+        );
+
+        builder.AppendLine(
+            "Height Streaming Work: " +
+            FormatRuntimeBakePlanStage(
+                plan.HeightStreamingWorkMode,
+                plan.HeightStreamingTileCount,
                 "tiles"
             )
         );

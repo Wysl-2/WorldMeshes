@@ -121,6 +121,7 @@ public static class TerrainRuntimeBakeValidationUtility
                 null,
                 null,
                 null,
+                null,
                 false,
                 null,
                 null,
@@ -145,6 +146,12 @@ public static class TerrainRuntimeBakeValidationUtility
 
         TerrainRuntimeBakeStageValidationResult heightValidation =
             BuildHeightValidation(
+                pipelineResult,
+                worldSettings
+            );
+
+        TerrainRuntimeBakeStageValidationResult heightStreamingValidation =
+            BuildHeightStreamingValidation(
                 pipelineResult,
                 worldSettings
             );
@@ -192,6 +199,7 @@ public static class TerrainRuntimeBakeValidationUtility
             !stagePlansRequired
             || (
                 pipelineResult.HeightPlan != null
+                && pipelineResult.HeightStreamingPlan != null
                 && pipelineResult.SurfacePlan != null
                 && pipelineResult.CollisionPlan != null
                 && pipelineResult.AddressablesPlan != null
@@ -208,6 +216,7 @@ public static class TerrainRuntimeBakeValidationUtility
         bool comparisonsPassed =
             stagePlansCaptured
             && IsStageAcceptable(heightValidation)
+            && IsStageAcceptable(heightStreamingValidation)
             && IsStageAcceptable(surfaceValidation)
             && IsStageAcceptable(collisionValidation)
             && IsAddressablesAcceptable(addressablesValidation)
@@ -288,6 +297,7 @@ public static class TerrainRuntimeBakeValidationUtility
             pipelineResult,
             capturedInitialPlan ?? pipelineResult.InitialPlan,
             heightValidation,
+            heightStreamingValidation,
             surfaceValidation,
             collisionValidation,
             addressablesValidation,
@@ -342,6 +352,55 @@ public static class TerrainRuntimeBakeValidationUtility
             result != null ? result.CreatedTileCount : 0,
             result != null ? result.UpdatedTileCount : 0,
             result != null ? result.RemovedTileCount : 0,
+            result != null ? result.ErrorMessage : ""
+        );
+    }
+
+    private static TerrainRuntimeBakeStageValidationResult BuildHeightStreamingValidation(
+        TerrainRuntimeBakePipelineResult pipelineResult,
+        WorldSettings worldSettings
+    )
+    {
+        TerrainRuntimeBakePlan plan = pipelineResult.HeightStreamingPlan;
+        TerrainRuntimeHeightStreamingCompileResult result =
+            pipelineResult.HeightStreamingResult;
+
+        bool evaluated = plan != null;
+        TerrainRuntimeBakeWorkMode expectedMode = GetExpectedCoordinateWorkMode(
+            pipelineResult.Mode,
+            plan != null
+                ? plan.HeightStreamingWorkMode
+                : TerrainRuntimeBakeWorkMode.None
+        );
+
+        List<Vector2Int> expected = GetExpectedHeightStreamingCoordinates(
+            pipelineResult.Mode,
+            plan,
+            worldSettings
+        );
+
+        bool completed =
+            result != null
+            && (
+                result.Outcome == TerrainRuntimeHeightStreamingCompileOutcome.Completed
+                || result.Outcome == TerrainRuntimeHeightStreamingCompileOutcome.NoWork
+            );
+
+        return new TerrainRuntimeBakeStageValidationResult(
+            "Height Streaming",
+            evaluated,
+            pipelineResult.HeightStreamingStageExecuted,
+            completed,
+            expectedMode,
+            result != null ? result.WorkMode : TerrainRuntimeBakeWorkMode.None,
+            expected,
+            result != null ? result.RequestedTiles : null,
+            result != null ? result.SucceededTiles : null,
+            result != null ? result.FailedTiles : null,
+            result != null ? result.UnprocessedTiles : null,
+            result != null ? result.CreatedAssetCount : 0,
+            result != null ? result.UpdatedAssetCount : 0,
+            result != null ? result.RemovedAssetCount : 0,
             result != null ? result.ErrorMessage : ""
         );
     }
@@ -468,6 +527,28 @@ public static class TerrainRuntimeBakeValidationUtility
         }
 
         return CopySorted(plan.HeightTiles);
+    }
+
+    private static List<Vector2Int> GetExpectedHeightStreamingCoordinates(
+        TerrainRuntimeBakePipelineMode pipelineMode,
+        TerrainRuntimeBakePlan plan,
+        WorldSettings worldSettings
+    )
+    {
+        if (plan == null)
+        {
+            return new List<Vector2Int>();
+        }
+
+        if (
+            pipelineMode == TerrainRuntimeBakePipelineMode.RebuildAll
+            || plan.HeightStreamingWorkMode == TerrainRuntimeBakeWorkMode.Full
+        )
+        {
+            return CollectAllHeightTiles(worldSettings);
+        }
+
+        return CopySorted(plan.HeightStreamingTiles);
     }
 
     private static List<Vector2Int> GetExpectedSurfaceCoordinates(

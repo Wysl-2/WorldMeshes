@@ -480,6 +480,21 @@ public static class TerrainRuntimeBakePlanner
                         generationState
                     );
 
+        if (
+            TerrainRuntimeIntegrityAuditUtility
+                .TryGetCachedGeneratedDataAudit(
+                    worldSettings,
+                    out TerrainRuntimeIntegrityAuditResult cachedIntegrity
+                )
+            && cachedIntegrity != null
+            && cachedIntegrity.HeightStreaming != null
+            && !cachedIntegrity.HeightStreaming.IsValid
+        )
+        {
+            heightStreamingStatus =
+                TerrainGenerationStateUtility.GenerationStatus.OutOfDate;
+        }
+
         bool streamingBaselineCurrent =
             TerrainGenerationStateUtility
                 .IsHeightStreamingManifestCurrent(

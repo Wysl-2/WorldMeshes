@@ -14,6 +14,12 @@ public enum TerrainRuntimeFaultRecoveryScenario
     None,
 
     MissingHeightTexture,
+    MissingStreamingHeightTexture,
+    IncompleteStreamingPyramid,
+    InvalidStreamingMetadata,
+    MissingStreamingAddressableEntry,
+    ObsoleteStreamingStride,
+    StreamingPolicySignatureMismatch,
     MissingSurfaceTexture,
     MissingCollisionMesh,
 
@@ -81,6 +87,7 @@ public sealed class TerrainRuntimeFaultExpectation
 {
     public TerrainRuntimeFaultRecoveryScenario Scenario { get; internal set; }
     public TerrainRuntimeBakeWorkMode HeightMode { get; internal set; }
+    public TerrainRuntimeBakeWorkMode HeightStreamingMode { get; internal set; }
     public TerrainRuntimeBakeWorkMode SurfaceMode { get; internal set; }
     public TerrainRuntimeBakeWorkMode CollisionMode { get; internal set; }
     public bool AddressablesConfigurationRequired { get; internal set; }
@@ -98,6 +105,7 @@ public sealed class TerrainRuntimeFaultExpectation
             {
                 Scenario = scenario,
                 HeightMode = TerrainRuntimeBakeWorkMode.None,
+                HeightStreamingMode = TerrainRuntimeBakeWorkMode.None,
                 SurfaceMode = TerrainRuntimeBakeWorkMode.None,
                 CollisionMode = TerrainRuntimeBakeWorkMode.None,
                 AddressablesConfigurationRequired = false,
@@ -128,6 +136,25 @@ public sealed class TerrainRuntimeFaultExpectation
                 e.RecoveryAuthority = TerrainRuntimeFaultRecoveryAuthority.UnifiedBake;
                 e.Description =
                     "Missing Height topology/provenance requires Full Height dependency-chain recovery and structural Addressables reconciliation.";
+                return e;
+
+            case TerrainRuntimeFaultRecoveryScenario.MissingStreamingHeightTexture:
+            case TerrainRuntimeFaultRecoveryScenario.IncompleteStreamingPyramid:
+            case TerrainRuntimeFaultRecoveryScenario.InvalidStreamingMetadata:
+            case TerrainRuntimeFaultRecoveryScenario.ObsoleteStreamingStride:
+            case TerrainRuntimeFaultRecoveryScenario.StreamingPolicySignatureMismatch:
+                e.HeightStreamingMode = TerrainRuntimeBakeWorkMode.Full;
+                e.RecoveryAuthority = TerrainRuntimeFaultRecoveryAuthority.UnifiedBake;
+                e.Description =
+                    "Derived Height Streaming corruption must rebuild only the streaming pyramid while authoritative Height, Surface, and Collision remain current.";
+                return e;
+
+            case TerrainRuntimeFaultRecoveryScenario.MissingStreamingAddressableEntry:
+                e.AddressablesConfigurationRequired = true;
+                e.RecoveryAuthority =
+                    TerrainRuntimeFaultRecoveryAuthority.AddressablesConfigureAndBuild;
+                e.Description =
+                    "A missing derived Height Streaming Addressables entry requires structural Addressables reconciliation without regenerating terrain datasets.";
                 return e;
 
             case TerrainRuntimeFaultRecoveryScenario.MissingSurfaceTexture:
@@ -356,11 +383,16 @@ public sealed class TerrainRuntimeFaultRecoveryValidationResult
         b.AppendLine();
         b.AppendLine(heading + ":");
         b.AppendLine("  Height: " + r.HeightStatus);
+        b.AppendLine("  Height Streaming: " + r.HeightStreamingStatus);
         b.AppendLine("  Surface: " + r.SurfaceStatus);
         b.AppendLine("  Collision: " + r.CollisionStatus);
         b.AppendLine(
             "  Height Integrity: " +
             IntegrityLabel(r.IntegrityAudit != null ? r.IntegrityAudit.Height : null)
+        );
+        b.AppendLine(
+            "  Height Streaming Integrity: " +
+            IntegrityLabel(r.IntegrityAudit != null ? r.IntegrityAudit.HeightStreaming : null)
         );
         b.AppendLine(
             "  Surface Integrity: " +
@@ -429,6 +461,7 @@ internal sealed class TerrainRuntimeFaultRecoveryCheckpoint
     public string originalLabels;
     public bool registeredFaultLabel;
     public string faultLabel;
+    public bool createdFaultAsset;
 }
 
 internal sealed class TerrainRuntimeFaultInjectionState
@@ -457,6 +490,7 @@ internal sealed class TerrainRuntimeFaultInjectionState
 
     public BundledAssetGroupSchema.BundlePackingMode OriginalBundleMode;
     public bool OriginalIncludeAddressInCatalog;
+    public bool CreatedFaultAsset;
 }
 
 public static class TerrainRuntimeFaultInjectionUtility
@@ -526,6 +560,13 @@ public static class TerrainRuntimeFaultInjectionUtility
             if (IsGeneratedFileFault(scenario))
             {
                 ok = InjectGeneratedFileFault(state, out error);
+            }
+            else if (
+                scenario ==
+                TerrainRuntimeFaultRecoveryScenario.ObsoleteStreamingStride
+            )
+            {
+                ok = InjectObsoleteStreamingStride(worldSettings, state, out error);
             }
             else if (IsMetadataFault(scenario))
             {
@@ -658,6 +699,14 @@ public static class TerrainRuntimeFaultInjectionUtility
         try
         {
             if (
+                state.CreatedFaultAsset
+                && !string.IsNullOrEmpty(state.TargetPath)
+            )
+            {
+                AssetDatabase.DeleteAsset(state.TargetPath);
+            }
+
+            if (
                 !string.IsNullOrEmpty(state.BackupAssetPath)
                 && File.Exists(state.BackupAssetPath)
                 && !string.IsNullOrEmpty(state.TargetPath)
@@ -766,6 +815,14 @@ public static class TerrainRuntimeFaultInjectionUtility
 
         try
         {
+            if (
+                c.createdFaultAsset
+                && !string.IsNullOrEmpty(c.targetPath)
+            )
+            {
+                AssetDatabase.DeleteAsset(c.targetPath);
+            }
+
             if (
                 !string.IsNullOrEmpty(c.backupAssetPath)
                 && File.Exists(c.backupAssetPath)
@@ -883,6 +940,25 @@ public static class TerrainRuntimeFaultInjectionUtility
                 state.FaultDescription =
                     "Removed generated Height Texture2D at coordinate (0, 0).";
                 break;
+
+            case TerrainRuntimeFaultRecoveryScenario.MissingStreamingHeightTexture:
+            {
+                if (!TryGetFirstStreamingStride(out int stride, out error))
+                {
+                    return false;
+                }
+
+                state.TargetPath =
+                    TerrainRuntimeHeightAssetUtility.GetStreamingHeightTilePath(
+                        stride,
+                        0,
+                        0
+                    );
+                state.FaultDescription =
+                    "Removed derived Height Streaming Texture2D at stride " +
+                    stride + " coordinate (0, 0).";
+                break;
+            }
 
             case TerrainRuntimeFaultRecoveryScenario.MissingSurfaceTexture:
                 state.TargetPath =
@@ -1003,6 +1079,61 @@ public static class TerrainRuntimeFaultInjectionUtility
                         TerrainGenerationStateUtility.RuntimeHeightCompilerVersion + 1000;
                     state.FaultDescription =
                         "Set runtime Height manifest compilerVersion to an incompatible validation value.";
+                }
+
+                EditorUtility.SetDirty(manifest);
+                AssetDatabase.SaveAssetIfDirty(manifest);
+                return true;
+            }
+
+            case TerrainRuntimeFaultRecoveryScenario.IncompleteStreamingPyramid:
+            case TerrainRuntimeFaultRecoveryScenario.InvalidStreamingMetadata:
+            case TerrainRuntimeFaultRecoveryScenario.StreamingPolicySignatureMismatch:
+            {
+                state.TargetPath =
+                    TerrainRuntimeHeightAssetUtility.HeightmapManifestPath;
+
+                if (!BackupAsset(state, state.TargetPath, out error))
+                {
+                    return false;
+                }
+
+                TerrainHeightmapManifest manifest =
+                    AssetDatabase.LoadAssetAtPath<TerrainHeightmapManifest>(
+                        state.TargetPath
+                    );
+
+                if (manifest == null)
+                {
+                    error = "Runtime Height manifest is unavailable.";
+                    return false;
+                }
+
+                if (
+                    state.Scenario ==
+                    TerrainRuntimeFaultRecoveryScenario.IncompleteStreamingPyramid
+                )
+                {
+                    manifest.streamingPyramidIsComplete = false;
+                    state.FaultDescription =
+                        "Set Height Streaming pyramid completeness to false.";
+                }
+                else if (
+                    state.Scenario ==
+                    TerrainRuntimeFaultRecoveryScenario.InvalidStreamingMetadata
+                )
+                {
+                    manifest.streamingPyramidCompilerVersion =
+                        TerrainGenerationStateUtility.RuntimeHeightStreamingCompilerVersion + 1000;
+                    state.FaultDescription =
+                        "Set Height Streaming compiler metadata to an incompatible validation value.";
+                }
+                else
+                {
+                    manifest.streamingGenerationSignature =
+                        "__WorldMeshesFaultRecovery_InvalidStreamingSignature";
+                    state.FaultDescription =
+                        "Replaced the Height Streaming generation signature with an invalid validation value.";
                 }
 
                 EditorUtility.SetDirty(manifest);
@@ -1273,6 +1404,7 @@ public static class TerrainRuntimeFaultInjectionUtility
         switch (state.Scenario)
         {
             case TerrainRuntimeFaultRecoveryScenario.MissingHeightAddressableEntry:
+            case TerrainRuntimeFaultRecoveryScenario.MissingStreamingAddressableEntry:
             case TerrainRuntimeFaultRecoveryScenario.MissingSurfaceAddressableEntry:
             case TerrainRuntimeFaultRecoveryScenario.MissingCollisionAddressableEntry:
                 targetGroup.RemoveAssetEntry(entry, true);
@@ -1377,6 +1509,30 @@ public static class TerrainRuntimeFaultInjectionUtility
         string path;
 
         if (
+            scenario ==
+            TerrainRuntimeFaultRecoveryScenario.MissingStreamingAddressableEntry
+        )
+        {
+            group =
+                settings.FindGroup(
+                    TerrainHeightmapAddressablesUtility
+                        .HeightmapAddressablesGroupName
+                );
+
+            if (!TryGetFirstStreamingStride(out int stride, out error))
+            {
+                return false;
+            }
+
+            path =
+                TerrainRuntimeHeightAssetUtility
+                    .GetStreamingHeightTilePath(
+                        stride,
+                        0,
+                        0
+                    );
+        }
+        else if (
             scenario ==
             TerrainRuntimeFaultRecoveryScenario.MissingSurfaceAddressableEntry
         )
@@ -2167,7 +2323,9 @@ public static class TerrainRuntimeFaultInjectionUtility
                 registeredFaultLabel =
                     state.RegisteredFaultLabel,
                 faultLabel =
-                    state.FaultLabel ?? ""
+                    state.FaultLabel ?? "",
+                createdFaultAsset =
+                    state.CreatedFaultAsset
             };
 
         File.WriteAllText(
@@ -2274,12 +2432,112 @@ public static class TerrainRuntimeFaultInjectionUtility
             );
     }
 
+    private static bool TryGetFirstStreamingStride(
+        out int sampleStride,
+        out string error
+    )
+    {
+        sampleStride = 0;
+        error = "";
+
+        WorldSettings worldSettings =
+            AssetDatabase.LoadAssetAtPath<WorldSettings>(
+                WorldMeshesPaths.WorldSettingsAssetPath
+            );
+
+        List<int> strides = new List<int>();
+
+        if (
+            !TerrainHeightStreamingPyramidPolicy.TryGetDerivedStrides(
+                worldSettings,
+                strides,
+                out error
+            )
+            || strides.Count == 0
+        )
+        {
+            if (string.IsNullOrEmpty(error))
+            {
+                error = "No derived Height Streaming stride is configured.";
+            }
+            return false;
+        }
+
+        sampleStride = strides[0];
+        return true;
+    }
+
+    private static bool InjectObsoleteStreamingStride(
+        WorldSettings worldSettings,
+        TerrainRuntimeFaultInjectionState state,
+        out string error
+    )
+    {
+        error = "";
+
+        if (!TryGetFirstStreamingStride(out int sourceStride, out error))
+        {
+            return false;
+        }
+
+        int obsoleteStride =
+            Mathf.Max(
+                TerrainHeightStreamingPyramidPolicy.GetConfiguredMaximumStride(
+                    worldSettings
+                ) * 2,
+                sourceStride * 2
+            );
+
+        string sourcePath =
+            TerrainRuntimeHeightAssetUtility.GetStreamingHeightTilePath(
+                sourceStride,
+                0,
+                0
+            );
+
+        state.TargetPath =
+            TerrainRuntimeHeightAssetUtility.GetStreamingHeightTilePath(
+                obsoleteStride,
+                0,
+                0
+            );
+
+        string folder =
+            TerrainRuntimeHeightAssetUtility.GetStreamingStrideFolder(
+                obsoleteStride
+            );
+
+        if (!AssetDatabase.IsValidFolder(folder))
+        {
+            string parent =
+                TerrainRuntimeHeightAssetUtility.HeightmapStreamingFolder;
+            AssetDatabase.CreateFolder(
+                parent,
+                "Stride_" + obsoleteStride
+            );
+        }
+
+        if (!AssetDatabase.CopyAsset(sourcePath, state.TargetPath))
+        {
+            error =
+                "Could not create the validation-only obsolete streaming representation.";
+            return false;
+        }
+
+        state.CreatedFaultAsset = true;
+        state.FaultDescription =
+            "Created validation-only obsolete Height Streaming stride " +
+            obsoleteStride + " at coordinate (0, 0).";
+        return true;
+    }
+
     private static bool IsGeneratedFileFault(
         TerrainRuntimeFaultRecoveryScenario s
     )
     {
         return
             s == TerrainRuntimeFaultRecoveryScenario.MissingHeightTexture
+            || s == TerrainRuntimeFaultRecoveryScenario.MissingStreamingHeightTexture
             || s == TerrainRuntimeFaultRecoveryScenario.MissingSurfaceTexture
             || s == TerrainRuntimeFaultRecoveryScenario.MissingCollisionMesh
             || s == TerrainRuntimeFaultRecoveryScenario.MissingHeightManifest
@@ -2295,6 +2553,9 @@ public static class TerrainRuntimeFaultInjectionUtility
         return
             s == TerrainRuntimeFaultRecoveryScenario.IncompleteHeightManifest
             || s == TerrainRuntimeFaultRecoveryScenario.InvalidHeightMetadata
+            || s == TerrainRuntimeFaultRecoveryScenario.IncompleteStreamingPyramid
+            || s == TerrainRuntimeFaultRecoveryScenario.InvalidStreamingMetadata
+            || s == TerrainRuntimeFaultRecoveryScenario.StreamingPolicySignatureMismatch
             || s == TerrainRuntimeFaultRecoveryScenario.IncompleteSurfaceManifest
             || s == TerrainRuntimeFaultRecoveryScenario.InvalidSurfaceMetadata
             || s == TerrainRuntimeFaultRecoveryScenario.InvalidCollisionMetadata
@@ -2310,6 +2571,7 @@ public static class TerrainRuntimeFaultInjectionUtility
             s == TerrainRuntimeFaultRecoveryScenario.MissingPreparedCollisionManifest
             || s == TerrainRuntimeFaultRecoveryScenario.InvalidPreparedCollisionManifest
             || s == TerrainRuntimeFaultRecoveryScenario.MissingHeightAddressableEntry
+            || s == TerrainRuntimeFaultRecoveryScenario.MissingStreamingAddressableEntry
             || s == TerrainRuntimeFaultRecoveryScenario.MissingSurfaceAddressableEntry
             || s == TerrainRuntimeFaultRecoveryScenario.MissingCollisionAddressableEntry
             || s == TerrainRuntimeFaultRecoveryScenario.IncorrectAddressableAddress
@@ -2884,6 +3146,7 @@ public static class TerrainRuntimeFaultRecoveryScenarioRunner
 
         bool modes =
             damaged.Plan.HeightWorkMode == e.HeightMode
+            && damaged.Plan.HeightStreamingWorkMode == e.HeightStreamingMode
             && damaged.Plan.SurfaceWorkMode == e.SurfaceMode
             && damaged.Plan.CollisionWorkMode == e.CollisionMode;
 
@@ -2912,6 +3175,8 @@ public static class TerrainRuntimeFaultRecoveryScenarioRunner
                 && overall
                 && damaged.HeightStatus ==
                     TerrainGenerationStateUtility.GenerationStatus.Current
+                && damaged.HeightStreamingStatus ==
+                    TerrainGenerationStateUtility.GenerationStatus.Current
                 && damaged.SurfaceStatus ==
                     TerrainGenerationStateUtility.GenerationStatus.Current
                 && damaged.CollisionStatus ==
@@ -2929,6 +3194,8 @@ public static class TerrainRuntimeFaultRecoveryScenarioRunner
                 && hierarchy
                 && overall
                 && damaged.HeightStatus ==
+                    TerrainGenerationStateUtility.GenerationStatus.Current
+                && damaged.HeightStreamingStatus ==
                     TerrainGenerationStateUtility.GenerationStatus.Current
                 && damaged.SurfaceStatus ==
                     TerrainGenerationStateUtility.GenerationStatus.Current
@@ -2948,6 +3215,13 @@ public static class TerrainRuntimeFaultRecoveryScenarioRunner
                     ? damaged.HeightStatus ==
                         TerrainGenerationStateUtility.GenerationStatus.Current
                     : damaged.HeightStatus !=
+                        TerrainGenerationStateUtility.GenerationStatus.Current
+            )
+            && (
+                e.HeightStreamingMode == TerrainRuntimeBakeWorkMode.None
+                    ? damaged.HeightStreamingStatus ==
+                        TerrainGenerationStateUtility.GenerationStatus.Current
+                    : damaged.HeightStreamingStatus !=
                         TerrainGenerationStateUtility.GenerationStatus.Current
             )
             && (

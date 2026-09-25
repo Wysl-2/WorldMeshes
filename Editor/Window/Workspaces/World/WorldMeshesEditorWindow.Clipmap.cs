@@ -19,6 +19,10 @@ public partial class WorldMeshesEditorWindow : EditorWindow
     private int inputClipmapBaseSampleStep =
         1;
 
+    [SerializeField]
+    private int inputHeightStreamingMaximumStride =
+        TerrainHeightStreamingPyramidPolicy.DefaultMaximumStride;
+
     /*
      * User-facing staged coverage requests for LOD1+.
      *
@@ -69,6 +73,10 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                 1,
                 worldSettings.clipmapBaseSampleStep
             );
+
+        inputHeightStreamingMaximumStride =
+            TerrainHeightStreamingPyramidPolicy
+                .GetConfiguredMaximumStride(worldSettings);
 
         EnsureClipmapLODCoverageInputCapacity();
 
@@ -125,6 +133,26 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                 inputClipmapBaseSampleStep
             );
 
+        int heightStreamingMaximumStride =
+            Mathf.Max(
+                TerrainHeightStreamingPyramidPolicy.MinimumDerivedStride,
+                inputHeightStreamingMaximumStride
+            );
+
+        if (
+            !TerrainHeightStreamingPyramidPolicy.IsPowerOfTwo(
+                heightStreamingMaximumStride
+            )
+        )
+        {
+            EditorUtility.DisplayDialog(
+                "Invalid Height Streaming Stride",
+                "Height Streaming Maximum Stride must be a power of two greater than or equal to 2.",
+                "OK"
+            );
+            return;
+        }
+
         // -------------------------------------------------
         // Validate LOD0 resolution
         // -------------------------------------------------
@@ -164,6 +192,9 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         inputClipmapBaseSampleStep =
             baseSampleStep;
 
+        inputHeightStreamingMaximumStride =
+            heightStreamingMaximumStride;
+
         EnsureClipmapLODCoverageInputCapacity();
 
         float stagedBaseSpacing =
@@ -194,8 +225,15 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         worldSettings.clipmapLevelCount =
             levelCount;
 
+        int previousHeightStreamingMaximumStride =
+            TerrainHeightStreamingPyramidPolicy
+                .GetConfiguredMaximumStride(worldSettings);
+
         worldSettings.clipmapBaseSampleStep =
             baseSampleStep;
+
+        worldSettings.heightStreamingMaximumStride =
+            heightStreamingMaximumStride;
 
         worldSettings.clipmapLODOuterResolutions =
             savedOuterResolutions;
@@ -207,6 +245,19 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         AssetDatabase.SaveAssetIfDirty(
             worldSettings
         );
+
+        if (
+            previousHeightStreamingMaximumStride !=
+            heightStreamingMaximumStride
+        )
+        {
+            TerrainRuntimeBakeStateService.ApplyMutation(
+                new TerrainRuntimeBakeStateMutation()
+                    .RequireFullHeightStreaming()
+                    .DirtyAddressablesConfiguration()
+                    .DirtyAddressablesContent()
+            );
+        }
 
         /*
          * Reload the staged world-space coverage from the exact
@@ -337,6 +388,12 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                 inputClipmapBaseSampleStep
             );
 
+        inputHeightStreamingMaximumStride =
+            EditorGUILayout.IntField(
+                "Height Streaming Max Stride",
+                inputHeightStreamingMaximumStride
+            );
+
         // -------------------------------------------------
         // Clamp basic ranges
         // -------------------------------------------------
@@ -358,6 +415,12 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             Mathf.Max(
                 1,
                 inputClipmapBaseSampleStep
+            );
+
+        inputHeightStreamingMaximumStride =
+            Mathf.Max(
+                TerrainHeightStreamingPyramidPolicy.MinimumDerivedStride,
+                inputHeightStreamingMaximumStride
             );
 
         bool centerResolutionValid =
@@ -406,6 +469,34 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             "Outer Coverage",
             $"{lod0Coverage} x {lod0Coverage}"
         );
+
+        if (
+            TerrainHeightStreamingPyramidPolicy.TryGetRequiredStrideForClipmapLevel(
+                inputClipmapBaseSampleStep,
+                0,
+                out int lod0HeightStride,
+                out _
+            )
+        )
+        {
+            EditorGUILayout.LabelField(
+                "Height Sample Stride",
+                lod0HeightStride.ToString()
+            );
+
+            if (
+                lod0HeightStride > 0
+                && worldSettings.HeightTileIntervalsPerSide % lod0HeightStride == 0
+            )
+            {
+                EditorGUILayout.LabelField(
+                    "Height Page Resolution",
+                    (worldSettings.HeightTileIntervalsPerSide / lod0HeightStride + 1) +
+                    " x " +
+                    (worldSettings.HeightTileIntervalsPerSide / lod0HeightStride + 1)
+                );
+            }
+        }
 
         // -------------------------------------------------
         // Per-LOD coverage
@@ -508,6 +599,35 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                     spacing.ToString()
                 );
 
+                if (
+                    TerrainHeightStreamingPyramidPolicy.TryGetRequiredStrideForClipmapLevel(
+                        inputClipmapBaseSampleStep,
+                        level,
+                        out int heightStride,
+                        out _
+                    )
+                )
+                {
+                    EditorGUILayout.LabelField(
+                        $"LOD{level} Height Stride",
+                        heightStride.ToString()
+                    );
+
+                    if (
+                        heightStride > 0
+                        && worldSettings.HeightTileIntervalsPerSide % heightStride == 0
+                    )
+                    {
+                        int heightPageResolution =
+                            worldSettings.HeightTileIntervalsPerSide / heightStride + 1;
+
+                        EditorGUILayout.LabelField(
+                            $"LOD{level} Height Page Resolution",
+                            heightPageResolution + " x " + heightPageResolution
+                        );
+                    }
+                }
+
                 EditorGUILayout.LabelField(
                     $"LOD{level} Outer Resolution",
                     resolvedResolution.ToString()
@@ -592,6 +712,34 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             "Generated Assets",
             generatedAssetCount.ToString()
         );
+
+        TerrainHeightStreamingPyramidPolicy.TryGetRequiredStrideForClipmapLevel(
+            inputClipmapBaseSampleStep,
+            Mathf.Max(0, inputClipmapLevelCount - 1),
+            out int maximumRequiredHeightStride,
+            out _
+        );
+
+        EditorGUILayout.LabelField(
+            "Height Streaming Max Stride",
+            inputHeightStreamingMaximumStride.ToString()
+        );
+
+        EditorGUILayout.LabelField(
+            "Max Stride Required By Clipmap",
+            maximumRequiredHeightStride.ToString()
+        );
+
+        if (
+            maximumRequiredHeightStride > inputHeightStreamingMaximumStride
+            || worldSettings.HeightTileIntervalsPerSide % Mathf.Max(1, maximumRequiredHeightStride) != 0
+        )
+        {
+            EditorGUILayout.HelpBox(
+                "The staged clipmap requires a Height representation not supported by the staged streaming pyramid. Increase Height Streaming Max Stride or reduce clipmap LOD demand.",
+                MessageType.Warning
+            );
+        }
 
         EditorGUILayout.LabelField(
             "Final Outer Coverage",
