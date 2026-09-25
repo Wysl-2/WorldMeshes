@@ -24,7 +24,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         );
 
         EditorGUILayout.HelpBox(
-            "MRH07 runtime validation is manual development tooling. " +
+            "Multiresolution runtime validation is manual development tooling. " +
             "Live snapshots are lightweight; GPU readback and stress tests " +
             "only run when explicitly requested.",
             MessageType.Info
@@ -190,6 +190,21 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             );
 
             EditorGUILayout.LabelField(
+                "Reserved Required Slots",
+                scheduler.ReservedRequiredSlots.ToString()
+            );
+
+            EditorGUILayout.LabelField(
+                "Transient Sources / Limit",
+                $"{scheduler.TransientSourceSlotCount} / {scheduler.ConcurrencyLimit}"
+            );
+
+            EditorGUILayout.LabelField(
+                "Ready / Pending Release",
+                $"{scheduler.ReadySourceCount} / {scheduler.PendingGpuReleaseCount}"
+            );
+
+            EditorGUILayout.LabelField(
                 "Scheduler Required Queue",
                 scheduler.QueuedRequiredCount.ToString()
             );
@@ -202,6 +217,42 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             EditorGUILayout.LabelField(
                 "Scheduler Peak Active",
                 scheduler.PeakActiveLoadCount.ToString()
+            );
+
+            EditorGUILayout.LabelField(
+                "Peak Transient Sources",
+                scheduler.PeakTransientSourceCount.ToString()
+            );
+
+            EditorGUILayout.LabelField(
+                "Logical Source Estimate",
+                FormatMrh07Bytes(
+                    scheduler.EstimatedLogicalSourceBytes
+                )
+            );
+
+            EditorGUILayout.LabelField(
+                "Peak Source Estimate",
+                FormatMrh07Bytes(
+                    scheduler.PeakEstimatedLogicalSourceBytes
+                )
+            );
+
+            EditorGUILayout.LabelField(
+                "Source Uploads / Cache Reuses",
+                $"{scheduler.SourceUploadCount} / {scheduler.CacheToCacheReuseCount}"
+            );
+
+            EditorGUILayout.LabelField(
+                "Stale Queue / Completed Discards",
+                $"{scheduler.StaleQueuedRequestDiscardCount} / {scheduler.StaleCompletedSourceDiscardCount}"
+            );
+
+            EditorGUILayout.LabelField(
+                "Source Release Mode",
+                scheduler.GraphicsFenceSupported
+                    ? "GPU Fence"
+                    : "Conservative Frame Delay"
             );
         }
 
@@ -296,8 +347,8 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             );
 
             EditorGUILayout.LabelField(
-                "Active Valid / Resident",
-                $"{lod.ActiveValidPageCount} / {lod.ResidentPageCount}"
+                "Active / Staging Valid",
+                $"{lod.ActiveValidPageCount} / {lod.StagingValidPageCount}"
             );
 
             EditorGUILayout.LabelField(

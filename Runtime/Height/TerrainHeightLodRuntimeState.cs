@@ -31,18 +31,14 @@ public readonly struct TerrainHeightPageKey :
         Coordinate = coordinate;
     }
 
-    public bool Equals(
-        TerrainHeightPageKey other
-    )
+    public bool Equals(TerrainHeightPageKey other)
     {
         return
             SampleStride == other.SampleStride
             && Coordinate == other.Coordinate;
     }
 
-    public override bool Equals(
-        object obj
-    )
+    public override bool Equals(object obj)
     {
         return
             obj is TerrainHeightPageKey other
@@ -53,13 +49,16 @@ public readonly struct TerrainHeightPageKey :
     {
         unchecked
         {
-            return
-                SampleStride * 397
-                ^ Coordinate.GetHashCode();
+            return SampleStride * 397 ^ Coordinate.GetHashCode();
         }
     }
 }
 
+/*
+ * Retained temporarily for compatibility with legacy helper code.
+ * Production source loading no longer populates ResidentPages; Addressable
+ * source ownership lives in TerrainHeightPageLoadScheduler.
+ */
 internal sealed class TerrainHeightResidentPage
 {
     public Vector2Int Coordinate;
@@ -75,7 +74,6 @@ internal sealed class TerrainHeightLodRuntimeState
 {
     public int Level { get; }
     public int SampleStride { get; }
-
     public TerrainHeightStreamingLevelDescriptor Descriptor { get; }
 
     public int CacheWidth;
@@ -83,10 +81,12 @@ internal sealed class TerrainHeightLodRuntimeState
 
     public Vector2Int ActiveCacheOrigin;
     public Vector2Int RequestedCacheOrigin;
+    public Vector2Int StagingCacheOrigin;
 
     public TerrainHeightPageRect ActiveRequiredPages;
     public TerrainHeightPageRect RequestedRequiredPages;
     public TerrainHeightPageRect RequestedPrefetchPages;
+    public TerrainHeightPageRect StagingRequiredPages;
 
     public Texture2DArray ActiveCache;
     public Texture2DArray StagingCache;
@@ -97,20 +97,16 @@ internal sealed class TerrainHeightLodRuntimeState
         TerrainHeightLodTransitionState.Idle;
 
     public int RequestGeneration;
+    public int StagingGeneration;
 
-    public readonly Dictionary<
-        Vector2Int,
-        TerrainHeightResidentPage
-    > ResidentPages =
+    public readonly Dictionary<Vector2Int, TerrainHeightResidentPage> ResidentPages =
         new Dictionary<Vector2Int, TerrainHeightResidentPage>();
 
-    public readonly HashSet<Vector2Int>
-        ActiveValidPages =
-            new HashSet<Vector2Int>();
+    public readonly HashSet<Vector2Int> ActiveValidPages =
+        new HashSet<Vector2Int>();
 
-    public readonly HashSet<Vector2Int>
-        StagingValidPages =
-            new HashSet<Vector2Int>();
+    public readonly HashSet<Vector2Int> StagingValidPages =
+        new HashSet<Vector2Int>();
 
     public TerrainHeightLodRuntimeState(
         int level,
@@ -127,28 +123,41 @@ internal sealed class TerrainHeightLodRuntimeState
     {
         get
         {
-            if (
-                CacheWidth <= 0
-                || CacheHeight <= 0
-            )
+            if (CacheWidth <= 0 || CacheHeight <= 0)
             {
                 return default;
             }
 
-            return
-                new TerrainHeightPageRect(
-                    ActiveCacheOrigin,
-                    new Vector2Int(
-                        ActiveCacheOrigin.x + CacheWidth - 1,
-                        ActiveCacheOrigin.y + CacheHeight - 1
-                    )
-                );
+            return new TerrainHeightPageRect(
+                ActiveCacheOrigin,
+                new Vector2Int(
+                    ActiveCacheOrigin.x + CacheWidth - 1,
+                    ActiveCacheOrigin.y + CacheHeight - 1
+                )
+            );
         }
     }
 
-    public bool HasLoadedPage(
-        Vector2Int coordinate
-    )
+    public TerrainHeightPageRect StagingCachePages
+    {
+        get
+        {
+            if (CacheWidth <= 0 || CacheHeight <= 0)
+            {
+                return default;
+            }
+
+            return new TerrainHeightPageRect(
+                StagingCacheOrigin,
+                new Vector2Int(
+                    StagingCacheOrigin.x + CacheWidth - 1,
+                    StagingCacheOrigin.y + CacheHeight - 1
+                )
+            );
+        }
+    }
+
+    public bool HasLoadedPage(Vector2Int coordinate)
     {
         return
             ResidentPages.TryGetValue(

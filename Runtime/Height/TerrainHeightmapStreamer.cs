@@ -1105,6 +1105,11 @@ public partial class TerrainHeightmapStreamer :
         cache.anisoLevel =
             0;
 
+        cache.Apply(
+            false,
+            true
+        );
+
         return cache;
     }
 

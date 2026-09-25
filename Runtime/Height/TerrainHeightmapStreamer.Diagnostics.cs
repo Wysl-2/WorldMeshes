@@ -267,21 +267,13 @@ public partial class TerrainHeightmapStreamer
             local.x +
             local.y * state.CacheWidth;
 
-        if (
-            !state.ResidentPages.TryGetValue(
-                coordinate,
-                out TerrainHeightResidentPage page
-            )
-            || page == null
-            || page.State != TerrainHeightResidentPageState.Loaded
-            || page.Texture == null
-        )
-        {
-            return false;
-        }
-
-        sourceTexture = page.Texture;
-        return true;
+        /*
+         * Production streaming no longer retains Addressable source textures.
+         * Validation receives the cache slice here and acquires its own
+         * short-lived source handle only when an explicit validation runs.
+         */
+        sourceTexture = null;
+        return activeValid;
     }
 
     internal void GetHeightLodActiveValidPagesForInspection(

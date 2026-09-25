@@ -14,6 +14,7 @@ public readonly struct TerrainHeightLodDiagnosticsSnapshot
     public TerrainHeightPageRect RequestedPrefetchPages { get; }
     public int ResidentPageCount { get; }
     public int ActiveValidPageCount { get; }
+    public int StagingValidPageCount { get; }
     public int QueuedRequiredPageCount { get; }
     public int QueuedPrefetchPageCount { get; }
     public int InFlightRequiredPageCount { get; }
@@ -43,6 +44,7 @@ public readonly struct TerrainHeightLodDiagnosticsSnapshot
         RequestedPrefetchPages = state.RequestedPrefetchPages;
         ResidentPageCount = state.ResidentPages.Count;
         ActiveValidPageCount = state.ActiveValidPages.Count;
+        StagingValidPageCount = state.StagingValidPages.Count;
         QueuedRequiredPageCount = queuedRequired;
         QueuedPrefetchPageCount = queuedPrefetch;
         InFlightRequiredPageCount = inFlightRequired;
@@ -60,57 +62,89 @@ public readonly struct TerrainHeightLodDiagnosticsSnapshot
             Mathf.Max(0, state.CacheWidth) *
             Mathf.Max(0, state.CacheHeight);
 
-        EstimatedActiveGpuBytes =
-            state.ActiveCache != null
-                ? cacheBytes
-                : 0L;
-
-        EstimatedStagingGpuBytes =
-            state.StagingCache != null
-                ? cacheBytes
-                : 0L;
+        EstimatedActiveGpuBytes = state.ActiveCache != null ? cacheBytes : 0L;
+        EstimatedStagingGpuBytes = state.StagingCache != null ? cacheBytes : 0L;
     }
 }
 
 public readonly struct TerrainHeightSchedulerDiagnosticsSnapshot
 {
     public int ConcurrencyLimit { get; }
+    public int ReservedRequiredSlots { get; }
     public int ActiveLoadCount { get; }
+    public int ReadySourceCount { get; }
+    public int PendingGpuReleaseCount { get; }
+    public int TransientSourceSlotCount { get; }
     public int QueuedRequiredCount { get; }
     public int QueuedPrefetchCount { get; }
     public int PeakActiveLoadCount { get; }
+    public int PeakTransientSourceCount { get; }
+    public int PeakQueuedRequestCount { get; }
+    public long EstimatedLogicalSourceBytes { get; }
+    public long PeakEstimatedLogicalSourceBytes { get; }
     public long RequestsStarted { get; }
     public long CoalescedRequestCount { get; }
+    public long RepeatedPlanSubmissionSkipCount { get; }
+    public long SourceUploadCount { get; }
+    public long CacheToCacheReuseCount { get; }
     public long PrefetchPromotedToRequiredCount { get; }
     public long StaleQueuedRequestDiscardCount { get; }
+    public long StaleCompletedSourceDiscardCount { get; }
     public int PriorityViolationCount { get; }
     public int DuplicateStartViolationCount { get; }
+    public bool GraphicsFenceSupported { get; }
 
     internal TerrainHeightSchedulerDiagnosticsSnapshot(
         int concurrencyLimit,
+        int reservedRequiredSlots,
         int activeLoadCount,
+        int readySourceCount,
+        int pendingGpuReleaseCount,
+        int transientSourceSlotCount,
         int queuedRequiredCount,
         int queuedPrefetchCount,
         int peakActiveLoadCount,
+        int peakTransientSourceCount,
+        int peakQueuedRequestCount,
+        long estimatedLogicalSourceBytes,
+        long peakEstimatedLogicalSourceBytes,
         long requestsStarted,
         long coalescedRequestCount,
+        long repeatedPlanSubmissionSkipCount,
+        long sourceUploadCount,
+        long cacheToCacheReuseCount,
         long prefetchPromotedToRequiredCount,
         long staleQueuedRequestDiscardCount,
+        long staleCompletedSourceDiscardCount,
         int priorityViolationCount,
-        int duplicateStartViolationCount
+        int duplicateStartViolationCount,
+        bool graphicsFenceSupported
     )
     {
         ConcurrencyLimit = concurrencyLimit;
+        ReservedRequiredSlots = reservedRequiredSlots;
         ActiveLoadCount = activeLoadCount;
+        ReadySourceCount = readySourceCount;
+        PendingGpuReleaseCount = pendingGpuReleaseCount;
+        TransientSourceSlotCount = transientSourceSlotCount;
         QueuedRequiredCount = queuedRequiredCount;
         QueuedPrefetchCount = queuedPrefetchCount;
         PeakActiveLoadCount = peakActiveLoadCount;
+        PeakTransientSourceCount = peakTransientSourceCount;
+        PeakQueuedRequestCount = peakQueuedRequestCount;
+        EstimatedLogicalSourceBytes = estimatedLogicalSourceBytes;
+        PeakEstimatedLogicalSourceBytes = peakEstimatedLogicalSourceBytes;
         RequestsStarted = requestsStarted;
         CoalescedRequestCount = coalescedRequestCount;
+        RepeatedPlanSubmissionSkipCount = repeatedPlanSubmissionSkipCount;
+        SourceUploadCount = sourceUploadCount;
+        CacheToCacheReuseCount = cacheToCacheReuseCount;
         PrefetchPromotedToRequiredCount = prefetchPromotedToRequiredCount;
         StaleQueuedRequestDiscardCount = staleQueuedRequestDiscardCount;
+        StaleCompletedSourceDiscardCount = staleCompletedSourceDiscardCount;
         PriorityViolationCount = priorityViolationCount;
         DuplicateStartViolationCount = duplicateStartViolationCount;
+        GraphicsFenceSupported = graphicsFenceSupported;
     }
 }
 
@@ -129,9 +163,7 @@ internal readonly struct TerrainHeightLodInspectionSnapshot
     public bool CacheReady { get; }
     public TerrainHeightLodTransitionState TransitionState { get; }
 
-    internal TerrainHeightLodInspectionSnapshot(
-        TerrainHeightLodRuntimeState state
-    )
+    internal TerrainHeightLodInspectionSnapshot(TerrainHeightLodRuntimeState state)
     {
         Level = state.Level;
         SampleStride = state.SampleStride;

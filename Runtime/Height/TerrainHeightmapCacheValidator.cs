@@ -158,6 +158,20 @@ public class TerrainHeightmapCacheValidator :
             yield break;
         }
 
+        if (
+            !streamer.TryGetRuntimeHeightConfigurationForInspection(
+                out _,
+                out TerrainHeightmapManifest heightManifest
+            )
+        )
+        {
+            ReleaseCacheInspection();
+            FailCacheValidation(
+                "Runtime Height manifest is unavailable for cache validation."
+            );
+            yield break;
+        }
+
         int levelsValidated = 0;
         int pagesValidated = 0;
         long samplesCompared = 0L;
@@ -284,19 +298,18 @@ public class TerrainHeightmapCacheValidator :
                         !streamer.TryGetHeightLodPageForInspection(
                             level,
                             coordinate,
-                            out Texture2D sourceTexture,
+                            out _,
                             out int slice,
                             out bool activeValid,
                             out _
                         )
-                        || sourceTexture == null
                         || !activeValid
                     )
                     {
                         if (firstFailure == null)
                         {
                             firstFailure =
-                                $"LOD{level} active page ({coordinate.x}, {coordinate.y}) has no usable resident source page.";
+                                $"LOD{level} active page ({coordinate.x}, {coordinate.y}) has no usable cache slice.";
                         }
 
                         continue;
@@ -307,10 +320,10 @@ public class TerrainHeightmapCacheValidator :
                     string sourceError = null;
                     string cacheError = null;
 
-                    yield return ReadTexturePage(
-                        sourceTexture,
-                        0,
-                        false,
+                    yield return ReadExpectedSourcePage(
+                        heightManifest,
+                        snapshot.SampleStride,
+                        coordinate,
                         (data, error) =>
                         {
                             sourceData = data;
@@ -1148,6 +1161,86 @@ public class TerrainHeightmapCacheValidator :
         }
 
         completed(result);
+    }
+
+    private IEnumerator ReadExpectedSourcePage(
+        TerrainHeightmapManifest manifest,
+        int sampleStride,
+        Vector2Int coordinate,
+        Action<float[], string> completed
+    )
+    {
+        if (manifest == null)
+        {
+            completed(null, "Runtime Height manifest is unavailable.");
+            yield break;
+        }
+
+        string address =
+            manifest.GetHeightRepresentationAddress(
+                sampleStride,
+                coordinate.x,
+                coordinate.y
+            );
+
+        AsyncOperationHandle<Texture2D> handle =
+            default;
+
+        bool handleValid = false;
+
+        try
+        {
+            handle =
+                Addressables.LoadAssetAsync<Texture2D>(
+                    address
+                );
+
+            handleValid = true;
+
+            if (!handle.IsDone)
+            {
+                yield return handle;
+            }
+
+            if (
+                handle.Status != AsyncOperationStatus.Succeeded
+                || handle.Result == null
+            )
+            {
+                completed(
+                    null,
+                    $"Could not load Height validation source stride {sampleStride} page ({coordinate.x}, {coordinate.y})."
+                );
+
+                yield break;
+            }
+
+            float[] data = null;
+            string error = null;
+
+            yield return ReadTexturePage(
+                handle.Result,
+                0,
+                false,
+                (readData, readError) =>
+                {
+                    data = readData;
+                    error = readError;
+                }
+            );
+
+            completed(data, error);
+        }
+        finally
+        {
+            if (
+                handleValid
+                && handle.IsValid()
+            )
+            {
+                Addressables.Release(handle);
+            }
+        }
     }
 
     private IEnumerator ReadTexturePage(

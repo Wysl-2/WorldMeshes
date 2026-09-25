@@ -897,6 +897,8 @@ public partial class TerrainClipmapDisplacementValidator
             && (
                 scheduler.PeakActiveLoadCount >
                     scheduler.ConcurrencyLimit
+                || scheduler.PeakTransientSourceCount >
+                    scheduler.ConcurrencyLimit
                 || scheduler.PriorityViolationCount != 0
                 || scheduler.DuplicateStartViolationCount != 0
             )
@@ -926,10 +928,16 @@ public partial class TerrainClipmapDisplacementValidator
 
         string summary =
             $"Peak Active Loads: {scheduler.PeakActiveLoadCount}/{scheduler.ConcurrencyLimit}\n" +
+            $"Peak Transient Sources: {scheduler.PeakTransientSourceCount}/{scheduler.ConcurrencyLimit}\n" +
+            $"Peak Source Estimate: {scheduler.PeakEstimatedLogicalSourceBytes:N0} bytes\n" +
             $"Requests Started: {scheduler.RequestsStarted}\n" +
+            $"Source Uploads: {scheduler.SourceUploadCount}\n" +
+            $"Cache-to-Cache Reuses: {scheduler.CacheToCacheReuseCount}\n" +
+            $"Repeated Plan Skips: {scheduler.RepeatedPlanSubmissionSkipCount}\n" +
             $"Coalesced Requests: {scheduler.CoalescedRequestCount}\n" +
             $"Prefetch Promotions: {scheduler.PrefetchPromotedToRequiredCount}\n" +
             $"Stale Queued Discards: {scheduler.StaleQueuedRequestDiscardCount}\n" +
+            $"Stale Completed Discards: {scheduler.StaleCompletedSourceDiscardCount}\n" +
             $"Priority Violations: {scheduler.PriorityViolationCount}\n" +
             $"Duplicate Starts: {scheduler.DuplicateStartViolationCount}";
 
@@ -1263,7 +1271,9 @@ public partial class TerrainClipmapDisplacementValidator
 
         if (
             scheduler.ActiveLoadCount >
-            scheduler.ConcurrencyLimit
+                scheduler.ConcurrencyLimit
+            || scheduler.TransientSourceSlotCount >
+                scheduler.ConcurrencyLimit
         )
         {
             error =
