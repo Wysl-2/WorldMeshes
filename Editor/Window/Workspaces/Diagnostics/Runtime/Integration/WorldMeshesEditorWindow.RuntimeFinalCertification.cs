@@ -52,7 +52,7 @@ public partial class WorldMeshesEditorWindow :
     private TerrainRuntimeFinalCertificationReport
         lastRuntimeFinalCertificationReport;
 
-    private void DrawRuntimeFinalCertificationDiagnostics()
+    private void DrawLegacyRuntimeFinalCertificationDiagnostics()
     {
         showRuntimeFinalCertification =
             EditorGUILayout.Foldout(

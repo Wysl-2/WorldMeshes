@@ -37,7 +37,7 @@ public static class TerrainRuntimeBakeResumeValidationUtility
 
         if (IsRunning)
         {
-            PublishBlocked(scenario, "A Package 10.2 resume validation scenario is already running.", onCompleted);
+            PublishBlocked(scenario, "A resume validation scenario is already running.", onCompleted);
             return false;
         }
 

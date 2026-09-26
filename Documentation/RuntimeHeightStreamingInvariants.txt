@@ -204,3 +204,41 @@ The Surface residency gate ends in one of two target-specific decisions:
 
 That decision is a target/budget result, not a change in authoritative terrain
 ownership.
+
+19. HEIGHT SOURCE SCHEDULER OWNERSHIP
+
+TerrainHeightPageLoadScheduler is the single production owner of transient
+Height source scheduling. Required work, directional prefetch, and guard
+prefetch are priority classes within that scheduler rather than separate basic
+or advanced scheduler implementations.
+
+Runtime diagnostics and validation observe the production scheduler. They must
+not create a parallel scheduler or substitute a validation-only loading path.
+
+20. CERTIFICATION EVIDENCE FRESHNESS
+
+Runtime residency and stress-certification evidence applies only to the runtime
+configuration under which it was captured. Changes to world or clipmap
+topology, streaming-pyramid policy, scheduler tuning, or generated Height or
+Surface identity require the affected evidence to be captured again.
+
+Missing or stale certification evidence is incomplete evidence. It is not by
+itself proof of a runtime failure.
+
+21. SURFACE FOLLOW-UP SEMANTICS
+
+A Surface residency gate that requires multiresolution Surface does not
+invalidate a successfully certified multiresolution Height migration. It means
+Height satisfies its target while the independently owned Surface domain keeps
+the combined terrain-streaming configuration above the accepted target.
+
+The Surface decision therefore records follow-up scalability work without
+changing Height ownership or completion status.
+
+22. ADDRESSABLES SCALE ACCEPTANCE
+
+Entry counts, bundle counts, catalog payload, reconciliation duration, and
+content-build duration are objective measurements. Unless the project defines
+separate numerical thresholds, whether those measurements are acceptable is an
+explicit final target-configuration decision rather than an invented validator
+threshold.

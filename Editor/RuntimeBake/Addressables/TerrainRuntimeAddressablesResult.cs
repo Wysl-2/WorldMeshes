@@ -18,7 +18,7 @@ public enum TerrainRuntimeAddressablesOutcome
 }
 
 /*
- * Read-only validation summary used by Package 07 diagnostics and the
+ * Read-only validation summary used by runtime diagnostics and the
  * ContentOnly path. Validation never creates/moves Addressables entries and
  * never rewrites marker prefabs.
  */
@@ -162,7 +162,7 @@ public sealed class TerrainRuntimeAddressablesValidationResult
 }
 
 /*
- * Aggregated mutation, ARH01 memory-hardening, and ARH02 spatial-packing
+ * Aggregated mutation, memory-hardening, and spatial-packing
  * statistics shared internally by Addressables reconciliation/build utilities.
  */
 internal sealed class TerrainAddressablesOperationStats

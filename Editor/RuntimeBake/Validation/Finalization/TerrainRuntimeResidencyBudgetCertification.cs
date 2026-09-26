@@ -192,6 +192,18 @@ public sealed class TerrainRuntimeResidencyBudgetResult
     public bool SurfaceBudgetConfigured =>
         surfaceBudgetBytes > 0L;
 
+    public TerrainRuntimeValidationStatus HeightBudgetStatus =>
+        !TerrainBudgetConfigured
+            ? TerrainRuntimeValidationStatus.NotRun
+            : heightConservativeUpperBoundBytes <= terrainBudgetBytes
+                ? TerrainRuntimeValidationStatus.Passed
+                : TerrainRuntimeValidationStatus.Failed;
+
+    public long HeightBudgetHeadroomBytes =>
+        TerrainBudgetConfigured
+            ? terrainBudgetBytes - heightConservativeUpperBoundBytes
+            : 0L;
+
     internal TerrainRuntimeResidencyBudgetResult(
         TerrainRuntimeValidationStatus terrainBudgetStatus,
         TerrainSurfaceResidencyGateDecision surfaceGateDecision,
@@ -286,6 +298,24 @@ public sealed class TerrainRuntimeResidencyBudgetResult
         AppendBytes(builder, "  Current Logical Residency", HeightCurrentLogicalBytes);
         AppendBytes(builder, "  Observed Peak Logical Residency", HeightObservedPeakLogicalBytes);
         AppendBytes(builder, "  Conservative Upper Bound", heightConservativeUpperBoundBytes);
+
+        if (TerrainBudgetConfigured)
+        {
+            AppendBytes(builder, "  Target Budget", terrainBudgetBytes);
+            builder.AppendLine(
+                "  Height Headroom: " +
+                FormatSignedBytes(HeightBudgetHeadroomBytes)
+            );
+        }
+        else
+        {
+            builder.AppendLine("  Target Budget: Not configured");
+        }
+
+        builder.AppendLine(
+            "  Height Budget Gate: " +
+            HeightBudgetStatus
+        );
         builder.AppendLine();
 
         builder.AppendLine("Legacy Height Baseline:");

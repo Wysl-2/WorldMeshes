@@ -1228,7 +1228,7 @@ public sealed class TerrainRuntimeEquivalenceValidationResult
         if (validation != null)
         {
             builder.AppendLine(
-                "  Package 10.1: " +
+                "  Validation Bake: " +
                 validation.Outcome
             );
 
@@ -1850,9 +1850,9 @@ public static class TerrainRuntimeEquivalenceSnapshotUtility
             issues.Add(
                 output != null
                     ? output.WasCancelled
-                        ? "Package 10.1 complete output fingerprint capture was cancelled."
-                        : "Package 10.1 complete output fingerprint capture was incomplete."
-                    : "Package 10.1 complete output fingerprint capture returned no snapshot."
+                        ? "Complete output fingerprint capture was cancelled."
+                        : "Complete output fingerprint capture was incomplete."
+                    : "Complete output fingerprint capture returned no snapshot."
             );
 
             if (output != null)
@@ -1936,7 +1936,7 @@ public static class TerrainRuntimeEquivalenceSnapshotUtility
     }
 
     /*
-     * Height range metadata is runtime-semantic: Package 04 copies the
+     * Height range metadata is runtime-semantic: scene synchronization copies the
      * manifest global range into TerrainClipmapBoundsController, while the
      * per-tile ranges are the authoritative lightweight reduction source used
      * by incremental Height generation. Compare this semantic metadata without
@@ -3186,7 +3186,7 @@ public static class TerrainRuntimeEquivalenceValidationUtility
         if (EditorApplication.isPlayingOrWillChangePlaymode)
         {
             errorMessage =
-                "Package 10.5 validation must run outside Play Mode.";
+                "Incremental/full equivalence validation must run outside Play Mode.";
             return true;
         }
 
@@ -3203,7 +3203,7 @@ public static class TerrainRuntimeEquivalenceValidationUtility
         )
         {
             errorMessage =
-                "A Package 10.1 validation bake is already running.";
+                "A runtime validation bake is already running.";
             return true;
         }
 
@@ -3213,7 +3213,7 @@ public static class TerrainRuntimeEquivalenceValidationUtility
         )
         {
             errorMessage =
-                "A Package 10.2 persistence/resume validation is active.";
+                "A persistence/resume validation is active.";
             return true;
         }
 
@@ -3223,7 +3223,7 @@ public static class TerrainRuntimeEquivalenceValidationUtility
         )
         {
             errorMessage =
-                "A Package 10.3 invalidation aggregation session is active.";
+                "An invalidation aggregation session is active.";
             return true;
         }
 
@@ -3235,7 +3235,7 @@ public static class TerrainRuntimeEquivalenceValidationUtility
         )
         {
             errorMessage =
-                "A Package 10.4 fault/recovery scenario is active.";
+                "A fault/recovery scenario is active.";
             return true;
         }
 
@@ -3245,7 +3245,7 @@ public static class TerrainRuntimeEquivalenceValidationUtility
         )
         {
             errorMessage =
-                "Package 10.4 validation quarantine requires restoration before Package 10.5 can run.";
+                "Validation quarantine requires restoration before incremental/full equivalence validation can run.";
             return true;
         }
 

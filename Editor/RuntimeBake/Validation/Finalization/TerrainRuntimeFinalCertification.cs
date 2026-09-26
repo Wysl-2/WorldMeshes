@@ -69,7 +69,7 @@ public readonly struct TerrainRuntimeFinalCertificationManualEvidence
     }
 }
 
-public sealed class TerrainRuntimeFinalCertificationReport
+public sealed partial class TerrainRuntimeFinalCertificationReport
 {
     public DateTime CreatedAtUtc { get; internal set; }
 
@@ -541,7 +541,7 @@ public sealed class TerrainRuntimeFinalCertificationReport
     }
 }
 
-public static class TerrainRuntimeFinalCertificationUtility
+public static partial class TerrainRuntimeFinalCertificationUtility
 {
     public static TerrainRuntimeFinalCertificationReport
         Evaluate(

@@ -95,6 +95,11 @@ public partial class WorldMeshesEditorWindow :
         TerrainRuntimeStressCertificationResult result =
             validator.RuntimeStressCertificationResult;
 
+        CaptureRuntimeStressCertificationEvidenceIfNeeded(
+            streamer,
+            result
+        );
+
         if (result != null)
         {
             EditorGUILayout.LabelField(
@@ -152,6 +157,10 @@ public partial class WorldMeshesEditorWindow :
                 )
             );
         }
+
+        DrawCapturedRuntimeStressCertificationEvidence(
+            streamer
+        );
 
         EditorGUI.BeginDisabledGroup(
             anyValidationRunning

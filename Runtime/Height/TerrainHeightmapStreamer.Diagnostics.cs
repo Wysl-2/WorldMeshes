@@ -87,6 +87,19 @@ public partial class TerrainHeightmapStreamer
         }
     }
 
+    public int RuntimeGuardTileCount =>
+        Mathf.Max(
+            0,
+            guardTileCount
+        );
+
+    public int MaxHeightPageUploadsPerFrame =>
+        Mathf.Clamp(
+            maxHeightPageUploadsPerFrame,
+            1,
+            MaxConcurrentHeightPageLoads
+        );
+
     internal bool TryBeginMultiresolutionCacheInspection(
         out string reason
     )

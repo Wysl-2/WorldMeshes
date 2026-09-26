@@ -70,6 +70,12 @@ public partial class WorldMeshesEditorWindow :
         {
             lastRuntimeResidencyBudgetResult =
                 null;
+
+            lastRuntimeResidencyConfiguration =
+                null;
+
+            lastRuntimeFinalCertificationReport =
+                null;
         }
 
         if (
@@ -123,6 +129,16 @@ public partial class WorldMeshesEditorWindow :
                         )
                     );
 
+            lastRuntimeResidencyConfiguration =
+                TerrainRuntimeCertificationConfigurationSnapshot
+                    .Capture(
+                        worldSettings,
+                        streamer
+                    );
+
+            lastRuntimeFinalCertificationReport =
+                null;
+
             Debug.Log(
                 lastRuntimeResidencyBudgetResult
                     .BuildDiagnosticReport()
@@ -138,6 +154,38 @@ public partial class WorldMeshesEditorWindow :
             GUILayout.Label(
                 "Captured Budget Evaluation",
                 EditorStyles.boldLabel
+            );
+
+            TerrainRuntimeCertificationEvidenceState evidenceState =
+                TerrainRuntimeCertificationEvidenceUtility
+                    .EvaluateState(
+                        lastRuntimeResidencyConfiguration,
+                        worldSettings,
+                        streamer,
+                        out string evidenceReason
+                    );
+
+            EditorGUILayout.LabelField(
+                "Evidence State",
+                evidenceState.ToString()
+            );
+
+            if (
+                evidenceState != TerrainRuntimeCertificationEvidenceState.Current
+                && !string.IsNullOrEmpty(evidenceReason)
+            )
+            {
+                EditorGUILayout.HelpBox(
+                    evidenceReason,
+                    MessageType.Warning
+                );
+            }
+
+            EditorGUILayout.LabelField(
+                "Height Budget",
+                lastRuntimeResidencyBudgetResult
+                    .HeightBudgetStatus
+                    .ToString()
             );
 
             EditorGUILayout.LabelField(
