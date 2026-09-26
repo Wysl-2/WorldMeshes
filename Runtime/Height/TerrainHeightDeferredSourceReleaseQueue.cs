@@ -17,6 +17,7 @@ internal static class TerrainHeightDeferredSourceReleaseQueue
         public bool UsesFence;
         public GraphicsFence Fence;
         public int ReleaseFrame;
+        public long EstimatedSourceBytes;
     }
 
     private static readonly List<PendingRelease> pending =
@@ -24,11 +25,19 @@ internal static class TerrainHeightDeferredSourceReleaseQueue
 
     private static bool subscribed;
 
+    private static int peakPendingCount;
+    private static long peakEstimatedPendingSourceBytes;
+    private static long enqueuedCount;
+    private static long releasedCount;
+    private static long forcedReleaseCount;
+    private static long fenceFallbackCount;
+
     public static void Enqueue(
         AsyncOperationHandle<Texture2D> handle,
         bool usesFence,
         GraphicsFence fence,
-        int releaseFrame
+        int releaseFrame,
+        long estimatedSourceBytes
     )
     {
         if (!handle.IsValid())
@@ -42,11 +51,48 @@ internal static class TerrainHeightDeferredSourceReleaseQueue
                 Handle = handle,
                 UsesFence = usesFence,
                 Fence = fence,
-                ReleaseFrame = releaseFrame
+                ReleaseFrame = releaseFrame,
+                EstimatedSourceBytes =
+                    Math.Max(
+                        0L,
+                        estimatedSourceBytes
+                    )
             }
         );
 
+        enqueuedCount++;
+        UpdatePeaks();
         EnsureSubscribed();
+    }
+
+    internal static TerrainHeightDeferredReleaseDiagnosticsSnapshot
+        GetDiagnosticsSnapshot()
+    {
+        return
+            new TerrainHeightDeferredReleaseDiagnosticsSnapshot(
+                pending.Count,
+                EstimatePendingSourceBytes(),
+                peakPendingCount,
+                peakEstimatedPendingSourceBytes,
+                enqueuedCount,
+                releasedCount,
+                forcedReleaseCount,
+                fenceFallbackCount
+            );
+    }
+
+    internal static void ResetDiagnosticsCounters()
+    {
+        peakPendingCount =
+            pending.Count;
+
+        peakEstimatedPendingSourceBytes =
+            EstimatePendingSourceBytes();
+
+        enqueuedCount = 0L;
+        releasedCount = 0L;
+        forcedReleaseCount = 0L;
+        fenceFallbackCount = 0L;
     }
 
     private static void EnsureSubscribed()
@@ -78,6 +124,7 @@ internal static class TerrainHeightDeferredSourceReleaseQueue
                 {
                     item.UsesFence = false;
                     item.ReleaseFrame = Time.frameCount + 4;
+                    fenceFallbackCount++;
                     canRelease = false;
                 }
             }
@@ -97,6 +144,8 @@ internal static class TerrainHeightDeferredSourceReleaseQueue
             {
                 Addressables.Release(item.Handle);
             }
+
+            releasedCount++;
         }
 
         if (pending.Count == 0)
@@ -113,10 +162,43 @@ internal static class TerrainHeightDeferredSourceReleaseQueue
             {
                 Addressables.Release(pending[index].Handle);
             }
+
+            forcedReleaseCount++;
         }
 
         pending.Clear();
         Unsubscribe();
+    }
+
+    private static long EstimatePendingSourceBytes()
+    {
+        long total = 0L;
+
+        for (int index = 0; index < pending.Count; index++)
+        {
+            total +=
+                Math.Max(
+                    0L,
+                    pending[index].EstimatedSourceBytes
+                );
+        }
+
+        return total;
+    }
+
+    private static void UpdatePeaks()
+    {
+        peakPendingCount =
+            Math.Max(
+                peakPendingCount,
+                pending.Count
+            );
+
+        peakEstimatedPendingSourceBytes =
+            Math.Max(
+                peakEstimatedPendingSourceBytes,
+                EstimatePendingSourceBytes()
+            );
     }
 
     private static void Unsubscribe()

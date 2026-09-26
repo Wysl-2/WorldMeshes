@@ -675,7 +675,8 @@ internal sealed class TerrainHeightPageLoadScheduler
                 pending.Handle,
                 pending.UsesFence,
                 pending.Fence,
-                pending.ReleaseFrame
+                pending.ReleaseFrame,
+                pending.EstimatedSourceBytes
             );
         }
 

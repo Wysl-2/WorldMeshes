@@ -71,6 +71,12 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             streamer
         );
 
+        DrawWorkspaceSectionGap();
+
+        DrawRuntimeResidencyDiagnostics(
+            streamer
+        );
+
         bool anyValidationRunning =
             cacheValidator.IsValidating
             || displacementValidator.IsValidating;
@@ -142,6 +148,14 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             "Run Height Scheduler Stress Test",
             anyValidationRunning,
             displacementValidator.BeginSchedulerStressValidation
+        );
+
+        DrawWorkspaceSectionGap();
+
+        DrawRuntimeStressCertification(
+            streamer,
+            displacementValidator,
+            anyValidationRunning
         );
 
         GUILayout.EndVertical();

@@ -145,6 +145,7 @@ public partial class TerrainClipmapDisplacementValidator
             validationRoutine = null;
         }
 
+        RestoreRuntimeStressOwnership();
         RestoreControllerOwnership();
     }
 
@@ -1093,6 +1094,22 @@ public partial class TerrainClipmapDisplacementValidator
         return result;
     }
 
+    private bool IsValidationLayoutSettled(
+        TerrainClipmapLayout layout
+    )
+    {
+        return
+            layout != null
+            && layout.IsValid
+            && streamer.CanActiveCachesCoverLayout(
+                layout
+            )
+            && !streamer.MultiresolutionTransitionRunning
+            && !streamer.PreparedMultiresolutionActivationPending
+            && streamer.SurfaceTransitionState ==
+                TerrainSurfaceCacheTransitionState.Idle;
+    }
+
     private IEnumerator PrepareAndActivateLayout(
         TerrainClipmapLayout layout,
         TerrainClipmapLayoutApplier applier,
@@ -1115,7 +1132,7 @@ public partial class TerrainClipmapDisplacementValidator
         float started = Time.realtimeSinceStartup;
 
         while (
-            !streamer.CanActiveCachesCoverLayout(
+            !IsValidationLayoutSettled(
                 layout
             )
         )
@@ -1125,8 +1142,17 @@ public partial class TerrainClipmapDisplacementValidator
                 stressValidationTimeoutSeconds
             )
             {
+                bool targetCovered =
+                    streamer.CanActiveCachesCoverLayout(
+                        layout
+                    );
+
                 completed(
-                    "Timed out waiting for required multiresolution terrain coverage during stress validation."
+                    "Timed out waiting for the requested terrain layout and superseded transitions to settle during stress validation.\n\n" +
+                    $"Target Coverage: {(targetCovered ? "Yes" : "No")}\n" +
+                    $"Transition Running: {(streamer.MultiresolutionTransitionRunning ? "Yes" : "No")}\n" +
+                    $"Prepared Activation Pending: {(streamer.PreparedMultiresolutionActivationPending ? "Yes" : "No")}\n" +
+                    $"Surface Transition: {streamer.SurfaceTransitionState}"
                 );
 
                 yield break;
@@ -1139,6 +1165,16 @@ public partial class TerrainClipmapDisplacementValidator
             )
             {
                 completed(schedulerError);
+                yield break;
+            }
+
+            if (
+                !TryValidateRuntimeStressBoundsIfActive(
+                    out string runtimeStressError
+                )
+            )
+            {
+                completed(runtimeStressError);
                 yield break;
             }
 
