@@ -67,18 +67,17 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             return;
         }
 
-        DrawMrh07LiveRuntimeState(
+        DrawLiveRuntimeStreamingState(
             streamer
         );
 
         bool anyValidationRunning =
             cacheValidator.IsValidating
-            || displacementValidator.IsValidating
-            || displacementValidator.IsMrh07ValidationRunning;
+            || displacementValidator.IsValidating;
 
         DrawWorkspaceSectionGap();
 
-        DrawMrh07ValidationAction(
+        DrawRuntimeValidationAction(
             "Height Cache Validation",
             cacheValidator.CacheValidationStatus,
             cacheValidator.CacheValidationSummary,
@@ -89,7 +88,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
 
         DrawWorkspaceSectionGap();
 
-        DrawMrh07ValidationAction(
+        DrawRuntimeValidationAction(
             "Cross-Resolution Validation",
             cacheValidator.CrossResolutionValidationStatus,
             cacheValidator.CrossResolutionValidationSummary,
@@ -100,7 +99,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
 
         DrawWorkspaceSectionGap();
 
-        DrawMrh07ValidationAction(
+        DrawRuntimeValidationAction(
             "Renderer / Displacement / Stitch Validation",
             displacementValidator.MultiresolutionValidationStatus,
             displacementValidator.MultiresolutionValidationSummary,
@@ -118,7 +117,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             MessageType.None
         );
 
-        DrawMrh07ValidationAction(
+        DrawRuntimeValidationAction(
             "Independent Anchor Stress",
             displacementValidator.IndependentAnchorValidationStatus,
             displacementValidator.IndependentAnchorValidationSummary,
@@ -136,7 +135,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             MessageType.None
         );
 
-        DrawMrh07ValidationAction(
+        DrawRuntimeValidationAction(
             "Height Scheduler Stress",
             displacementValidator.SchedulerStressValidationStatus,
             displacementValidator.SchedulerStressValidationSummary,
@@ -148,7 +147,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         GUILayout.EndVertical();
     }
 
-    private void DrawMrh07LiveRuntimeState(
+    private void DrawLiveRuntimeStreamingState(
         TerrainHeightmapStreamer streamer
     )
     {
@@ -226,14 +225,14 @@ public partial class WorldMeshesEditorWindow : EditorWindow
 
             EditorGUILayout.LabelField(
                 "Logical Source Estimate",
-                FormatMrh07Bytes(
+                FormatRuntimeValidationBytes(
                     scheduler.EstimatedLogicalSourceBytes
                 )
             );
 
             EditorGUILayout.LabelField(
                 "Peak Source Estimate",
-                FormatMrh07Bytes(
+                FormatRuntimeValidationBytes(
                     scheduler.PeakEstimatedLogicalSourceBytes
                 )
             );
@@ -280,7 +279,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
 
         EditorGUILayout.LabelField(
             "Surface GPU Estimate",
-            FormatMrh07Bytes(
+            FormatRuntimeValidationBytes(
                 streamer.EstimatedSurfaceGpuCacheBytes
             )
         );
@@ -334,14 +333,14 @@ public partial class WorldMeshesEditorWindow : EditorWindow
 
             EditorGUILayout.LabelField(
                 "Required Pages",
-                FormatMrh07PageRect(
+                FormatRuntimeValidationPageRect(
                     lod.ActiveRequiredPages
                 )
             );
 
             EditorGUILayout.LabelField(
                 "Requested Prefetch",
-                FormatMrh07PageRect(
+                FormatRuntimeValidationPageRect(
                     lod.RequestedPrefetchPages
                 )
             );
@@ -375,16 +374,16 @@ public partial class WorldMeshesEditorWindow : EditorWindow
 
             EditorGUILayout.LabelField(
                 "GPU Active / Staging",
-                FormatMrh07Bytes(lod.EstimatedActiveGpuBytes) +
+                FormatRuntimeValidationBytes(lod.EstimatedActiveGpuBytes) +
                 " / " +
-                FormatMrh07Bytes(lod.EstimatedStagingGpuBytes)
+                FormatRuntimeValidationBytes(lod.EstimatedStagingGpuBytes)
             );
 
             GUILayout.EndVertical();
         }
     }
 
-    private void DrawMrh07ValidationAction(
+    private void DrawRuntimeValidationAction(
         string title,
         TerrainRuntimeValidationStatus status,
         string summary,
@@ -411,7 +410,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         {
             EditorGUILayout.HelpBox(
                 summary,
-                Mrh07MessageTypeForStatus(status)
+                MessageTypeForRuntimeValidationStatus(status)
             );
         }
 
@@ -434,7 +433,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         GUILayout.EndVertical();
     }
 
-    private static MessageType Mrh07MessageTypeForStatus(
+    private static MessageType MessageTypeForRuntimeValidationStatus(
         TerrainRuntimeValidationStatus status
     )
     {
@@ -457,7 +456,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         }
     }
 
-    private static string FormatMrh07Bytes(
+    private static string FormatRuntimeValidationBytes(
         long bytes
     )
     {
@@ -475,7 +474,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             " MiB";
     }
 
-    private static string FormatMrh07PageRect(
+    private static string FormatRuntimeValidationPageRect(
         TerrainHeightPageRect pages
     )
     {

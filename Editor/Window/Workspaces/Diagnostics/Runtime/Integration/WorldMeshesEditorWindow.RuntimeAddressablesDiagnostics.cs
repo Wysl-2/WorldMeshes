@@ -227,7 +227,7 @@ public partial class WorldMeshesEditorWindow :
         }
 
         EditorGUILayout.HelpBox(
-            "Read-only Package 07 structural diagnostics. " +
+            "Read-only runtime Addressables structural diagnostics. " +
             "Use Runtime > Bake Runtime Changes for normal Addressables work. " +
             "Use Advanced Runtime Tools for explicit Addressables maintenance.",
             MessageType.None

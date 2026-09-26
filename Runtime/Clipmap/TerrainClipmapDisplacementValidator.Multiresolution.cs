@@ -5,7 +5,7 @@ using UnityEngine;
 
 public partial class TerrainClipmapDisplacementValidator
 {
-    [Header("MRH07 Validation")]
+    [Header("Multiresolution Runtime Validation")]
 
     [SerializeField]
     [Min(0f)]
@@ -16,8 +16,6 @@ public partial class TerrainClipmapDisplacementValidator
     [Min(1f)]
     private float stressValidationTimeoutSeconds =
         120f;
-
-    private Coroutine mrh07ValidationRoutine;
 
     private TerrainRuntimeValidationStatus
         multiresolutionValidationStatus =
@@ -40,17 +38,17 @@ public partial class TerrainClipmapDisplacementValidator
     private string schedulerStressValidationSummary =
         "Height scheduler stress validation has not been run.";
 
-    private bool mrh07StressOwnsController;
-    private bool mrh07ControllerWasEnabled;
+    private bool stressOwnsController;
+    private bool controllerWasEnabledBeforeStress;
 
     private static readonly int
-        Mrh07HeightNormalSampleSpacingFinePropertyId =
+        HeightNormalSampleSpacingFinePropertyId =
             Shader.PropertyToID(
                 "_HeightNormalSampleSpacingFine"
             );
 
     private static readonly int
-        Mrh07HeightNormalSampleSpacingCoarsePropertyId =
+        HeightNormalSampleSpacingCoarsePropertyId =
             Shader.PropertyToID(
                 "_HeightNormalSampleSpacingCoarse"
             );
@@ -76,13 +74,10 @@ public partial class TerrainClipmapDisplacementValidator
     public string SchedulerStressValidationSummary =>
         schedulerStressValidationSummary;
 
-    public bool IsMrh07ValidationRunning =>
-        mrh07ValidationRoutine != null;
-
     [ContextMenu("Validate Multiresolution Renderer Bindings")]
     public void BeginMultiresolutionValidation()
     {
-        if (!CanBeginMrh07Validation())
+        if (!CanBeginRuntimeValidation())
         {
             return;
         }
@@ -93,7 +88,7 @@ public partial class TerrainClipmapDisplacementValidator
         multiresolutionValidationSummary =
             "Validating semantic renderer roles and multiresolution shader bindings...";
 
-        mrh07ValidationRoutine =
+        validationRoutine =
             StartCoroutine(
                 ValidateMultiresolutionBindingsRoutine()
             );
@@ -102,7 +97,7 @@ public partial class TerrainClipmapDisplacementValidator
     [ContextMenu("Run Independent Anchor Stress Validation")]
     public void BeginIndependentAnchorStressValidation()
     {
-        if (!CanBeginMrh07Validation())
+        if (!CanBeginRuntimeValidation())
         {
             return;
         }
@@ -113,7 +108,7 @@ public partial class TerrainClipmapDisplacementValidator
         independentAnchorValidationSummary =
             "Searching for and validating an independently snapped clipmap layout...";
 
-        mrh07ValidationRoutine =
+        validationRoutine =
             StartCoroutine(
                 RunIndependentAnchorStressRoutine()
             );
@@ -122,7 +117,7 @@ public partial class TerrainClipmapDisplacementValidator
     [ContextMenu("Run Height Scheduler Stress Validation")]
     public void BeginSchedulerStressValidation()
     {
-        if (!CanBeginMrh07Validation())
+        if (!CanBeginRuntimeValidation())
         {
             return;
         }
@@ -133,47 +128,44 @@ public partial class TerrainClipmapDisplacementValidator
         schedulerStressValidationSummary =
             "Running deterministic normal/rapid/teleport Height scheduler stress...";
 
-        mrh07ValidationRoutine =
+        validationRoutine =
             StartCoroutine(
                 RunSchedulerStressRoutine()
             );
     }
 
-    internal void CancelMrh07Validation()
+    internal void CancelRuntimeValidation()
     {
-        if (mrh07ValidationRoutine != null)
+        if (validationRoutine != null)
         {
             StopCoroutine(
-                mrh07ValidationRoutine
+                validationRoutine
             );
 
-            mrh07ValidationRoutine = null;
+            validationRoutine = null;
         }
 
         RestoreControllerOwnership();
     }
 
-    private bool CanBeginMrh07Validation()
+    private bool CanBeginRuntimeValidation()
     {
         if (!Application.isPlaying)
         {
             Debug.LogWarning(
-                "MRH07 runtime validation can only run in Play Mode.",
+                "Runtime terrain validation can only run in Play Mode.",
                 this
             );
 
             return false;
         }
 
-        if (
-            validationRoutine != null
-            || mrh07ValidationRoutine != null
-        )
+        if (validationRoutine != null)
         {
             return false;
         }
 
-        EnsureMrh07References();
+        EnsureRuntimeValidationReferences();
 
         if (
             streamer == null
@@ -181,7 +173,7 @@ public partial class TerrainClipmapDisplacementValidator
         )
         {
             Debug.LogError(
-                "MRH07 runtime validation requires TerrainHeightmapStreamer and TerrainClipmapController on the same GameObject.",
+                "Runtime terrain validation requires TerrainHeightmapStreamer and TerrainClipmapController on the same GameObject.",
                 this
             );
 
@@ -191,18 +183,12 @@ public partial class TerrainClipmapDisplacementValidator
         return true;
     }
 
-    private void EnsureMrh07References()
+    private void EnsureRuntimeValidationReferences()
     {
         if (streamer == null)
         {
             streamer =
                 GetComponent<TerrainHeightmapStreamer>();
-        }
-
-        if (boundsController == null)
-        {
-            boundsController =
-                GetComponent<TerrainClipmapBoundsController>();
         }
 
         if (clipmapController == null)
@@ -229,7 +215,7 @@ public partial class TerrainClipmapDisplacementValidator
         multiresolutionValidationSummary =
             summary;
 
-        mrh07ValidationRoutine = null;
+        validationRoutine = null;
 
         if (passed)
         {
@@ -255,7 +241,7 @@ public partial class TerrainClipmapDisplacementValidator
     {
         summary = "";
 
-        EnsureMrh07References();
+        EnsureRuntimeValidationReferences();
 
         if (
             streamer == null
@@ -413,12 +399,12 @@ public partial class TerrainClipmapDisplacementValidator
 
             float fineNormalSpacing =
                 block.GetFloat(
-                    Mrh07HeightNormalSampleSpacingFinePropertyId
+                    HeightNormalSampleSpacingFinePropertyId
                 );
 
             float coarseNormalSpacing =
                 block.GetFloat(
-                    Mrh07HeightNormalSampleSpacingCoarsePropertyId
+                    HeightNormalSampleSpacingCoarsePropertyId
                 );
 
             float expectedCoarseNormalSpacing =
@@ -686,7 +672,7 @@ public partial class TerrainClipmapDisplacementValidator
 
     private IEnumerator RunIndependentAnchorStressRoutine()
     {
-        EnsureMrh07References();
+        EnsureRuntimeValidationReferences();
 
         if (
             !streamer.TryGetRuntimeHeightConfigurationForInspection(
@@ -779,7 +765,7 @@ public partial class TerrainClipmapDisplacementValidator
 
     private IEnumerator RunSchedulerStressRoutine()
     {
-        EnsureMrh07References();
+        EnsureRuntimeValidationReferences();
 
         if (
             !streamer.TryGetRuntimeHeightConfigurationForInspection(
@@ -1287,26 +1273,26 @@ public partial class TerrainClipmapDisplacementValidator
 
     private void TakeControllerOwnership()
     {
-        EnsureMrh07References();
+        EnsureRuntimeValidationReferences();
 
         if (
             clipmapController == null
-            || mrh07StressOwnsController
+            || stressOwnsController
         )
         {
             return;
         }
 
-        mrh07ControllerWasEnabled =
+        controllerWasEnabledBeforeStress =
             clipmapController.enabled;
 
         clipmapController.enabled = false;
-        mrh07StressOwnsController = true;
+        stressOwnsController = true;
     }
 
     private void RestoreControllerOwnership()
     {
-        if (!mrh07StressOwnsController)
+        if (!stressOwnsController)
         {
             return;
         }
@@ -1314,10 +1300,10 @@ public partial class TerrainClipmapDisplacementValidator
         if (clipmapController != null)
         {
             clipmapController.enabled =
-                mrh07ControllerWasEnabled;
+                controllerWasEnabledBeforeStress;
         }
 
-        mrh07StressOwnsController = false;
+        stressOwnsController = false;
     }
 
     private void FinishIndependentAnchorValidation(
@@ -1327,9 +1313,9 @@ public partial class TerrainClipmapDisplacementValidator
     {
         independentAnchorValidationStatus = status;
         independentAnchorValidationSummary = summary ?? "";
-        mrh07ValidationRoutine = null;
+        validationRoutine = null;
 
-        LogMrh07Result(
+        LogRuntimeValidationResult(
             "Independent-anchor stress validation",
             status,
             independentAnchorValidationSummary
@@ -1343,16 +1329,16 @@ public partial class TerrainClipmapDisplacementValidator
     {
         schedulerStressValidationStatus = status;
         schedulerStressValidationSummary = summary ?? "";
-        mrh07ValidationRoutine = null;
+        validationRoutine = null;
 
-        LogMrh07Result(
+        LogRuntimeValidationResult(
             "Height scheduler stress validation",
             status,
             schedulerStressValidationSummary
         );
     }
 
-    private void LogMrh07Result(
+    private void LogRuntimeValidationResult(
         string title,
         TerrainRuntimeValidationStatus status,
         string summary

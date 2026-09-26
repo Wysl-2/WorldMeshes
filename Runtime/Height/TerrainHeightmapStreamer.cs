@@ -90,54 +90,11 @@ public partial class TerrainHeightmapStreamer :
 
     public event System.Action ActiveCacheCoverageChanged;
 
-    /*
-     * Compatibility inspection properties expose LOD0 directly without
-     * maintaining a second singular Height cache state. Production terrain
-     * residency is owned exclusively by heightLodStates.
-     */
-    public Texture2DArray HeightCache =>
-        TryGetLod0State(out TerrainHeightLodRuntimeState state)
-            ? state.ActiveCache
-            : null;
-
-    public Vector2Int CacheOriginTile =>
-        TryGetLod0State(out TerrainHeightLodRuntimeState state)
-            ? state.ActiveCacheOrigin
-            : Vector2Int.zero;
-
-    public int CacheWidth =>
-        TryGetLod0State(out TerrainHeightLodRuntimeState state)
-            ? state.CacheWidth
-            : 0;
-
-    public int CacheHeight =>
-        TryGetLod0State(out TerrainHeightLodRuntimeState state)
-            ? state.CacheHeight
-            : 0;
-
-    public bool CacheReady =>
-        TryGetLod0State(out TerrainHeightLodRuntimeState state)
-        && state.CacheReady
-        && state.ActiveCache != null;
-
     public bool IsLoading =>
         loadRoutine != null;
 
     public bool IsCacheInspectionActive =>
         cacheInspectionActive;
-
-    private bool TryGetLod0State(
-        out TerrainHeightLodRuntimeState state
-    )
-    {
-        state =
-            heightLodStates != null
-            && heightLodStates.Length > 0
-                ? heightLodStates[0]
-                : null;
-
-        return state != null;
-    }
 
     // =====================================================
     // ACTIVE HEIGHT CACHE WORLD COVERAGE
