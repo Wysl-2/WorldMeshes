@@ -1,0 +1,206 @@
+WORLDMESHES RUNTIME HEIGHT STREAMING INVARIANTS
+
+PURPOSE
+
+This document records the architectural invariants of the finalized runtime
+Height streaming system. These rules describe ownership and correctness
+boundaries rather than implementation-package history.
+
+1. AUTHORITATIVE HEIGHT OWNERSHIP
+
+Authoring sources
+    -> authoritative native runtime Height
+    -> derived streaming Height pyramid
+
+The authoritative native runtime Height remains the source of truth for
+systems that require authoritative terrain values, including Surface and
+Collision generation.
+
+Derived streaming Height is a runtime rendering derivative. It must not become
+the source of truth for authoritative terrain reconstruction.
+
+2. NATIVE AND STREAMING DURABILITY ARE SEPARATE
+
+Successful persistence of an authoritative native Height tile remains valid
+even if generation of one or more derived streaming representations fails.
+
+A streaming-only failure may leave Height Streaming pending or invalid without
+invalidating the authoritative Height dataset.
+
+3. STREAMING PYRAMID POLICY HAS ONE OWNER
+
+Supported streaming strides are resolved through
+TerrainHeightStreamingPyramidPolicy.
+
+Compiler, manifest, Addressables, runtime streaming, validators, and recovery
+logic must consume that shared policy rather than independently inventing
+stride sets.
+
+Stride 1 is the authoritative native representation. Derived streaming levels
+use power-of-two strides greater than 1 up to the configured supported maximum.
+
+4. LOD TO STRIDE MAPPING
+
+Each clipmap Height LOD resolves its required Height representation through the
+shared pyramid policy.
+
+A runtime Height LOD owns an independent cache geometry, origin, required
+coverage, valid-page set, and transition state.
+
+No global Height-cache origin or global Height-cache rectangle represents all
+LODs.
+
+5. DURABLE RUNTIME HEIGHT RESIDENCY
+
+Durable runtime Height residency lives in the per-LOD Texture2DArray caches.
+
+Each TerrainHeightLodRuntimeState owns active/staging cache resources, cache
+origins, required and optional coverage, valid-page sets, and transition state.
+
+Addressable Texture2D source assets are transport resources, not durable
+runtime terrain residency.
+
+6. SOURCE ADDRESSABLE LIFECYCLE
+
+TerrainHeightPageLoadScheduler owns Height source handles from request start
+until upload completes and a GPU-safe release boundary is reached.
+
+After Graphics.CopyTexture, a source remains alive only as long as necessary
+to make the GPU copy safe.
+
+If a streamer is destroyed while GPU-safe releases are pending,
+TerrainHeightDeferredSourceReleaseQueue temporarily owns those handles until
+they can be released safely.
+
+Source residency is bounded by scheduler policy and must not grow with total
+world size.
+
+7. REQUIRED COVERAGE AND OPTIONAL PREFETCH ARE DISTINCT
+
+Required Height coverage is correctness-critical.
+
+Optional prefetch and guard work may improve transition behavior but must never
+gate terrain correctness or movement.
+
+A layout may activate only when all mandatory Height coverage and required
+Surface coverage are available.
+
+Stale optional work may be discarded or reprioritized. Required work must not
+be starved by optional work.
+
+8. RENDERER ROLE OWNERSHIP
+
+TerrainClipmapLayoutApplier owns generated clipmap renderer hierarchy
+interpretation and semantic renderer-role enumeration.
+
+Renderer meaning is represented by TerrainClipmapRendererRole.
+
+Other runtime systems should consume semantic renderer bindings instead of
+independently parsing generated object names.
+
+9. HEIGHT CACHE BINDING
+
+Center and ring renderers use the Height cache owned by their semantic Height
+owner LOD.
+
+Runtime multiresolution binding is performed through
+TerrainHeightMultiresolutionBindingUtility.
+
+The low-level single-cache TerrainHeightCacheBindingUtility remains valid for
+the edit-mode authoring preview, which intentionally owns one resident preview
+cache. It is not the production runtime multiresolution binding path.
+
+10. STITCH CACHE OWNERSHIP
+
+A stitch between adjacent LODs always samples Height from the finer adjacent
+Height cache.
+
+11. STITCH NORMAL SPACING
+
+Stitch normal reconstruction has explicit fine and coarse sample-spacing
+ownership.
+
+Normal-spacing metadata is part of the renderer binding contract and must not
+be inferred from object naming or from a singular global Height spacing.
+
+12. SURFACE CACHE INDEPENDENCE
+
+Surface-mask residency is a separate runtime domain from Height residency.
+
+The Surface system owns its active/staging GPU arrays, cache origin,
+dimensions, resident source pages, and transition state.
+
+Changing Height LOD cache geometry must not redefine Surface cache ownership.
+
+A future multiresolution Surface architecture, if required by measured memory
+targets, must remain independently owned.
+
+13. PERSISTENT BAKE STATE
+
+Authoritative Height, derived Height Streaming, Surface, Collision,
+Addressables configuration/content, and runtime scene metadata have distinct
+persistent work and readiness state.
+
+Streaming-only faults are leaf faults: they may invalidate Height Streaming
+and dependent Addressables work without automatically invalidating
+authoritative Height, Surface, or Collision.
+
+14. REPAIR AND RECOVERY
+
+Canonical bake planning and recovery own generated-data repair decisions.
+
+Validation utilities may inject faults or compare outputs, but they must use
+the canonical planner/pipeline for recovery rather than implementing
+independent repair systems.
+
+Cancellation or failure must preserve already acknowledged durable work when
+that work remains valid.
+
+15. ADDRESSABLE LOGICAL IDENTITY
+
+A runtime Height page is logically addressed by:
+
+    (sample stride, tile x, tile z)
+
+Logical identity is independent of physical bundle packing.
+
+Packing regions, bundle grouping, and catalog layout are delivery
+optimizations and must not redefine page identity.
+
+16. ADDRESSABLE PACKING SCALE
+
+Addressables scale diagnostics distinguish managed entry count, expected
+physical bundle count, packing-region count, catalog payload, reconciliation
+duration, and content-build duration.
+
+These measurements are explicit diagnostics. Routine editor UI must not load
+every generated asset payload merely to display passive status.
+
+17. RUNTIME VALIDATION OWNERSHIP
+
+Runtime validation is manual development tooling.
+
+Passive Diagnostics UI must remain lightweight.
+
+Expensive work such as GPU readback, stress movement, physical integrity
+audits, complete output fingerprinting, destructive fault injection, or
+full-scale certification runs only after explicit user action.
+
+18. FINAL CERTIFICATION
+
+Final certification composes existing evidence rather than creating another
+bake or streaming implementation.
+
+A complete target-configuration certification records fresh generated-data
+readiness/integrity, Addressables configuration and scale, bake regressions,
+resume/recovery/equivalence evidence, scene and lifecycle regression, runtime
+Addressables lookup/load behavior, runtime residency/budget validation, and an
+explicit Surface residency gate result.
+
+The Surface residency gate ends in one of two target-specific decisions:
+
+- Surface multiresolution is not required for the target configuration.
+- Surface multiresolution is required to meet the target configuration.
+
+That decision is a target/budget result, not a change in authoritative terrain
+ownership.

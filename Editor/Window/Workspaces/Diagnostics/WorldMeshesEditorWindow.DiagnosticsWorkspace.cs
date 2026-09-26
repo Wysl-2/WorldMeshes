@@ -746,5 +746,9 @@ public partial class WorldMeshesEditorWindow :
         DrawWorkspaceSectionGap();
 
         DrawRuntimeValidationSettings();
+
+        DrawWorkspaceSectionGap();
+
+        DrawRuntimeFinalCertificationDiagnostics();
     }
 }
