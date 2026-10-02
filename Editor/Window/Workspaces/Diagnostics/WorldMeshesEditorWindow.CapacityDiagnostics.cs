@@ -86,8 +86,6 @@ public partial class WorldMeshesEditorWindow :
             MessageType.Info
         );
 
-        EditorGUI.BeginChangeCheck();
-
         runtimeTerrainResidencyBudgetMiB =
             SanitizeRuntimeResidencyBudgetMiB(
                 EditorGUILayout.FloatField(
@@ -103,18 +101,6 @@ public partial class WorldMeshesEditorWindow :
                     runtimeSurfaceResidencyBudgetMiB
                 )
             );
-
-        if (EditorGUI.EndChangeCheck())
-        {
-            lastRuntimeResidencyBudgetResult =
-                null;
-
-            lastRuntimeResidencyConfiguration =
-                null;
-
-            lastRuntimeFinalCertificationReport =
-                null;
-        }
 
         if (
             !streamer.TryGetRuntimeResidencyDiagnostics(
@@ -134,22 +120,52 @@ public partial class WorldMeshesEditorWindow :
             return;
         }
 
-        GUILayout.Space(5f);
-        DrawRuntimeHeightResidency(snapshot);
+        TerrainRuntimeCapacityResult capacity =
+            TerrainRuntimeCapacityUtility.Evaluate(
+                snapshot,
+                MiBToBytes(
+                    runtimeTerrainResidencyBudgetMiB
+                ),
+                MiBToBytes(
+                    runtimeSurfaceResidencyBudgetMiB
+                )
+            );
 
         GUILayout.Space(5f);
-        DrawRuntimeLegacyHeightResidency(snapshot);
-
-        GUILayout.Space(5f);
-        DrawRuntimeSurfaceResidency(snapshot);
-
-        GUILayout.Space(5f);
-        DrawRuntimeTotalResidency(snapshot);
-
-        DrawRuntimeResidencyBudgetEvaluation(
-            streamer,
-            snapshot
+        DrawRuntimeHeightResidency(
+            snapshot,
+            capacity
         );
+
+        GUILayout.Space(5f);
+        DrawRuntimeLegacyHeightResidency(
+            capacity
+        );
+
+        GUILayout.Space(5f);
+        DrawRuntimeSurfaceResidency(
+            snapshot,
+            capacity
+        );
+
+        GUILayout.Space(5f);
+        DrawRuntimeTotalResidency(
+            capacity
+        );
+
+        GUILayout.Space(6f);
+
+        if (
+            GUILayout.Button(
+                "Log Capacity Analysis",
+                GUILayout.ExpandWidth(true)
+            )
+        )
+        {
+            Debug.Log(
+                capacity.BuildDiagnosticReport()
+            );
+        }
 
         GUILayout.EndVertical();
     }
@@ -174,7 +190,8 @@ public partial class WorldMeshesEditorWindow :
     }
 
     private void DrawRuntimeHeightResidency(
-        TerrainRuntimeResidencyDiagnosticsSnapshot snapshot
+        TerrainRuntimeResidencyDiagnosticsSnapshot snapshot,
+        TerrainRuntimeCapacityResult capacity
     )
     {
         GUILayout.Label(
@@ -189,47 +206,64 @@ public partial class WorldMeshesEditorWindow :
 
         DrawRuntimeResidencyBytes(
             "Active GPU Cache",
-            snapshot.HeightActiveGpuBytes
+            capacity.HeightActiveGpuBytes
         );
 
         DrawRuntimeResidencyBytes(
             "Staging GPU Cache",
-            snapshot.HeightStagingGpuBytes
+            capacity.HeightStagingGpuBytes
         );
 
         DrawRuntimeResidencyBytes(
             "Current Source",
-            snapshot.HeightCurrentSourceBytes
+            capacity.HeightCurrentSourceBytes
         );
 
         DrawRuntimeResidencyBytes(
             "Observed Source Peak",
-            snapshot.HeightObservedPeakSourceBytes
+            capacity.HeightObservedPeakSourceBytes
         );
 
         DrawRuntimeResidencyBytes(
             "Source Upper Bound",
-            snapshot.HeightSourceUpperBoundBytes
+            capacity.HeightSourceUpperBoundBytes
         );
 
         DrawRuntimeResidencyBytes(
             "Current Logical Residency",
-            snapshot.HeightCurrentLogicalBytes
+            capacity.HeightCurrentLogicalBytes
         );
 
         DrawRuntimeResidencyBytes(
             "Observed Peak Logical Residency",
-            snapshot.HeightObservedPeakLogicalBytes
+            capacity.HeightObservedPeakLogicalBytes
         );
 
         DrawRuntimeResidencyBytes(
             "Conservative Upper Bound",
-            snapshot.HeightConservativeUpperBoundBytes
+            capacity.HeightConservativeUpperBoundBytes
+        );
+
+        DrawRuntimeCapacityTarget(
+            "Target Budget",
+            capacity.TerrainBudgetConfigured,
+            capacity.TerrainBudgetBytes
+        );
+
+        DrawRuntimeCapacityHeadroom(
+            "Headroom / Excess",
+            capacity.TerrainBudgetConfigured,
+            capacity.HeightBudgetHeadroomBytes
+        );
+
+        DrawRuntimeCapacityStatus(
+            "Height Target",
+            capacity.HeightStatus
         );
     }
 
     private void DrawRuntimeLegacyHeightResidency(
-        TerrainRuntimeResidencyDiagnosticsSnapshot snapshot
+        TerrainRuntimeCapacityResult capacity
     )
     {
         GUILayout.Label(
@@ -239,58 +273,44 @@ public partial class WorldMeshesEditorWindow :
 
         EditorGUILayout.LabelField(
             "Native Cache Grid",
-            $"{snapshot.LegacyHeight.CacheWidth} x " +
-            $"{snapshot.LegacyHeight.CacheHeight}"
+            $"{capacity.LegacyHeightCacheWidth} x " +
+            $"{capacity.LegacyHeightCacheHeight}"
         );
 
         DrawRuntimeResidencyBytes(
             "GPU Cache Payload",
-            snapshot.LegacyHeight.EstimatedGpuCacheBytes
+            capacity.LegacyHeightGpuBytes
         );
 
         DrawRuntimeResidencyBytes(
             "Steady Source",
-            snapshot.LegacyHeight.EstimatedSteadySourceBytes
+            capacity.LegacyHeightSteadySourceBytes
         );
 
         DrawRuntimeResidencyBytes(
             "Transition Source Upper Bound",
-            snapshot.LegacyHeight
-                .EstimatedTransitionSourceUpperBoundBytes
+            capacity.LegacyHeightTransitionSourceUpperBoundBytes
         );
 
         DrawRuntimeResidencyBytes(
             "Conservative Upper Bound",
-            snapshot.LegacyHeight
-                .EstimatedConservativeUpperBoundBytes
+            capacity.LegacyHeightConservativeUpperBoundBytes
         );
-
-        float gpuReduction =
-            CalculateResidencyReductionPercent(
-                snapshot.LegacyHeight.EstimatedGpuCacheBytes,
-                snapshot.HeightGpuCacheBytes
-            );
-
-        float upperBoundReduction =
-            CalculateResidencyReductionPercent(
-                snapshot.LegacyHeight
-                    .EstimatedConservativeUpperBoundBytes,
-                snapshot.HeightConservativeUpperBoundBytes
-            );
 
         EditorGUILayout.LabelField(
             "GPU Cache Reduction",
-            gpuReduction.ToString("N2") + "%"
+            capacity.HeightGpuSavingsPercent.ToString("N2") + "%"
         );
 
         EditorGUILayout.LabelField(
             "Conservative Reduction",
-            upperBoundReduction.ToString("N2") + "%"
+            capacity.HeightUpperBoundSavingsPercent.ToString("N2") + "%"
         );
     }
 
     private void DrawRuntimeSurfaceResidency(
-        TerrainRuntimeResidencyDiagnosticsSnapshot snapshot
+        TerrainRuntimeResidencyDiagnosticsSnapshot snapshot,
+        TerrainRuntimeCapacityResult capacity
     )
     {
         GUILayout.Label(
@@ -318,105 +338,190 @@ public partial class WorldMeshesEditorWindow :
 
         DrawRuntimeResidencyBytes(
             "Active GPU Cache",
-            snapshot.Surface.EstimatedActiveGpuBytes
+            capacity.SurfaceActiveGpuBytes
         );
 
         DrawRuntimeResidencyBytes(
             "Staging GPU Cache",
-            snapshot.Surface.EstimatedStagingGpuBytes
+            capacity.SurfaceStagingGpuBytes
         );
 
         EditorGUILayout.LabelField(
             "Resident Source Pages",
-            snapshot.Surface.ResidentSourceCount.ToString("N0")
+            capacity.SurfaceResidentSourceCount.ToString("N0")
         );
 
         DrawRuntimeResidencyBytes(
             "Current Source",
-            snapshot.Surface.EstimatedCurrentSourceBytes
+            capacity.SurfaceCurrentSourceBytes
         );
 
         DrawRuntimeResidencyBytes(
             "Source Upper Bound",
-            snapshot.Surface.EstimatedSourceUpperBoundBytes
+            capacity.SurfaceSourceUpperBoundBytes
         );
 
         DrawRuntimeResidencyBytes(
             "Current Logical Residency",
-            snapshot.Surface.EstimatedCurrentLogicalBytes
+            capacity.SurfaceCurrentLogicalBytes
         );
 
         DrawRuntimeResidencyBytes(
             "Conservative Upper Bound",
-            snapshot.Surface.EstimatedConservativeUpperBoundBytes
+            capacity.SurfaceConservativeUpperBoundBytes
+        );
+
+        DrawRuntimeCapacityTarget(
+            "Surface Target",
+            capacity.SurfaceBudgetConfigured,
+            capacity.SurfaceBudgetBytes
+        );
+
+        DrawRuntimeCapacityHeadroom(
+            "Headroom / Excess",
+            capacity.SurfaceBudgetConfigured,
+            capacity.SurfaceBudgetHeadroomBytes
+        );
+
+        DrawRuntimeCapacityStatus(
+            "Surface Target Status",
+            capacity.SurfaceStatus
         );
     }
 
     private void DrawRuntimeTotalResidency(
-        TerrainRuntimeResidencyDiagnosticsSnapshot snapshot
+        TerrainRuntimeCapacityResult capacity
     )
     {
         GUILayout.Label(
-            "Terrain Streaming Texture Residency",
+            "Terrain Capacity",
             EditorStyles.boldLabel
         );
 
         DrawRuntimeResidencyBytes(
             "Current",
-            snapshot.CurrentTerrainLogicalBytes
+            capacity.CurrentTerrainBytes
         );
 
         DrawRuntimeResidencyBytes(
             "Conservative Upper Bound",
-            snapshot.ConservativeTerrainUpperBoundBytes
+            capacity.ConservativeTerrainUpperBoundBytes
         );
 
-        float surfaceShare =
-            snapshot.ConservativeTerrainUpperBoundBytes > 0L
-                ? (float)(
-                    snapshot.Surface
-                        .EstimatedConservativeUpperBoundBytes /
-                    (double)snapshot
-                        .ConservativeTerrainUpperBoundBytes *
-                    100d
-                )
-                : 0f;
+        DrawRuntimeCapacityTarget(
+            "Target",
+            capacity.TerrainBudgetConfigured,
+            capacity.TerrainBudgetBytes
+        );
+
+        DrawRuntimeCapacityHeadroom(
+            "Headroom / Excess",
+            capacity.TerrainBudgetConfigured,
+            capacity.TerrainBudgetHeadroomBytes
+        );
+
+        DrawRuntimeCapacityStatus(
+            "Combined Terrain",
+            capacity.TerrainStatus
+        );
 
         EditorGUILayout.LabelField(
             "Surface Share",
-            surfaceShare.ToString("N2") + "%"
+            capacity.SurfaceSharePercent.ToString("N2") + "%"
         );
 
         EditorGUILayout.LabelField(
-            "Dominant Domain",
-            snapshot.Surface
-                .EstimatedConservativeUpperBoundBytes >
-            snapshot.HeightConservativeUpperBoundBytes
+            "Dominant Component",
+            capacity.SurfaceIsDominant
                 ? "Surface"
                 : "Height"
         );
 
-        if (runtimeTerrainResidencyBudgetMiB > 0f)
-        {
-            long budgetBytes =
-                MiBToBytes(
-                    runtimeTerrainResidencyBudgetMiB
+        string recommendation =
+            TerrainRuntimeCapacityResult
+                .FormatRecommendation(
+                    capacity.SurfaceScalingRecommendation
                 );
 
-            long headroom =
-                budgetBytes -
-                snapshot.ConservativeTerrainUpperBoundBytes;
+        EditorGUILayout.LabelField(
+            "Surface Scaling",
+            recommendation
+        );
 
-            DrawRuntimeResidencyBytes(
-                "Target Budget",
-                budgetBytes
+        if (!string.IsNullOrEmpty(capacity.SurfaceScalingReason))
+        {
+            EditorGUILayout.HelpBox(
+                capacity.SurfaceScalingReason,
+                capacity.SurfaceScalingRecommendation ==
+                    TerrainSurfaceScalingRecommendation
+                        .RecommendedForTarget
+                    ? MessageType.Warning
+                    : MessageType.None
+            );
+        }
+    }
+
+    private static void DrawRuntimeCapacityTarget(
+        string label,
+        bool configured,
+        long bytes
+    )
+    {
+        EditorGUILayout.LabelField(
+            label,
+            configured
+                ? FormatDiagnosticsBytes(bytes)
+                : "Not Configured"
+        );
+    }
+
+    private static void DrawRuntimeCapacityHeadroom(
+        string label,
+        bool configured,
+        long bytes
+    )
+    {
+        EditorGUILayout.LabelField(
+            label,
+            configured
+                ? FormatSignedRuntimeResidencyBytes(bytes)
+                : "Not Configured"
+        );
+    }
+
+    private static void DrawRuntimeCapacityStatus(
+        string label,
+        TerrainRuntimeCapacityStatus status
+    )
+    {
+        string statusText =
+            TerrainRuntimeCapacityResult.FormatStatus(
+                status
             );
 
-            EditorGUILayout.LabelField(
-                "Headroom / Excess",
-                FormatSignedRuntimeResidencyBytes(
-                    headroom
-                )
+        EditorGUILayout.LabelField(
+            label,
+            statusText
+        );
+
+        if (
+            status ==
+                TerrainRuntimeCapacityStatus.WithinBudget
+        )
+        {
+            EditorGUILayout.HelpBox(
+                label + " is within the configured resource target.",
+                MessageType.Info
+            );
+        }
+        else if (
+            status ==
+                TerrainRuntimeCapacityStatus.ExceedsBudget
+        )
+        {
+            EditorGUILayout.HelpBox(
+                label + " exceeds the configured resource target.",
+                MessageType.Warning
             );
         }
     }
@@ -430,27 +535,6 @@ public partial class WorldMeshesEditorWindow :
             label,
             FormatDiagnosticsBytes(bytes)
         );
-    }
-
-    private static float CalculateResidencyReductionPercent(
-        long legacyBytes,
-        long currentBytes
-    )
-    {
-        if (legacyBytes <= 0L)
-        {
-            return 0f;
-        }
-
-        return
-            (float)(
-                (
-                    legacyBytes -
-                    currentBytes
-                ) /
-                (double)legacyBytes *
-                100d
-            );
     }
 
     private static float SanitizeRuntimeResidencyBudgetMiB(
