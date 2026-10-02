@@ -5,7 +5,7 @@ using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEngine;
 
-public static class TerrainHeightStampLibraryFoundationValidationUtility
+public static class TerrainHeightStampLibraryValidationUtility
 {
     private sealed class Result
     {
@@ -25,6 +25,9 @@ public static class TerrainHeightStampLibraryFoundationValidationUtility
     private static string lastSummary =
         "Not run.";
 
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
     public static bool IsScheduled =>
         validationScheduled;
 
@@ -40,6 +43,9 @@ public static class TerrainHeightStampLibraryFoundationValidationUtility
     public static string LastSummary =>
         lastSummary;
 
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
+
     public static void RequestValidation()
     {
         if (
@@ -53,6 +59,11 @@ public static class TerrainHeightStampLibraryFoundationValidationUtility
 
         validationScheduled =
             true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Stamp validation is running."
+            );
 
         EditorApplication.delayCall -=
             RunScheduledValidation;
@@ -808,13 +819,21 @@ public static class TerrainHeightStampLibraryFoundationValidationUtility
                 ? builder.ToString()
                 : "No validation results were produced.";
 
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                lastPassedCount,
+                lastFailedCount,
+                0,
+                lastSummary
+            );
+
         if (
             lastFailedCount >
                 0
         )
         {
             Debug.LogError(
-                "Stamp library foundation validation failed.\n\n"
+                "Stamp library validation failed.\n\n"
                 +
                 lastSummary
             );
@@ -822,7 +841,7 @@ public static class TerrainHeightStampLibraryFoundationValidationUtility
         else
         {
             Debug.Log(
-                "Stamp library foundation validation passed.\n\n"
+                "Stamp library validation passed.\n\n"
                 +
                 lastSummary
             );

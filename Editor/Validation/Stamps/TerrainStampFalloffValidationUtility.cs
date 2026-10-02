@@ -75,6 +75,9 @@ public static class TerrainStampFalloffValidationUtility
     private static string lastSummary =
         "Not run.";
 
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
     public static bool IsScheduled =>
         validationScheduled;
 
@@ -90,6 +93,9 @@ public static class TerrainStampFalloffValidationUtility
     public static string LastSummary =>
         lastSummary;
 
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
+
     public static void RequestValidation()
     {
         if (
@@ -102,6 +108,11 @@ public static class TerrainStampFalloffValidationUtility
         }
 
         validationScheduled = true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Stamp validation is running."
+            );
 
         EditorApplication.delayCall -=
             RunScheduledValidation;
@@ -2084,6 +2095,14 @@ public static class TerrainStampFalloffValidationUtility
             builder.Length > 0
                 ? builder.ToString()
                 : "No validation results were produced.";
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                lastPassedCount,
+                lastFailedCount,
+                0,
+                lastSummary
+            );
 
         if (lastFailedCount > 0)
         {

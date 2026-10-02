@@ -7,7 +7,7 @@ using UnityEngine;
 using UnityEngine.Rendering;
 
 /*
- * Package 4 validation for GPU regional elevation composition and its shared
+ * Regional Elevation Composition validation for GPU regional elevation composition and its shared
  * preview/runtime scheduling contract.
  *
  * GPU fixtures and authoring data are transient. The real TerrainAuthoringData
@@ -73,6 +73,12 @@ public static class TerrainRegionalElevationCompositionValidationUtility
     private static bool validationRunning;
     private static bool validationScheduled;
 
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
+
     private static WorldSettings realWorldSettings;
     private static TerrainAuthoringData realAuthoringData;
 
@@ -100,6 +106,11 @@ public static class TerrainRegionalElevationCompositionValidationUtility
 
         validationScheduled =
             true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Regional Elevation validation is running."
+            );
 
         EditorApplication.delayCall -=
             RunScheduledValidation;
@@ -259,7 +270,7 @@ public static class TerrainRegionalElevationCompositionValidationUtility
         if (!SystemInfo.supportsAsyncGPUReadback)
         {
             errorMessage =
-                "Async GPU readback is required for Package 4 validation.";
+                "Async GPU readback is required for Regional Elevation Composition validation.";
 
             return false;
         }
@@ -362,7 +373,7 @@ public static class TerrainRegionalElevationCompositionValidationUtility
             );
 
         AddResult(
-            "Node regional output semantics are versioned for Package 4",
+            "Node regional output semantics are versioned for Regional Elevation Composition",
             passed
                 ? ValidationOutcome.Pass
                 : ValidationOutcome.Fail,
@@ -593,7 +604,7 @@ public static class TerrainRegionalElevationCompositionValidationUtility
             }
 
             AddResult(
-                "Two-node GPU field matches Package 3 CPU IDW",
+                "Two-node GPU field matches Node Interpolation CPU IDW",
                 parity
                     ? ValidationOutcome.Pass
                     : ValidationOutcome.Fail,
@@ -749,7 +760,7 @@ public static class TerrainRegionalElevationCompositionValidationUtility
                     ? ValidationOutcome.Pass
                     : ValidationOutcome.Fail,
                 parity
-                    ? "All 25 tile samples matched Package 3 CPU evaluation " +
+                    ? "All 25 tile samples matched Node Interpolation CPU evaluation " +
                       "within tolerance and stayed inside the positive-weight " +
                       "IDW source elevation range."
                     : errorMessage
@@ -856,7 +867,7 @@ public static class TerrainRegionalElevationCompositionValidationUtility
                     : ValidationOutcome.Fail,
                 passed
                     ? "Three coincident 50/150/100m nodes evaluated to 100m " +
-                      "on CPU and GPU using the Package 3 exact-match rule."
+                      "on CPU and GPU using the Node Interpolation exact-match rule."
                     : string.IsNullOrEmpty(errorMessage)
                         ? cpuError
                         : errorMessage
@@ -1521,7 +1532,7 @@ public static class TerrainRegionalElevationCompositionValidationUtility
                 );
 
             AddResult(
-                "Package 4 enforces Flat-only committed-base semantics",
+                "Regional Elevation Composition enforces Flat-only committed-base semantics",
                 passed
                     ? ValidationOutcome.Pass
                     : ValidationOutcome.Fail,
@@ -1760,7 +1771,7 @@ public static class TerrainRegionalElevationCompositionValidationUtility
                 );
 
             committedTile.name =
-                "WorldMeshes Package 4 Runtime Composition Validation Base";
+                "WorldMeshes Regional Elevation Composition Runtime Composition Validation Base";
 
             committedTile.wrapMode =
                 TextureWrapMode.Clamp;
@@ -1881,7 +1892,7 @@ public static class TerrainRegionalElevationCompositionValidationUtility
                 ? ValidationOutcome.Pass
                 : ValidationOutcome.Fail,
             passed
-                ? "Transient Package 4 GPU/range/scheduling tests did not " +
+                ? "Transient Regional Elevation Composition GPU/range/scheduling tests did not " +
                   "alter the real regional source, authoring revision, " +
                   "committed signature, or overall authoring signature."
                 : "Persistent authoring state changed during validation."
@@ -2003,7 +2014,7 @@ public static class TerrainRegionalElevationCompositionValidationUtility
             if (request.hasError)
             {
                 errorMessage =
-                    "GPU readback failed for the Package 4 validation target.";
+                    "GPU readback failed for the Regional Elevation Composition validation target.";
 
                 return false;
             }
@@ -2091,7 +2102,7 @@ public static class TerrainRegionalElevationCompositionValidationUtility
             );
 
         seed.name =
-            "WorldMeshes Package 4 Validation Seed";
+            "WorldMeshes Regional Elevation Composition Validation Seed";
 
         float[] seedValues =
             new float[
@@ -2129,7 +2140,7 @@ public static class TerrainRegionalElevationCompositionValidationUtility
             );
 
         target.name =
-            "WorldMeshes Package 4 Validation Target";
+            "WorldMeshes Regional Elevation Composition Validation Target";
 
         target.dimension =
             TextureDimension.Tex2DArray;
@@ -2176,7 +2187,7 @@ public static class TerrainRegionalElevationCompositionValidationUtility
         )
         {
             errorMessage =
-                "Could not seed the transient Package 4 validation target. " +
+                "Could not seed the transient Regional Elevation Composition validation target. " +
                 exception.Message;
 
             return false;
@@ -2258,7 +2269,7 @@ public static class TerrainRegionalElevationCompositionValidationUtility
             );
 
         texture.name =
-            "WorldMeshes Package 4 Uniform Stamp";
+            "WorldMeshes Regional Elevation Composition Uniform Stamp";
 
         texture.filterMode =
             FilterMode.Bilinear;
@@ -2571,6 +2582,14 @@ public static class TerrainRegionalElevationCompositionValidationUtility
         );
 
         builder.AppendLine();
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passed,
+                failed,
+                blocked,
+                $"{passed} passed, {failed} failed, {blocked} blocked."
+            );
 
         string finalStatus =
             failed == 0

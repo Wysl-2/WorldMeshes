@@ -6,7 +6,7 @@ using UnityEditor;
 using UnityEngine;
 
 /*
- * Package 3 validation for the pure CPU node-elevation interpolation field.
+ * Node Interpolation validation for the pure CPU node-elevation interpolation field.
  *
  * Tests operate on transient in-memory sources. The real TerrainAuthoringData
  * asset and committed authoring heightfield are never modified.
@@ -54,6 +54,12 @@ public static class TerrainNodeElevationInterpolationValidationUtility
 
     private static bool validationRunning;
 
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
+
     public static bool IsRunning
     {
         get
@@ -77,6 +83,11 @@ public static class TerrainNodeElevationInterpolationValidationUtility
 
         validationRunning =
             true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Regional Elevation validation is running."
+            );
 
         results.Clear();
 
@@ -265,11 +276,11 @@ public static class TerrainNodeElevationInterpolationValidationUtility
                 ? ValidationOutcome.Pass
                 : ValidationOutcome.Fail,
             realStateUnchanged
-                ? "Package 3 interpolation validation did not alter the real " +
+                ? "Node Interpolation validation did not alter the real " +
                     "regional source, authoring revision, committed signature, " +
                     "or overall authoring signature."
                 : "Real WorldMeshes authoring state changed while running the " +
-                    "Package 3 interpolation validation."
+                    "Node Interpolation validation."
         );
     }
 
@@ -861,7 +872,7 @@ public static class TerrainNodeElevationInterpolationValidationUtility
                     "30/60/120m nodes evaluated to 70m, and order did not " +
                     "change the exact-match result."
                 : "Coincident-node exact-match averaging did not match the " +
-                    "Package 3 contract."
+                    "Node Interpolation contract."
         );
     }
 
@@ -937,9 +948,9 @@ public static class TerrainNodeElevationInterpolationValidationUtility
         if (!generated)
         {
             AddResult(
-                "Package 2 Four Corners compatibility",
+                "Node Initialization Four Corners compatibility",
                 ValidationOutcome.Fail,
-                "Could not generate the Package 2 Four Corners source. " +
+                "Could not generate the Node Initialization Four Corners source. " +
                 generationError
             );
 
@@ -992,15 +1003,15 @@ public static class TerrainNodeElevationInterpolationValidationUtility
         }
 
         AddResult(
-            "Package 2 Four Corners integrates with the evaluator",
+            "Node Initialization Four Corners integrates with the evaluator",
             passed
                 ? ValidationOutcome.Pass
                 : ValidationOutcome.Fail,
             passed
                 ? "Distinct southwest, southeast, northwest, and northeast " +
-                    "corner elevations were returned exactly at Package 2 " +
+                    "corner elevations were returned exactly at Node Initialization " +
                     "generated node positions."
-                : "Package 2 Four Corners data did not evaluate correctly."
+                : "Node Initialization Four Corners data did not evaluate correctly."
         );
     }
 
@@ -1022,7 +1033,7 @@ public static class TerrainNodeElevationInterpolationValidationUtility
             AddResult(
                 "World-edge global interpolation",
                 ValidationOutcome.Fail,
-                "Could not generate the Package 2 Four Corners source. " +
+                "Could not generate the Node Initialization Four Corners source. " +
                 generationError
             );
 
@@ -1846,6 +1857,14 @@ public static class TerrainNodeElevationInterpolationValidationUtility
         );
 
         builder.AppendLine();
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passed,
+                failed,
+                blocked,
+                $"{passed} passed, {failed} failed, {blocked} blocked."
+            );
 
         if (
             failed == 0

@@ -4,7 +4,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-public static class TerrainStampRotationFoundationValidationUtility
+public static class TerrainStampRotationValidationUtility
 {
     private sealed class Result
     {
@@ -59,11 +59,17 @@ public static class TerrainStampRotationFoundationValidationUtility
     private static int lastFailedCount;
     private static string lastSummary = "Not run.";
 
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
     public static bool IsScheduled => validationScheduled;
     public static bool IsRunning => validationRunning;
     public static int LastPassedCount => lastPassedCount;
     public static int LastFailedCount => lastFailedCount;
     public static string LastSummary => lastSummary;
+
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
 
     public static void RequestValidation()
     {
@@ -73,6 +79,11 @@ public static class TerrainStampRotationFoundationValidationUtility
         }
 
         validationScheduled = true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Stamp validation is running."
+            );
         EditorApplication.delayCall -= RunScheduledValidation;
         EditorApplication.delayCall += RunScheduledValidation;
     }
@@ -757,13 +768,21 @@ public static class TerrainStampRotationFoundationValidationUtility
 
         lastSummary = builder.Length > 0 ? builder.ToString() : "No validation results were produced.";
 
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                lastPassedCount,
+                lastFailedCount,
+                0,
+                lastSummary
+            );
+
         if (lastFailedCount > 0)
         {
-            Debug.LogError("Stamp rotation foundation validation failed.\n\n" + lastSummary);
+            Debug.LogError("Stamp rotation validation failed.\n\n" + lastSummary);
         }
         else
         {
-            Debug.Log("Stamp rotation foundation validation passed.\n\n" + lastSummary);
+            Debug.Log("Stamp rotation validation passed.\n\n" + lastSummary);
         }
 
         SceneView.RepaintAll();

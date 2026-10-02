@@ -7,14 +7,14 @@ using UnityEditor;
 using UnityEngine;
 
 /*
- * Package 2 validation for initial node-layout generation and setup
+ * Node Initialization validation for initial node-layout generation and setup
  * architecture. The real TerrainAuthoringData asset and committed height tiles
  * are never modified.
  */
 public static class TerrainNodeElevationInitializationValidationUtility
 {
     private const string TempFolder =
-        "Assets/WorldMeshes/Editor/Validation/RegionalElevation02Temp";
+        "Assets/WorldMeshes/Editor/Validation/RegionalElevationInitializationTemp";
 
     private const string TempAuthoringDataPath =
         TempFolder +
@@ -40,6 +40,12 @@ public static class TerrainNodeElevationInitializationValidationUtility
 
     private static bool validationRunning;
 
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
+
     public static bool IsRunning
     {
         get
@@ -63,6 +69,11 @@ public static class TerrainNodeElevationInitializationValidationUtility
 
         validationRunning =
             true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Regional Elevation validation is running."
+            );
 
         results.Clear();
 
@@ -328,9 +339,9 @@ public static class TerrainNodeElevationInitializationValidationUtility
             &&
             realOverallAfter ==
                 realOverallBefore
-                ? "Temporary Package 2 validation did not alter the real " +
+                ? "Temporary Node Initialization validation did not alter the real " +
                     "committed or overall authoring signatures."
-                : "The real authoring state changed during Package 2 " +
+                : "The real authoring state changed during Node Initialization " +
                     "validation."
         );
     }
@@ -712,7 +723,7 @@ public static class TerrainNodeElevationInitializationValidationUtility
             valid
             &&
             allUnique
-                ? "Every generated node has a valid unique Package 1 " +
+                ? "Every generated node has a valid unique Regional Elevation Data " +
                     "persistent identity."
                 : string.IsNullOrEmpty(
                     errorMessage
@@ -1192,7 +1203,7 @@ public static class TerrainNodeElevationInitializationValidationUtility
                 ? ValidationOutcome.Pass
                 : ValidationOutcome.Fail,
             separated
-                ? "TerrainAuthoringHeightInitializer has no Package 2 source " +
+                ? "TerrainAuthoringHeightInitializer has no Node Initialization source " +
                     "creation/replacement path; node initialization remains " +
                     "an explicit separate authoring action."
                 : "Committed heightfield initialization contains regional " +
@@ -1472,7 +1483,7 @@ public static class TerrainNodeElevationInitializationValidationUtility
         {
             AssetDatabase.CreateFolder(
                 validationFolder,
-                "RegionalElevation02Temp"
+                "RegionalElevationInitializationTemp"
             );
         }
     }
@@ -1623,6 +1634,14 @@ public static class TerrainNodeElevationInitializationValidationUtility
         );
 
         builder.AppendLine();
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passed,
+                failed,
+                blocked,
+                $"{passed} passed, {failed} failed, {blocked} blocked."
+            );
 
         if (
             failed == 0

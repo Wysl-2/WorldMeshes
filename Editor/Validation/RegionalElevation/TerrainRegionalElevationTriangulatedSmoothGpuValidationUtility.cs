@@ -7,7 +7,7 @@ using UnityEngine;
 using UnityEngine.Rendering;
 
 /*
- * Package I7 validation for production Triangulated Smooth GPU composition.
+ * Triangulated Smooth GPU validation for production Triangulated Smooth GPU composition.
  *
  * I6 CPU evaluation is the semantic reference. Numerical checks use the real
  * production Smooth compute shader through TerrainHeightCompositor; production
@@ -65,6 +65,12 @@ public static class TerrainRegionalElevationTriangulatedSmoothGpuValidationUtili
     private static bool validationRunning;
     private static bool validationScheduled;
 
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
+
     private static WorldSettings worldSettings;
     private static TerrainAuthoringData realAuthoringData;
     private static int realRevisionBefore;
@@ -88,6 +94,11 @@ public static class TerrainRegionalElevationTriangulatedSmoothGpuValidationUtili
         }
 
         validationScheduled = true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Regional Elevation validation is running."
+            );
         EditorApplication.delayCall -= RunScheduledValidation;
         EditorApplication.delayCall += RunScheduledValidation;
     }
@@ -233,7 +244,7 @@ public static class TerrainRegionalElevationTriangulatedSmoothGpuValidationUtili
         {
             errorMessage =
                 "Initialize the committed authoring heightfield before " +
-                "running Package I7 validation.";
+                "running Triangulated Smooth GPU validation.";
             return false;
         }
 
@@ -245,7 +256,7 @@ public static class TerrainRegionalElevationTriangulatedSmoothGpuValidationUtili
         if (smoothShader == null)
         {
             errorMessage =
-                "The Package I7 production Triangulated Smooth compute " +
+                "The Triangulated Smooth GPU production Triangulated Smooth compute " +
                 "shader could not be loaded.";
             return false;
         }
@@ -1781,7 +1792,7 @@ public static class TerrainRegionalElevationTriangulatedSmoothGpuValidationUtili
                 selectedAfter);
 
         AddResult(
-            "Real authoring and Package 7 selection state remain unchanged",
+            "Real authoring and Regional Elevation Multi-Selection selection state remain unchanged",
             passed
                 ? ValidationOutcome.Pass
                 : ValidationOutcome.Fail,
@@ -2657,23 +2668,38 @@ public static class TerrainRegionalElevationTriangulatedSmoothGpuValidationUtili
 
         builder.AppendLine();
 
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passed,
+                failed,
+                blocked,
+                $"{passed} passed, {failed} failed, {blocked} blocked."
+            );
+
         bool validationPassed =
             failed == 0 &&
             blocked == 0;
 
         builder.AppendLine(
-            validationPassed
-                ? "Regional elevation Triangulated Smooth GPU validation: PASSED"
-                : "Regional elevation Triangulated Smooth GPU validation: FAILED");
+            failed > 0
+                ? "Regional elevation Triangulated Smooth GPU validation: FAILED"
+                : blocked > 0
+                    ? "Regional elevation Triangulated Smooth GPU validation: BLOCKED"
+                    : "Regional elevation Triangulated Smooth GPU validation: PASSED");
 
-        if (validationPassed)
+        if (failed > 0)
         {
-            Debug.Log(
+            Debug.LogError(
+                builder.ToString());
+        }
+        else if (blocked > 0)
+        {
+            Debug.LogWarning(
                 builder.ToString());
         }
         else
         {
-            Debug.LogError(
+            Debug.Log(
                 builder.ToString());
         }
     }

@@ -7,11 +7,11 @@ using UnityEditor;
 using UnityEngine;
 
 /*
- * Package I2 validation for deterministic, derived regional-node topology.
+ * Triangulation validation for deterministic, derived regional-node topology.
  *
  * All topology fixtures are transient. The real authoring asset is observed
  * only so validation can prove that derived geometry work leaves project and
- * Package 7 selection state unchanged.
+ * Regional Elevation Multi-Selection selection state unchanged.
  */
 public static class TerrainRegionalElevationTriangulationValidationUtility
 {
@@ -46,6 +46,12 @@ public static class TerrainRegionalElevationTriangulationValidationUtility
 
     private static bool validationRunning;
     private static bool validationScheduled;
+
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
     private static WorldSettings worldSettings;
     private static TerrainAuthoringData realAuthoringData;
     private static int realRevisionBefore;
@@ -68,6 +74,11 @@ public static class TerrainRegionalElevationTriangulationValidationUtility
         }
 
         validationScheduled = true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Regional Elevation validation is running."
+            );
         EditorApplication.delayCall -= RunScheduledValidation;
         EditorApplication.delayCall += RunScheduledValidation;
     }
@@ -101,7 +112,7 @@ public static class TerrainRegionalElevationTriangulationValidationUtility
             AddResult(
                 "Validation prerequisites",
                 ValidationOutcome.Pass,
-                "Current WorldSettings, TerrainAuthoringData, Package I1 state, and Package 7 selection state are available.");
+                "Current WorldSettings, TerrainAuthoringData, Interpolation Mode state, and Regional Elevation Multi-Selection selection state are available.");
 
             ValidateTopologyKinds();
             ValidateSquareDeterminism();
@@ -172,7 +183,7 @@ public static class TerrainRegionalElevationTriangulationValidationUtility
         if (string.IsNullOrEmpty(committed) || string.IsNullOrEmpty(overall))
         {
             errorMessage =
-                "Initialize the committed authoring heightfield before running Package I2 validation.";
+                "Initialize the committed authoring heightfield before running Triangulation validation.";
             return false;
         }
 
@@ -282,7 +293,7 @@ public static class TerrainRegionalElevationTriangulationValidationUtility
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
                 ? "Degenerate layouts produce explicit topology kinds, while three non-collinear nodes produce one canonical CCW triangle."
-                : "One or more foundational topology-kind fixtures did not match the Package I2 contract.");
+                : "One or more foundational topology-kind fixtures did not match the Triangulation contract.");
     }
 
     private static void ValidateSquareDeterminism()
@@ -653,7 +664,7 @@ public static class TerrainRegionalElevationTriangulationValidationUtility
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
                 ? "Elevation, interpolation mode, and StableId changes reused topology; position, add, remove, and multi-node XZ changes rebuilt lazily on the next request."
-                : "Geometry-only topology cache invalidation did not match the Package I2 contract.");
+                : "Geometry-only topology cache invalidation did not match the Triangulation contract.");
     }
 
     private static void ValidateIdentityAndSourceOrderSafety()
@@ -781,7 +792,7 @@ public static class TerrainRegionalElevationTriangulationValidationUtility
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
                 ? "Interior samples resolve correctly, outside-hull samples return none, and shared-edge/vertex ambiguity resolves to the lowest canonical triangle index."
-                : "Point-to-triangle containment behavior did not match the Package I2 contract.");
+                : "Point-to-triangle containment behavior did not match the Triangulation contract.");
     }
 
     private static void ValidateIdwAndFutureModeCompatibility()
@@ -868,10 +879,10 @@ public static class TerrainRegionalElevationTriangulationValidationUtility
             smoothCpuSupported;
 
         AddResult(
-            "Package I2 topology remains compatible with IDW, Linear, and Smooth CPU evaluation",
+            "Triangulation topology remains compatible with IDW, Linear, and Smooth CPU evaluation",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "Package I1 IDW regression samples are unchanged; Package I2 topology remains reusable by both Linear and Package I6 Smooth CPU evaluation."
+                ? "Interpolation Mode IDW regression samples are unchanged; Triangulation topology remains reusable by both Linear and Triangulated Smooth CPU evaluation."
                 : linearError + " " + smoothError);
     }
 
@@ -907,11 +918,11 @@ public static class TerrainRegionalElevationTriangulationValidationUtility
             SequenceEqual(realSelectedIdsBefore, selectedAfter);
 
         AddResult(
-            "Real authoring, interpolation, and Package 7 selection state remain unchanged",
+            "Real authoring, interpolation, and Regional Elevation Multi-Selection selection state remain unchanged",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
                 ? "Derived topology validation created no authoring revision/signature/source/interpolation/selection mutation and therefore required no terrain invalidation transaction."
-                : "Real WorldMeshes state changed during Package I2 validation.");
+                : "Real WorldMeshes state changed during Triangulation validation.");
     }
 
     private static bool TryBuild(
@@ -1506,6 +1517,14 @@ public static class TerrainRegionalElevationTriangulationValidationUtility
         builder.AppendLine(failed + " failed");
         builder.AppendLine(blocked + " blocked");
         builder.AppendLine();
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passed,
+                failed,
+                blocked,
+                $"{passed} passed, {failed} failed, {blocked} blocked."
+            );
         builder.AppendLine(
             failed == 0 && blocked == 0
                 ? "Regional elevation triangulation validation: PASSED"
@@ -1513,6 +1532,17 @@ public static class TerrainRegionalElevationTriangulationValidationUtility
                     ? "Regional elevation triangulation validation: FAILED"
                     : "Regional elevation triangulation validation: BLOCKED");
 
-        Debug.Log(builder.ToString());
+        if (failed > 0)
+        {
+            Debug.LogError(builder.ToString());
+        }
+        else if (blocked > 0)
+        {
+            Debug.LogWarning(builder.ToString());
+        }
+        else
+        {
+            Debug.Log(builder.ToString());
+        }
     }
 }

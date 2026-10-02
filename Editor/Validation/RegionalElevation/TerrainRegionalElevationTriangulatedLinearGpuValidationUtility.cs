@@ -6,9 +6,9 @@ using UnityEngine;
 using UnityEngine.Rendering;
 
 /*
- * Package I4 validation for production Triangulated Linear GPU composition.
+ * Triangulated Linear GPU validation for production Triangulated Linear GPU composition.
  *
- * Package I3 CPU evaluation is the semantic reference. GPU parity fixtures are
+ * Triangulated Linear CPU evaluation is the semantic reference. GPU parity fixtures are
  * transient and use the production I2 topology cache plus the same production
  * compute shader used by TerrainHeightCompositor tile composition.
  */
@@ -48,6 +48,12 @@ public static class TerrainRegionalElevationTriangulatedLinearGpuValidationUtili
 
     private static bool validationRunning;
     private static bool validationScheduled;
+
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
     private static WorldSettings worldSettings;
     private static TerrainAuthoringData realAuthoringData;
     private static int realRevisionBefore;
@@ -70,6 +76,11 @@ public static class TerrainRegionalElevationTriangulatedLinearGpuValidationUtili
         }
 
         validationScheduled = true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Regional Elevation validation is running."
+            );
         EditorApplication.delayCall -= RunScheduledValidation;
         EditorApplication.delayCall += RunScheduledValidation;
     }
@@ -103,7 +114,7 @@ public static class TerrainRegionalElevationTriangulatedLinearGpuValidationUtili
             AddResult(
                 "Validation prerequisites",
                 ValidationOutcome.Pass,
-                "Compute shaders, current WorldSettings/TerrainAuthoringData, Package I1-I3 state, and the production Linear compute shader are available.");
+                "Compute shaders, current WorldSettings/TerrainAuthoringData, Interpolation Mode / Triangulation / Triangulated Linear CPU state, and the production Linear compute shader are available.");
 
             ValidateCapabilityAndCompositionResolution();
             ValidateBasicTriangleParity();
@@ -183,7 +194,7 @@ public static class TerrainRegionalElevationTriangulatedLinearGpuValidationUtili
         if (string.IsNullOrEmpty(committed) || string.IsNullOrEmpty(overall))
         {
             errorMessage =
-                "Initialize the committed authoring heightfield before running Package I4 validation.";
+                "Initialize the committed authoring heightfield before running Triangulated Linear GPU validation.";
             return false;
         }
 
@@ -194,7 +205,7 @@ public static class TerrainRegionalElevationTriangulatedLinearGpuValidationUtili
         if (linearShader == null)
         {
             errorMessage =
-                "The Package I4 production Triangulated Linear compute shader could not be loaded.";
+                "The Triangulated Linear GPU production Triangulated Linear compute shader could not be loaded.";
             return false;
         }
 
@@ -304,7 +315,7 @@ public static class TerrainRegionalElevationTriangulatedLinearGpuValidationUtili
             "Basic triangle vertices, edges, centroid, and interior samples match CPU Linear",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "Production GPU barycentric evaluation matches Package I3 CPU semantics at corners, edge midpoints, centroid, and an irregular interior point."
+                ? "Production GPU barycentric evaluation matches Triangulated Linear CPU semantics at corners, edge midpoints, centroid, and an irregular interior point."
                 : errorMessage);
     }
 
@@ -444,7 +455,7 @@ public static class TerrainRegionalElevationTriangulatedLinearGpuValidationUtili
         bool passed = composed && parity;
 
         AddResult(
-            "Production Linear tile composition matches Package I3 CPU semantics",
+            "Production Linear tile composition matches Triangulated Linear CPU semantics",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
                 ? "The actual TerrainHeightCompositor Linear tile path, world-sample addressing, RFloat output, and GPU readback match CPU Linear over the full validation tile."
@@ -597,7 +608,7 @@ public static class TerrainRegionalElevationTriangulatedLinearGpuValidationUtili
         bool passed = singleParity && segmentParity;
 
         AddResult(
-            "Single-point and two-node projection policies match Package I3 on GPU",
+            "Single-point and two-node projection policies match Triangulated Linear CPU on GPU",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
                 ? "Single-node height is constant; two-node samples use finite segment projection with perpendicular invariance and endpoint clamping."
@@ -1004,11 +1015,11 @@ public static class TerrainRegionalElevationTriangulatedLinearGpuValidationUtili
             SequenceEqual(realSelectedIdsBefore, selectedAfter);
 
         AddResult(
-            "Real authoring and Package 7 selection state remain unchanged",
+            "Real authoring and Regional Elevation Multi-Selection selection state remain unchanged",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "Transient Package I4 GPU validation did not mutate the real regional source, revision, committed/overall identity, interpolation mode, or selection state."
-                : "Real WorldMeshes authoring or regional selection state changed during Package I4 validation.");
+                ? "Transient Triangulated Linear GPU validation did not mutate the real regional source, revision, committed/overall identity, interpolation mode, or selection state."
+                : "Real WorldMeshes authoring or regional selection state changed during Triangulated Linear GPU validation.");
     }
 
     private static bool TryValidateCpuGpuParity(
@@ -1228,19 +1239,33 @@ public static class TerrainRegionalElevationTriangulatedLinearGpuValidationUtili
         builder.AppendLine(blocked + " blocked");
         builder.AppendLine();
 
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passed,
+                failed,
+                blocked,
+                $"{passed} passed, {failed} failed, {blocked} blocked."
+            );
+
         bool validationPassed = failed == 0 && blocked == 0;
         builder.AppendLine(
-            validationPassed
-                ? "Regional elevation Triangulated Linear GPU validation: PASSED"
-                : "Regional elevation Triangulated Linear GPU validation: FAILED");
+            failed > 0
+                ? "Regional elevation Triangulated Linear GPU validation: FAILED"
+                : blocked > 0
+                    ? "Regional elevation Triangulated Linear GPU validation: BLOCKED"
+                    : "Regional elevation Triangulated Linear GPU validation: PASSED");
 
-        if (validationPassed)
+        if (failed > 0)
         {
-            Debug.Log(builder.ToString());
+            Debug.LogError(builder.ToString());
+        }
+        else if (blocked > 0)
+        {
+            Debug.LogWarning(builder.ToString());
         }
         else
         {
-            Debug.LogError(builder.ToString());
+            Debug.Log(builder.ToString());
         }
     }
 }

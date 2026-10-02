@@ -37,6 +37,12 @@ public static class TerrainRegionalElevationMultiSelectValidationUtility
 
     private static bool validationRunning;
     private static bool validationScheduled;
+
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
     private static WorldSettings worldSettings;
     private static TerrainAuthoringData realAuthoringData;
     private static int realRevisionBefore;
@@ -57,6 +63,11 @@ public static class TerrainRegionalElevationMultiSelectValidationUtility
         }
 
         validationScheduled = true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Regional Elevation validation is running."
+            );
         EditorApplication.delayCall -= RunScheduledValidation;
         EditorApplication.delayCall += RunScheduledValidation;
     }
@@ -156,7 +167,7 @@ public static class TerrainRegionalElevationMultiSelectValidationUtility
 
         if (string.IsNullOrEmpty(committed) || string.IsNullOrEmpty(overall))
         {
-            errorMessage = "Initialize the committed authoring heightfield before running Package 7 validation.";
+            errorMessage = "Initialize the committed authoring heightfield before running Regional Elevation Multi-Selection validation.";
             return false;
         }
 
@@ -215,7 +226,7 @@ public static class TerrainRegionalElevationMultiSelectValidationUtility
                 ok ? ValidationOutcome.Pass : ValidationOutcome.Fail,
                 ok
                     ? "Selection remains editor-only, supports additive/toggle behavior, and maintains one primary StableId."
-                    : "One or more Package 7 selection operations produced an unexpected selection state.");
+                    : "One or more Regional Elevation Multi-Selection selection operations produced an unexpected selection state.");
         }
         finally
         {
@@ -374,7 +385,7 @@ public static class TerrainRegionalElevationMultiSelectValidationUtility
                     : ValidationOutcome.Fail,
                 setOk && all120 && oneRevision && raiseOk && all145 && secondRevision && lowerOk && allMinus5
                     ? "Set, positive offset, and negative offset updated all selected nodes together and each changed operation advanced revision once."
-                    : "Batch elevation values or revision semantics did not match Package 7 requirements.");
+                    : "Batch elevation values or revision semantics did not match Regional Elevation Multi-Selection requirements.");
         }
         finally
         {
@@ -614,8 +625,8 @@ public static class TerrainRegionalElevationMultiSelectValidationUtility
             "Real authoring state remains unchanged",
             unchanged ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             unchanged
-                ? "Transient Package 7 validation did not alter the real regional source, revision, committed signature, or overall signature."
-                : "Real authoring state changed during Package 7 validation.");
+                ? "Transient Regional Elevation Multi-Selection validation did not alter the real regional source, revision, committed signature, or overall signature."
+                : "Real authoring state changed during Regional Elevation Multi-Selection validation.");
     }
 
     private static TerrainAuthoringData CreateData(params NodeSpec[] specs)
@@ -790,11 +801,32 @@ public static class TerrainRegionalElevationMultiSelectValidationUtility
         builder.AppendLine($"{failed} failed");
         builder.AppendLine($"{blocked} blocked");
         builder.AppendLine();
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passed,
+                failed,
+                blocked,
+                $"{passed} passed, {failed} failed, {blocked} blocked."
+            );
         builder.AppendLine(
             failed == 0 && blocked == 0
                 ? "Regional elevation multi-select validation: PASSED"
-                : "Regional elevation multi-select validation: FAILED OR BLOCKED");
+                : failed > 0
+                    ? "Regional elevation multi-select validation: FAILED"
+                    : "Regional elevation multi-select validation: BLOCKED");
 
-        Debug.Log(builder.ToString());
+        if (failed > 0)
+        {
+            Debug.LogError(builder.ToString());
+        }
+        else if (blocked > 0)
+        {
+            Debug.LogWarning(builder.ToString());
+        }
+        else
+        {
+            Debug.Log(builder.ToString());
+        }
     }
 }

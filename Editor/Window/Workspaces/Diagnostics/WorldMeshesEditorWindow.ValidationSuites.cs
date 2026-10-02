@@ -31,6 +31,12 @@ public partial class WorldMeshesEditorWindow :
     private TerrainValidationSuiteRunner
         authoringCompositionValidationRunner;
 
+    private TerrainValidationSuiteRunner
+        regionalElevationValidationRunner;
+
+    private TerrainValidationSuiteRunner
+        stampValidationRunner;
+
     private bool authoringStreamingStressCaptureActive;
     private long authoringStreamingStressBaselineCreateCount;
     private long authoringStreamingStressBaselineDisposeCount;
@@ -258,6 +264,30 @@ public partial class WorldMeshesEditorWindow :
         return authoringCompositionValidationRunner;
     }
 
+    private TerrainValidationSuiteRunner
+        GetRegionalElevationValidationRunner()
+    {
+        if (regionalElevationValidationRunner == null)
+        {
+            regionalElevationValidationRunner =
+                TerrainRegionalElevationRegressionSuite.CreateRunner();
+        }
+
+        return regionalElevationValidationRunner;
+    }
+
+    private TerrainValidationSuiteRunner
+        GetStampValidationRunner()
+    {
+        if (stampValidationRunner == null)
+        {
+            stampValidationRunner =
+                TerrainStampRegressionSuite.CreateRunner();
+        }
+
+        return stampValidationRunner;
+    }
+
     private void DrawValidationSuite(
         string title,
         string buttonLabel,
@@ -421,7 +451,13 @@ public partial class WorldMeshesEditorWindow :
                 && authoringPreviewValidationRunner.IsRunning)
             ||
             (authoringCompositionValidationRunner != null
-                && authoringCompositionValidationRunner.IsRunning);
+                && authoringCompositionValidationRunner.IsRunning)
+            ||
+            (regionalElevationValidationRunner != null
+                && regionalElevationValidationRunner.IsRunning)
+            ||
+            (stampValidationRunner != null
+                && stampValidationRunner.IsRunning);
     }
 
     private void DrawManualAuthoringStreamingStress()
@@ -605,33 +641,13 @@ public partial class WorldMeshesEditorWindow :
         }
 
         GUILayout.Space(5f);
-        DrawRegionalElevationFoundationSettings();
-        DrawWorkspaceSectionGap();
-        DrawNodeElevationInitializationValidationSettings();
-        DrawWorkspaceSectionGap();
-        DrawNodeElevationInterpolationValidationSettings();
-        DrawWorkspaceSectionGap();
-        DrawRegionalElevationCompositionValidationSettings();
-        DrawWorkspaceSectionGap();
-        DrawRegionalElevationManagementValidationSettings();
-        DrawWorkspaceSectionGap();
-        DrawRegionalElevationSceneToolValidationSettings();
-        DrawWorkspaceSectionGap();
-        DrawRegionalElevationMultiSelectValidationSettings();
-        DrawWorkspaceSectionGap();
-        DrawRegionalElevationInterpolationValidationSettings();
-        DrawWorkspaceSectionGap();
-        DrawRegionalElevationTriangulationValidationSettings();
-        DrawWorkspaceSectionGap();
-        DrawRegionalElevationTriangulatedLinearValidationSettings();
-        DrawWorkspaceSectionGap();
-        DrawRegionalElevationTriangulatedLinearGpuValidationSettings();
-        DrawWorkspaceSectionGap();
-        DrawRegionalElevationSmoothGradientValidationSettings();
-        DrawWorkspaceSectionGap();
-        DrawRegionalElevationTriangulatedSmoothCpuValidationSettings();
-        DrawWorkspaceSectionGap();
-        DrawRegionalElevationTriangulatedSmoothGpuValidationSettings();
+
+        DrawValidationSuite(
+            "Regional Elevation Regression",
+            "Run Regional Elevation Regression",
+            GetRegionalElevationValidationRunner(),
+            "Runs Regional Elevation data, initialization, interpolation, triangulation, CPU/GPU parity, composition, management, multi-selection, and Scene tool checks sequentially. Detailed assertion output remains in the Unity Console."
+        );
     }
 
     private void DrawStampValidation()
@@ -649,23 +665,13 @@ public partial class WorldMeshesEditorWindow :
         }
 
         GUILayout.Space(5f);
-        DrawStampRotationFoundationValidationSettings();
-        DrawWorkspaceSectionGap();
-        DrawStampSourceOrientationValidationSettings();
-        DrawWorkspaceSectionGap();
-        DrawStampSourceRemapValidationSettings();
-        DrawWorkspaceSectionGap();
-        DrawStampFalloffValidationSettings();
-        DrawWorkspaceSectionGap();
-        DrawStampLibraryFoundationValidationSettings();
-        DrawWorkspaceSectionGap();
-        DrawStampLibrarySyncValidationSettings();
-        DrawWorkspaceSectionGap();
-        DrawStampAssetDefaultsValidationSettings();
-        DrawWorkspaceSectionGap();
-        DrawBlendModeAuthoringUXDefaultsValidationSettings();
-        DrawWorkspaceSectionGap();
-        DrawStampLibraryBrowserValidationSettings();
+
+        DrawValidationSuite(
+            "Stamp Regression",
+            "Run Stamp Regression",
+            GetStampValidationRunner(),
+            "Runs stamp defaults, library, synchronization, browser, rotation, source orientation/remapping, falloff, and authoring-default checks sequentially. Live Stamp integration remains under Advanced Validation."
+        );
     }
 
     private void DrawRuntimeStreamingValidation()

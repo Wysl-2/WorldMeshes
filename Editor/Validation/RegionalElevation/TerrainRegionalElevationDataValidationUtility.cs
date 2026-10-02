@@ -6,19 +6,19 @@ using UnityEditor;
 using UnityEngine;
 
 /*
- * Regional-elevation Package 1 foundation validation.
+ * Regional Elevation data validation.
  *
  * Uses temporary authoring data only. The real TerrainAuthoringData asset and
  * committed authoring heightfield are never modified.
  */
-public static class TerrainRegionalElevationFoundationValidationUtility
+public static class TerrainRegionalElevationDataValidationUtility
 {
     private const string TempFolder =
-        "Assets/WorldMeshes/Editor/Validation/RegionalElevationFoundationTemp";
+        "Assets/WorldMeshes/Editor/Validation/RegionalElevationDataTemp";
 
     private const string TempAuthoringDataPath =
         TempFolder +
-        "/TerrainAuthoringData_RegionalElevationFoundation.asset";
+        "/TerrainAuthoringData_RegionalElevationData.asset";
 
     private enum ValidationOutcome
     {
@@ -40,6 +40,12 @@ public static class TerrainRegionalElevationFoundationValidationUtility
 
     private static bool validationRunning;
 
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
+
     public static bool IsRunning
     {
         get
@@ -49,12 +55,12 @@ public static class TerrainRegionalElevationFoundationValidationUtility
         }
     }
 
-    public static void ValidateRegionalElevationFoundation()
+    public static void ValidateRegionalElevationData()
     {
         if (validationRunning)
         {
             Debug.LogWarning(
-                "WorldMeshes regional elevation foundation validation " +
+                "WorldMeshes regional elevation data validation " +
                 "is already running."
             );
 
@@ -63,6 +69,11 @@ public static class TerrainRegionalElevationFoundationValidationUtility
 
         validationRunning =
             true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Regional Elevation validation is running."
+            );
 
         results.Clear();
 
@@ -1588,7 +1599,7 @@ public static class TerrainRegionalElevationFoundationValidationUtility
         {
             AssetDatabase.CreateFolder(
                 validationFolder,
-                "RegionalElevationFoundationTemp"
+                "RegionalElevationDataTemp"
             );
         }
     }
@@ -1638,7 +1649,7 @@ public static class TerrainRegionalElevationFoundationValidationUtility
             new StringBuilder();
 
         builder.AppendLine(
-            "WorldMeshes Regional Elevation Foundation Validation"
+            "WorldMeshes Regional Elevation Data Validation"
         );
 
         builder.AppendLine(
@@ -1736,6 +1747,14 @@ public static class TerrainRegionalElevationFoundationValidationUtility
 
         builder.AppendLine();
 
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passed,
+                failed,
+                blocked,
+                $"{passed} passed, {failed} failed, {blocked} blocked."
+            );
+
         if (
             failed == 0
             &&
@@ -1743,7 +1762,7 @@ public static class TerrainRegionalElevationFoundationValidationUtility
         )
         {
             builder.AppendLine(
-                "Regional elevation foundation validation: PASSED"
+                "Regional elevation data validation: PASSED"
             );
 
             Debug.Log(
@@ -1753,7 +1772,7 @@ public static class TerrainRegionalElevationFoundationValidationUtility
         else if (failed > 0)
         {
             builder.AppendLine(
-                "Regional elevation foundation validation: FAILED"
+                "Regional elevation data validation: FAILED"
             );
 
             Debug.LogError(
@@ -1763,7 +1782,7 @@ public static class TerrainRegionalElevationFoundationValidationUtility
         else
         {
             builder.AppendLine(
-                "Regional elevation foundation validation: BLOCKED"
+                "Regional elevation data validation: BLOCKED"
             );
 
             Debug.LogWarning(

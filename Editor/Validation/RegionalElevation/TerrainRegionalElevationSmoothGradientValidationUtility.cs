@@ -6,12 +6,12 @@ using UnityEditor;
 using UnityEngine;
 
 /*
- * Package I5 validation for derived regional-elevation node gradients.
+ * Smooth Gradient validation for derived regional-elevation node gradients.
  *
  * Fixtures are transient plain managed node sources. Production I2 topology
  * and production I5 gradient builder/cache code are exercised directly. The
  * real WorldMeshes authoring asset is observed only to prove validation does
- * not mutate persistent state or Package 7 selection.
+ * not mutate persistent state or Regional Elevation Multi-Selection selection.
  */
 public static class TerrainRegionalElevationSmoothGradientValidationUtility
 {
@@ -49,6 +49,12 @@ public static class TerrainRegionalElevationSmoothGradientValidationUtility
 
     private static bool validationRunning;
     private static bool validationScheduled;
+
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
     private static WorldSettings worldSettings;
     private static TerrainAuthoringData realAuthoringData;
     private static int realRevisionBefore;
@@ -74,6 +80,11 @@ public static class TerrainRegionalElevationSmoothGradientValidationUtility
         }
 
         validationScheduled = true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Regional Elevation validation is running."
+            );
         EditorApplication.delayCall -= RunScheduledValidation;
         EditorApplication.delayCall += RunScheduledValidation;
     }
@@ -107,7 +118,7 @@ public static class TerrainRegionalElevationSmoothGradientValidationUtility
             AddResult(
                 "Validation prerequisites",
                 ValidationOutcome.Pass,
-                "Current WorldSettings, TerrainAuthoringData, I2 topology, I5 gradient code, and Package 7 selection state are available.");
+                "Current WorldSettings, TerrainAuthoringData, Triangulation topology and Smooth Gradient code, and Regional Elevation Multi-Selection selection state are available.");
 
             ValidateCapabilityMatrixUnchanged();
             ValidateFlatAndPlanarFields();
@@ -179,7 +190,7 @@ public static class TerrainRegionalElevationSmoothGradientValidationUtility
                     realAuthoringData)))
         {
             errorMessage =
-                "Initialize the committed authoring heightfield before running Package I5 validation.";
+                "Initialize the committed authoring heightfield before running Smooth Gradient validation.";
             return false;
         }
 
@@ -1284,11 +1295,11 @@ public static class TerrainRegionalElevationSmoothGradientValidationUtility
             string.Equals(primaryAfter, realPrimaryBefore, StringComparison.Ordinal);
 
         AddResult(
-            "Real authoring and Package 7 selection state remain unchanged",
+            "Real authoring and Regional Elevation Multi-Selection selection state remain unchanged",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "Package I5 validation changed no real source, revision, signatures, node data, interpolation mode, or editor selection state."
-                : "Real WorldMeshes authoring or selection state changed during Package I5 validation.");
+                ? "Smooth Gradient validation changed no real source, revision, signatures, node data, interpolation mode, or editor selection state."
+                : "Real WorldMeshes authoring or selection state changed during Smooth Gradient validation.");
     }
 
     private static bool ValidatePlane(
@@ -1832,18 +1843,33 @@ public static class TerrainRegionalElevationSmoothGradientValidationUtility
         builder.AppendLine(blocked + " blocked");
         builder.AppendLine();
 
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passed,
+                failed,
+                blocked,
+                $"{passed} passed, {failed} failed, {blocked} blocked."
+            );
+
         bool success = failed == 0 && blocked == 0;
         builder.AppendLine(
-            "Regional elevation Smooth Gradient validation: " +
-            (success ? "PASSED" : "FAILED"));
+            failed > 0
+                ? "Regional elevation Smooth Gradient validation: FAILED"
+                : blocked > 0
+                    ? "Regional elevation Smooth Gradient validation: BLOCKED"
+                    : "Regional elevation Smooth Gradient validation: PASSED");
 
-        if (success)
+        if (failed > 0)
         {
-            Debug.Log(builder.ToString());
+            Debug.LogError(builder.ToString());
+        }
+        else if (blocked > 0)
+        {
+            Debug.LogWarning(builder.ToString());
         }
         else
         {
-            Debug.LogError(builder.ToString());
+            Debug.Log(builder.ToString());
         }
     }
 }

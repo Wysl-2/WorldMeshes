@@ -5,7 +5,7 @@ using UnityEditor;
 using UnityEngine;
 
 /*
- * Package 6 validation for Scene-tool production helpers and the Package 5
+ * Regional Elevation Scene Tool validation for Scene-tool production helpers and the Regional Elevation Management
  * interactive mutation path used by Scene handles.
  *
  * Actual SceneView pointer hit-testing is intentionally covered by the manual
@@ -44,6 +44,12 @@ public static class TerrainRegionalElevationSceneToolValidationUtility
 
     private static bool validationRunning;
     private static bool validationScheduled;
+
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
     private static WorldSettings worldSettings;
     private static TerrainAuthoringData realAuthoringData;
     private static int realRevisionBefore;
@@ -66,6 +72,11 @@ public static class TerrainRegionalElevationSceneToolValidationUtility
         }
 
         validationScheduled = true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Regional Elevation validation is running."
+            );
         EditorApplication.delayCall -= RunScheduledValidation;
         EditorApplication.delayCall += RunScheduledValidation;
     }
@@ -160,7 +171,7 @@ public static class TerrainRegionalElevationSceneToolValidationUtility
 
         if (string.IsNullOrEmpty(committed) || string.IsNullOrEmpty(overall))
         {
-            errorMessage = "Initialize the committed authoring heightfield before running Package 6 validation.";
+            errorMessage = "Initialize the committed authoring heightfield before running Regional Elevation Scene Tool validation.";
             return false;
         }
 
@@ -232,7 +243,7 @@ public static class TerrainRegionalElevationSceneToolValidationUtility
             clampPassed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             clampPassed
                 ? "Scene X/Z is constrained to the canonical world rectangle; finite elevation values -250/0/5000m remain unchanged."
-                : "Scene movement clamping or elevation passthrough did not match Package 6 semantics.");
+                : "Scene movement clamping or elevation passthrough did not match Regional Elevation Scene Tool semantics.");
     }
 
     private static void ValidateToolClampServiceIntegration()
@@ -273,7 +284,7 @@ public static class TerrainRegionalElevationSceneToolValidationUtility
                 node.PositionXZ == clamped;
 
             AddResult(
-                "Scene world-bound clamp feeds the Package 5 interactive service",
+                "Scene world-bound clamp feeds the Regional Elevation Management interactive service",
                 passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
                 passed
                     ? "An out-of-world Scene request was clamped to (0, worldHeight) before the production interactive service stored it."
@@ -642,7 +653,7 @@ public static class TerrainRegionalElevationSceneToolValidationUtility
                 "Disabling the Scene tool cancels an active regional edit",
                 passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
                 passed
-                    ? "Tool deactivation restored the starting node state and left no active Package 5 transaction."
+                    ? "Tool deactivation restored the starting node state and left no active Regional Elevation Management transaction."
                     : beginError + " " + updateError);
         }
         finally
@@ -716,8 +727,8 @@ public static class TerrainRegionalElevationSceneToolValidationUtility
             "Real authoring state remains unchanged",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "Transient Package 6 selection/interactive/lifecycle validation did not alter the real regional source, revision, committed signature, or overall signature."
-                : "The real authoring state changed during Package 6 validation.");
+                ? "Transient Regional Elevation Scene Tool selection/interactive/lifecycle validation did not alter the real regional source, revision, committed signature, or overall signature."
+                : "The real authoring state changed during Regional Elevation Scene Tool validation.");
     }
 
     private static TerrainAuthoringData CreateData(params NodeSpec[] nodes)
@@ -844,6 +855,14 @@ public static class TerrainRegionalElevationSceneToolValidationUtility
         builder.AppendLine($"{failed} failed");
         builder.AppendLine($"{blocked} blocked");
         builder.AppendLine();
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passed,
+                failed,
+                blocked,
+                $"{passed} passed, {failed} failed, {blocked} blocked."
+            );
         builder.AppendLine(
             failed == 0 && blocked == 0
                 ? "Regional elevation Scene tool validation: PASSED"
@@ -851,6 +870,17 @@ public static class TerrainRegionalElevationSceneToolValidationUtility
                     ? "Regional elevation Scene tool validation: FAILED"
                     : "Regional elevation Scene tool validation: BLOCKED");
 
-        Debug.Log(builder.ToString());
+        if (failed > 0)
+        {
+            Debug.LogError(builder.ToString());
+        }
+        else if (blocked > 0)
+        {
+            Debug.LogWarning(builder.ToString());
+        }
+        else
+        {
+            Debug.Log(builder.ToString());
+        }
     }
 }

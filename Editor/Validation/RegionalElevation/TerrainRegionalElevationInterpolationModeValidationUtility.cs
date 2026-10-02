@@ -5,7 +5,7 @@ using UnityEditor;
 using UnityEngine;
 
 /*
- * Package I1 validation for persistent interpolation-mode identity.
+ * Interpolation Mode validation for persistent interpolation-mode identity.
  *
  * Output-affecting tests use transient TerrainAuthoringData. The real
  * WorldSettings is immutable layout/signature context, so live preview/runtime
@@ -46,6 +46,12 @@ public static class TerrainRegionalElevationInterpolationModeValidationUtility
         new List<ValidationResult>();
 
     private static bool validationRunning;
+
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
     private static bool validationScheduled;
     private static WorldSettings worldSettings;
     private static TerrainAuthoringData realAuthoringData;
@@ -68,6 +74,11 @@ public static class TerrainRegionalElevationInterpolationModeValidationUtility
         }
 
         validationScheduled = true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Regional Elevation validation is running."
+            );
         EditorApplication.delayCall -= RunScheduledValidation;
         EditorApplication.delayCall += RunScheduledValidation;
     }
@@ -178,7 +189,7 @@ public static class TerrainRegionalElevationInterpolationModeValidationUtility
             string.IsNullOrEmpty(overall))
         {
             errorMessage =
-                "Initialize the committed authoring heightfield before running Package I1 validation.";
+                "Initialize the committed authoring heightfield before running Interpolation Mode validation.";
             return false;
         }
 
@@ -749,11 +760,11 @@ public static class TerrainRegionalElevationInterpolationModeValidationUtility
             selectionSame;
 
         AddResult(
-            "Real authoring and Package 7 selection state remain unchanged",
+            "Real authoring and Regional Elevation Multi-Selection selection state remain unchanged",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "Transient Package I1 validation did not alter the real regional source, revision, committed/overall identity, selected StableIds, or primary StableId."
-                : "The real authoring or regional selection state changed during Package I1 validation.");
+                ? "Transient Interpolation Mode validation did not alter the real regional source, revision, committed/overall identity, selected StableIds, or primary StableId."
+                : "The real authoring or regional selection state changed during Interpolation Mode validation.");
     }
 
     private static TerrainNodeElevationSource CreateSource(
@@ -943,6 +954,14 @@ public static class TerrainRegionalElevationInterpolationModeValidationUtility
             blocked + " blocked");
 
         builder.AppendLine();
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passed,
+                failed,
+                blocked,
+                $"{passed} passed, {failed} failed, {blocked} blocked."
+            );
 
         builder.AppendLine(
             failed == 0 && blocked == 0

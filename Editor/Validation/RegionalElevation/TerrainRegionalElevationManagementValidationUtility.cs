@@ -6,7 +6,7 @@ using UnityEditor;
 using UnityEngine;
 
 /*
- * Package 5 validation for the production regional elevation mutation service.
+ * Regional Elevation Management validation for the production regional elevation mutation service.
  *
  * Service mutations are performed against transient TerrainAuthoringData.
  * The real WorldSettings is used only as immutable layout/signature context,
@@ -46,6 +46,12 @@ public static class TerrainRegionalElevationManagementValidationUtility
 
     private static bool validationRunning;
     private static bool validationScheduled;
+
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
     private static WorldSettings worldSettings;
     private static TerrainAuthoringData realAuthoringData;
     private static int realRevisionBefore;
@@ -63,6 +69,11 @@ public static class TerrainRegionalElevationManagementValidationUtility
         }
 
         validationScheduled = true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Regional Elevation validation is running."
+            );
         EditorApplication.delayCall -= RunScheduledValidation;
         EditorApplication.delayCall += RunScheduledValidation;
     }
@@ -148,7 +159,7 @@ public static class TerrainRegionalElevationManagementValidationUtility
 
         if (string.IsNullOrEmpty(committed) || string.IsNullOrEmpty(overall))
         {
-            errorMessage = "Initialize the committed authoring heightfield before running Package 5 validation.";
+            errorMessage = "Initialize the committed authoring heightfield before running Regional Elevation Management validation.";
             return false;
         }
 
@@ -456,7 +467,7 @@ public static class TerrainRegionalElevationManagementValidationUtility
                 "Finite out-of-world and coincident node positions remain valid",
                 passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
                 passed
-                    ? "The service did not clamp world coordinates or forbid Package 3's supported coincident-node state."
+                    ? "The service did not clamp world coordinates or forbid Node Interpolation's supported coincident-node state."
                     : outsideError + " " + coincidentError);
         }
         finally
@@ -518,10 +529,10 @@ public static class TerrainRegionalElevationManagementValidationUtility
                 TerrainRegionalElevationService.LastMutationDiagnostics.DirtyTileCount == ExpectedTileCount();
 
             AddResult(
-                "Grid replacement reuses Package 2 division semantics",
+                "Grid replacement reuses Node Initialization division semantics",
                 gridPassed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
                 gridPassed
-                    ? "3 x 3 divisions replaced the irregular source with 4 x 4 = 16 newly identified nodes in Package 2 boundary/order semantics."
+                    ? "3 x 3 divisions replaced the irregular source with 4 x 4 = 16 newly identified nodes in Node Initialization boundary/order semantics."
                     : replaceError);
 
             Undo.PerformUndo();
@@ -643,7 +654,7 @@ public static class TerrainRegionalElevationManagementValidationUtility
                 "AddNode Undo/Redo is detected by the generalized regional tracker",
                 undoPassed && redoPassed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
                 undoPassed && redoPassed
-                    ? "Unity restored serialized node/revision state and the Package 5 tracker classified both Undo and Redo as complete-world output changes without a second setup-only listener."
+                    ? "Unity restored serialized node/revision state and the Regional Elevation Management tracker classified both Undo and Redo as complete-world output changes without a second setup-only listener."
                     : addError);
         }
         finally
@@ -844,8 +855,8 @@ public static class TerrainRegionalElevationManagementValidationUtility
             "Production UI routes regional mutation through one service boundary",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "Package 2 setup and Package 5 management use TerrainRegionalElevationService, while the Package 4 setup tracker is a non-subscribing compatibility shim."
-                : "Production regional UI/tracker source did not match the expected Package 5 mutation-boundary architecture.");
+                ? "Node Initialization setup and Regional Elevation Management use TerrainRegionalElevationService, while the Regional Elevation Composition setup tracker is a non-subscribing compatibility shim."
+                : "Production regional UI/tracker source did not match the expected Regional Elevation Management mutation-boundary architecture.");
     }
 
     private static void ValidateInteractiveCommit()
@@ -1008,8 +1019,8 @@ public static class TerrainRegionalElevationManagementValidationUtility
             "Real authoring state remains unchanged",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "Transient Package 5 service/Undo/interactive validation did not alter the real regional source, revision, committed signature, or overall authoring signature."
-                : "The real authoring state changed during Package 5 validation.");
+                ? "Transient Regional Elevation Management service/Undo/interactive validation did not alter the real regional source, revision, committed signature, or overall authoring signature."
+                : "The real authoring state changed during Regional Elevation Management validation.");
     }
 
     private static TerrainAuthoringData CreateData(params NodeSpec[] nodes)
@@ -1145,6 +1156,14 @@ public static class TerrainRegionalElevationManagementValidationUtility
         builder.AppendLine($"{failed} failed");
         builder.AppendLine($"{blocked} blocked");
         builder.AppendLine();
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passed,
+                failed,
+                blocked,
+                $"{passed} passed, {failed} failed, {blocked} blocked."
+            );
 
         string finalStatus = failed == 0 && blocked == 0
             ? "PASSED"

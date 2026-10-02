@@ -26,6 +26,9 @@ public static class TerrainHeightStampLibraryBrowserValidationUtility
     private static string lastSummary =
         "Not run.";
 
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
     private static readonly string ValidationRoot =
         WorldMeshesPaths.GeneratedValidation
         +
@@ -56,6 +59,9 @@ public static class TerrainHeightStampLibraryBrowserValidationUtility
     public static string LastSummary =>
         lastSummary;
 
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
+
     public static void RequestValidation()
     {
         if (
@@ -69,6 +75,11 @@ public static class TerrainHeightStampLibraryBrowserValidationUtility
 
         validationScheduled =
             true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Stamp validation is running."
+            );
 
         EditorApplication.delayCall -=
             RunScheduledValidation;
@@ -346,7 +357,7 @@ public static class TerrainHeightStampLibraryBrowserValidationUtility
             );
 
         Add(
-            "Add Selected Stamp copies Package 3 defaults",
+            "Add Selected Stamp copies stamp creation defaults",
             copiedDefaults,
             copiedDefaults
                 ? "The browser creation boundary routed through AddStampModifierFromAssetDefaults."
@@ -840,6 +851,14 @@ public static class TerrainHeightStampLibraryBrowserValidationUtility
                 0
                 ? builder.ToString()
                 : "No validation results were produced.";
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                lastPassedCount,
+                lastFailedCount,
+                0,
+                lastSummary
+            );
 
         if (
             lastFailedCount >

@@ -4,7 +4,7 @@ using System.Text;
 using UnityEditor;
 using UnityEngine;
 
-public static class TerrainBlendModeAuthoringUXDefaultsValidationUtility
+public static class TerrainStampAuthoringDefaultsValidationUtility
 {
     private sealed class Result
     {
@@ -154,7 +154,7 @@ public static class TerrainBlendModeAuthoringUXDefaultsValidationUtility
     private static readonly string ValidationRoot =
         WorldMeshesPaths.GeneratedValidation
         +
-        "/BlendModeAuthoringUXDefaults";
+        "/StampAuthoringDefaults";
 
     private static readonly string ValidationDataPath =
         ValidationRoot
@@ -195,6 +195,9 @@ public static class TerrainBlendModeAuthoringUXDefaultsValidationUtility
     private static string lastSummary =
         "Not run.";
 
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
     private static WorldSettings worldSettings;
     private static TerrainAuthoringData mutationData;
     private static string undoModifierId;
@@ -224,6 +227,9 @@ public static class TerrainBlendModeAuthoringUXDefaultsValidationUtility
     public static string LastSummary =>
         lastSummary;
 
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
+
     public static void RequestValidation()
     {
         if (
@@ -237,6 +243,11 @@ public static class TerrainBlendModeAuthoringUXDefaultsValidationUtility
 
         validationScheduled =
             true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Stamp validation is running."
+            );
 
         EditorApplication.delayCall -=
             RunScheduledValidation;
@@ -314,7 +325,7 @@ public static class TerrainBlendModeAuthoringUXDefaultsValidationUtility
             Add(
                 "Validation prerequisites",
                 false,
-                "Run Package 4 validation while the editor is idle in Edit Mode."
+                "Run Stamp Authoring Defaults validation while the editor is idle in Edit Mode."
             );
 
             return false;
@@ -520,7 +531,7 @@ public static class TerrainBlendModeAuthoringUXDefaultsValidationUtility
             "Runtime compiler version unchanged",
             TerrainGenerationStateUtility
                 .RuntimeHeightCompilerVersion == 10,
-            $"RuntimeHeightCompilerVersion={TerrainGenerationStateUtility.RuntimeHeightCompilerVersion}; expected Package 3 value 10."
+            $"RuntimeHeightCompilerVersion={TerrainGenerationStateUtility.RuntimeHeightCompilerVersion}; expected stamp creation defaults value 10."
         );
     }
 
@@ -670,7 +681,7 @@ public static class TerrainBlendModeAuthoringUXDefaultsValidationUtility
 
         /*
          * Deliberately store non-baseline V2 values. Version 1 accessors must
-         * ignore these and use the safe Package 4 fallback contract.
+         * ignore these and use the safe Stamp Authoring Defaults fallback contract.
          */
         serialized.FindProperty(
             "defaultBlendMode"
@@ -1707,7 +1718,7 @@ public static class TerrainBlendModeAuthoringUXDefaultsValidationUtility
                 passed,
                 passed
                     ? "Undo restored Additive mode, revision, signature, and preserved active/inactive output values."
-                    : "Undo did not restore the expected Package 4 mode/default state."
+                    : "Undo did not restore the expected Stamp Authoring Defaults mode/default state."
             );
 
             Undo.PerformRedo();
@@ -1776,7 +1787,7 @@ public static class TerrainBlendModeAuthoringUXDefaultsValidationUtility
                 passed,
                 passed
                     ? "Redo restored Replace mode, revision, signature, and preserved active/inactive output values."
-                    : "Redo did not restore the expected Package 4 mode/default state."
+                    : "Redo did not restore the expected Stamp Authoring Defaults mode/default state."
             );
         }
         catch (Exception exception)
@@ -2000,17 +2011,25 @@ public static class TerrainBlendModeAuthoringUXDefaultsValidationUtility
         lastSummary =
             $"Passed: {passed}\nFailed: {failed}";
 
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passed,
+                failed,
+                0,
+                lastSummary
+            );
+
         if (failed == 0)
         {
             Debug.Log(
-                "WorldMeshes Package 4 Blend Mode Authoring UX + Defaults validation passed.\n\n" +
+                "WorldMeshes Stamp Authoring Defaults validation passed.\n\n" +
                 summary
             );
         }
         else
         {
             Debug.LogError(
-                "WorldMeshes Package 4 Blend Mode Authoring UX + Defaults validation failed.\n\n" +
+                "WorldMeshes Stamp Authoring Defaults validation failed.\n\n" +
                 summary
             );
         }

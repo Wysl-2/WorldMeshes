@@ -6,11 +6,11 @@ using UnityEditor;
 using UnityEngine;
 
 /*
- * Package I3 validation for CPU Triangulated Linear regional elevation.
+ * Triangulated Linear CPU validation for CPU Triangulated Linear regional elevation.
  *
  * All interpolation fixtures are transient. The real authoring asset is read
  * only so validation can prove that pure CPU evaluation leaves persistent
- * terrain state and Package 7 selection unchanged.
+ * terrain state and Regional Elevation Multi-Selection selection unchanged.
  */
 public static class TerrainRegionalElevationTriangulatedLinearValidationUtility
 {
@@ -45,6 +45,12 @@ public static class TerrainRegionalElevationTriangulatedLinearValidationUtility
 
     private static bool validationRunning;
     private static bool validationScheduled;
+
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
     private static WorldSettings worldSettings;
     private static TerrainAuthoringData realAuthoringData;
     private static int realRevisionBefore;
@@ -70,6 +76,11 @@ public static class TerrainRegionalElevationTriangulatedLinearValidationUtility
         }
 
         validationScheduled = true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Regional Elevation validation is running."
+            );
         EditorApplication.delayCall -= RunScheduledValidation;
         EditorApplication.delayCall += RunScheduledValidation;
     }
@@ -103,7 +114,7 @@ public static class TerrainRegionalElevationTriangulatedLinearValidationUtility
             AddResult(
                 "Validation prerequisites",
                 ValidationOutcome.Pass,
-                "Current WorldSettings, TerrainAuthoringData, Package I1/I2 state, and Package 7 selection state are available.");
+                "Current WorldSettings, TerrainAuthoringData, Interpolation Mode/Triangulation state, and Regional Elevation Multi-Selection selection state are available.");
 
             ValidateCapabilityMatrix();
             ValidateTriangleAnalyticSamples();
@@ -170,7 +181,7 @@ public static class TerrainRegionalElevationTriangulatedLinearValidationUtility
                     realAuthoringData)))
         {
             errorMessage =
-                "Initialize the committed authoring heightfield before running Package I3 validation.";
+                "Initialize the committed authoring heightfield before running Triangulated Linear CPU validation.";
             return false;
         }
 
@@ -676,7 +687,7 @@ public static class TerrainRegionalElevationTriangulatedLinearValidationUtility
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
                 ? "Changing elevation changed the sampled height without rebuilding topology; changing XZ rebuilt topology exactly when evaluation next requested it."
-                : "Evaluator topology cache reuse/rebuild behavior did not match Package I2/I3 semantics.");
+                : "Evaluator topology cache reuse/rebuild behavior did not match Triangulation/Triangulated Linear CPU semantics.");
     }
 
     private static void ValidateIdwRegression()
@@ -727,7 +738,7 @@ public static class TerrainRegionalElevationTriangulatedLinearValidationUtility
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
                 ? "One-node, midpoint, exact-node, coincident averaging, and arbitrary p=2 IDW regression samples remain unchanged."
-                : "At least one IDW regression sample changed in Package I3.");
+                : "At least one IDW regression sample changed in Triangulated Linear CPU.");
     }
 
     private static void ValidateSmoothAndGpuBoundaries()
@@ -787,7 +798,7 @@ public static class TerrainRegionalElevationTriangulatedLinearValidationUtility
             "Linear CPU/GPU semantics remain authoritative after Smooth GPU support",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "Triangulated Linear still evaluates through the Package I3 CPU path and Package I4 GPU composition; Smooth remains CPU-valid and is GPU-capable after I7."
+                ? "Triangulated Linear still evaluates through the Triangulated Linear CPU path and Triangulated Linear GPU composition; Smooth remains CPU-valid and is GPU-capable through Triangulated Smooth GPU."
                 : gpuError + " " + smoothError);
 
         ClearFixture(linearData);
@@ -828,11 +839,11 @@ public static class TerrainRegionalElevationTriangulatedLinearValidationUtility
             SequenceEqual(realSelectedIdsBefore, selectedAfter);
 
         AddResult(
-            "Real authoring and Package 7 selection state remain unchanged",
+            "Real authoring and Regional Elevation Multi-Selection selection state remain unchanged",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
                 ? "Pure CPU Linear validation changed no real source, revision, signatures, node data, interpolation mode, or editor selection state."
-                : "Real WorldMeshes authoring or selection state changed during Package I3 validation.");
+                : "Real WorldMeshes authoring or selection state changed during Triangulated Linear CPU validation.");
     }
 
     private static TerrainNodeElevationSource CreateSource(params NodeSpec[] nodes)
@@ -1162,18 +1173,33 @@ public static class TerrainRegionalElevationTriangulatedLinearValidationUtility
         builder.AppendLine(blocked + " blocked");
         builder.AppendLine();
 
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passed,
+                failed,
+                blocked,
+                $"{passed} passed, {failed} failed, {blocked} blocked."
+            );
+
         bool success = failed == 0 && blocked == 0;
         builder.AppendLine(
-            "Regional elevation Triangulated Linear CPU validation: " +
-            (success ? "PASSED" : "FAILED"));
+            failed > 0
+                ? "Regional elevation Triangulated Linear CPU validation: FAILED"
+                : blocked > 0
+                    ? "Regional elevation Triangulated Linear CPU validation: BLOCKED"
+                    : "Regional elevation Triangulated Linear CPU validation: PASSED");
 
-        if (success)
+        if (failed > 0)
         {
-            Debug.Log(builder.ToString());
+            Debug.LogError(builder.ToString());
+        }
+        else if (blocked > 0)
+        {
+            Debug.LogWarning(builder.ToString());
         }
         else
         {
-            Debug.LogError(builder.ToString());
+            Debug.Log(builder.ToString());
         }
     }
 }

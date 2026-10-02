@@ -6,12 +6,12 @@ using UnityEditor;
 using UnityEngine;
 
 /*
- * Package I6 validation for the authoritative Triangulated Smooth CPU surface.
+ * Triangulated Smooth CPU validation for the authoritative Triangulated Smooth CPU surface.
  *
  * Fixtures are transient. Production I2 topology, I5 gradients, I6 reduced-HCT
  * patch construction/cache, and I6 CPU evaluation are exercised directly. The
  * real project asset is observed only to prove that validation is read-only and
- * preserves Package 7 selection state.
+ * preserves Regional Elevation Multi-Selection selection state.
  */
 public static class TerrainRegionalElevationTriangulatedSmoothCpuValidationUtility
 {
@@ -52,6 +52,12 @@ public static class TerrainRegionalElevationTriangulatedSmoothCpuValidationUtili
 
     private static bool validationRunning;
     private static bool validationScheduled;
+
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
     private static WorldSettings worldSettings;
     private static TerrainAuthoringData realAuthoringData;
     private static int realRevisionBefore;
@@ -77,6 +83,11 @@ public static class TerrainRegionalElevationTriangulatedSmoothCpuValidationUtili
         }
 
         validationScheduled = true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Regional Elevation validation is running."
+            );
         EditorApplication.delayCall -= RunScheduledValidation;
         EditorApplication.delayCall += RunScheduledValidation;
     }
@@ -110,7 +121,7 @@ public static class TerrainRegionalElevationTriangulatedSmoothCpuValidationUtili
             AddResult(
                 "Validation prerequisites",
                 ValidationOutcome.Pass,
-                "Current WorldSettings, TerrainAuthoringData, I2 topology, I5 gradients, I6 Smooth code, and Package 7 selection state are available.");
+                "Current WorldSettings, TerrainAuthoringData, Triangulation topology, Smooth Gradients, and Triangulated Smooth CPU code, and Regional Elevation Multi-Selection selection state are available.");
 
             ValidateCapabilityMatrix();
             ValidateExactNodeHeightsAndGradients();
@@ -183,7 +194,7 @@ public static class TerrainRegionalElevationTriangulatedSmoothCpuValidationUtili
                     realAuthoringData)))
         {
             errorMessage =
-                "Initialize the committed authoring heightfield before running Package I6 validation.";
+                "Initialize the committed authoring heightfield before running Triangulated Smooth CPU validation.";
             return false;
         }
 
@@ -1117,7 +1128,7 @@ public static class TerrainRegionalElevationTriangulatedSmoothCpuValidationUtili
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
                 ? "Repeated sampling reused all layers; elevation rebuilt gradients/patches only; position and membership changes rebuilt topology, gradients, and patches lazily."
-                : "Package I6 derived cache rebuild counts did not match the dependency chain.");
+                : "Triangulated Smooth CPU derived cache rebuild counts did not match the dependency chain.");
     }
 
     private static void ValidateStableIdAndModeCacheIndependence()
@@ -1287,8 +1298,8 @@ public static class TerrainRegionalElevationTriangulatedSmoothCpuValidationUtili
                 ? ValidationOutcome.Pass
                 : ValidationOutcome.Fail,
             idwOk && linearOk
-                ? "The fixed p=2 IDW sample and Package I3 barycentric Linear sample retained their established values."
-                : "Package I6 changed existing IDW or Linear CPU mathematics.");
+                ? "The fixed p=2 IDW sample and Triangulated Linear CPU barycentric Linear sample retained their established values."
+                : "Triangulated Smooth CPU changed existing IDW or Linear CPU mathematics.");
     }
 
     private static void ValidateRealStateUnchanged()
@@ -1326,11 +1337,11 @@ public static class TerrainRegionalElevationTriangulatedSmoothCpuValidationUtili
             SequenceEqual(realSelectedIdsBefore, selectedAfter);
 
         AddResult(
-            "Real authoring and Package 7 selection state remain unchanged",
+            "Real authoring and Regional Elevation Multi-Selection selection state remain unchanged",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
                 ? "I6 validation changed no real source, revision, signatures, interpolation mode, node data, or editor selection state."
-                : "Real WorldMeshes authoring or selection state changed during Package I6 validation.");
+                : "Real WorldMeshes authoring or selection state changed during Triangulated Smooth CPU validation.");
     }
 
     private static bool ValidatePlane(
@@ -2031,18 +2042,33 @@ public static class TerrainRegionalElevationTriangulatedSmoothCpuValidationUtili
         builder.AppendLine(blocked + " blocked");
         builder.AppendLine();
 
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passed,
+                failed,
+                blocked,
+                $"{passed} passed, {failed} failed, {blocked} blocked."
+            );
+
         bool success = failed == 0 && blocked == 0;
         builder.AppendLine(
-            "Regional elevation Triangulated Smooth CPU validation: " +
-            (success ? "PASSED" : "FAILED"));
+            failed > 0
+                ? "Regional elevation Triangulated Smooth CPU validation: FAILED"
+                : blocked > 0
+                    ? "Regional elevation Triangulated Smooth CPU validation: BLOCKED"
+                    : "Regional elevation Triangulated Smooth CPU validation: PASSED");
 
-        if (success)
+        if (failed > 0)
         {
-            Debug.Log(builder.ToString());
+            Debug.LogError(builder.ToString());
+        }
+        else if (blocked > 0)
+        {
+            Debug.LogWarning(builder.ToString());
         }
         else
         {
-            Debug.LogError(builder.ToString());
+            Debug.Log(builder.ToString());
         }
     }
 }
