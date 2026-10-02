@@ -621,7 +621,7 @@ public partial class WorldMeshesEditorWindow :
     }
 
     private void ValidateAuthoringStreamingStressCapture(
-        TerrainQuthoringPreviewDiagnosticsSnapshot snapshot
+        TerrainAuthoringPreviewDiagnosticsSnapshot snapshot
     )
     {
         if (
