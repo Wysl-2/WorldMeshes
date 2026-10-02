@@ -9,7 +9,10 @@ public partial class WorldMeshesEditorWindow :
 
     private void OnInspectorUpdate()
     {
-        if (EditorApplication.isPlaying)
+        if (
+            EditorApplication.isPlaying
+            || IsValidationSuiteRunning()
+        )
         {
             Repaint();
         }

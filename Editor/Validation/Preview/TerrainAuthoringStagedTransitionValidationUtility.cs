@@ -21,10 +21,16 @@ public static class TerrainAuthoringStagedTransitionValidationUtility
 
     private static bool validationScheduled;
 
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
     public static bool IsRunning =>
         validationRunning
         ||
         validationScheduled;
+
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
 
     public static void ValidateStagedTransitions()
     {
@@ -40,6 +46,11 @@ public static class TerrainAuthoringStagedTransitionValidationUtility
 
         validationScheduled =
             true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Staged window transition validation is running."
+            );
 
         EditorApplication.delayCall +=
             RunScheduledValidation;
@@ -1395,21 +1406,37 @@ public static class TerrainAuthoringStagedTransitionValidationUtility
 
         builder.AppendLine();
 
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passed,
+                failed,
+                blocked,
+                $"{passed} passed, {failed} failed, {blocked} blocked."
+            );
+
         builder.AppendLine(
-            failed == 0
-                ? "Package 03 staged window transitions: PASSED"
-                : "Package 03 staged window transitions: FAILED"
+            failed > 0
+                ? "Staged window transitions: FAILED"
+                : blocked > 0
+                    ? "Staged window transitions: BLOCKED"
+                    : "Staged window transitions: PASSED"
         );
 
-        if (failed == 0)
+        if (failed > 0)
         {
-            Debug.Log(
+            Debug.LogError(
+                builder.ToString()
+            );
+        }
+        else if (blocked > 0)
+        {
+            Debug.LogWarning(
                 builder.ToString()
             );
         }
         else
         {
-            Debug.LogError(
+            Debug.Log(
                 builder.ToString()
             );
         }

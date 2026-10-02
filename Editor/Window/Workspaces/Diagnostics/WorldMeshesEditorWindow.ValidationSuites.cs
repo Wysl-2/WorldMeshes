@@ -25,6 +25,9 @@ public partial class WorldMeshesEditorWindow :
     [SerializeField]
     private bool showRuntimeStreamingValidation;
 
+    private TerrainValidationSuiteRunner
+        authoringPreviewCoreValidationRunner;
+
     private void DrawValidationSuites()
     {
         showValidationSuites =
@@ -206,6 +209,19 @@ public partial class WorldMeshesEditorWindow :
 
         GUILayout.Space(5f);
 
+        TerrainValidationSuiteRunner suiteRunner =
+            GetAuthoringPreviewCoreValidationRunner();
+
+        DrawAuthoringPreviewCoreValidationSuite(
+            suiteRunner
+        );
+
+        DrawWorkspaceSectionGap();
+
+        EditorGUI.BeginDisabledGroup(
+            suiteRunner.IsRunning
+        );
+
         DrawStreamingRegressionValidationSettings();
 
         DrawWorkspaceSectionGap();
@@ -243,6 +259,210 @@ public partial class WorldMeshesEditorWindow :
         DrawWorkspaceSectionGap();
 
         DrawAuthoringChangePipelineSettings();
+
+        EditorGUI.EndDisabledGroup();
+    }
+
+    private TerrainValidationSuiteRunner
+        GetAuthoringPreviewCoreValidationRunner()
+    {
+        if (authoringPreviewCoreValidationRunner == null)
+        {
+            authoringPreviewCoreValidationRunner =
+                new TerrainValidationSuiteRunner(
+                    new[]
+                    {
+                        new TerrainValidationSuiteRunner.Case(
+                            "Height Cache Window",
+                            () =>
+                            {
+                                if (
+                                    TerrainAuthoringPreviewCacheValidationUtility
+                                        .IsRunning
+                                )
+                                {
+                                    return false;
+                                }
+
+                                TerrainAuthoringPreviewCacheValidationUtility
+                                    .RequestValidation();
+
+                                return
+                                    TerrainAuthoringPreviewCacheValidationUtility
+                                        .IsRunning;
+                            },
+                            () =>
+                                TerrainAuthoringPreviewCacheValidationUtility
+                                    .IsRunning,
+                            () =>
+                                TerrainAuthoringPreviewCacheValidationUtility
+                                    .LastRunSummary
+                        ),
+                        new TerrainValidationSuiteRunner.Case(
+                            "Staged Window Transitions",
+                            () =>
+                            {
+                                if (
+                                    TerrainAuthoringStagedTransitionValidationUtility
+                                        .IsRunning
+                                )
+                                {
+                                    return false;
+                                }
+
+                                TerrainAuthoringStagedTransitionValidationUtility
+                                    .RequestValidation();
+
+                                return
+                                    TerrainAuthoringStagedTransitionValidationUtility
+                                        .IsRunning;
+                            },
+                            () =>
+                                TerrainAuthoringStagedTransitionValidationUtility
+                                    .IsRunning,
+                            () =>
+                                TerrainAuthoringStagedTransitionValidationUtility
+                                    .LastRunSummary
+                        )
+                    }
+                );
+        }
+
+        return
+            authoringPreviewCoreValidationRunner;
+    }
+
+    private void DrawAuthoringPreviewCoreValidationSuite(
+        TerrainValidationSuiteRunner suiteRunner
+    )
+    {
+        GUILayout.BeginVertical(
+            EditorStyles.helpBox,
+            GUILayout.ExpandWidth(true)
+        );
+
+        GUILayout.Label(
+            "Authoring Preview Core Checks",
+            EditorStyles.boldLabel
+        );
+
+        DrawValidationRunSummary(
+            suiteRunner.Summary
+        );
+
+        GUILayout.Space(5f);
+
+        EditorGUI.BeginDisabledGroup(
+            suiteRunner.IsRunning
+            || Application.isPlaying
+            || EditorApplication
+                .isPlayingOrWillChangePlaymode
+        );
+
+        if (
+            GUILayout.Button(
+                "Run Core Preview Checks",
+                GUILayout.ExpandWidth(true)
+            )
+        )
+        {
+            suiteRunner.Start();
+            Repaint();
+        }
+
+        EditorGUI.EndDisabledGroup();
+
+        GUILayout.Space(6f);
+
+        for (
+            int index = 0;
+            index < suiteRunner.CaseCount;
+            index++
+        )
+        {
+            DrawValidationSuiteCaseSummary(
+                suiteRunner.GetCaseName(index),
+                suiteRunner.GetCaseSummary(index)
+            );
+        }
+
+        EditorGUILayout.HelpBox(
+            "Runs the Height Cache Window and Staged Window Transition checks sequentially. Detailed assertion output remains in the Unity Console.",
+            MessageType.None
+        );
+
+        GUILayout.EndVertical();
+    }
+
+    private static void DrawValidationRunSummary(
+        TerrainValidationRunSummary summary
+    )
+    {
+        if (summary == null)
+        {
+            return;
+        }
+
+        EditorGUILayout.LabelField(
+            "Status",
+            summary.State.ToString()
+        );
+
+        EditorGUILayout.LabelField(
+            "Passed",
+            summary.PassedCount.ToString()
+        );
+
+        EditorGUILayout.LabelField(
+            "Failed",
+            summary.FailedCount.ToString()
+        );
+
+        EditorGUILayout.LabelField(
+            "Blocked",
+            summary.BlockedCount.ToString()
+        );
+
+        if (!string.IsNullOrEmpty(summary.Summary))
+        {
+            EditorGUILayout.HelpBox(
+                summary.Summary,
+                summary.State == TerrainValidationRunState.Failed
+                    ? MessageType.Error
+                    : summary.State == TerrainValidationRunState.Blocked
+                        ? MessageType.Warning
+                        : MessageType.Info
+            );
+        }
+    }
+
+    private static void DrawValidationSuiteCaseSummary(
+        string caseName,
+        TerrainValidationRunSummary summary
+    )
+    {
+        GUILayout.BeginVertical(
+            EditorStyles.helpBox,
+            GUILayout.ExpandWidth(true)
+        );
+
+        GUILayout.Label(
+            caseName,
+            EditorStyles.boldLabel
+        );
+
+        DrawValidationRunSummary(
+            summary
+        );
+
+        GUILayout.EndVertical();
+    }
+
+    private bool IsValidationSuiteRunning()
+    {
+        return
+            authoringPreviewCoreValidationRunner != null
+            && authoringPreviewCoreValidationRunner.IsRunning;
     }
 
     private void DrawCompositionValidation()

@@ -56,10 +56,16 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
 
     private static bool validationScheduled;
 
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
     public static bool IsRunning =>
         validationRunning
         ||
         validationScheduled;
+
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
 
     public static void ValidateWindowCacheFoundation()
     {
@@ -84,6 +90,11 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
 
         validationScheduled =
             true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Height cache window validation is running."
+            );
 
         EditorApplication.delayCall -=
             RunScheduledValidation;
@@ -1343,6 +1354,15 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
         );
 
         builder.AppendLine();
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passCount,
+                failCount,
+                blockedCount,
+                $"{passCount} passed, {failCount} failed, " +
+                $"{blockedCount} blocked."
+            );
 
         if (failCount > 0)
         {

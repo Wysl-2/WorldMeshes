@@ -43,6 +43,9 @@ public static class TerrainMaxMinBlendValidationUtility
     private static string lastSummary =
         "Not run.";
 
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
     private static WorldSettings worldSettings;
     private static TerrainAuthoringData mutationData;
     private static string mutationModifierId;
@@ -69,6 +72,9 @@ public static class TerrainMaxMinBlendValidationUtility
     public static string LastSummary =>
         lastSummary;
 
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
+
     public static void RequestValidation()
     {
         if (
@@ -82,6 +88,11 @@ public static class TerrainMaxMinBlendValidationUtility
 
         validationScheduled =
             true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Max / Min blend validation is running."
+            );
 
         EditorApplication.delayCall -=
             RunScheduledValidation;
@@ -3257,6 +3268,14 @@ public static class TerrainMaxMinBlendValidationUtility
 
         lastSummary =
             $"{lastPassedCount} passed, {lastFailedCount} failed.";
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                lastPassedCount,
+                lastFailedCount,
+                0,
+                lastSummary
+            );
 
         builder.AppendLine();
         builder.AppendLine(
