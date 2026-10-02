@@ -5,7 +5,7 @@ using UnityEngine;
 
 public partial class TerrainClipmapDisplacementValidator
 {
-    [Header("Runtime Stress Certification")]
+    [Header("Runtime Streaming Stress Test")]
 
     [SerializeField]
     [Min(1)]
@@ -28,50 +28,50 @@ public partial class TerrainClipmapDisplacementValidator
         20f;
 
     private TerrainRuntimeValidationStatus
-        runtimeStressCertificationStatus =
+        runtimeStreamingStressStatus =
             TerrainRuntimeValidationStatus.NotRun;
 
-    private string runtimeStressCertificationSummary =
-        "Full runtime stress certification has not been run.";
+    private string runtimeStreamingStressSummary =
+        "Runtime streaming stress test has not been run.";
 
-    private TerrainRuntimeStressCertificationResult
-        runtimeStressCertificationResult;
+    private TerrainRuntimeStreamingStressResult
+        runtimeStreamingStressResult;
 
     private bool runtimeStressOwnsStreamerState;
     private bool streamerWasEnabledBeforeStress;
-    private bool runtimeStressCertificationActive;
+    private bool runtimeStreamingStressActive;
     private bool runtimeStressCurrentSchedulerCaptured;
 
     private long runtimeStressHeightSourceUpperBoundBytes;
     private long runtimeStressSurfaceSourceUpperBoundBytes;
 
     public TerrainRuntimeValidationStatus
-        RuntimeStressCertificationStatus =>
-            runtimeStressCertificationStatus;
+        RuntimeStreamingStressStatus =>
+            runtimeStreamingStressStatus;
 
-    public string RuntimeStressCertificationSummary =>
-        runtimeStressCertificationSummary;
+    public string RuntimeStreamingStressSummary =>
+        runtimeStreamingStressSummary;
 
-    public TerrainRuntimeStressCertificationResult
-        RuntimeStressCertificationResult =>
-            runtimeStressCertificationResult;
+    public TerrainRuntimeStreamingStressResult
+        RuntimeStreamingStressResult =>
+            runtimeStreamingStressResult;
 
-    [ContextMenu("Run Runtime Stress Certification")]
-    public void BeginRuntimeStressCertification()
+    [ContextMenu("Run Runtime Streaming Stress Test")]
+    public void BeginRuntimeStreamingStressTest()
     {
         if (!CanBeginRuntimeValidation())
         {
             return;
         }
 
-        runtimeStressCertificationStatus =
+        runtimeStreamingStressStatus =
             TerrainRuntimeValidationStatus.Running;
 
-        runtimeStressCertificationSummary =
-            "Running boundary, movement, repeated-transition, resource-drain, and streamer lifecycle certification...";
+        runtimeStreamingStressSummary =
+            "Running boundary, movement, repeated-transition, resource-drain, and streamer lifecycle stress test...";
 
-        runtimeStressCertificationResult =
-            new TerrainRuntimeStressCertificationResult
+        runtimeStreamingStressResult =
+            new TerrainRuntimeStreamingStressResult
             {
                 OverallStatus =
                     TerrainRuntimeValidationStatus.Running
@@ -79,16 +79,16 @@ public partial class TerrainClipmapDisplacementValidator
 
         validationRoutine =
             StartCoroutine(
-                RunRuntimeStressCertificationRoutine()
+                RunRuntimeStreamingStressTestRoutine()
             );
     }
 
-    private IEnumerator RunRuntimeStressCertificationRoutine()
+    private IEnumerator RunRuntimeStreamingStressTestRoutine()
     {
         EnsureRuntimeValidationReferences();
 
-        TerrainRuntimeStressCertificationResult result =
-            runtimeStressCertificationResult;
+        TerrainRuntimeStreamingStressResult result =
+            runtimeStreamingStressResult;
 
         string failure = null;
 
@@ -125,7 +125,7 @@ public partial class TerrainClipmapDisplacementValidator
         )
         {
             failure =
-                "The terrain streamer must be enabled and initialized before stress certification begins.";
+                "The terrain streamer must be enabled and initialized before stress test begins.";
         }
 
         TerrainRuntimeResidencyDiagnosticsSnapshot residency =
@@ -179,7 +179,7 @@ public partial class TerrainClipmapDisplacementValidator
             streamer.ResetHeightSchedulerValidationCounters();
             streamer.ResetHeightDeferredReleaseValidationCounters();
             runtimeStressCurrentSchedulerCaptured = false;
-            runtimeStressCertificationActive = true;
+            runtimeStreamingStressActive = true;
         }
 
         TerrainClipmapLayoutApplier applier =
@@ -279,6 +279,7 @@ public partial class TerrainClipmapDisplacementValidator
         if (failure == null)
         {
             string lifecycleFailure = null;
+
             bool deferredTransferObserved = false;
 
             yield return RunStreamerLifecycleStressPhase(
@@ -300,7 +301,7 @@ public partial class TerrainClipmapDisplacementValidator
 
             if (lifecycleFailure == null)
             {
-                TerrainHeightDeferredReleaseDiagnosticsSnapshot
+                TerrainXeightDeferredReleaseDiagnosticsSnapshot
                     deferred =
                         streamer
                             .GetHeightDeferredReleaseDiagnostics();
@@ -316,7 +317,7 @@ public partial class TerrainClipmapDisplacementValidator
                         TerrainRuntimeValidationStatus.Failed;
 
                     lifecycleFailure =
-                        "Deferred Height sources required forced release during normal runtime stress certification.";
+                        "Deferred Height sources required forced release during normal runtime stress test.";
                 }
                 else if (
                     deferred.PendingCount != 0
@@ -328,7 +329,7 @@ public partial class TerrainClipmapDisplacementValidator
                         TerrainRuntimeValidationStatus.Failed;
 
                     lifecycleFailure =
-                        "Deferred Height source ownership did not drain cleanly after lifecycle stress.";
+                        "Deferred Height source ownership did not drain cleany after lifecycle stress.";
                 }
                 else if (deferredTransferObserved)
                 {
@@ -356,7 +357,7 @@ public partial class TerrainClipmapDisplacementValidator
             failure = lifecycleFailure;
         }
 
-        runtimeStressCertificationActive =
+        runtimeStreamingStressActive =
             false;
 
         string restoreFailure = null;
@@ -499,7 +500,7 @@ public partial class TerrainClipmapDisplacementValidator
         )
         {
             failure =
-                "A Height scheduler diagnostic invariant failed during stress certification.";
+                "A Height scheduler diagnostic invariant failed during stress test.";
         }
 
         result.FailureReason =
@@ -514,15 +515,15 @@ public partial class TerrainClipmapDisplacementValidator
         RestoreRuntimeStressOwnership();
         RestoreControllerOwnership();
 
-        FinishRuntimeStressCertification(
+        FinishRuntimeStreamingStressTest(
             result
         );
     }
 
     private void PopulateRuntimeStressConfiguration(
-        TerrainRuntimeStressCertificationResult result,
+        TerrainRuntimeStreamingStressResult result,
         WorldSettings settings,
-        TerrainHeightmapManifest heightManifest,
+        TerrainXeightmapManifest heightManifest,
         TerrainRuntimeResidencyDiagnosticsSnapshot residency
     )
     {
@@ -539,7 +540,7 @@ public partial class TerrainClipmapDisplacementValidator
             );
 
         result.ClipmapDiameter =
-            TerrainClipmapTopologyUtility
+            TerrainSlipmapTopologyUtility
                 .CalculateClipmapDiameter(
                     settings
                 );
@@ -578,7 +579,7 @@ public partial class TerrainClipmapDisplacementValidator
         WorldSettings settings,
         float y,
         TerrainClipmapLayoutApplier applier,
-        TerrainRuntimeStressCertificationResult result,
+        TerrainRuntimeStreamingStressResult result,
         Action<string> completed
     )
     {
@@ -663,7 +664,7 @@ public partial class TerrainClipmapDisplacementValidator
         WorldSettings settings,
         float y,
         TerrainClipmapLayoutApplier applier,
-        TerrainRuntimeStressCertificationResult result,
+        TerrainRuntimeStreamingStressResult result,
         Action<string> completed
     )
     {
@@ -768,7 +769,7 @@ public partial class TerrainClipmapDisplacementValidator
         WorldSettings settings,
         float y,
         TerrainClipmapLayoutApplier applier,
-        TerrainRuntimeStressCertificationResult result,
+        TerrainRuntimeStreamingStressResult result,
         Action<string> completed
     )
     {
@@ -881,7 +882,7 @@ public partial class TerrainClipmapDisplacementValidator
         WorldSettings settings,
         float y,
         TerrainClipmapLayoutApplier applier,
-        TerrainRuntimeStressCertificationResult result,
+        TerrainRuntimeStreamingStressResult result,
         Action<string> completed
     )
     {
@@ -980,7 +981,7 @@ public partial class TerrainClipmapDisplacementValidator
         WorldSettings settings,
         float y,
         TerrainClipmapLayoutApplier applier,
-        TerrainRuntimeStressCertificationResult result,
+        TerrainRuntimeStreamingStressResult result,
         Action<bool> deferredTransferObserved,
         Action<string> completed
     )
@@ -1276,8 +1277,8 @@ public partial class TerrainClipmapDisplacementValidator
         error = null;
 
         if (
-            !runtimeStressCertificationActive
-            || runtimeStressCertificationResult == null
+            !runtimeStreamingStressActive
+            || runtimeStreamingStressResult == null
         )
         {
             return true;
@@ -1285,14 +1286,14 @@ public partial class TerrainClipmapDisplacementValidator
 
         return
             TryValidateRuntimeStressBounds(
-                runtimeStressCertificationResult,
+                runtimeStreamingStressResult,
                 false,
                 out error
             );
     }
 
     private bool TryValidateRuntimeStressBounds(
-        TerrainRuntimeStressCertificationResult result,
+        TerrainRuntimeStreamingStressResult result,
         bool allowDeferred,
         out string error
     )
@@ -1301,7 +1302,7 @@ public partial class TerrainClipmapDisplacementValidator
 
         if (
             !streamer.TryGetHeightSchedulerDiagnostics(
-                out TerrainHeightSchedulerDiagnosticsSnapshot scheduler
+                out TerrainXeightSchedulerDiagnosticsSnapshot scheduler
             )
         )
         {
@@ -1418,7 +1419,7 @@ public partial class TerrainClipmapDisplacementValidator
     }
 
     private bool TryValidateSettledRuntimeState(
-        TerrainRuntimeStressCertificationResult result,
+        TerrainRuntimeStreamingStressResult result,
         bool allowDeferred,
         out string error
     )
@@ -1562,7 +1563,7 @@ public partial class TerrainClipmapDisplacementValidator
     }
 
     private IEnumerator WaitForDeferredReleaseDrain(
-        TerrainRuntimeStressCertificationResult result,
+        TerrainRuntimeStreamingStressResult result,
         Action<string> completed
     )
     {
@@ -1701,7 +1702,7 @@ public partial class TerrainClipmapDisplacementValidator
     }
 
     private void ObserveSchedulerDiagnostics(
-        TerrainRuntimeStressCertificationResult result,
+        TerrainRuntimeStreamingStressResult result,
         TerrainHeightSchedulerDiagnosticsSnapshot scheduler
     )
     {
@@ -1734,7 +1735,7 @@ public partial class TerrainClipmapDisplacementValidator
     }
 
     private void CaptureSchedulerLifetime(
-        TerrainRuntimeStressCertificationResult result,
+        TerrainRuntimeStreamingStressResult result,
         TerrainHeightSchedulerDiagnosticsSnapshot scheduler
     )
     {
@@ -1766,7 +1767,7 @@ public partial class TerrainClipmapDisplacementValidator
     }
 
     private void ObserveDeferredDiagnostics(
-        TerrainRuntimeStressCertificationResult result,
+        TerrainRuntimeStreamingStressResult result,
         TerrainHeightDeferredReleaseDiagnosticsSnapshot deferred
     )
     {
@@ -1808,7 +1809,7 @@ public partial class TerrainClipmapDisplacementValidator
 
     private void RestoreRuntimeStressOwnership()
     {
-        runtimeStressCertificationActive =
+        runtimeStreamingStressActive =
             false;
 
         if (!runtimeStressOwnsStreamerState)
@@ -1833,7 +1834,7 @@ public partial class TerrainClipmapDisplacementValidator
     }
 
     private TerrainRuntimeValidationStatus DetermineRuntimeStressOverallStatus(
-        TerrainRuntimeStressCertificationResult result,
+        TerrainRuntimeStreamingStressResult result,
         string failure
     )
     {
@@ -1865,30 +1866,30 @@ public partial class TerrainClipmapDisplacementValidator
             TerrainRuntimeValidationStatus.Passed;
     }
 
-    private void FinishRuntimeStressCertification(
-        TerrainRuntimeStressCertificationResult result
+    private void FinishRuntimeStreamingStressTest(
+        TerrainRuntimeStreamingStressResult result
     )
     {
-        runtimeStressCertificationResult =
+        runtimeStreamingStressResult =
             result;
 
-        runtimeStressCertificationStatus =
+        runtimeStreamingStressStatus =
             result != null
                 ? result.OverallStatus
                 : TerrainRuntimeValidationStatus.Failed;
 
-        runtimeStressCertificationSummary =
+        runtimeStreamingStressSummary =
             result != null
                 ? result.BuildDiagnosticReport()
-                : "Runtime stress certification did not produce a result.";
+                : "Runtime stress test did not produce a result.";
 
         validationRoutine =
             null;
 
         LogRuntimeValidationResult(
-            "Runtime terrain stress certification",
-            runtimeStressCertificationStatus,
-            runtimeStressCertificationSummary
+            "Runtime terrain stress test",
+            runtimeStreamingStressStatus,
+            runtimeStreamingStressSummary
         );
     }
 }

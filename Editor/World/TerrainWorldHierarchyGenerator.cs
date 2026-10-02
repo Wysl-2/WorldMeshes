@@ -774,11 +774,6 @@ public static class TerrainWorldHierarchyGenerator
             );
 
         changed |=
-            SynchronizeHeightmapCacheValidator(
-                clipmapRoot.gameObject
-            );
-
-        changed |=
             SynchronizeClipmapBoundsController(
                 clipmapRoot.gameObject,
                 minimumTerrainHeight,
@@ -786,7 +781,7 @@ public static class TerrainWorldHierarchyGenerator
             );
 
         changed |=
-            SynchronizeClipmapDisplacementValidator(
+            RemoveRuntimeValidationComponents(
                 clipmapRoot.gameObject
             );
 
@@ -1279,55 +1274,57 @@ public static class TerrainWorldHierarchyGenerator
     }
 
     // =====================================================
-    // HEIGHTMAP CACHE VALIDATOR
+    // RUNTIME VALIDATION COMPONENTS
     // =====================================================
 
-    private static bool SynchronizeHeightmapCacheValidator(
+    private static bool RemoveRuntimeValidationComponents(
         GameObject clipmapObject
     )
     {
         bool changed =
             false;
 
-        TerrainHeightmapCacheValidator[] validators =
+        TerrainHeightmapCacheValidator[] cacheValidators =
             clipmapObject
                 .GetComponents<TerrainHeightmapCacheValidator>();
 
-        TerrainHeightmapCacheValidator validator;
-
-        if (validators.Length == 0)
+        for (
+            int index = 0;
+            index < cacheValidators.Length;
+            index++
+        )
         {
-            validator =
-                clipmapObject
-                    .AddComponent<TerrainHeightmapCacheValidator>();
+            if (cacheValidators[index] == null)
+            {
+                continue;
+            }
+
+            Object.DestroyImmediate(
+                cacheValidators[index]
+            );
 
             changed =
                 true;
         }
-        else
-        {
-            validator =
-                validators[0];
 
-            for (
-                int index = 1;
-                index < validators.Length;
-                index++
-            )
+        TerrainClipmapDisplacementValidator[] displacementValidators =
+            clipmapObject
+                .GetComponents<TerrainClipmapDisplacementValidator>();
+
+        for (
+            int index = 0;
+            index < displacementValidators.Length;
+            index++
+        )
+        {
+            if (displacementValidators[index] == null)
             {
-                Object.DestroyImmediate(
-                    validators[index]
-                );
-
-                changed =
-                    true;
+                continue;
             }
-        }
 
-        if (!validator.enabled)
-        {
-            validator.enabled =
-                true;
+            Object.DestroyImmediate(
+                displacementValidators[index]
+            );
 
             changed =
                 true;
@@ -1399,65 +1396,6 @@ public static class TerrainWorldHierarchyGenerator
                 minimumTerrainHeight,
                 maximumTerrainHeight
             );
-
-        return
-            changed;
-    }
-
-    // =====================================================
-    // DISPLACEMENT VALIDATOR
-    // =====================================================
-
-    private static bool SynchronizeClipmapDisplacementValidator(
-        GameObject clipmapObject
-    )
-    {
-        bool changed =
-            false;
-
-        TerrainClipmapDisplacementValidator[] validators =
-            clipmapObject
-                .GetComponents<TerrainClipmapDisplacementValidator>();
-
-        TerrainClipmapDisplacementValidator validator;
-
-        if (validators.Length == 0)
-        {
-            validator =
-                clipmapObject
-                    .AddComponent<TerrainClipmapDisplacementValidator>();
-
-            changed =
-                true;
-        }
-        else
-        {
-            validator =
-                validators[0];
-
-            for (
-                int index = 1;
-                index < validators.Length;
-                index++
-            )
-            {
-                Object.DestroyImmediate(
-                    validators[index]
-                );
-
-                changed =
-                    true;
-            }
-        }
-
-        if (!validator.enabled)
-        {
-            validator.enabled =
-                true;
-
-            changed =
-                true;
-        }
 
         return
             changed;

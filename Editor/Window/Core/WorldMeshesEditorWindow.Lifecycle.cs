@@ -28,6 +28,8 @@ public partial class WorldMeshesEditorWindow :
 
     private void OnDisable()
     {
+        ShutdownRuntimeStreamingValidationSession();
+
         ShutdownRuntimeBakeDiagnosticsCache();
 
         CancelActiveInteractions();

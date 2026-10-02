@@ -40,6 +40,9 @@ public partial class WorldMeshesEditorWindow :
     private TerrainValidationSuiteRunner
         runtimeOutputValidationRunner;
 
+    private TerrainRuntimeStreamingValidationSession
+        runtimeStreamingValidationSession;
+
     private TerrainValidationRunSummary runtimeCollisionPhysicsSummary =
         TerrainValidationRunSummary.CreateNotRun();
 
@@ -301,6 +304,31 @@ public partial class WorldMeshesEditorWindow :
         return runtimeOutputValidationRunner;
     }
 
+    private TerrainRuntimeStreamingValidationSession
+        GetRuntimeStreamingValidationSession()
+    {
+        if (runtimeStreamingValidationSession == null)
+        {
+            runtimeStreamingValidationSession =
+                new TerrainRuntimeStreamingValidationSession(
+                    Repaint
+                );
+        }
+
+        return runtimeStreamingValidationSession;
+    }
+
+    private void ShutdownRuntimeStreamingValidationSession()
+    {
+        if (runtimeStreamingValidationSession == null)
+        {
+            return;
+        }
+
+        runtimeStreamingValidationSession.Shutdown();
+        runtimeStreamingValidationSession = null;
+    }
+
     private void DrawValidationSuite(
         string title,
         string buttonLabel,
@@ -475,7 +503,10 @@ public partial class WorldMeshesEditorWindow :
                 && stampValidationRunner.IsRunning)
             ||
             (runtimeOutputValidationRunner != null
-                && runtimeOutputValidationRunner.IsRunning);
+                && runtimeOutputValidationRunner.IsRunning)
+            ||
+            (runtimeStreamingValidationSession != null
+                && runtimeStreamingValidationSession.IsRunning);
     }
 
     private void DrawManualAuthoringStreamingStress()
@@ -590,7 +621,7 @@ public partial class WorldMeshesEditorWindow :
     }
 
     private void ValidateAuthoringStreamingStressCapture(
-        TerrainAuthoringPreviewDiagnosticsSnapshot snapshot
+        TerrainQuthoringPreviewDiagnosticsSnapshot snapshot
     )
     {
         if (
@@ -707,6 +738,303 @@ public partial class WorldMeshesEditorWindow :
         }
 
         GUILayout.Space(5f);
-        DrawRuntimeValidationSettings();
+
+        TerrainRuntimeStreamingValidationSession session =
+            GetRuntimeStreamingValidationSession();
+
+        if (!EditorApplication.isPlaying)
+        {
+            EditorGUILayout.HelpBox(
+                "Enter Play Mode to run Runtime Streaming validation.",
+                MessageType.Info
+            );
+        }
+
+        DrawRuntimeStreamingFocusedValidation(
+            session
+        );
+
+        DrawWorkspaceSectionGap();
+
+        DrawRuntimeStreamingStressTest(
+            session
+        );
+    }
+
+    private void DrawRuntimeStreamingFocusedValidation(
+        TerrainRuntimeStreamingValidationSession session
+    )
+    {
+        GUILayout.BeginVertical(
+            EditorStyles.helpBox,
+            GUILayout.ExpandWidth(true)
+        );
+
+        GUILayout.Label(
+            "Runtime Streaming Validation",
+            EditorStyles.boldLabel
+        );
+
+        DrawRuntimeValidationStatus(
+            "Overall",
+            session.ValidationStatus,
+            session.ValidationSummary
+        );
+
+        DrawRuntimeValidationStatus(
+            "Height Cache",
+            session.HeightCacheStatus,
+            session.HeightCacheSummary
+        );
+
+        DrawRuntimeValidationStatus(
+            "Cross-Resolution",
+            session.CrossResolutionStatus,
+            session.CrossResolutionSummary
+        );
+
+        DrawRuntimeValidationStatus(
+            "Renderer / Displacement / Stitch",
+            session.MultiresolutionStatus,
+            session.MultiresolutionSummary
+        );
+
+        DrawRuntimeValidationStatus(
+            "Independent Anchor Stress",
+            session.IndependentAnchorStatus,
+            session.IndependentAnchorSummary
+        );
+
+        DrawRuntimeValidationStatus(
+            "Height Scheduler Stress",
+            session.SchedulerStressStatus,
+            session.SchedulerStressSummary
+        );
+
+        EditorGUI.BeginDisabledGroup(
+            !EditorApplication.isPlaying
+            || IsValidationSuiteRunning()
+        );
+
+        if (
+            GUILayout.Button(
+                "Validate Runtime Streaming",
+                GUILayout.ExpandWidth(true)
+            )
+        )
+        {
+            session.BeginValidation();
+            Repaint();
+        }
+
+        EditorGUI.EndDisabledGroup();
+
+        EditorGUILayout.HelpBox(
+            "Runs the Height cache, cross-resolution, renderer/displacement/stitch, independent-anchor, and Height scheduler checks sequentially. Validation components are attached to the generated Clipmap only for the duration of this explicit Play Mode session.",
+            MessageType.None
+        );
+
+        GUILayout.EndVertical();
+    }
+
+    private void DrawRuntimeStreamingStressTest(
+        TerrainRuntimeStreamingValidationSession session
+    )
+    {
+        GUILayout.BeginVertical(
+            EditorStyles.helpBox,
+            GUILayout.ExpandWidth(true)
+        );
+
+        GUILayout.Label(
+            "Runtime Streaming Stress Test",
+            EditorStyles.boldLabel
+        );
+
+        TerrainHeightmapStreamer streamer =
+            FindRuntimeHeightmapStreamer();
+
+        if (streamer != null)
+        {
+            TerrainHeightDeferredReleaseDiagnosticsSnapshot deferred =
+                streamer.GetHeightDeferredReleaseDiagnostics();
+
+            GUILayout.Label(
+                "Deferred Height Source Releases",
+                EditorStyles.boldLabel
+            );
+
+            EditorGUILayout.LabelField(
+                "Pending Releases",
+                deferred.PendingCount.ToString()
+            );
+
+            EditorGUILayout.LabelField(
+                "Pending Payload",
+                FormatDiagnosticsBytes(
+                    deferred.EstimatedPendingSourceBytes
+                )
+            );
+
+            EditorGUILayout.LabelField(
+                "Peak Pending Releases",
+                deferred.PeakPendingCount.ToString()
+            );
+
+            EditorGUILayout.LabelField(
+                "Peak Pending Payload",
+                FormatDiagnosticsBytes(
+                    deferred.PeakEstimatedPendingSourceBytes
+                )
+            );
+
+            EditorGUILayout.LabelField(
+                "Enqueued / Released",
+                $"{deferred.EnqueuedCount} / {deferred.ReleasedCount}"
+            );
+
+            EditorGUILayout.LabelField(
+                "Forced Releases",
+                deferred.ForcedReleaseCount.ToString()
+            );
+
+            EditorGUILayout.LabelField(
+                "Fence Fallbacks",
+                deferred.FenceFallbackCount.ToString()
+            );
+
+            GUILayout.Space(6f);
+        }
+
+        EditorGUILayout.LabelField(
+            "Overall Status",
+            session.StressStatus.ToString()
+        );
+
+        TerrainRuntimeStreamingStressResult result =
+            session.StressResult;
+
+        if (result != null)
+        {
+            EditorGUILayout.LabelField(
+                "Boundary Stress",
+                result.BoundaryStressStatus.ToString()
+            );
+
+            EditorGUILayout.LabelField(
+                "Continuous Movement",
+                result.ContinuousMovementStatus.ToString()
+            );
+
+            EditorGUILayout.LabelField(
+                "Rapid Supersession",
+                result.RapidSupersessionStatus.ToString()
+            );
+
+            EditorGUILayout.LabelField(
+                "Repeated Transitions",
+                result.RepeatedTransitionStatus.ToString()
+            );
+
+            EditorGUILayout.LabelField(
+                "Deferred Release",
+                result.DeferredReleaseStatus.ToString()
+            );
+
+            EditorGUILayout.LabelField(
+                "Streamer Lifecycle",
+                result.StreamerLifecycleStatus.ToString()
+            );
+
+            EditorGUILayout.LabelField(
+                "Final Restore",
+                result.FinalRestoreStatus.ToString()
+            );
+
+            EditorGUILayout.HelpBox(
+                result.BuildDiagnosticReport(),
+                MessageTypeForRuntimeValidationStatus(
+                    result.OverallStatus
+                )
+            );
+        }
+        else if (!string.IsNullOrEmpty(session.StressSummary))
+        {
+            EditorGUILayout.HelpBox(
+                session.StressSummary,
+                MessageTypeForRuntimeValidationStatus(
+                    session.StressStatus
+                )
+            );
+        }
+
+        EditorGUI.BeginDisabledGroup(
+            !EditorApplication.isPlaying
+            || IsValidationSuiteRunning()
+        );
+
+        if (
+            GUILayout.Button(
+                "Run Runtime Streaming Stress Test",
+                GUILayout.ExpandWidth(true)
+            )
+        )
+        {
+            session.BeginStressTest();
+            Repaint();
+        }
+
+        EditorGUI.EndDisabledGroup();
+
+        EditorGUILayout.HelpBox(
+            "Runs the explicit boundary, continuous-movement, rapid-request, repeated-transition, deferred-release, and streamer-lifecycle stress workflow. The temporary runtime validation component is removed after the result is captured.",
+            MessageType.None
+        );
+
+        GUILayout.EndVertical();
+    }
+
+    private static void DrawRuntimeValidationStatus(
+        string label,
+        TerrainRuntimeValidationStatus status,
+        string summary
+    )
+    {
+        EditorGUILayout.LabelField(
+            label,
+            status.ToString()
+        );
+
+        if (
+            status != TerrainRuntimeValidationStatus.NotRun
+            && !string.IsNullOrEmpty(summary)
+        )
+        {
+            EditorGUILayout.HelpBox(
+                summary,
+                MessageTypeForRuntimeValidationStatus(status)
+            );
+        }
+    }
+
+    private static MessageType MessageTypeForRuntimeValidationStatus(
+        TerrainRuntimeValidationStatus status
+    )
+    {
+        switch (status)
+        {
+            case TerrainRuntimeValidationStatus.Failed:
+                return MessageType.Error;
+
+            case TerrainRuntimeValidationStatus.Running:
+            case TerrainRuntimeValidationStatus.Passed:
+                return MessageType.Info;
+
+            case TerrainRuntimeValidationStatus.Inconclusive:
+                return MessageType.Warning;
+
+            default:
+                return MessageType.None;
+        }
     }
 }

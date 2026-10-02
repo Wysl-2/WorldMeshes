@@ -1,6 +1,6 @@
 using System.Text;
 
-public sealed class TerrainRuntimeStressCertificationResult
+public sealed class TerrainRuntimeStreamingStressResult
 {
     public TerrainRuntimeValidationStatus BoundaryStressStatus { get; internal set; } =
         TerrainRuntimeValidationStatus.NotRun;
@@ -76,7 +76,7 @@ public sealed class TerrainRuntimeStressCertificationResult
             new StringBuilder();
 
         builder.AppendLine(
-            "Runtime Terrain Stress Certification"
+            "Runtime Streaming Stress Test"
         );
 
         builder.AppendLine();
