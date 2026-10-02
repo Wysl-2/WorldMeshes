@@ -580,7 +580,7 @@ public static class TerrainAuthoringStagedTransitionValidationUtility
         {
             AddPass(
                 "Persistent authoring state unchanged",
-                "Package 03 validation did not mutate persistent authoring identity."
+                "Staged transition validation did not mutate persistent authoring identity."
             );
         }
         else
@@ -1332,7 +1332,7 @@ public static class TerrainAuthoringStagedTransitionValidationUtility
             new System.Text.StringBuilder();
 
         builder.AppendLine(
-            "WorldMeshes Edit-Mode Height Cache Streaming - Package 03 Validation"
+            "WorldMeshes Staged Window Transition Validation"
         );
 
         builder.AppendLine(

@@ -7,11 +7,11 @@ using UnityEngine;
 public static class TerrainAuthoringModifierServiceValidationUtility
 {
     private const string TempFolder =
-        "Assets/WorldMeshes/Editor/Validation/Stage12Temp";
+        "Assets/WorldMeshes/Editor/Validation/ModifierServiceValidationTemp";
 
     private const string TempDataPath =
         TempFolder +
-        "/TerrainAuthoringData_Stage12Validation.asset";
+        "/TerrainAuthoringData_ModifierServiceValidation.asset";
 
     private enum ValidationOutcome
     {
@@ -34,6 +34,9 @@ public static class TerrainAuthoringModifierServiceValidationUtility
     private static bool validationRunning;
     private static bool validationScheduled;
 
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
     private static TerrainAuthoringData tempData;
     private static WorldSettings worldSettings;
     private static string modifierId;
@@ -52,6 +55,9 @@ public static class TerrainAuthoringModifierServiceValidationUtility
 
     public static bool IsScheduled =>
         validationScheduled;
+
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
 
     /*
      * Safe public entry point.
@@ -74,6 +80,11 @@ public static class TerrainAuthoringModifierServiceValidationUtility
 
         validationScheduled =
             true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Modifier mutation pipeline validation is running."
+            );
 
         /*
          * Defensive remove-before-add prevents accidental duplicate
@@ -177,7 +188,7 @@ public static class TerrainAuthoringModifierServiceValidationUtility
             AddResult(
                 "Validation prerequisites",
                 ValidationOutcome.Blocked,
-                "Run Stage 12 validation while the editor is idle in Edit Mode."
+                "Run modifier mutation validation while the editor is idle in Edit Mode."
             );
 
             return false;
@@ -985,7 +996,7 @@ public static class TerrainAuthoringModifierServiceValidationUtility
             &&
             overallChanged
                 ? "Committed signature stayed fixed while OverallAuthoringSignature changed."
-                : "Signature transition did not match Stage 12 invariants."
+                : "Signature transition did not match modifier mutation invariants."
         );
     }
 
@@ -1063,7 +1074,7 @@ public static class TerrainAuthoringModifierServiceValidationUtility
         {
             AssetDatabase.CreateFolder(
                 parent,
-                "Stage12Temp"
+                "ModifierServiceValidationTemp"
             );
         }
     }
@@ -1214,6 +1225,14 @@ public static class TerrainAuthoringModifierServiceValidationUtility
 
         builder.AppendLine();
 
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passCount,
+                failCount,
+                blockedCount,
+                $"{passCount} passed, {failCount} failed, {blockedCount} blocked."
+            );
+
         if (
             failCount == 0
             &&
@@ -1221,7 +1240,7 @@ public static class TerrainAuthoringModifierServiceValidationUtility
         )
         {
             builder.AppendLine(
-                "Stage 12 authoring change + dirty region validation: PASSED"
+                "Modifier mutation pipeline validation: PASSED"
             );
 
             Debug.Log(
@@ -1231,7 +1250,7 @@ public static class TerrainAuthoringModifierServiceValidationUtility
         else if (failCount > 0)
         {
             builder.AppendLine(
-                "Stage 12 authoring change + dirty region validation: FAILED"
+                "Modifier mutation pipeline validation: FAILED"
             );
 
             Debug.LogError(
@@ -1241,7 +1260,7 @@ public static class TerrainAuthoringModifierServiceValidationUtility
         else
         {
             builder.AppendLine(
-                "Stage 12 authoring change + dirty region validation: BLOCKED"
+                "Modifier mutation pipeline validation: BLOCKED"
             );
 
             Debug.LogWarning(

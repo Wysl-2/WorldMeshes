@@ -6,7 +6,7 @@ using UnityEngine;
 using UnityEngine.Rendering;
 
 /*
- * Package 01 validation for the window-capable edit-mode height preview cache.
+ * Validation for the window-capable edit-mode height preview cache.
  *
  * Pure window tests always run. When current committed authoring data and the
  * required GPU features are available, a temporary non-zero-origin preview
@@ -1255,7 +1255,7 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
             new StringBuilder();
 
         builder.AppendLine(
-            "WorldMeshes Edit-Mode Height Cache Streaming - Package 01 Validation"
+            "WorldMeshes Height Cache Window Validation"
         );
 
         builder.AppendLine(
@@ -1367,7 +1367,7 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
         if (failCount > 0)
         {
             builder.AppendLine(
-                "Package 01 window cache foundation: FAILED"
+                "Height Cache Window validation: FAILED"
             );
 
             Debug.LogError(
@@ -1377,7 +1377,7 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
         else if (blockedCount > 0)
         {
             builder.AppendLine(
-                "Package 01 window cache foundation: BLOCKED"
+                "Height Cache Window validation: BLOCKED"
             );
 
             Debug.LogWarning(
@@ -1387,7 +1387,7 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
         else
         {
             builder.AppendLine(
-                "Package 01 window cache foundation: PASSED"
+                "Height Cache Window validation: PASSED"
             );
 
             Debug.Log(

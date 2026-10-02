@@ -5,7 +5,7 @@ using UnityEditor;
 using UnityEngine;
 
 /*
- * Package 02 validation for Scene View driven edit-mode height residency.
+ * Validation for Scene View driven edit-mode height residency.
  *
  * Pure synthetic tests prove sample-safe tile addressing, guard fitting,
  * world-edge behavior, and bounded scaling without moving the user's Scene
@@ -56,10 +56,16 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
 
     private static bool validationScheduled;
 
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
     public static bool IsRunning =>
         validationRunning
         ||
         validationScheduled;
+
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
 
     public static void ValidateSceneViewResidency()
     {
@@ -84,6 +90,11 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
 
         validationScheduled =
             true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Scene View residency validation is running."
+            );
 
         EditorApplication.delayCall -=
             RunScheduledValidation;
@@ -1293,7 +1304,7 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
             new StringBuilder();
 
         report.AppendLine(
-            "WorldMeshes Edit-Mode Height Cache Streaming - Package 02 Validation"
+            "WorldMeshes Scene View Residency Validation"
         );
 
         report.AppendLine(
@@ -1372,21 +1383,37 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
 
         report.AppendLine();
 
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passed,
+                failed,
+                blocked,
+                $"{passed} passed, {failed} failed, {blocked} blocked."
+            );
+
         report.AppendLine(
-            failed == 0
-                ? "Package 02 Scene View residency: PASSED"
-                : "Package 02 Scene View residency: FAILED"
+            failed > 0
+                ? "Scene View residency validation: FAILED"
+                : blocked > 0
+                    ? "Scene View residency validation: BLOCKED"
+                    : "Scene View residency validation: PASSED"
         );
 
-        if (failed == 0)
+        if (failed > 0)
         {
-            Debug.Log(
+            Debug.LogError(
+                report.ToString()
+            );
+        }
+        else if (blocked > 0)
+        {
+            Debug.LogWarning(
                 report.ToString()
             );
         }
         else
         {
-            Debug.LogError(
+            Debug.Log(
                 report.ToString()
             );
         }

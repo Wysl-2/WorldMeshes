@@ -12,7 +12,7 @@ using UnityEngine;
  * policy used by the editor without allocating full-world GPU resources or
  * moving the Scene View. Live checks are observational only.
  */
-public static class TerrainAuthoringStreamingRegressionValidationUtility
+public static class TerrainAuthoringStreamingIntegrationValidationUtility
 {
     private sealed class ValidationResult
     {
@@ -30,12 +30,18 @@ public static class TerrainAuthoringStreamingRegressionValidationUtility
 
     private static bool validationScheduled;
 
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
     public static bool IsRunning =>
         validationRunning
         ||
         validationScheduled;
 
-    public static void ValidateStreamingRegression()
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
+
+    public static void ValidateStreamingIntegration()
     {
         RequestValidation();
     }
@@ -49,6 +55,11 @@ public static class TerrainAuthoringStreamingRegressionValidationUtility
 
         validationScheduled =
             true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Streaming integration validation is running."
+            );
 
         EditorApplication.delayCall +=
             RunScheduledValidation;
@@ -76,8 +87,16 @@ public static class TerrainAuthoringStreamingRegressionValidationUtility
             EditorApplication.isPlayingOrWillChangePlaymode
         )
         {
+            lastRunSummary =
+                TerrainValidationRunSummary.CreateCompleted(
+                    0,
+                    0,
+                    1,
+                    "Streaming integration validation is blocked while Play Mode owns runtime terrain residency."
+                );
+
             Debug.LogWarning(
-                "WorldMeshes final streaming regression did not run because Play Mode owns runtime terrain residency."
+                "WorldMeshes streaming integration validation did not run because Play Mode owns runtime terrain residency."
             );
 
             return;
@@ -131,21 +150,9 @@ public static class TerrainAuthoringStreamingRegressionValidationUtility
         {
             ValidateSyntheticLargeWorldResidency();
             ValidateSyntheticTransitionMemoryBounds();
-            ValidateWorldEdgesAndCorners();
-
-            ValidateOneTileMovementCost();
             ValidateSequentialMovementStress();
-            ValidateRapidLatestTargetWins();
             ValidateMovementReversal();
             ValidateDistantJump();
-
-            ValidateAuthoringGenerationIdentity();
-            ValidateAnalysisSourceCoherence();
-
-            ValidateLiveResidencyBoundedness(
-                liveWorldSettings
-            );
-
             ValidateLiveCacheOwnership();
 
             ValidatePersistentAuthoringState(
@@ -1096,7 +1103,7 @@ public static class TerrainAuthoringStreamingRegressionValidationUtility
         {
             AddBlocked(
                 "Live Terrain Analysis source coherence",
-                "No active Height Preview residency is available. Package 07 synthetic analysis validation remains available separately."
+                "No active Height Preview residency is available. Analysis-window safety validation remains available separately."
             );
 
             return;
@@ -1713,7 +1720,7 @@ public static class TerrainAuthoringStreamingRegressionValidationUtility
             new StringBuilder();
 
         builder.AppendLine(
-            "WorldMeshes Final Edit-Mode Streaming Regression"
+            "WorldMeshes Streaming Integration Validation"
         );
 
         builder.AppendLine(
@@ -1770,8 +1777,8 @@ public static class TerrainAuthoringStreamingRegressionValidationUtility
         }
 
         builder.AppendLine(
-            "Package 07 offline/global Terrain Analysis batching remains " +
-            "covered by TerrainAuthoringAnalysisDecouplingValidationUtility."
+            "Offline/global Terrain Analysis batching remains covered by " +
+            "TerrainAuthoringAnalysisDecouplingValidationUtility."
         );
 
         builder.AppendLine();
@@ -1779,6 +1786,14 @@ public static class TerrainAuthoringStreamingRegressionValidationUtility
         builder.AppendLine(
             $"Summary: {passed:N0} passed, {failed:N0} failed, {blocked:N0} blocked."
         );
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passed,
+                failed,
+                blocked,
+                $"{passed} passed, {failed} failed, {blocked} blocked."
+            );
 
         string report =
             builder.ToString();

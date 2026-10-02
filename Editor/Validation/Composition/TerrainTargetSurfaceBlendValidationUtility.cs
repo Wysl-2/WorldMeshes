@@ -5,7 +5,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-public static class TerrainTargetSurfaceBlendFoundationValidationUtility
+public static class TerrainTargetSurfaceBlendValidationUtility
 {
     private sealed class Result
     {
@@ -21,7 +21,7 @@ public static class TerrainTargetSurfaceBlendFoundationValidationUtility
     private static readonly string ValidationRoot =
         WorldMeshesPaths.GeneratedValidation
         +
-        "/TargetSurfaceBlendFoundation";
+        "/TargetSurfaceBlend";
 
     private static readonly string ValidationDataPath =
         ValidationRoot
@@ -53,6 +53,9 @@ public static class TerrainTargetSurfaceBlendFoundationValidationUtility
     private static string lastSummary =
         "Not run.";
 
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
     private static WorldSettings worldSettings;
     private static TerrainAuthoringData tempData;
     private static string modifierId;
@@ -83,6 +86,9 @@ public static class TerrainTargetSurfaceBlendFoundationValidationUtility
     public static string LastSummary =>
         lastSummary;
 
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
+
     public static void RequestValidation()
     {
         if (
@@ -96,6 +102,11 @@ public static class TerrainTargetSurfaceBlendFoundationValidationUtility
 
         validationScheduled =
             true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Target-surface blend validation is running."
+            );
 
         EditorApplication.delayCall -=
             RunScheduledValidation;
@@ -1775,6 +1786,14 @@ public static class TerrainTargetSurfaceBlendFoundationValidationUtility
         lastSummary =
             $"{lastPassedCount} passed, {lastFailedCount} failed.";
 
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                lastPassedCount,
+                lastFailedCount,
+                0,
+                lastSummary
+            );
+
         builder.AppendLine();
         builder.AppendLine(
             lastSummary
@@ -1783,14 +1802,14 @@ public static class TerrainTargetSurfaceBlendFoundationValidationUtility
         if (lastFailedCount > 0)
         {
             Debug.LogError(
-                "WorldMeshes Target-Surface Blend Foundation validation\n\n" +
+                "WorldMeshes Target-Surface Blend validation\n\n" +
                 builder
             );
         }
         else
         {
             Debug.Log(
-                "WorldMeshes Target-Surface Blend Foundation validation\n\n" +
+                "WorldMeshes Target-Surface Blend validation\n\n" +
                 builder
             );
         }

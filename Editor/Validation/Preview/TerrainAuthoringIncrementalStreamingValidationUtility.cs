@@ -21,10 +21,16 @@ public static class TerrainAuthoringIncrementalStreamingValidationUtility
 
     private static bool validationScheduled;
 
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
     public static bool IsRunning =>
         validationRunning
         ||
         validationScheduled;
+
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
 
     public static void ValidateIncrementalStreaming()
     {
@@ -40,6 +46,11 @@ public static class TerrainAuthoringIncrementalStreamingValidationUtility
 
         validationScheduled =
             true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Incremental streaming validation is running."
+            );
 
         EditorApplication.delayCall +=
             RunScheduledValidation;
@@ -78,7 +89,7 @@ public static class TerrainAuthoringIncrementalStreamingValidationUtility
             ValidatePrefetchBecomesCoverageCritical();
             ValidateProgressAccounting();
             ValidateCancellationSemantics();
-            ValidatePackage03ARecoveryClassification();
+            ValidateResidencySizeRecoveryClassification();
             ValidateLiveStreamingInformation();
             ValidatePersistentAuthoringStateSafety();
         }
@@ -723,7 +734,7 @@ public static class TerrainAuthoringIncrementalStreamingValidationUtility
         }
     }
 
-    private static void ValidatePackage03ARecoveryClassification()
+    private static void ValidateResidencySizeRecoveryClassification()
     {
         TerrainHeightCacheWindow source =
             Window(
@@ -754,7 +765,7 @@ public static class TerrainAuthoringIncrementalStreamingValidationUtility
         )
         {
             AddFail(
-                "Package 03A bounded-residency regression",
+                "Residency size recovery regression",
                 error
             );
 
@@ -773,14 +784,14 @@ public static class TerrainAuthoringIncrementalStreamingValidationUtility
         )
         {
             AddPass(
-                "Package 03A bounded-residency regression",
+                "Residency size recovery regression",
                 "24x24 -> 12x12 remains Retained=144, Entering=0, Leaving=432 under the incremental transition model."
             );
         }
         else
         {
             AddFail(
-                "Package 03A bounded-residency regression",
+                "Residency size recovery regression",
                 $"Unexpected classification: retained={transition.RetainedTiles.Count}, entering={transition.EnteringTiles.Count}, leaving={transition.LeavingTiles.Count}."
             );
         }
@@ -874,7 +885,7 @@ public static class TerrainAuthoringIncrementalStreamingValidationUtility
         {
             AddPass(
                 "Persistent authoring state unchanged",
-                "Package 04 validation did not mutate persistent terrain authoring identity."
+                "Incremental streaming validation did not mutate persistent terrain authoring identity."
             );
         }
         else
@@ -964,7 +975,7 @@ public static class TerrainAuthoringIncrementalStreamingValidationUtility
             new System.Text.StringBuilder();
 
         report.AppendLine(
-            "WorldMeshes Edit-Mode Height Cache Streaming - Package 04 Validation"
+            "WorldMeshes Incremental Streaming Validation"
         );
 
         report.AppendLine(
@@ -1025,26 +1036,37 @@ public static class TerrainAuthoringIncrementalStreamingValidationUtility
 
         report.AppendLine();
 
-        bool success =
-            failed == 0
-            &&
-            blocked == 0;
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passed,
+                failed,
+                blocked,
+                $"{passed} passed, {failed} failed, {blocked} blocked."
+            );
 
         report.AppendLine(
-            success
-                ? "Package 04 incremental streaming: PASSED"
-                : "Package 04 incremental streaming: FAILED"
+            failed > 0
+                ? "Incremental streaming validation: FAILED"
+                : blocked > 0
+                    ? "Incremental streaming validation: BLOCKED"
+                    : "Incremental streaming validation: PASSED"
         );
 
-        if (success)
+        if (failed > 0)
         {
-            Debug.Log(
+            Debug.LogError(
+                report.ToString()
+            );
+        }
+        else if (blocked > 0)
+        {
+            Debug.LogWarning(
                 report.ToString()
             );
         }
         else
         {
-            Debug.LogError(
+            Debug.Log(
                 report.ToString()
             );
         }

@@ -21,10 +21,16 @@ public static class TerrainAuthoringResidencySizeRecoveryValidationUtility
 
     private static bool validationScheduled;
 
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
     public static bool IsRunning =>
         validationRunning
         ||
         validationScheduled;
+
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
 
     public static void ValidateResidencySizeRecovery()
     {
@@ -40,6 +46,11 @@ public static class TerrainAuthoringResidencySizeRecoveryValidationUtility
 
         validationScheduled =
             true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Residency size recovery validation is running."
+            );
 
         EditorApplication.delayCall +=
             RunScheduledValidation;
@@ -828,7 +839,7 @@ public static class TerrainAuthoringResidencySizeRecoveryValidationUtility
         {
             AddPass(
                 "Persistent authoring state unchanged",
-                "Package 03A validation did not mutate persistent terrain authoring identity."
+                "Residency size recovery validation did not mutate persistent terrain authoring identity."
             );
         }
         else
@@ -928,7 +939,7 @@ public static class TerrainAuthoringResidencySizeRecoveryValidationUtility
             new System.Text.StringBuilder();
 
         builder.AppendLine(
-            "WorldMeshes Edit-Mode Height Cache Streaming - Package 03A Validation"
+            "WorldMeshes Residency Size Recovery Validation"
         );
 
         builder.AppendLine(
@@ -996,21 +1007,37 @@ public static class TerrainAuthoringResidencySizeRecoveryValidationUtility
 
         builder.AppendLine();
 
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passed,
+                failed,
+                blocked,
+                $"{passed} passed, {failed} failed, {blocked} blocked."
+            );
+
         builder.AppendLine(
-            failed == 0
-                ? "Package 03A residency size recovery: PASSED"
-                : "Package 03A residency size recovery: FAILED"
+            failed > 0
+                ? "Residency size recovery validation: FAILED"
+                : blocked > 0
+                    ? "Residency size recovery validation: BLOCKED"
+                    : "Residency size recovery validation: PASSED"
         );
 
-        if (failed == 0)
+        if (failed > 0)
         {
-            Debug.Log(
+            Debug.LogError(
+                builder.ToString()
+            );
+        }
+        else if (blocked > 0)
+        {
+            Debug.LogWarning(
                 builder.ToString()
             );
         }
         else
         {
-            Debug.LogError(
+            Debug.Log(
                 builder.ToString()
             );
         }

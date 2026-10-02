@@ -26,7 +26,21 @@ public partial class WorldMeshesEditorWindow :
     private bool showRuntimeStreamingValidation;
 
     private TerrainValidationSuiteRunner
-        authoringPreviewCoreValidationRunner;
+        authoringPreviewValidationRunner;
+
+    private TerrainValidationSuiteRunner
+        authoringCompositionValidationRunner;
+
+    private bool authoringStreamingStressCaptureActive;
+    private long authoringStreamingStressBaselineCreateCount;
+    private long authoringStreamingStressBaselineDisposeCount;
+    private int authoringStreamingStressBaselineLiveCount;
+
+    private string authoringStreamingStressSummary =
+        "No resource stress capture is active.";
+
+    private MessageType authoringStreamingStressMessageType =
+        MessageType.None;
 
     private void DrawValidationSuites()
     {
@@ -43,27 +57,16 @@ public partial class WorldMeshesEditorWindow :
         }
 
         GUILayout.Space(5f);
-
         DrawOutputIntegrityValidation();
-
         DrawWorkspaceSectionGap();
-
         DrawAuthoringPreviewValidation();
-
         DrawWorkspaceSectionGap();
-
         DrawCompositionValidation();
-
         DrawWorkspaceSectionGap();
-
         DrawRegionalElevationValidation();
-
         DrawWorkspaceSectionGap();
-
         DrawStampValidation();
-
         DrawWorkspaceSectionGap();
-
         DrawRuntimeStreamingValidation();
     }
 
@@ -82,7 +85,6 @@ public partial class WorldMeshesEditorWindow :
         }
 
         GUILayout.Space(5f);
-
         DrawRuntimeHeightRangeMetadataValidation();
 
         EditorGUILayout.HelpBox(
@@ -95,8 +97,7 @@ public partial class WorldMeshesEditorWindow :
     {
         TerrainHeightmapManifest manifest =
             AssetDatabase.LoadAssetAtPath<TerrainHeightmapManifest>(
-                TerrainRuntimeHeightAssetUtility
-                    .HeightmapManifestPath
+                TerrainRuntimeHeightAssetUtility.HeightmapManifestPath
             );
 
         GUILayout.BeginVertical(
@@ -120,38 +121,31 @@ public partial class WorldMeshesEditorWindow :
         {
             EditorGUILayout.LabelField(
                 "Manifest Complete",
-                manifest.isComplete
-                    ? "Yes"
-                    : "No"
+                manifest.isComplete ? "Yes" : "No"
             );
 
             EditorGUILayout.LabelField(
                 "Expected Range Records",
-                manifest.ExpectedTileHeightRangeCount
-                    .ToString("N0")
+                manifest.ExpectedTileHeightRangeCount.ToString("N0")
             );
 
             EditorGUILayout.LabelField(
                 "Stored Range Records",
-                manifest.TileHeightRangeCount
-                    .ToString("N0")
+                manifest.TileHeightRangeCount.ToString("N0")
             );
 
             EditorGUILayout.LabelField(
                 "Valid Range Records",
-                manifest.ValidTileHeightRangeCount
-                    .ToString("N0")
+                manifest.ValidTileHeightRangeCount.ToString("N0")
             );
 
             if (manifest.HasValidHeightRange)
             {
                 EditorGUILayout.LabelField(
                     "Global Range",
-                    manifest.minimumTerrainHeight
-                        .ToString("R") +
+                    manifest.minimumTerrainHeight.ToString("R") +
                     " -> " +
-                    manifest.maximumTerrainHeight
-                        .ToString("R")
+                    manifest.maximumTerrainHeight.ToString("R")
                 );
             }
         }
@@ -162,12 +156,9 @@ public partial class WorldMeshesEditorWindow :
             worldSettings == null
             || TerrainRuntimeBakePipeline.IsRunning
             || TerrainSurfaceMaskCompiler.IsGenerating
-            || EditorApplication
-                .isPlayingOrWillChangePlaymode;
+            || EditorApplication.isPlayingOrWillChangePlaymode;
 
-        EditorGUI.BeginDisabledGroup(
-            validationDisabled
-        );
+        EditorGUI.BeginDisabledGroup(validationDisabled);
 
         if (
             GUILayout.Button(
@@ -176,11 +167,10 @@ public partial class WorldMeshesEditorWindow :
             )
         )
         {
-            TerrainRuntimeHeightRangeMetadataValidator
-                .Validate(
-                    worldSettings,
-                    true
-                );
+            TerrainRuntimeHeightRangeMetadataValidator.Validate(
+                worldSettings,
+                true
+            );
         }
 
         EditorGUI.EndDisabledGroup();
@@ -209,131 +199,70 @@ public partial class WorldMeshesEditorWindow :
 
         GUILayout.Space(5f);
 
-        TerrainValidationSuiteRunner suiteRunner =
-            GetAuthoringPreviewCoreValidationRunner();
-
-        DrawAuthoringPreviewCoreValidationSuite(
-            suiteRunner
+        DrawValidationSuite(
+            "Authoring Preview Regression",
+            "Run Authoring Preview Regression",
+            GetAuthoringPreviewValidationRunner(),
+            "Runs the focused preview, residency, analysis-window, responsiveness, and streaming-integration checks sequentially. Detailed assertion output remains in the Unity Console."
         );
 
         DrawWorkspaceSectionGap();
+        DrawManualAuthoringStreamingStress();
+    }
 
-        EditorGUI.BeginDisabledGroup(
-            suiteRunner.IsRunning
+    private void DrawCompositionValidation()
+    {
+        showCompositionValidation =
+            EditorGUILayout.Foldout(
+                showCompositionValidation,
+                "Modifier Composition",
+                true
+            );
+
+        if (!showCompositionValidation)
+        {
+            return;
+        }
+
+        GUILayout.Space(5f);
+
+        DrawValidationSuite(
+            "Authoring Composition Regression",
+            "Run Composition Regression",
+            GetAuthoringCompositionValidationRunner(),
+            "Runs modifier data, mutation, GPU compositor, and blend-mode validation sequentially. Detailed assertion output remains in the Unity Console."
         );
-
-        DrawStreamingRegressionValidationSettings();
-
-        DrawWorkspaceSectionGap();
-
-        DrawPreviewResponsivenessValidationSettings();
-
-        DrawWorkspaceSectionGap();
-
-        DrawWindowCacheFoundationValidationSettings();
-
-        DrawWorkspaceSectionGap();
-
-        DrawSceneViewResidencyValidationSettings();
-
-        DrawWorkspaceSectionGap();
-
-        DrawStagedTransitionValidationSettings();
-
-        DrawWorkspaceSectionGap();
-
-        DrawResidencySizeRecoveryValidationSettings();
-
-        DrawWorkspaceSectionGap();
-
-        DrawIncrementalStreamingValidationSettings();
-
-        DrawWorkspaceSectionGap();
-
-        DrawModifierResidencyValidationSettings();
-
-        DrawWorkspaceSectionGap();
-
-        DrawRegionalElevationResidencyValidationSettings();
-
-        DrawWorkspaceSectionGap();
-
-        DrawAuthoringChangePipelineSettings();
-
-        EditorGUI.EndDisabledGroup();
     }
 
     private TerrainValidationSuiteRunner
-        GetAuthoringPreviewCoreValidationRunner()
+        GetAuthoringPreviewValidationRunner()
     {
-        if (authoringPreviewCoreValidationRunner == null)
+        if (authoringPreviewValidationRunner == null)
         {
-            authoringPreviewCoreValidationRunner =
-                new TerrainValidationSuiteRunner(
-                    new[]
-                    {
-                        new TerrainValidationSuiteRunner.Case(
-                            "Height Cache Window",
-                            () =>
-                            {
-                                if (
-                                    TerrainAuthoringPreviewCacheValidationUtility
-                                        .IsRunning
-                                )
-                                {
-                                    return false;
-                                }
-
-                                TerrainAuthoringPreviewCacheValidationUtility
-                                    .RequestValidation();
-
-                                return
-                                    TerrainAuthoringPreviewCacheValidationUtility
-                                        .IsRunning;
-                            },
-                            () =>
-                                TerrainAuthoringPreviewCacheValidationUtility
-                                    .IsRunning,
-                            () =>
-                                TerrainAuthoringPreviewCacheValidationUtility
-                                    .LastRunSummary
-                        ),
-                        new TerrainValidationSuiteRunner.Case(
-                            "Staged Window Transitions",
-                            () =>
-                            {
-                                if (
-                                    TerrainAuthoringStagedTransitionValidationUtility
-                                        .IsRunning
-                                )
-                                {
-                                    return false;
-                                }
-
-                                TerrainAuthoringStagedTransitionValidationUtility
-                                    .RequestValidation();
-
-                                return
-                                    TerrainAuthoringStagedTransitionValidationUtility
-                                        .IsRunning;
-                            },
-                            () =>
-                                TerrainAuthoringStagedTransitionValidationUtility
-                                    .IsRunning,
-                            () =>
-                                TerrainAuthoringStagedTransitionValidationUtility
-                                    .LastRunSummary
-                        )
-                    }
-                );
+            authoringPreviewValidationRunner =
+                TerrainAuthoringPreviewRegressionSuite.CreateRunner();
         }
 
-        return
-            authoringPreviewCoreValidationRunner;
+        return authoringPreviewValidationRunner;
     }
 
-    private void DrawAuthoringPreviewCoreValidationSuite(
-        TerrainValidationSuiteRunner suiteRunner
+    private TerrainValidationSuiteRunner
+        GetAuthoringCompositionValidationRunner()
+    {
+        if (authoringCompositionValidationRunner == null)
+        {
+            authoringCompositionValidationRunner =
+                TerrainAuthoringCompositionRegressionSuite.CreateRunner();
+        }
+
+        return authoringCompositionValidationRunner;
+    }
+
+    private void DrawValidationSuite(
+        string title,
+        string buttonLabel,
+        TerrainValidationSuiteRunner suiteRunner,
+        string description
     )
     {
         GUILayout.BeginVertical(
@@ -342,7 +271,7 @@ public partial class WorldMeshesEditorWindow :
         );
 
         GUILayout.Label(
-            "Authoring Preview Core Checks",
+            title,
             EditorStyles.boldLabel
         );
 
@@ -353,15 +282,14 @@ public partial class WorldMeshesEditorWindow :
         GUILayout.Space(5f);
 
         EditorGUI.BeginDisabledGroup(
-            suiteRunner.IsRunning
+            IsValidationSuiteRunning()
             || Application.isPlaying
-            || EditorApplication
-                .isPlayingOrWillChangePlaymode
+            || EditorApplication.isPlayingOrWillChangePlaymode
         );
 
         if (
             GUILayout.Button(
-                "Run Core Preview Checks",
+                buttonLabel,
                 GUILayout.ExpandWidth(true)
             )
         )
@@ -386,10 +314,13 @@ public partial class WorldMeshesEditorWindow :
             );
         }
 
-        EditorGUILayout.HelpBox(
-            "Runs the Height Cache Window and Staged Window Transition checks sequentially. Detailed assertion output remains in the Unity Console.",
-            MessageType.None
-        );
+        if (!string.IsNullOrEmpty(description))
+        {
+            EditorGUILayout.HelpBox(
+                description,
+                MessageType.None
+            );
+        }
 
         GUILayout.EndVertical();
     }
@@ -441,19 +372,44 @@ public partial class WorldMeshesEditorWindow :
         TerrainValidationRunSummary summary
     )
     {
+        if (summary == null)
+        {
+            return;
+        }
+
         GUILayout.BeginVertical(
             EditorStyles.helpBox,
             GUILayout.ExpandWidth(true)
         );
 
-        GUILayout.Label(
+        EditorGUILayout.LabelField(
             caseName,
-            EditorStyles.boldLabel
+            summary.State.ToString()
         );
 
-        DrawValidationRunSummary(
-            summary
+        EditorGUILayout.LabelField(
+            "Counts",
+            summary.PassedCount.ToString() +
+            " passed / " +
+            summary.FailedCount.ToString() +
+            " failed / " +
+            summary.BlockedCount.ToString() +
+            " blocked"
         );
+
+        if (
+            (summary.State == TerrainValidationRunState.Failed
+                || summary.State == TerrainValidationRunState.Blocked)
+            && !string.IsNullOrEmpty(summary.Summary)
+        )
+        {
+            EditorGUILayout.HelpBox(
+                summary.Summary,
+                summary.State == TerrainValidationRunState.Failed
+                    ? MessageType.Error
+                    : MessageType.Warning
+            );
+        }
 
         GUILayout.EndVertical();
     }
@@ -461,43 +417,177 @@ public partial class WorldMeshesEditorWindow :
     private bool IsValidationSuiteRunning()
     {
         return
-            authoringPreviewCoreValidationRunner != null
-            && authoringPreviewCoreValidationRunner.IsRunning;
+            (authoringPreviewValidationRunner != null
+                && authoringPreviewValidationRunner.IsRunning)
+            ||
+            (authoringCompositionValidationRunner != null
+                && authoringCompositionValidationRunner.IsRunning);
     }
 
-    private void DrawCompositionValidation()
+    private void DrawManualAuthoringStreamingStress()
     {
-        showCompositionValidation =
-            EditorGUILayout.Foldout(
-                showCompositionValidation,
-                "Modifier Composition",
-                true
-            );
+        GUILayout.BeginVertical(
+            EditorStyles.helpBox,
+            GUILayout.ExpandWidth(true)
+        );
 
-        if (!showCompositionValidation)
-        {
-            return;
-        }
+        GUILayout.Label(
+            "Manual Streaming Stress",
+            EditorStyles.boldLabel
+        );
+
+        TerrainAuthoringPreviewDiagnosticsSnapshot snapshot =
+            TerrainAuthoringPreviewService.GetDiagnosticsSnapshot();
+
+        EditorGUILayout.LabelField(
+            "Capture",
+            authoringStreamingStressCaptureActive
+                ? "Active"
+                : "Inactive"
+        );
+
+        EditorGUILayout.LabelField(
+            "Current Created",
+            snapshot.CacheCreateCount.ToString("N0")
+        );
+
+        EditorGUILayout.LabelField(
+            "Current Disposed",
+            snapshot.CacheDisposeCount.ToString("N0")
+        );
+
+        EditorGUILayout.LabelField(
+            "Current Live",
+            snapshot.CacheLiveCount.ToString("N0")
+        );
 
         GUILayout.Space(5f);
 
-        DrawModifierDataFoundationSettings();
+        EditorGUI.BeginDisabledGroup(
+            IsValidationSuiteRunning()
+            || Application.isPlaying
+            || EditorApplication.isPlayingOrWillChangePlaymode
+        );
 
-        DrawWorkspaceSectionGap();
+        if (
+            GUILayout.Button(
+                "Begin Resource Stress Capture",
+                GUILayout.ExpandWidth(true)
+            )
+        )
+        {
+            authoringStreamingStressBaselineCreateCount =
+                snapshot.CacheCreateCount;
 
-        DrawTargetSurfaceBlendFoundationValidationSettings();
+            authoringStreamingStressBaselineDisposeCount =
+                snapshot.CacheDisposeCount;
 
-        DrawWorkspaceSectionGap();
+            authoringStreamingStressBaselineLiveCount =
+                snapshot.CacheLiveCount;
 
-        DrawMaxMinBlendValidationSettings();
+            authoringStreamingStressCaptureActive =
+                true;
 
-        DrawWorkspaceSectionGap();
+            authoringStreamingStressSummary =
+                "Capture started. Move rapidly through the world, reverse direction, perform distant jumps, allow transitions to complete or cancel, then let streaming settle and validate the capture.";
 
-        DrawReplaceBlendValidationSettings();
+            authoringStreamingStressMessageType =
+                MessageType.Info;
+        }
 
-        DrawWorkspaceSectionGap();
+        EditorGUI.BeginDisabledGroup(
+            !authoringStreamingStressCaptureActive
+        );
 
-        DrawGpuCompositorFoundationSettings();
+        if (
+            GUILayout.Button(
+                "Validate Resource Stress Capture",
+                GUILayout.ExpandWidth(true)
+            )
+        )
+        {
+            ValidateAuthoringStreamingStressCapture(
+                snapshot
+            );
+        }
+
+        EditorGUI.EndDisabledGroup();
+        EditorGUI.EndDisabledGroup();
+
+        GUILayout.Space(5f);
+
+        EditorGUILayout.HelpBox(
+            authoringStreamingStressSummary,
+            authoringStreamingStressMessageType
+        );
+
+        EditorGUILayout.HelpBox(
+            "Manual lifecycle / ownership checks:\n\n" +
+            "• Start staging, then trigger compilation. Streaming should pause while the healthy active cache remains resident, then current intent should be reevaluated.\n\n" +
+            "• Start staging, then trigger assembly/domain reload. Editor preview resources should be released and reconstructed without stranded caches.\n\n" +
+            "• Disable Height Preview during staging. Live cache count should settle at 0. Re-enable and allow a fresh local cache to settle at 1.\n\n" +
+            "• Change active scene during staging. Previous-scene active/staging resources must not survive.\n\n" +
+            "• Switch between Scene Views during staging, then close/reopen views. Ownership generation should change and obsolete targets must not return.\n\n" +
+            "• Enter Play Mode during staging. Editor live cache count should reach 0 while runtime streaming owns terrain residency. Returning to Edit Mode should reconstruct one local editor cache when Height Preview is enabled.",
+            MessageType.Info
+        );
+
+        GUILayout.EndVertical();
+    }
+
+    private void ValidateAuthoringStreamingStressCapture(
+        TerrainAuthoringPreviewDiagnosticsSnapshot snapshot
+    )
+    {
+        if (
+            snapshot.IsStreaming
+            || snapshot.HasStagingWindow
+        )
+        {
+            authoringStreamingStressSummary =
+                "BLOCKED - streaming has not settled yet. Wait until no staging cache remains, then validate again.";
+
+            authoringStreamingStressMessageType =
+                MessageType.Warning;
+
+            return;
+        }
+
+        long createdDelta =
+            snapshot.CacheCreateCount -
+            authoringStreamingStressBaselineCreateCount;
+
+        long disposedDelta =
+            snapshot.CacheDisposeCount -
+            authoringStreamingStressBaselineDisposeCount;
+
+        int expectedLive =
+            snapshot.CacheReady
+                ? 1
+                : 0;
+
+        bool passed =
+            snapshot.CacheLiveCount == expectedLive
+            && snapshot.CacheLiveCount <= 1;
+
+        authoringStreamingStressSummary =
+            (passed ? "PASS" : "FAIL") +
+            $" - Created delta={createdDelta:N0}; " +
+            $"Disposed delta={disposedDelta:N0}; " +
+            $"Live before={authoringStreamingStressBaselineLiveCount:N0}; " +
+            $"Live after={snapshot.CacheLiveCount:N0}; " +
+            $"Expected settled live={expectedLive:N0}.";
+
+        authoringStreamingStressMessageType =
+            passed
+                ? MessageType.Info
+                : MessageType.Error;
+
+        if (passed)
+        {
+            authoringStreamingStressCaptureActive =
+                false;
+        }
     }
 
     private void DrawRegionalElevationValidation()
@@ -515,59 +605,32 @@ public partial class WorldMeshesEditorWindow :
         }
 
         GUILayout.Space(5f);
-
         DrawRegionalElevationFoundationSettings();
-
         DrawWorkspaceSectionGap();
-
         DrawNodeElevationInitializationValidationSettings();
-
         DrawWorkspaceSectionGap();
-
         DrawNodeElevationInterpolationValidationSettings();
-
         DrawWorkspaceSectionGap();
-
         DrawRegionalElevationCompositionValidationSettings();
-
         DrawWorkspaceSectionGap();
-
         DrawRegionalElevationManagementValidationSettings();
-
         DrawWorkspaceSectionGap();
-
         DrawRegionalElevationSceneToolValidationSettings();
-
         DrawWorkspaceSectionGap();
-
         DrawRegionalElevationMultiSelectValidationSettings();
-
         DrawWorkspaceSectionGap();
-
         DrawRegionalElevationInterpolationValidationSettings();
-
         DrawWorkspaceSectionGap();
-
         DrawRegionalElevationTriangulationValidationSettings();
-
         DrawWorkspaceSectionGap();
-
         DrawRegionalElevationTriangulatedLinearValidationSettings();
-
         DrawWorkspaceSectionGap();
-
         DrawRegionalElevationTriangulatedLinearGpuValidationSettings();
-
         DrawWorkspaceSectionGap();
-
         DrawRegionalElevationSmoothGradientValidationSettings();
-
         DrawWorkspaceSectionGap();
-
         DrawRegionalElevationTriangulatedSmoothCpuValidationSettings();
-
         DrawWorkspaceSectionGap();
-
         DrawRegionalElevationTriangulatedSmoothGpuValidationSettings();
     }
 
@@ -586,39 +649,22 @@ public partial class WorldMeshesEditorWindow :
         }
 
         GUILayout.Space(5f);
-
         DrawStampRotationFoundationValidationSettings();
-
         DrawWorkspaceSectionGap();
-
         DrawStampSourceOrientationValidationSettings();
-
         DrawWorkspaceSectionGap();
-
         DrawStampSourceRemapValidationSettings();
-
         DrawWorkspaceSectionGap();
-
         DrawStampFalloffValidationSettings();
-
         DrawWorkspaceSectionGap();
-
         DrawStampLibraryFoundationValidationSettings();
-
         DrawWorkspaceSectionGap();
-
         DrawStampLibrarySyncValidationSettings();
-
         DrawWorkspaceSectionGap();
-
         DrawStampAssetDefaultsValidationSettings();
-
         DrawWorkspaceSectionGap();
-
         DrawBlendModeAuthoringUXDefaultsValidationSettings();
-
         DrawWorkspaceSectionGap();
-
         DrawStampLibraryBrowserValidationSettings();
     }
 
@@ -637,7 +683,6 @@ public partial class WorldMeshesEditorWindow :
         }
 
         GUILayout.Space(5f);
-
         DrawRuntimeValidationSettings();
     }
 }

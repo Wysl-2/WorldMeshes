@@ -25,10 +25,16 @@ public static class TerrainAuthoringRegionalElevationResidencyValidationUtility
     private static bool validationScheduled;
     private static bool validationRunning;
 
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
     public static bool IsRunning =>
         validationScheduled
         ||
         validationRunning;
+
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
 
     public static void ValidateRegionalElevationResidency()
     {
@@ -39,6 +45,11 @@ public static class TerrainAuthoringRegionalElevationResidencyValidationUtility
 
         validationScheduled =
             true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Regional elevation residency validation is running."
+            );
 
         EditorApplication.delayCall -=
             RunScheduledValidation;
@@ -82,7 +93,7 @@ public static class TerrainAuthoringRegionalElevationResidencyValidationUtility
             ValidateInteractiveAuthoringPredicate();
             ValidateGenerationReuse();
             ValidateResidentOnlyPublicationPolicy();
-            ValidatePackage03ARegression();
+            ValidateResidencySizeRegression();
             ValidateLiveInformation();
         }
         catch (Exception exception)
@@ -582,7 +593,7 @@ public static class TerrainAuthoringRegionalElevationResidencyValidationUtility
                 ? ValidationOutcome.Pass
                 : ValidationOutcome.Fail,
             modifierDefers && idleDoesNotDefer
-                ? "Package 04 restart deferral still distinguishes an active interactive authoring gesture from idle authoring."
+                ? "Streaming restart deferral still distinguishes an active interactive authoring gesture from idle authoring."
                 : "Streaming restart deferral policy returned an unexpected result."
         );
     }
@@ -599,7 +610,7 @@ public static class TerrainAuthoringRegionalElevationResidencyValidationUtility
                 );
 
         AddResult(
-            "Regional elevation reuses the Package 05 authoring generation",
+            "Regional elevation reuses the preview authoring generation",
             after == 501L
                 ? ValidationOutcome.Pass
                 : ValidationOutcome.Fail,
@@ -674,7 +685,7 @@ public static class TerrainAuthoringRegionalElevationResidencyValidationUtility
         }
     }
 
-    private static void ValidatePackage03ARegression()
+    private static void ValidateResidencySizeRegression()
     {
         TerrainHeightCacheWindow active =
             new TerrainHeightCacheWindow(
@@ -708,7 +719,7 @@ public static class TerrainAuthoringRegionalElevationResidencyValidationUtility
                 );
 
         AddResult(
-            "Package 03A bounded-residency regression",
+            "Residency size recovery regression",
             health ==
                 TerrainAuthoringPreviewResidencySizeHealth.Oversized
                 ? ValidationOutcome.Pass
@@ -775,7 +786,7 @@ public static class TerrainAuthoringRegionalElevationResidencyValidationUtility
             new System.Text.StringBuilder();
 
         builder.AppendLine(
-            "WorldMeshes Edit-Mode Height Cache Streaming - Package 06 Validation"
+            "WorldMeshes Regional Elevation Residency Validation"
         );
 
         builder.AppendLine(
@@ -838,21 +849,37 @@ public static class TerrainAuthoringRegionalElevationResidencyValidationUtility
 
         builder.AppendLine();
 
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passed,
+                failed,
+                blocked,
+                $"{passed} passed, {failed} failed, {blocked} blocked."
+            );
+
         builder.AppendLine(
-            failed == 0
-                ? "Package 06 regional elevation residency: PASSED"
-                : "Package 06 regional elevation residency: FAILED"
+            failed > 0
+                ? "Regional elevation residency validation: FAILED"
+                : blocked > 0
+                    ? "Regional elevation residency validation: BLOCKED"
+                    : "Regional elevation residency validation: PASSED"
         );
 
-        if (failed == 0)
+        if (failed > 0)
         {
-            Debug.Log(
+            Debug.LogError(
+                builder.ToString()
+            );
+        }
+        else if (blocked > 0)
+        {
+            Debug.LogWarning(
                 builder.ToString()
             );
         }
         else
         {
-            Debug.LogError(
+            Debug.Log(
                 builder.ToString()
             );
         }

@@ -43,6 +43,9 @@ public static class TerrainReplaceBlendValidationUtility
     private static string lastSummary =
         "Not run.";
 
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
     private static WorldSettings worldSettings;
     private static TerrainAuthoringData mutationData;
     private static string mutationModifierId;
@@ -69,6 +72,9 @@ public static class TerrainReplaceBlendValidationUtility
     public static string LastSummary =>
         lastSummary;
 
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
+
     public static void RequestValidation()
     {
         if (
@@ -82,6 +88,11 @@ public static class TerrainReplaceBlendValidationUtility
 
         validationScheduled =
             true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Replace blend validation is running."
+            );
 
         EditorApplication.delayCall -=
             RunScheduledValidation;
@@ -283,7 +294,7 @@ public static class TerrainReplaceBlendValidationUtility
             enumPassed,
             enumPassed
                 ? "Additive=0, Max=1, Min=2, and Replace=3 preserve explicit serialization values."
-                : "TerrainHeightBlendMode numeric values do not match the Package 3 contract."
+                : "TerrainHeightBlendMode numeric values do not match the required serialization contract."
         );
 
         Add(
@@ -3821,6 +3832,14 @@ public static class TerrainReplaceBlendValidationUtility
 
         lastSummary =
             $"{lastPassedCount} passed, {lastFailedCount} failed.";
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                lastPassedCount,
+                lastFailedCount,
+                0,
+                lastSummary
+            );
 
         builder.AppendLine();
         builder.AppendLine(

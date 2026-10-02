@@ -289,14 +289,14 @@ public static class TerrainMaxMinBlendValidationUtility
             passed,
             passed
                 ? "Additive=0, Max=1, and Min=2 preserve explicit serialization values."
-                : "TerrainHeightBlendMode numeric values do not match the Package 2 contract."
+                : "TerrainHeightBlendMode numeric values do not match the required serialization contract."
         );
 
         Add(
             "Runtime height compiler version",
             TerrainGenerationStateUtility
                 .RuntimeHeightCompilerVersion == 10,
-            $"RuntimeHeightCompilerVersion={TerrainGenerationStateUtility.RuntimeHeightCompilerVersion}; expected 10 after Package 3 Replace support."
+            $"RuntimeHeightCompilerVersion={TerrainGenerationStateUtility.RuntimeHeightCompilerVersion}; expected 10 with Replace blend-mode support."
         );
 
         TerrainStampModifier defaultStamp =

@@ -6,7 +6,7 @@ using UnityEditor;
 using UnityEngine;
 
 /*
- * Stage 11 data-model validation.
+ * Modifier data-model validation.
  *
  * Uses temporary assets only. The real TerrainAuthoringData asset and
  * committed heightfield are never modified.
@@ -14,11 +14,11 @@ using UnityEngine;
 public static class TerrainModifierDataValidationUtility
 {
     private const string TempFolder =
-        "Assets/WorldMeshes/Editor/Validation/Stage11Temp";
+        "Assets/WorldMeshes/Editor/Validation/ModifierDataValidationTemp";
 
     private const string TempAuthoringDataPath =
         TempFolder +
-        "/TerrainAuthoringData_Stage11Validation.asset";
+        "/TerrainAuthoringData_ModifierDataValidation.asset";
 
     private const string TempStampAPath =
         TempFolder +
@@ -52,6 +52,9 @@ public static class TerrainModifierDataValidationUtility
 
     private static bool validationRunning;
 
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
     public static bool IsRunning
     {
         get
@@ -60,6 +63,9 @@ public static class TerrainModifierDataValidationUtility
                 validationRunning;
         }
     }
+
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
 
     public static void ValidateModifierDataFoundation()
     {
@@ -74,6 +80,11 @@ public static class TerrainModifierDataValidationUtility
 
         validationRunning =
             true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Modifier data validation is running."
+            );
 
         results.Clear();
 
@@ -256,7 +267,7 @@ public static class TerrainModifierDataValidationUtility
                     : ValidationOutcome.Fail,
                 emptySignature ==
                     realOverallBefore
-                    ? "An empty Stage 11 modifier stack preserves the " +
+                    ? "An empty modifier stack preserves the " +
                         "pre-modifier overall-signature behavior."
                     : "The empty temporary modifier stack did not match " +
                         "the current real authoring signature."
@@ -539,9 +550,9 @@ public static class TerrainModifierDataValidationUtility
             &&
             realOverallAfter ==
                 realOverallBefore
-                ? "Temporary Stage 11 validation did not alter the real " +
+                ? "Temporary modifier-data validation did not alter the real " +
                     "committed or overall authoring signatures."
-                : "The real authoring state changed during Stage 11 " +
+                : "The real authoring state changed during modifier-data " +
                     "validation."
         );
     }
@@ -1202,7 +1213,7 @@ public static class TerrainModifierDataValidationUtility
             );
 
         texture.name =
-            "Stage11ValidationStampTexture";
+            "ModifierDataValidationStampTexture";
 
         texture.SetPixels(
             new[]
@@ -1276,7 +1287,7 @@ public static class TerrainModifierDataValidationUtility
         {
             AssetDatabase.CreateFolder(
                 validationFolder,
-                "Stage11Temp"
+                "ModifierDataValidationTemp"
             );
         }
     }
@@ -1428,6 +1439,14 @@ public static class TerrainModifierDataValidationUtility
 
         builder.AppendLine();
 
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passed,
+                failed,
+                blocked,
+                $"{passed} passed, {failed} failed, {blocked} blocked."
+            );
+
         if (
             failed == 0
             &&
@@ -1435,7 +1454,7 @@ public static class TerrainModifierDataValidationUtility
         )
         {
             builder.AppendLine(
-                "Stage 11 modifier data foundation validation: PASSED"
+                "Modifier data validation: PASSED"
             );
 
             Debug.Log(
@@ -1445,7 +1464,7 @@ public static class TerrainModifierDataValidationUtility
         else if (failed > 0)
         {
             builder.AppendLine(
-                "Stage 11 modifier data foundation validation: FAILED"
+                "Modifier data validation: FAILED"
             );
 
             Debug.LogError(
@@ -1455,7 +1474,7 @@ public static class TerrainModifierDataValidationUtility
         else
         {
             builder.AppendLine(
-                "Stage 11 modifier data foundation validation: BLOCKED"
+                "Modifier data validation: BLOCKED"
             );
 
             Debug.LogWarning(

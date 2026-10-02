@@ -5,16 +5,16 @@ using UnityEditor;
 using UnityEngine;
 
 /*
- * Stage 10 integration validation for the Stage 7 incremental preview
- * cache/invalidation architecture.
+ * Integration validation for the incremental preview cache and invalidation
+ * architecture.
  *
  * This utility deliberately validates the real public preview
  * notification path rather than reaching into TerrainAuthoringPreviewCache.
  *
  * The only transient cache mutation performed is asking the preview
- * service to recompose selected tiles. Until the modifier compositor
- * exists, Stage 7 recomposition copies the already-committed tile data
- * back into the same GPU texture-array slices, so persistent authoring
+ * service to recompose selected tiles. The recomposition path copies the
+ * already-committed tile data back into the same GPU texture-array slices,
+ * so persistent authoring
  * data and visible terrain content are unchanged.
  */
 public static class TerrainAuthoringPreviewValidationUtility
@@ -80,6 +80,9 @@ public static class TerrainAuthoringPreviewValidationUtility
 
     private static bool validationRunning;
 
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
     private static bool persistentBaselineCaptured;
 
     private static int authoringRevisionBefore;
@@ -137,6 +140,9 @@ public static class TerrainAuthoringPreviewValidationUtility
         }
     }
 
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
+
     // =====================================================
     // ENTRY POINT
     // =====================================================
@@ -155,6 +161,11 @@ public static class TerrainAuthoringPreviewValidationUtility
 
         validationRunning =
             true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Preview responsiveness validation is running."
+            );
 
         results.Clear();
 
@@ -245,7 +256,7 @@ public static class TerrainAuthoringPreviewValidationUtility
         {
             errorMessage =
                 "Height Preview is disabled. Enable Height Preview " +
-                "before running Stage 10 validation.";
+                "before running preview responsiveness validation.";
 
             return false;
         }
@@ -328,7 +339,7 @@ public static class TerrainAuthoringPreviewValidationUtility
         {
             errorMessage =
                 "The committed authoring heightfield is not Current. " +
-                "Initialize/reinitialize it before Stage 10 " +
+                "Initialize/reinitialize it before preview responsiveness " +
                 "validation.";
 
             return false;
@@ -2441,6 +2452,14 @@ public static class TerrainAuthoringPreviewValidationUtility
 
         builder.AppendLine();
 
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passCount,
+                failCount,
+                blockedCount,
+                $"{passCount} passed, {failCount} failed, {blockedCount} blocked."
+            );
+
         if (
             failCount == 0
             &&
@@ -2448,7 +2467,7 @@ public static class TerrainAuthoringPreviewValidationUtility
         )
         {
             builder.AppendLine(
-                "Stage 7 integration validation: PASSED"
+                "Preview responsiveness validation: PASSED"
             );
 
             builder.AppendLine(
@@ -2463,11 +2482,11 @@ public static class TerrainAuthoringPreviewValidationUtility
         else if (failCount > 0)
         {
             builder.AppendLine(
-                "Stage 7 integration validation: FAILED"
+                "Preview responsiveness validation: FAILED"
             );
 
             builder.AppendLine(
-                "Resolve the failed Stage 10 invariants before " +
+                "Resolve the failed preview responsiveness invariants before " +
                 "building modifier composition on top of the " +
                 "preview cache."
             );
@@ -2479,7 +2498,7 @@ public static class TerrainAuthoringPreviewValidationUtility
         else
         {
             builder.AppendLine(
-                "Stage 7 integration validation: BLOCKED"
+                "Preview responsiveness validation: BLOCKED"
             );
 
             builder.AppendLine(

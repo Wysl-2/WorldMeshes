@@ -5,8 +5,8 @@ using UnityEditor;
 using UnityEngine;
 
 /*
- * Package 07 deterministic validation for bounded interactive/offline Terrain
- * Analysis. Tests here deliberately avoid moving Scene View residency or
+ * Deterministic validation for bounded interactive/offline Terrain Analysis.
+ * Tests here deliberately avoid moving Scene View residency or
  * mutating authoring state; live source information is reported separately.
  */
 public static class TerrainAuthoringAnalysisDecouplingValidationUtility
@@ -28,11 +28,22 @@ public static class TerrainAuthoringAnalysisDecouplingValidationUtility
     private static readonly List<ValidationResult> results =
         new List<ValidationResult>();
 
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
+
     [MenuItem(
-        "Tools/WorldMeshes/Validation/Package 07 - Analysis Decoupling"
+        "Tools/WorldMeshes/Validation/Analysis Window Safety"
     )]
     public static void ValidateAnalysisDecoupling()
     {
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Analysis window safety validation is running."
+            );
+
         results.Clear();
 
         try
@@ -320,7 +331,7 @@ public static class TerrainAuthoringAnalysisDecouplingValidationUtility
             Add(
                 "Live resident analysis source",
                 ValidationOutcome.Blocked,
-                "Height Preview is not currently ready; deterministic Package 07 policy checks still ran."
+                "Height Preview is not currently ready; deterministic analysis-window policy checks still ran."
             );
 
             return;
@@ -373,7 +384,7 @@ public static class TerrainAuthoringAnalysisDecouplingValidationUtility
             new StringBuilder();
 
         builder.AppendLine(
-            "WorldMeshes Package 07 - Terrain Analysis Decoupling Validation"
+            "WorldMeshes Analysis Window Safety Validation"
         );
 
         builder.AppendLine();
@@ -416,6 +427,14 @@ public static class TerrainAuthoringAnalysisDecouplingValidationUtility
             blocked +
             " blocked."
         );
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passed,
+                failed,
+                blocked,
+                $"{passed} passed, {failed} failed, {blocked} blocked."
+            );
 
         if (failed > 0)
         {

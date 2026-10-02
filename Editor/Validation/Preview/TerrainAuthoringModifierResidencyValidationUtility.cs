@@ -19,10 +19,16 @@ public static class TerrainAuthoringModifierResidencyValidationUtility
     private static bool validationRunning;
     private static bool validationScheduled;
 
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
     public static bool IsRunning =>
         validationRunning
         ||
         validationScheduled;
+
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
 
     public static void ValidateModifierResidency()
     {
@@ -38,6 +44,11 @@ public static class TerrainAuthoringModifierResidencyValidationUtility
 
         validationScheduled =
             true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "Modifier residency validation is running."
+            );
 
         EditorApplication.delayCall +=
             RunScheduledValidation;
@@ -78,7 +89,7 @@ public static class TerrainAuthoringModifierResidencyValidationUtility
             ValidateTileSpecificReadiness();
             ValidateCommittedInvalidationStrength();
             ValidateReadinessQuerySideEffects();
-            ValidatePackage03ARecovery();
+            ValidateResidencySizeRecovery();
             ValidateLiveInformation();
             ValidatePersistentAuthoringStateSafety();
         }
@@ -677,7 +688,7 @@ public static class TerrainAuthoringModifierResidencyValidationUtility
         }
     }
 
-    private static void ValidatePackage03ARecovery()
+    private static void ValidateResidencySizeRecovery()
     {
         TerrainHeightCacheWindow active =
             Window(
@@ -709,14 +720,14 @@ public static class TerrainAuthoringModifierResidencyValidationUtility
         )
         {
             AddPass(
-                "Package 03A bounded-residency regression",
-                "24x24 active versus 12x12 desired remains Oversized; Package 05 does not reintroduce whole-world residency."
+                "Residency size recovery regression",
+                "24x24 active versus 12x12 desired remains Oversized; modifier residency does not reintroduce whole-world residency."
             );
         }
         else
         {
             AddFail(
-                "Package 03A bounded-residency regression",
+                "Residency size recovery regression",
                 $"Unexpected size health: {health}."
             );
         }
@@ -815,7 +826,7 @@ public static class TerrainAuthoringModifierResidencyValidationUtility
         {
             AddPass(
                 "Persistent authoring state unchanged",
-                "Package 05 validation did not mutate persistent terrain authoring identity or modifier count."
+                "Modifier residency validation did not mutate persistent terrain authoring identity or modifier count."
             );
         }
         else
@@ -939,7 +950,7 @@ public static class TerrainAuthoringModifierResidencyValidationUtility
             new System.Text.StringBuilder();
 
         report.AppendLine(
-            "WorldMeshes Edit-Mode Height Cache Streaming - Package 05 Validation"
+            "WorldMeshes Modifier Residency Validation"
         );
 
         report.AppendLine(
@@ -996,26 +1007,37 @@ public static class TerrainAuthoringModifierResidencyValidationUtility
         );
         report.AppendLine();
 
-        bool success =
-            failed == 0
-            &&
-            blocked == 0;
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passed,
+                failed,
+                blocked,
+                $"{passed} passed, {failed} failed, {blocked} blocked."
+            );
 
         report.AppendLine(
-            success
-                ? "Package 05 modifier residency: PASSED"
-                : "Package 05 modifier residency: FAILED"
+            failed > 0
+                ? "Modifier residency validation: FAILED"
+                : blocked > 0
+                    ? "Modifier residency validation: BLOCKED"
+                    : "Modifier residency validation: PASSED"
         );
 
-        if (success)
+        if (failed > 0)
         {
-            Debug.Log(
+            Debug.LogError(
+                report.ToString()
+            );
+        }
+        else if (blocked > 0)
+        {
+            Debug.LogWarning(
                 report.ToString()
             );
         }
         else
         {
-            Debug.LogError(
+            Debug.Log(
                 report.ToString()
             );
         }

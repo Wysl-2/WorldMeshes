@@ -6,7 +6,7 @@ using UnityEngine;
 using UnityEngine.Rendering;
 
 /*
- * Stage 13A validation for the GPU compositor foundation.
+ * Validation for the GPU height compositor.
  *
  * The real preview path remains identity-only. A separate transient
  * two-slice RFloat array proves that compute dispatch genuinely writes
@@ -81,6 +81,9 @@ public static class TerrainHeightCompositorValidationUtility
 
     private static bool validationScheduled;
 
+    private static TerrainValidationRunSummary lastRunSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
     private static bool persistentBaselineCaptured;
 
     private static int authoringRevisionBefore;
@@ -117,6 +120,9 @@ public static class TerrainHeightCompositorValidationUtility
     public static bool IsScheduled =>
         validationScheduled;
 
+    public static TerrainValidationRunSummary LastRunSummary =>
+        lastRunSummary;
+
     public static void RequestValidation()
     {
         if (
@@ -130,6 +136,11 @@ public static class TerrainHeightCompositorValidationUtility
 
         validationScheduled =
             true;
+
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateRunning(
+                "GPU height compositor validation is running."
+            );
 
         EditorApplication.delayCall -=
             RunScheduledValidation;
@@ -290,7 +301,7 @@ public static class TerrainHeightCompositorValidationUtility
         if (!SystemInfo.supportsAsyncGPUReadback)
         {
             errorMessage =
-                "Async GPU readback is not supported. Stage 13A can " +
+                "Async GPU readback is not supported. The compositor can " +
                 "dispatch compute work, but validation needs readback " +
                 "to prove selected-slice writes.";
 
@@ -885,7 +896,7 @@ public static class TerrainHeightCompositorValidationUtility
             );
 
         validationTexture.name =
-            "WorldMeshes Stage 13A Validation Height Array";
+            "WorldMeshes GPU Height Compositor Validation Array";
 
         validationTexture.dimension =
             TextureDimension.Tex2DArray;
@@ -935,14 +946,14 @@ public static class TerrainHeightCompositorValidationUtility
             CreateConstantRFloatTexture(
                 GpuValidationTextureSize,
                 GpuValidationSlice0Value,
-                "Stage13A Seed Slice 0"
+                "Compositor Validation Seed Slice 0"
             );
 
         validationSeed1 =
             CreateConstantRFloatTexture(
                 GpuValidationTextureSize,
                 GpuValidationSlice1Value,
-                "Stage13A Seed Slice 1"
+                "Compositor Validation Seed Slice 1"
             );
 
         Graphics.CopyTexture(
@@ -1839,7 +1850,7 @@ public static class TerrainHeightCompositorValidationUtility
             new StringBuilder();
 
         builder.AppendLine(
-            "WorldMeshes Stage 13A GPU Compositor Foundation Validation"
+            "WorldMeshes GPU Height Compositor Validation"
         );
 
         builder.AppendLine(
@@ -1939,6 +1950,14 @@ public static class TerrainHeightCompositorValidationUtility
 
         builder.AppendLine();
 
+        lastRunSummary =
+            TerrainValidationRunSummary.CreateCompleted(
+                passCount,
+                failCount,
+                blockedCount,
+                $"{passCount} passed, {failCount} failed, {blockedCount} blocked."
+            );
+
         if (
             failCount == 0
             &&
@@ -1946,7 +1965,7 @@ public static class TerrainHeightCompositorValidationUtility
         )
         {
             builder.AppendLine(
-                "Stage 13A GPU compositor foundation: PASSED"
+                "GPU height compositor validation: PASSED"
             );
 
             Debug.Log(
@@ -1956,7 +1975,7 @@ public static class TerrainHeightCompositorValidationUtility
         else if (failCount > 0)
         {
             builder.AppendLine(
-                "Stage 13A GPU compositor foundation: FAILED"
+                "GPU height compositor validation: FAILED"
             );
 
             Debug.LogError(
@@ -1966,7 +1985,7 @@ public static class TerrainHeightCompositorValidationUtility
         else
         {
             builder.AppendLine(
-                "Stage 13A GPU compositor foundation: BLOCKED"
+                "GPU height compositor validation: BLOCKED"
             );
 
             Debug.LogWarning(
