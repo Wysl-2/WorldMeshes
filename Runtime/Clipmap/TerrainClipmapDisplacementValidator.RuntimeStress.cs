@@ -301,7 +301,7 @@ public partial class TerrainClipmapDisplacementValidator
 
             if (lifecycleFailure == null)
             {
-                TerrainXeightDeferredReleaseDiagnosticsSnapshot
+                TerrainHeightDeferredReleaseDiagnosticsSnapshot
                     deferred =
                         streamer
                             .GetHeightDeferredReleaseDiagnostics();
@@ -329,7 +329,7 @@ public partial class TerrainClipmapDisplacementValidator
                         TerrainRuntimeValidationStatus.Failed;
 
                     lifecycleFailure =
-                        "Deferred Height source ownership did not drain cleany after lifecycle stress.";
+                        "Deferred Height source ownership did not drain cleanly after lifecycle stress.";
                 }
                 else if (deferredTransferObserved)
                 {
@@ -523,7 +523,7 @@ public partial class TerrainClipmapDisplacementValidator
     private void PopulateRuntimeStressConfiguration(
         TerrainRuntimeStreamingStressResult result,
         WorldSettings settings,
-        TerrainXeightmapManifest heightManifest,
+        TerrainHeightmapManifest heightManifest,
         TerrainRuntimeResidencyDiagnosticsSnapshot residency
     )
     {
@@ -540,7 +540,7 @@ public partial class TerrainClipmapDisplacementValidator
             );
 
         result.ClipmapDiameter =
-            TerrainSlipmapTopologyUtility
+            TerrainClipmapTopologyUtility
                 .CalculateClipmapDiameter(
                     settings
                 );
@@ -1302,7 +1302,7 @@ public partial class TerrainClipmapDisplacementValidator
 
         if (
             !streamer.TryGetHeightSchedulerDiagnostics(
-                out TerrainXeightSchedulerDiagnosticsSnapshot scheduler
+                out TerrainHeightSchedulerDiagnosticsSnapshot scheduler
             )
         )
         {
