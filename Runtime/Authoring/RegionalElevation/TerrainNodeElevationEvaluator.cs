@@ -4,7 +4,7 @@ using UnityEngine;
 /*
  * Pure CPU evaluator for node-based regional elevation.
  *
- * Package I3 adds Triangulated Linear CPU evaluation over Package I2 derived
+ * This evaluator provides Triangulated Linear CPU evaluation over derived
  * topology. IDW mathematics remain unchanged. No authoring state is mutated.
  */
 public static class TerrainNodeElevationEvaluator
@@ -207,7 +207,7 @@ public static class TerrainNodeElevationEvaluator
     /*
      * Existing global inverse-distance weighting with fixed power 2.
      *
-     * This method is the pre-I3 algorithm moved behind explicit mode dispatch;
+     * This method is the established IDW algorithm moved behind explicit mode dispatch;
      * its numerical behavior is intentionally unchanged.
      */
     private static bool TryEvaluateInverseDistanceWeighted(

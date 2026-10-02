@@ -95,7 +95,7 @@ public sealed class TerrainRuntimeInvalidationValidationResult
         {
             Outcome = TerrainRuntimeInvalidationValidationOutcome.Failed;
             ErrorMessage =
-                "The Package 10.1 bake validation produced no result.";
+                "The runtime bake execution validation produced no result.";
             return;
         }
 
@@ -107,12 +107,12 @@ public sealed class TerrainRuntimeInvalidationValidationResult
         {
             Outcome = TerrainRuntimeInvalidationValidationOutcome.Failed;
             ErrorMessage =
-                "Package 10.1 did not validate the regenerated work after invalidation.";
+                "Runtime bake execution validation did not validate the regenerated work after invalidation.";
             return;
         }
 
         SummaryMessage =
-            "Invalidation state, planner output, and Package 10.1 regenerated-work validation all passed.";
+            "Invalidation state, planner output, and runtime bake regenerated-work validation all passed.";
     }
 
     public string BuildDiagnosticReport()
@@ -241,7 +241,7 @@ public sealed class TerrainRuntimeInvalidationValidationResult
         {
             builder.AppendLine();
             builder.AppendLine(
-                "Package 10.1 Bake Validation: " +
+                "Runtime Bake Execution Validation: " +
                 BakeValidationResult.Outcome
             );
         }

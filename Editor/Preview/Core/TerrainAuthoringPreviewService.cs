@@ -138,10 +138,10 @@ public static partial class TerrainAuthoringPreviewService
         Vector2.zero;
 
     /*
-     * Requested residency state established by Package 02.
+     * Requested residency state.
      *
      * The active resident window remains authoritative on activeCache.
-     * This value represents the latest local target that Package 03 prepares
+     * This value represents the latest local target prepared
      * in staging before atomic activation.
      */
     private static bool hasRequestedResidencyWindow;
@@ -149,7 +149,7 @@ public static partial class TerrainAuthoringPreviewService
     private static TerrainHeightCacheWindow requestedResidencyWindow;
 
     /*
-     * Package 03A policy state.
+     * Preview residency policy state.
      *
      * Desired residency describes the guarded local window that current
      * clipmap coverage ideally wants. It is intentionally independent from
@@ -161,7 +161,7 @@ public static partial class TerrainAuthoringPreviewService
     private static TerrainHeightCacheWindow desiredResidencyWindow;
 
     /*
-     * Stage 10 validation-only monotonic binding diagnostic.
+     * Validation-only monotonic binding diagnostic.
      *
      * This is not preview lifecycle state and does not influence any
      * cache/binding decision.
@@ -864,7 +864,7 @@ public static partial class TerrainAuthoringPreviewService
 
 
     // =====================================================
-    // STAGE 13A GPU COMPOSITOR DIAGNOSTICS
+    // GPU COMPOSITOR DIAGNOSTICS
     // =====================================================
 
     public static bool HeightCompositorPrepared
@@ -945,7 +945,7 @@ public static partial class TerrainAuthoringPreviewService
     // =====================================================
 
     /*
-     * Narrow editor-assembly diagnostics for Stage 10 validation.
+     * Narrow editor-assembly diagnostics for height-cache validation.
      *
      * The preview cache itself remains private. Validation and future
      * internal diagnostics can inspect addressing/range metadata
@@ -1049,7 +1049,7 @@ public static partial class TerrainAuthoringPreviewService
     }
 
     // =====================================================
-    // STAGE 13A INTERNAL VALIDATION ACCESS
+    // INTERNAL VALIDATION ACCESS
     // =====================================================
 
     internal static bool TryPrepareHeightCompositor(
@@ -1329,7 +1329,7 @@ public static partial class TerrainAuthoringPreviewService
 
 
     /*
-     * Stage 12 modifier-authoring notification.
+     * Modifier-authoring notification.
      *
      * This also handles valid changes with zero in-world dirty tiles.
      */
@@ -1434,8 +1434,7 @@ public static partial class TerrainAuthoringPreviewService
     // =====================================================
 
     /*
-     * Existing callers remain source-compatible while Stage 7
-     * migrates call sites to the clearer invalidation methods above.
+     * Compatibility callers use the explicit invalidation methods above.
      */
     public static void RequestRefresh()
     {
@@ -1665,7 +1664,7 @@ public static partial class TerrainAuthoringPreviewService
         if (!CanRunEditorPreviewWork)
         {
             /*
-             * Package 08A lifecycle resume schedules a fresh refresh after
+             * Lifecycle resume schedules a fresh refresh after
              * temporary editor instability clears. Do not churn delayCall
              * while compilation/import or an ownership handoff is active.
              */
@@ -1843,13 +1842,13 @@ public static partial class TerrainAuthoringPreviewService
         }
 
         // =================================================
-        // PACKAGE 06 - ACTIVE RESIDENT AUTHORING UPDATE
+        // ACTIVE RESIDENT AUTHORING UPDATE
         // =================================================
 
-        int package05EarlyUpdatedCompositeSliceCount =
+        int earlyUpdatedCompositeSliceCount =
             0;
 
-        bool package05EarlyCompositeRangeChanged =
+        bool earlyCompositeRangeChanged =
             false;
 
         if (
@@ -1875,8 +1874,8 @@ public static partial class TerrainAuthoringPreviewService
                     authoringData,
                     currentCommittedSignature,
                     currentOverallSignature,
-                    out package05EarlyUpdatedCompositeSliceCount,
-                    out package05EarlyCompositeRangeChanged,
+                    out earlyUpdatedCompositeSliceCount,
+                    out earlyCompositeRangeChanged,
                     out string modifierResidencyError
                 )
             )
@@ -1894,7 +1893,7 @@ public static partial class TerrainAuthoringPreviewService
             }
 
             if (
-                package05EarlyCompositeRangeChanged
+                earlyCompositeRangeChanged
                 &&
                 !ApplyCurrentPreviewBounds(
                     clipmapRoot,
@@ -1983,7 +1982,7 @@ public static partial class TerrainAuthoringPreviewService
                 WorldMeshesProfiler.PreviewRebuild.Auto();
 
             /*
-             * Package 04 leaves the active cache bound and queues the target
+             * Incremental streaming leaves the active cache bound and queues the target
              * for bounded EditorApplication.update work. No retained copy,
              * committed tile load, or composition loop executes here.
              */
@@ -2059,7 +2058,7 @@ public static partial class TerrainAuthoringPreviewService
             false;
 
         int updatedCompositeSliceCount =
-            package05EarlyUpdatedCompositeSliceCount;
+            earlyUpdatedCompositeSliceCount;
 
         if (
             previewCache != null

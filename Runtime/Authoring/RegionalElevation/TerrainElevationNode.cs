@@ -6,7 +6,7 @@ using UnityEngine;
  * Persistent control data for one node in a node-based regional elevation
  * source.
  *
- * Package 1 stores identity and authoring values only. It does not define how
+ * This type stores identity and authoring values only. It does not define how
  * nodes interpolate or affect terrain.
  */
 [Serializable]

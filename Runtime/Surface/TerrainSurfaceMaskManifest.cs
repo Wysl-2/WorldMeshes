@@ -3,7 +3,7 @@ using UnityEngine;
 /*
  * Runtime metadata for the baked terrain surface-mask tiles.
  *
- * Stage 8 currently stores one normalized R8 channel:
+ * The manifest stores one normalized R8 channel:
  *
  *     R = final Scree suitability
  *

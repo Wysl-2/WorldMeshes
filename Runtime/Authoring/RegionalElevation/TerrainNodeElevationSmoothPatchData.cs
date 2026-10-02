@@ -65,7 +65,7 @@ public struct TerrainNodeElevationSmoothCubicPatch
 }
 
 /*
- * One reduced-HCT macro-triangle corresponding exactly to one I2 topology
+ * One reduced-HCT macro-triangle corresponding exactly to one triangulated topology
  * triangle. Subpatch order is fixed as ABG, BCG, CAG where G is the derived
  * centroid of the original topology triangle.
  */
@@ -98,8 +98,8 @@ public struct TerrainNodeElevationSmoothTrianglePatch
 }
 
 /*
- * Immutable derived Package I6 patch field. Normal triangulated topology has
- * exactly one macro-patch per I2 topology triangle. Degenerate topologies keep
+ * Immutable derived Smooth patch field. Normal triangulated topology has
+ * exactly one macro-patch per triangulated topology triangle. Degenerate topologies keep
  * zero macro-patches and are evaluated through explicit 0D/1D Smooth rules.
  */
 public sealed class TerrainNodeElevationSmoothPatchData

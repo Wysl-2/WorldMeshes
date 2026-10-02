@@ -56,7 +56,7 @@ public static partial class TerrainAuthoringModifierService
     }
 
     /*
-     * Exposes the optimized Package 2 interactive mutation primitive without
+     * Exposes the optimized interactive mutation primitive without
      * adding a production Scene handle yet.
      */
     public static bool UpdateInteractiveStampRotation(

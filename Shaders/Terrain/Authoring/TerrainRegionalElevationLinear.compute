@@ -110,8 +110,8 @@ bool TryCalculateBarycentricWeights(
 
     float denominator = Orientation(a, b, c);
 
-    // I2 has already rejected degenerate topology on the CPU. Keep this
-    // guard narrow so valid very-thin I2 triangles are not reclassified by
+    // CPU topology validation has already rejected degenerate topology on the CPU. Keep this
+    // guard narrow so valid very-thin topology triangles are not reclassified by
     // a much larger GPU-only area threshold.
     if (abs(denominator) <= 1e-20)
     {

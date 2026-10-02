@@ -2,7 +2,7 @@ using System;
 using UnityEngine;
 
 /*
- * Runtime-safe Package I6 CPU evaluator for Triangulated Smooth regional
+ * Runtime-safe CPU evaluator for Triangulated Smooth regional
  * elevation. Normal triangulated interiors evaluate the reduced-HCT patch field
  * produced by TerrainNodeElevationSmoothPatchUtility. Degenerate topology kinds
  * use explicit constant/projected cubic-Hermite rules.
@@ -191,7 +191,7 @@ public static class TerrainNodeElevationSmoothInterpolationUtility
     /*
      * Validation/reference hook: independently evaluate one selected HCT
      * subpatch without the normal deterministic subpatch chooser. This allows
-     * I6 validation to compare both sides of internal spokes and original
+     * Smooth CPU validation to compare both sides of internal spokes and original
      * shared topology edges using production Bernstein evaluation.
      */
     internal static bool TryEvaluateTriangleSubpatchHeightAndGradient(
@@ -378,7 +378,7 @@ public static class TerrainNodeElevationSmoothInterpolationUtility
                 !IsFinite(gradient.GradientXZ))
             {
                 errorMessage =
-                    $"Smooth topology vertex {vertexIndex} has an invalid I5 gradient.";
+                    $"Smooth topology vertex {vertexIndex} has an invalid node gradient.";
                 return false;
             }
         }

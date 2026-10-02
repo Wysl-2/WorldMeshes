@@ -1,10 +1,10 @@
 using UnityEngine;
 
 /*
- * Package 2 setup-time layout generation for node-based regional elevation.
+ * Setup-time layout generation for node-based regional elevation.
  *
  * The grid is only a creation aid. Generated TerrainElevationNode instances
- * persist only their normal Package 1 data (stable ID, XZ position, elevation)
+ * persist only their normal authoring data (stable ID, XZ position, elevation)
  * and have no continuing relationship to rows, columns, spacing, or divisions.
  */
 public static class TerrainNodeElevationLayoutUtility
@@ -84,7 +84,7 @@ public static class TerrainNodeElevationLayoutUtility
         {
             errorMessage =
                 $"The requested layout would generate " +
-                $"{totalNodeCountLong:N0} nodes. Package 2 limits one " +
+                $"{totalNodeCountLong:N0} nodes. Node layout generation limits one " +
                 $"initial layout to {MaximumGeneratedNodeCount:N0} nodes " +
                 "to prevent accidental excessive editor allocations.";
 

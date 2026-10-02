@@ -61,8 +61,8 @@ public static partial class TerrainAuthoringPreviewService
     private static long pendingStreamingGeneration;
 
     /*
-     * Package 05 authoring-content generation captured when the queued
-     * transition request was created. This is independent from the Package 04
+     * Authoring-content generation captured when the queued
+     * transition request was created. This is independent from the
      * residency request generation.
      */
     private static long pendingStreamingAuthoringGeneration;

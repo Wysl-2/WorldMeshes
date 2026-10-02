@@ -812,7 +812,7 @@ public partial class WorldMeshesEditorWindow :
     }
 
     // =====================================================
-    // PACKAGE 2 IMPORT / SYNC COMMANDS
+    // IMPORT / SYNC COMMANDS
     // =====================================================
 
     private void ImportStampLibraryHeightmap()

@@ -4,7 +4,7 @@ using UnityEngine;
 /*
  * Editor ownership/lifecycle for the default TerrainSurfaceSettings asset.
  *
- * The first time Stage 7 is imported, existing Scree suitability values are
+ * When the settings asset is first created, existing Scree suitability values are
  * copied from MAT_ClipmapTerrain so the migration preserves the user's
  * current tuning. After the asset exists, the material is never read as the
  * authoritative source again.

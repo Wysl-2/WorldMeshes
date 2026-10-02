@@ -190,7 +190,7 @@ public static partial class TerrainAuthoringModifierService
     // =====================================================
 
     /*
-     * Package 2 production sliders use this grouped update.
+     * Production sliders use this grouped update.
      *
      * BeginInteractiveModifierEdit() owns the single complete-object Undo
      * snapshot. MouseDrag samples mutate only the known active stamp and

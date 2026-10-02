@@ -3,7 +3,7 @@ using System.Collections.ObjectModel;
 using UnityEngine;
 
 /*
- * Read-only Package 10.1 comparison for one coordinate-based runtime stage.
+ * Read-only execution comparison for one coordinate-based runtime stage.
  *
  * Height, Surface, and Collision all expose canonical unique coordinate sets.
  * This validator compares those exposed sets exactly and separately validates
@@ -64,8 +64,8 @@ public sealed class TerrainRuntimeBakeStageValidationResult
     public bool WorkModeMatches { get; private set; }
 
     /*
-     * Packages 03/05/06 canonicalize their exposed coordinate collections into
-     * HashSet-backed sorted lists before Package 10.1 observes them. Raw duplicate
+     * Height, Surface, and Collision generators canonicalize their exposed coordinate collections into
+     * HashSet-backed sorted lists before execution validation observes them. Raw duplicate
      * submission is therefore intentionally reported as unavailable rather than
      * changing generator behavior solely for diagnostics.
      */

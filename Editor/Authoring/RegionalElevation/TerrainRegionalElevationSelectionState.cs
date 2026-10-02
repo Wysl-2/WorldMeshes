@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 
 /*
- * Package 7 editor-only regional node selection state.
+ * Editor-only regional node selection state.
  *
  * Selection is scoped to one TerrainAuthoringData instance and is identified
  * exclusively by node StableIds. The current selection is a transient editor
@@ -31,7 +31,7 @@ public static class TerrainRegionalElevationSelectionState
         return IsCurrentContext(authoringData) ? primaryStableId : "";
     }
 
-    /* Package 6 compatibility: the former single selected StableId is now the primary. */
+    /* Single-selection compatibility: the former single selected StableId is now the primary. */
     public static string GetSelectedNodeStableId(TerrainAuthoringData authoringData)
     {
         return GetPrimaryStableId(authoringData);
@@ -283,7 +283,7 @@ public static class TerrainRegionalElevationSelectionState
         return true;
     }
 
-    /* Package 6 compatibility wrapper. */
+    /* Single-selection compatibility wrapper. */
     public static bool TrySelectNode(
         TerrainAuthoringData authoringData,
         string stableId,

@@ -1,10 +1,10 @@
 using UnityEngine;
 
 /*
- * Demand-driven cache for Package I6 reduced-HCT patch data.
+ * Demand-driven cache for reduced-HCT patch data.
  *
- * Numerical validity depends on current source geometry/elevation plus the I2
- * topology and I5 gradient field supplied to the build. StableId, interpolation
+ * Numerical validity depends on current source geometry/elevation plus the triangulated
+ * topology and node gradient field supplied to the build. StableId, interpolation
  * mode, editor selection, authoringRevision, and committed terrain revision are
  * intentionally absent from the cache key.
  */

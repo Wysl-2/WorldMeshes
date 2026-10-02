@@ -2,7 +2,7 @@ using System;
 using UnityEngine;
 
 /*
- * Pure CPU Triangulated Linear evaluation over Package I2 derived topology.
+ * Pure CPU Triangulated Linear evaluation over derived topology.
  *
  * No authoring state is mutated. Topology remains position-only; current source
  * elevations are resolved dynamically through topology SourceNodeIndex values.

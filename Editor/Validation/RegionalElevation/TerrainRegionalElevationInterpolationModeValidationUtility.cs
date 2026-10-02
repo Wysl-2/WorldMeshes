@@ -251,8 +251,8 @@ public static class TerrainRegionalElevationInterpolationModeValidationUtility
             "Enum values and existing-source default remain serialized-compatible",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "IDW=0, Linear=1, Smooth=2; the existing default remains IDW and all three known modes are production-capable after I7."
-                : "Interpolation enum/default/implementation availability did not match the current package contract.");
+                ? "IDW=0, Linear=1, Smooth=2; the existing default remains IDW and all three known modes are production-capable with Smooth GPU composition."
+                : "Interpolation enum/default/implementation availability did not match the interpolation capability contract.");
     }
 
     private static void ValidateIdwRegression()
@@ -308,7 +308,7 @@ public static class TerrainRegionalElevationInterpolationModeValidationUtility
             "Existing IDW CPU mathematics remain unchanged",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "One-node, midpoint, exact-node, coincident-node averaging, and arbitrary p=2 IDW samples match the pre-I1 mathematical behavior."
+                ? "One-node, midpoint, exact-node, coincident-node averaging, and arbitrary p=2 IDW samples match the established IDW mathematical behavior."
                 : "At least one fixed IDW regression sample changed.");
     }
 
@@ -438,7 +438,7 @@ public static class TerrainRegionalElevationInterpolationModeValidationUtility
             "Invalid modes fail explicitly while current CPU/GPU interpolation capabilities remain enforced",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "Undefined enum data remains invalid; Linear and Smooth are CPU/GPU-ready after I7."
+                ? "Undefined enum data remains invalid; Linear and Smooth are CPU/GPU-ready with Smooth GPU composition."
                 : linearError + " " + linearCompositionError + " " + smoothError);
 
         ClearFixture(linearData);

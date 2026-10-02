@@ -3,7 +3,7 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 
 /*
- * Package 08A ownership layer for Scene View driven terrain placement.
+ * Ownership layer for Scene View driven terrain placement.
  *
  * SceneViewController owns only placement/residency intent. PreviewService
  * remains the sole owner of active/staging GPU resources. A Scene View owner

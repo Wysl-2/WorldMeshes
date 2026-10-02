@@ -232,7 +232,7 @@ public static class TerrainNodeElevationInterpolationValidationUtility
         ValidateIrregularLayoutRangeAndDeterminism();
         ValidateCoincidentNodes();
         ValidateNearCoincidentNodes();
-        ValidatePackage2FourCorners(
+        ValidateFourCornerLayout(
             worldSettings
         );
         ValidateWorldEdgesAndNoZeroFallback(
@@ -406,8 +406,7 @@ public static class TerrainNodeElevationInterpolationValidationUtility
             passed
                 ? "A zero-node source remains valid serialized structure but " +
                     "does not silently define a 0m regional surface."
-                : "Zero-node interpolation semantics did not match the Package " +
-                    "3 contract."
+                : "Zero-node interpolation semantics did not match the node evaluation contract."
         );
     }
 
@@ -932,7 +931,7 @@ public static class TerrainNodeElevationInterpolationValidationUtility
         );
     }
 
-    private static void ValidatePackage2FourCorners(
+    private static void ValidateFourCornerLayout(
         WorldSettings worldSettings
     )
     {

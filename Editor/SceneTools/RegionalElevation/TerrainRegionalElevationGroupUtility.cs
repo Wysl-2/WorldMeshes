@@ -238,7 +238,7 @@ public static class TerrainRegionalElevationGroupUtility
 
         /*
          * A pre-existing group can already span beyond the logical world because
-         * Package 5 deliberately permits finite out-of-world node values. When
+         * Regional elevation authoring deliberately permits finite out-of-world node values. When
          * no single translation can place the entire group in-bounds, allow only
          * motion that reduces the larger violation rather than distorting nodes.
          */

@@ -6,7 +6,7 @@ using UnityEngine;
 using UnityEngine.Rendering;
 
 /*
- * Package 07 bounded whole-world Terrain Analysis path.
+ * Bounded whole-world Terrain Analysis path.
  *
  * Runtime surface generation consumes the generated runtime height dataset,
  * not the transient Scene View preview. One request loads only a small

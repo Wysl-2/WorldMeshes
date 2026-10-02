@@ -5,7 +5,7 @@ using UnityEngine;
 using UnityEngine.Rendering;
 
 /*
- * Stage 9 generic GPU Terrain Analysis backend.
+ * Generic GPU Terrain Analysis backend.
  *
  * Type-specific metadata now comes from TerrainAnalysisRegistry. Adding a new
  * registered analysis kernel no longer requires another field/switch branch

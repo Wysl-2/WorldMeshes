@@ -3,15 +3,15 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /*
- * Package I6 reduced Hsieh-Clough-Tocher patch construction.
+ * Reduced Hsieh-Clough-Tocher patch construction.
  *
- * I2 remains the only triangulation authority. For each I2 triangle ABC this
+ * TerrainNodeElevationTopologyCache owns triangulation. For each topology triangle ABC this
  * utility creates the derived centroid G and solves one coupled reduced-HCT
  * macro-element containing exactly three cubic Bernstein-Bezier subpatches:
  * ABG, BCG, CAG.
  *
  * The twelve reduced-HCT degrees of freedom are the three source heights, the
- * six I5 gradient components, and one derived midpoint normal derivative on
+ * six node gradient components, and one derived midpoint normal derivative on
  * each canonical outer edge. Internal spoke constraints couple all three
  * cubics into one C1 macro-element. Coefficients are solved in double precision
  * and stored as float for deterministic future GPU upload/evaluation.
@@ -129,7 +129,7 @@ public static class TerrainNodeElevationSmoothPatchUtility
         if (gradients.GradientCount != topology.VertexCount)
         {
             errorMessage =
-                "Smooth patch construction requires one I5 gradient for " +
+                "Smooth patch construction requires one node gradient for " +
                 "every topology vertex.";
             return false;
         }
@@ -273,7 +273,7 @@ public static class TerrainNodeElevationSmoothPatchUtility
             {
                 errorMessage =
                     $"Topology vertex {vertexIndex} does not have a finite " +
-                    "I5 gradient.";
+                    "node gradient.";
                 return false;
             }
         }
@@ -361,7 +361,7 @@ public static class TerrainNodeElevationSmoothPatchUtility
                 out TerrainNodeElevationGradient gradient))
             {
                 errorMessage =
-                    $"Triangle vertex {vertexIndex} has no I5 gradient.";
+                    $"Triangle vertex {vertexIndex} has no node gradient.";
                 return false;
             }
 
@@ -485,7 +485,7 @@ public static class TerrainNodeElevationSmoothPatchUtility
         }
 
         /*
-         * One reduced-HCT edge-normal degree of freedom per canonical I2 edge.
+         * One reduced-HCT edge-normal degree of freedom per canonical topology edge.
          * The normal is derived from canonical min-index -> max-index ordering,
          * which matches TerrainNodeElevationTopologyEdge canonicalization.
          */

@@ -21,7 +21,7 @@
  *     float _ScreeGeologyScale;
  *     float _ScreeGeologyStrength;
  *
- * Stage 6 edit-mode cached analysis bindings:
+ * Edit-mode cached analysis bindings:
  *
  *     Texture2DArray<float> _AuthoringScreeSlopeAnalysis;
  *     Texture2DArray<float> _AuthoringScreeCurvatureAnalysis;
@@ -512,7 +512,7 @@ float GetScreeSuitability(
 )
 {
     /*
-     * Stage 8 runtime path: final suitability is baked once and streamed with
+     * Baked runtime surface path: final suitability is baked once and streamed with
      * the height cache. Editor authoring visualization still reaches the live
      * analysis path because no runtime SurfaceMask cache is bound there.
      */

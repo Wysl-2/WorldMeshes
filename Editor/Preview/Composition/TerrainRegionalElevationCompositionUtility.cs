@@ -3,7 +3,7 @@ using System.Text;
 using UnityEngine;
 
 /*
- * Package 4 shared policy for regional-elevation composition.
+ * Shared policy for regional-elevation composition.
  *
  * This utility owns only composition-time interpretation of the persistent
  * regional source and the logical height-tile set that must be recomposed.
@@ -50,7 +50,7 @@ public static class TerrainRegionalElevationCompositionUtility
             errorMessage =
                 "Unsupported regional elevation source type: " +
                 regionalSource.GetType().Name +
-                ". Package 4 supports TerrainNodeElevationSource only.";
+                ". Regional elevation composition supports TerrainNodeElevationSource only.";
 
             return false;
         }

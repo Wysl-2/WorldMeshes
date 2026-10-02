@@ -7,7 +7,7 @@ using UnityEngine;
  *
  * This service deliberately performs storage operations only. It does
  * not decide that one kind of dirty output implies another kind of
- * dirty output. That dependency policy belongs to Package 02's
+ * dirty output. That dependency policy belongs to the
  * invalidation service and bake planner.
  */
 public static class TerrainRuntimeBakeStateService
@@ -84,7 +84,7 @@ public static class TerrainRuntimeBakeStateService
     // =====================================================
 
     /*
-     * Package 02 invalidation often touches several independent storage
+     * Runtime invalidation often touches several independent storage
      * primitives at once. Apply the complete logical invalidation with one
      * revision increment, one persistence write, and one StateChanged event.
      *

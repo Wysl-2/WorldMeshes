@@ -41,7 +41,7 @@ public sealed class TerrainAuthoringModifierMutationDiagnostics
 }
 
 /*
- * Stage 12 authoring mutation boundary.
+ * Authoring mutation boundary.
  *
  * Editor UI and Scene tools should change persistent height modifiers
  * through this service instead of calling TerrainAuthoringData or
@@ -786,11 +786,11 @@ public static partial class TerrainAuthoringModifierService
                 );
 
         /*
-         * Explicitly isolate every discrete Stage 12 service mutation
+         * Explicitly isolate every discrete service mutation
          * into its own Unity Undo group.
          *
          * Unity normally increments Undo groups from editor events
-         * (mouse down, menu commands, etc.). The Stage 12 validator
+         * (mouse down, menu commands, etc.). The modifier validator
          * intentionally executes many logical edits synchronously from
          * one button callback, so relying on implicit event grouping
          * causes all edits to collapse into one Undo step.
@@ -997,7 +997,7 @@ public static partial class TerrainAuthoringModifierService
 
         /*
          * RecordObject changes are normally flushed by Unity at
-         * conventional editor-event boundaries. Stage 12 deliberately
+         * conventional editor-event boundaries. The mutation service deliberately
          * supports multiple discrete service calls in one callback, so
          * flush this logical edit now and keep its group isolated from
          * the next service call.
@@ -1205,7 +1205,7 @@ public static partial class TerrainAuthoringModifierService
         }
 
         errorMessage =
-            "The modifier type does not implement Stage 12 duplication: " +
+            "The modifier type does not implement authoring duplication: " +
             source.GetType().FullName;
 
         return false;

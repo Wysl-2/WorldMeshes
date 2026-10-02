@@ -230,7 +230,7 @@ public static class TerrainAuthoringModifierSelection
 
     /*
      * Persistent authoring data changed without changing selection.
-     * Stage 15C can reuse this repaint boundary for Scene View tooling.
+     * Scene View tools can reuse this repaint boundary for Scene View tooling.
      */
     public static void NotifyModifierDataChanged()
     {

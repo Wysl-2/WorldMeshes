@@ -747,7 +747,7 @@ float SampleGaussianStampWeight(
                 0.5;
 
             /*
-             * Preserve the Stage 16A ridge fix: all 25 Gaussian weights remain
+             * Preserve the Gaussian ridge sampling invariant: all 25 Gaussian weights remain
              * active and only source lookup UVs clamp at the stamp boundary.
              */
             float2 sampleUV =

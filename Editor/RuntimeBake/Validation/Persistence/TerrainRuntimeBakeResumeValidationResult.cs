@@ -163,7 +163,7 @@ public sealed class TerrainRuntimeBakeResumeValidationResult
 
         if (ResumedValidationResult != null)
         {
-            builder.AppendLine("  Package 10.1 Resume Validation: " + ResumedValidationResult.Outcome);
+            builder.AppendLine("  Runtime Bake Resume Validation: " + ResumedValidationResult.Outcome);
         }
 
         if (!string.IsNullOrEmpty(SummaryMessage))

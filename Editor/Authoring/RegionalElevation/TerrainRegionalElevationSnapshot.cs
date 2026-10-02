@@ -5,7 +5,7 @@ using UnityEngine;
 /*
  * Transient editor snapshot of regional-elevation authoring state.
  *
- * This type is intentionally not serialized. It exists only so the Package 5
+ * This type is intentionally not serialized. It exists only so the regional-elevation
  * mutation service and Undo/Redo change tracker can compare acknowledged
  * authoring state without modifying persistent data.
  */

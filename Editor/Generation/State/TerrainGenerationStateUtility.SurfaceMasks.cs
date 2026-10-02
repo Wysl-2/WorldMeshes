@@ -2,7 +2,7 @@ using UnityEditor;
 using UnityEngine;
 
 /*
- * Stage 8 surface-mask generation state.
+ * Surface-mask generation state.
  *
  * The existing TerrainGenerationStateUtility remains the single generation
  * status facade; this partial adds the new runtime surface dependency.

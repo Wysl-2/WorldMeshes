@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /*
- * Package I5 production gradient derivation for node-based regional elevation.
+ * Production gradient derivation for node-based regional elevation.
  *
- * Package I2 topology/adjacency is authoritative. For each canonical topology
+ * Triangulated topology/adjacency is authoritative. For each canonical topology
  * vertex this utility fits the local difference-form plane
  *
  *     dh ~= (dh/dx) * dx + (dh/dz) * dz
@@ -277,7 +277,7 @@ public static class TerrainNodeElevationGradientUtility
             {
                 errorMessage =
                     $"Topology vertex {vertexIndex} adjacency is not in the " +
-                    "deterministic canonical order required by Package I5.";
+                    "deterministic canonical order required by gradient derivation.";
                 return false;
             }
 

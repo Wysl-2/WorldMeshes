@@ -244,7 +244,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         Vector2 currentPosition = primaryNode.PositionXZ;
 
         /*
-         * Preserve the Package 6 UI-conflict fix: while the Scene service owns
+         * Preserve the Scene-edit UI-conflict guard: while the Scene service owns
          * an interactive transaction, do not keep DelayedFloatField controls
          * alive with stale values that can masquerade as a discrete user edit.
          */

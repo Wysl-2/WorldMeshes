@@ -6,9 +6,9 @@ using UnityEditor;
 using UnityEngine;
 
 /*
- * Package I4 GPU execution for Triangulated Linear regional elevation.
+ * GPU execution for Triangulated Linear regional elevation.
  *
- * Package I2 remains the sole topology authority. Package I3 remains the CPU
+ * TerrainNodeElevationTopologyCache remains the sole topology authority. The CPU evaluator remains the
  * semantic reference. This partial class converts the current derived topology
  * into disposable GPU buffers and dispatches the production Linear shader.
  */
@@ -223,7 +223,7 @@ public sealed partial class TerrainHeightCompositor
     }
 
     /*
-     * Narrow production-shader evaluation hook used by Package I4 validation.
+     * Narrow production-shader evaluation hook used by Triangulated Linear validation.
      * The same topology preparation and HLSL evaluator used by tile composition
      * are exercised; no test-only interpolation implementation exists.
      */

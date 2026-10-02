@@ -213,7 +213,7 @@ public partial class WorldMeshesEditorWindow :
             "Authoring Preview Regression",
             "Run Authoring Preview Regression",
             GetAuthoringPreviewValidationRunner(),
-            "Runs the focused preview, residency, analysis-window, responsiveness, and streaming-integration checks sequentially. Detailed assertion output remains in the Unity Console."
+            "Runs the focused preview, residency, analysis-window, responsiveness, and streaming-policy checks sequentially. Detailed assertion output remains in the Unity Console."
         );
 
         DrawWorkspaceSectionGap();

@@ -1,7 +1,7 @@
 using System;
 
 /*
- * Package 08B read-only projection of the live edit-mode preview.
+ * Read-only projection of the live edit-mode preview.
  *
  * The snapshot is informational only. Streaming, lifecycle, residency,
  * authoring, and Scene View ownership decisions continue to use their

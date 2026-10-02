@@ -833,7 +833,7 @@ public static class TerrainAuthoringWireframeRenderer
         if (compatibleRendererCount <= 0)
         {
             errorMessage =
-                "No compatible ClipmapTerrain renderers were found. The terrain material must expose the Stage 6 _AuthoringWireframeOnly property.";
+                "No compatible ClipmapTerrain renderers were found. The terrain material must expose the _AuthoringWireframeOnly property.";
 
             return false;
         }

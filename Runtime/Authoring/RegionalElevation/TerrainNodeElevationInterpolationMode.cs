@@ -1,8 +1,8 @@
 /*
  * Persistent interpolation-mode identity for node-based regional elevation.
  *
- * CPU and GPU capability are reported separately. Package I7 adds production
- * Triangulated Smooth GPU composition while preserving the I6 CPU reference.
+ * CPU and GPU capability are reported separately. The compositor provides production
+ * Triangulated Smooth GPU composition while preserving the Smooth CPU reference.
  */
 public enum TerrainNodeElevationInterpolationMode
 {

@@ -87,12 +87,11 @@ public class TerrainHeightmapManifest :
         "TerrainHeight/HeightTile";
 
     /*
-     * Logical identity root for the future multiresolution
+     * Logical identity root for the multiresolution
      * representation Addressables layout.
      *
-     * Existing authoritative tile addresses remain unchanged
-     * until the Addressables migration package activates this
-     * representation-aware contract.
+     * Authoritative native tile addresses remain compatible with
+     * the representation-aware Addressables layout.
      */
     public const string HeightRepresentationAddressRoot =
         "TerrainHeight";

@@ -721,7 +721,7 @@ public sealed partial class TerrainAuthoringPreviewCache :
         }
 
         /*
-         * Package 02 makes these persisted per-tile ranges authoritative.
+         * Persisted per-tile ranges are authoritative.
          * Deep committed-heightfield validation above has already verified
          * current metadata against the physical RFloat tiles (or safely
          * backfilled legacy metadata from that same physical scan).

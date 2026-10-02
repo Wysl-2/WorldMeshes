@@ -667,7 +667,7 @@ public static class TerrainClipmapMeshGenerator
             2;
 
         /*
-         * Stage 3B:
+         * Clipmap transition vertex data:
          *
          * transitionFineBoundaryHalf tells MeshBuilder which
          * Chebyshev-radius boundary belongs to the finer LOD.
@@ -919,7 +919,7 @@ public static class TerrainClipmapMeshGenerator
          * one fine sample in both X and Z.
          *
          * This diagonal remains non-degenerate for every
-         * Stage 3A adjacent-LOD offset:
+         * valid adjacent-LOD offset:
          *
          *     (-S, -S) ... (+S, +S)
          *
@@ -1125,7 +1125,7 @@ public static class TerrainClipmapMeshGenerator
          * coarse ring.
          *
          * This topology stays non-degenerate for every valid
-         * adjacent-LOD relative offset calculated in Stage 3A.
+         * adjacent-LOD relative offset calculated by the clipmap layout.
          */
 
         int fine =
@@ -1216,7 +1216,7 @@ public static class TerrainClipmapMeshGenerator
         );
 
         /*
-         * Stage 3B clipmap-specific vertex data.
+         * Clipmap-specific vertex data.
          *
          * UV channel 3 maps to the shader TEXCOORD3 semantic.
          *
@@ -1857,7 +1857,7 @@ public static class TerrainClipmapMeshGenerator
         private void ValidateAdaptiveTransitionTopology()
         {
             /*
-             * Stage 3A proved that an adjacent fine/coarse LOD
+             * An adjacent fine/coarse LOD
              * pair can differ by only:
              *
              *     -S, 0, +S
@@ -1866,7 +1866,7 @@ public static class TerrainClipmapMeshGenerator
              *
              * Validate all nine combinations here so generated
              * stitch topology can never become degenerate or
-             * flip winding when Stage 3C activates movement.
+             * flip winding during clipmap movement.
              */
             for (
                 int offsetZStep = -1;

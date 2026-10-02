@@ -1,7 +1,7 @@
 /*
  * Describes how far an analysis sample reaches into its source heightfield.
  *
- * Stage 9 delegates this to TerrainAnalysisRegistry so new analysis types do
+ * Analysis dependency policy delegates this to TerrainAnalysisRegistry so new analysis types do
  * not require another type-specific switch in the invalidation system.
  */
 public static class TerrainAnalysisDependencyUtility

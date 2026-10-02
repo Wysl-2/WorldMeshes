@@ -461,7 +461,7 @@ public sealed class TerrainHeightStampAsset :
     }
 
     /*
-     * Backward-compatible Package 3 creation-default setter.
+     * Backward-compatible creation-default setter.
      *
      * Existing callers that do not provide blend-specific defaults retain
      * their established Additive creation behavior while being upgraded to a

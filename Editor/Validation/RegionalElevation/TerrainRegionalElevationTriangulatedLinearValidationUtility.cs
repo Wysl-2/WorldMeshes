@@ -243,8 +243,8 @@ public static class TerrainRegionalElevationTriangulatedLinearValidationUtility
             "CPU/GPU interpolation capability matrix is explicit",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "IDW, Linear, and Smooth are CPU/GPU-ready after I7; serialized enum values are unchanged."
-                : "Interpolation capability reporting did not match the current package contract.");
+                ? "IDW, Linear, and Smooth are CPU/GPU-ready with Smooth GPU composition; serialized enum values are unchanged."
+                : "Interpolation capability reporting did not match the interpolation capability contract.");
     }
 
     private static void ValidateTriangleAnalyticSamples()

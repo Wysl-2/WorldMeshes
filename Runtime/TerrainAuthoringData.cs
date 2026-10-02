@@ -34,8 +34,8 @@ public class TerrainAuthoringData :
      * Optional broad regional-elevation authoring source.
      *
      * Existing TerrainAuthoringData assets intentionally deserialize this as
-     * null. Later packages will provide explicit setup/mutation workflows;
-     * Package 1 never creates a source automatically.
+     * null. Setup and mutation use explicit authoring service workflows;
+     * this data type never creates a source automatically.
      */
     [SerializeReference]
     private TerrainRegionalElevationSource regionalElevationSource;
@@ -178,7 +178,7 @@ public class TerrainAuthoringData :
      *
      * The first valid occurrence of an ID keeps it. Later duplicates
      * receive new IDs. This method does not change authoringRevision;
-     * Stage 12's mutation service will own revision transactions.
+     * The mutation service owns revision transactions.
      */
     internal int RepairModifierStableIds()
     {
@@ -227,8 +227,8 @@ public class TerrainAuthoringData :
     // =====================================================
 
     /*
-     * These are intentionally internal. A later package will introduce the
-     * production regional-elevation mutation service and transaction boundary.
+     * These are intentionally internal. The production regional-elevation mutation service
+     * owns the transaction boundary.
      */
 
     internal void SetRegionalElevationSourceInternal(
@@ -252,8 +252,8 @@ public class TerrainAuthoringData :
     /*
      * These are intentionally internal rather than public.
      *
-     * Stage 12's TerrainAuthoringModifierService will become the sole
-     * production mutation entry point. Stage 11 validation also uses
+     * TerrainAuthoringModifierService is the sole
+     * production mutation entry point. Modifier validation also uses
      * these methods against temporary test assets.
      */
 

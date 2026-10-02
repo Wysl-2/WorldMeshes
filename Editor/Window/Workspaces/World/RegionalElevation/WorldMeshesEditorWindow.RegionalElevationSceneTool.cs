@@ -54,7 +54,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         EditorGUILayout.HelpBox(
             "Selection: click = select one, Shift-click = add, Ctrl/Command-click = toggle. " +
             "Drag from empty Scene space to marquee-select nodes; the same modifiers add or toggle the marquee result.\n\n" +
-            "A single selected node keeps the Package 6 XZ and elevation handles. Multiple selected nodes use one group XZ handle at the average selection pivot. Group movement applies one common world-bounded delta so relative node spacing is preserved.\n\n" +
+            "A single selected node keeps the single-node XZ and elevation handles. Multiple selected nodes use one group XZ handle at the average selection pivot. Group movement applies one common world-bounded delta so relative node spacing is preserved.\n\n" +
             "A complete group drag is one regional interactive transaction. Node data updates on drag samples, full-world terrain preview remains throttled, and revision/runtime invalidation are finalized only at commit.",
             MessageType.Info);
 

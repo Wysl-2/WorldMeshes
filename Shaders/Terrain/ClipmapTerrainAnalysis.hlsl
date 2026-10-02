@@ -8,7 +8,7 @@
  * analysis samples the authoritative height cache through
  * SampleTerrainHeight(...).
  *
- * Stage 6 also centralizes the generic normal -> slope-degrees conversion
+ * Terrain analysis also centralizes the generic normal -> slope-degrees conversion
  * here so visualization and suitability rules no longer keep their own
  * copies of that measurement.
  */

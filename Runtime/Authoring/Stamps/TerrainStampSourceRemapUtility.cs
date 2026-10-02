@@ -2,7 +2,7 @@ using UnityEngine;
 
 /*
  * Pure source-value response math shared by runtime stamp data, editor
- * mutations, Package 2 UI constraints, and validation.
+ * mutations, editor UI constraints, and validation.
  *
  * This utility does not know about stamp geometry, source UVs, smoothing,
  * Falloff, preview state, or editor transactions.

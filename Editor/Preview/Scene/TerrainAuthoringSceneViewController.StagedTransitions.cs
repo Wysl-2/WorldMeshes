@@ -20,7 +20,7 @@ public static partial class TerrainAuthoringSceneViewController
         }
 
         /*
-         * A Package 03A size-recovery transition may fail even though the
+         * A size-recovery transition may fail even though the
          * previous active cache still safely covers the current clipmap.
          * Re-evaluate the current target instead of forcing an immediate
          * Scene View error. Coverage-critical failures naturally resolve to

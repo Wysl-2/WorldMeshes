@@ -14,7 +14,7 @@ public sealed class TerrainAnalysisLayer
     public Vector2Int CacheSize { get; private set; }
 
     /*
-     * Physical source height-cache layout. Package 07 keeps this separate from
+     * Physical source height-cache layout. Analysis residency keeps this separate from
      * the analysis output so source-only guard tiles are never exposed as
      * numerically valid derived data.
      */
@@ -29,7 +29,7 @@ public sealed class TerrainAnalysisLayer
 
     /*
      * Identifies the exact source RenderTexture that generated this layer.
-     * Package 07 combines this with explicit source-window metadata and the
+     * Analysis residency combines this with explicit source-window metadata and the
      * transient residency generation to prevent partial updates across a
      * resident-cache replacement.
      */

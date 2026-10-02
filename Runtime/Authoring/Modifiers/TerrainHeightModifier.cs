@@ -7,7 +7,7 @@ using UnityEngine;
 /*
  * Persistent base type for non-destructive height authoring modifiers.
  *
- * Stage 11 defines modifier identity/data only. It does not perform
+ * This type defines modifier identity/data only. It does not perform
  * preview composition or runtime terrain evaluation.
  */
 [Serializable]
@@ -176,7 +176,7 @@ public abstract class TerrainHeightModifier
     }
 
     /*
-     * Stage 12's authoring mutation service will be the production
+     * The authoring mutation service is the production
      * caller for these internal setters.
      */
     internal void SetEnabledInternal(

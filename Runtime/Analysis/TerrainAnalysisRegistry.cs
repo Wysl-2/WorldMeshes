@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 
 /*
- * Stage 9 registration point for terrain-analysis types.
+ * Registration point for terrain-analysis types.
  *
  * Adding a new built-in analysis should require:
  *

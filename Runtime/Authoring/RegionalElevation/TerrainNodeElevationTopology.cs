@@ -260,8 +260,8 @@ public sealed class TerrainNodeElevationTopology
     }
 
     /*
-     * Linear search is deliberate in Package I2. Spatial acceleration belongs
-     * to later performance work after triangulated interpolation is active.
+     * Topology lookup uses linear search. Spatial acceleration belongs
+     * to later performance work if profiling justifies it.
      */
     public bool TryFindContainingTriangle(
         Vector2 positionXZ,

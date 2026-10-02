@@ -1,7 +1,7 @@
 using UnityEngine;
 
 /*
- * Stage 9 generic raw Terrain Analysis visualization.
+ * Generic raw Terrain Analysis visualization.
  *
  * This file intentionally keeps the historical CurvatureAnalysis.cs path so
  * the existing Unity .meta/GUID is preserved during migration, but the

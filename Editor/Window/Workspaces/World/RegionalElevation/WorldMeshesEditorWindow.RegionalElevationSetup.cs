@@ -121,7 +121,7 @@ public partial class WorldMeshesEditorWindow :
         {
             EditorGUILayout.HelpBox(
                 "The current regional elevation source is not a node source. " +
-                "Package 4 will not replace or compose an unsupported/future " +
+                "Regional elevation composition will not replace or compose an unsupported/future " +
                 "source type.",
                 MessageType.Warning
             );
@@ -158,7 +158,7 @@ public partial class WorldMeshesEditorWindow :
         if (!flatBaseSupported)
         {
             EditorGUILayout.HelpBox(
-                "Package 4 node regional elevation composition currently " +
+                "Node regional elevation composition currently " +
                 "supports only a Flat committed heightfield source. Change " +
                 "Height Source to Flat and initialize/reinitialize the " +
                 "committed authoring heightfield before creating an active " +
@@ -352,7 +352,7 @@ public partial class WorldMeshesEditorWindow :
             "Reinitializing the committed authoring heightfield does not " +
             "regenerate or overwrite this node layout.\n\n" +
 
-            "Package 4 composes valid node regional elevation as an ABSOLUTE " +
+            "Regional elevation composition applies valid node regional elevation as an ABSOLUTE " +
             "world-wide surface over a Flat committed base, before ordinary " +
             "height modifiers.",
             MessageType.Info
@@ -410,7 +410,7 @@ public partial class WorldMeshesEditorWindow :
         {
             EditorUtility.DisplayDialog(
                 "Regional Elevation Initialization Failed",
-                "Package 4 node regional elevation composition currently " +
+                "Node regional elevation composition currently " +
                 "supports only a Flat committed heightfield source.",
                 "OK"
             );
@@ -431,7 +431,7 @@ public partial class WorldMeshesEditorWindow :
             EditorUtility.DisplayDialog(
                 "Regional Elevation",
                 "The existing regional elevation source is not a node " +
-                "source. Package 4 will not replace it.",
+                "source. Regional elevation composition will not replace it.",
                 "OK"
             );
 
@@ -522,7 +522,7 @@ public partial class WorldMeshesEditorWindow :
             $"{terrainAuthoringData.authoringRevision}\n\n" +
             "The grid is initialization-only; generated nodes are now " +
             "independent persistent authoring data.\n\n" +
-            "Package 4 composes this node source across the complete logical " +
+            "Regional elevation composition applies this node source across the complete logical " +
             "world before ordinary height modifiers."
         );
     }

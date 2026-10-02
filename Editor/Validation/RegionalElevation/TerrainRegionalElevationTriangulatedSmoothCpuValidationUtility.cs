@@ -8,8 +8,8 @@ using UnityEngine;
 /*
  * Triangulated Smooth CPU validation for the authoritative Triangulated Smooth CPU surface.
  *
- * Fixtures are transient. Production I2 topology, I5 gradients, I6 reduced-HCT
- * patch construction/cache, and I6 CPU evaluation are exercised directly. The
+ * Fixtures are transient. Production triangulated topology, node gradients, reduced-HCT
+ * patch construction/cache, and Smooth CPU evaluation are exercised directly. The
  * real project asset is observed only to prove that validation is read-only and
  * preserves Regional Elevation Multi-Selection selection state.
  */
@@ -258,8 +258,8 @@ public static class TerrainRegionalElevationTriangulatedSmoothCpuValidationUtili
             "Interpolation capability matrix exposes production Smooth CPU/GPU support",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "IDW, Linear, and Smooth are CPU/GPU-ready; I6 remains the authoritative Smooth CPU reference after I7."
-                : "Interpolation capability reporting does not match the post-I7 contract.");
+                ? "IDW, Linear, and Smooth are CPU/GPU-ready; the Smooth CPU evaluator remains the authoritative reference."
+                : "Interpolation capability reporting does not match the interpolation capability contract.");
     }
 
     private static void ValidateExactNodeHeightsAndGradients()
@@ -315,10 +315,10 @@ public static class TerrainRegionalElevationTriangulatedSmoothCpuValidationUtili
         }
 
         AddResult(
-            "Exact source node heights and I5 gradients are reproduced",
+            "Exact source node heights and node gradients are reproduced",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "Exact-node short-circuiting returned persistent heights and the corresponding I5 world gradient without cubic round-trip error."
+                ? "Exact-node short-circuiting returned persistent heights and the corresponding node world gradient without cubic round-trip error."
                 : buildError);
     }
 
@@ -553,7 +553,7 @@ public static class TerrainRegionalElevationTriangulatedSmoothCpuValidationUtili
         passed = passed && testedEdge;
 
         AddResult(
-            "Adjacent I2 macro-triangles are C1 across a shared Delaunay edge",
+            "Adjacent topology macro-triangles are C1 across a shared Delaunay edge",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
                 ? "Canonical edge constraints produced matching boundary height and analytic world gradient from both incident macro-triangles."
@@ -773,7 +773,7 @@ public static class TerrainRegionalElevationTriangulatedSmoothCpuValidationUtili
         }
 
         AddResult(
-            "Smooth patch influence remains local to triangle vertices and their I5 one-rings",
+            "Smooth patch influence remains local to triangle vertices and their gradient one-rings",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
                 ? "Changing a node outside the sampled triangle's vertex one-ring dependencies left the local Smooth result unchanged."
@@ -1340,7 +1340,7 @@ public static class TerrainRegionalElevationTriangulatedSmoothCpuValidationUtili
             "Real authoring and Regional Elevation Multi-Selection selection state remain unchanged",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "I6 validation changed no real source, revision, signatures, interpolation mode, node data, or editor selection state."
+                ? "Smooth CPU validation changed no real source, revision, signatures, interpolation mode, node data, or editor selection state."
                 : "Real WorldMeshes authoring or selection state changed during Triangulated Smooth CPU validation.");
     }
 

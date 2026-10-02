@@ -2,7 +2,7 @@
 #define WORLDMESHES_TERRAIN_SURFACE_MASK_SAMPLING_INCLUDED
 
 /*
- * Stage 8 runtime surface-mask sampling.
+ * Runtime surface-mask sampling.
  *
  * Surface tiles use the same absolute tile grid, native sample spacing, and
  * duplicated edge samples as the runtime height tiles.

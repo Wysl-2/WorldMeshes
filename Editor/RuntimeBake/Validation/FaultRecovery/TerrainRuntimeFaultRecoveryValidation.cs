@@ -244,9 +244,9 @@ public sealed class TerrainRuntimeFaultRecoveryValidationResult
     public bool FaultDetected { get; internal set; }
     public bool ClassificationMatched { get; internal set; }
 
-    public TerrainRuntimeSceneSynchronizationResult Package04Result { get; internal set; }
-    public bool Package04RepairRequiredVerified { get; internal set; }
-    public bool Package04StructuralMutationDetected { get; internal set; }
+    public TerrainRuntimeSceneSynchronizationResult SceneSynchronizationResult { get; internal set; }
+    public bool SceneRepairRequiredVerified { get; internal set; }
+    public bool SceneStructuralMutationDetected { get; internal set; }
 
     public TerrainRuntimeBakeValidationResult BakeValidationResult { get; internal set; }
 
@@ -297,13 +297,13 @@ public sealed class TerrainRuntimeFaultRecoveryValidationResult
             b.AppendLine("  Recovery Classification Matched: " + ClassificationMatched);
         }
 
-        if (Package04Result != null)
+        if (SceneSynchronizationResult != null)
         {
             b.AppendLine();
-            b.AppendLine("Package 04:");
-            b.AppendLine("  Outcome: " + Package04Result.Outcome);
-            b.AppendLine("  RepairRequired Verified: " + Package04RepairRequiredVerified);
-            b.AppendLine("  Structural Mutation Detected: " + Package04StructuralMutationDetected);
+            b.AppendLine("Runtime Scene Synchronization:");
+            b.AppendLine("  Outcome: " + SceneSynchronizationResult.Outcome);
+            b.AppendLine("  RepairRequired Verified: " + SceneRepairRequiredVerified);
+            b.AppendLine("  Structural Mutation Detected: " + SceneStructuralMutationDetected);
         }
 
         if (RecoveryStarted)
@@ -2701,7 +2701,7 @@ public static class TerrainRuntimeFaultRecoveryScenarioRunner
                     WorldMeshesPaths.WorldSettingsAssetPath
                 );
 
-            lastResult.Package04Result =
+            lastResult.SceneSynchronizationResult =
                 TerrainRuntimeSceneSynchronizer
                     .SynchronizeExistingHierarchy(
                         worldSettings
@@ -2713,17 +2713,17 @@ public static class TerrainRuntimeFaultRecoveryScenarioRunner
             string after =
                 StructuralFingerprint(afterResult);
 
-            lastResult.Package04RepairRequiredVerified =
-                lastResult.Package04Result != null
-                && lastResult.Package04Result.Outcome ==
+            lastResult.SceneRepairRequiredVerified =
+                lastResult.SceneSynchronizationResult != null
+                && lastResult.SceneSynchronizationResult.Outcome ==
                     TerrainRuntimeSceneSynchronizationOutcome.RepairRequired;
 
-            lastResult.Package04StructuralMutationDetected =
+            lastResult.SceneStructuralMutationDetected =
                 before != after;
 
             lastResult.ClassificationMatched &=
-                lastResult.Package04RepairRequiredVerified
-                && !lastResult.Package04StructuralMutationDetected;
+                lastResult.SceneRepairRequiredVerified
+                && !lastResult.SceneStructuralMutationDetected;
         }
 
         if (

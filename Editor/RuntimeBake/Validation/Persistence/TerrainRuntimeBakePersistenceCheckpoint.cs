@@ -3,10 +3,10 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /*
- * Package 10.2 diagnostic checkpoint.
+ * Persistence validation diagnostic checkpoint.
  *
  * This is NOT runtime bake state. It is a serialized expectation used only to
- * prove that Package 01's persistent state survives editor lifecycle events.
+ * prove that persistent bake state survives editor lifecycle events.
  */
 [Serializable]
 public sealed class TerrainRuntimeBakePersistenceCheckpoint

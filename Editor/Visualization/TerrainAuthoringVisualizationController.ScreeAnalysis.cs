@@ -2,7 +2,7 @@ using UnityEditor;
 using UnityEngine;
 
 /*
- * Stage 6 cached Scree Suitability analysis integration.
+ * Cached Scree Suitability analysis integration.
  *
  * Edit-mode Lit/Scree visualization uses cached Terrain Analysis:
  *
@@ -12,7 +12,7 @@ using UnityEngine;
  * Geology remains a suitability-layer calculation in HLSL.
  *
  * Runtime continues to use the direct slope/curvature fallback because the
- * Terrain Analysis generation backend is editor-only at this stage.
+ * Terrain Analysis generation backend is editor-only.
  */
 public static partial class TerrainAuthoringVisualizationController
 {
@@ -145,7 +145,7 @@ public static partial class TerrainAuthoringVisualizationController
     )
     {
         /*
-         * Apply authoritative Stage 7 suitability configuration on every
+         * Apply authoritative surface suitability configuration on every
          * visualization reapply. This keeps editor rendering current when
          * TerrainSurfaceSettings is edited without mutating the material.
          */
@@ -202,7 +202,7 @@ public static partial class TerrainAuthoringVisualizationController
         );
 
         /*
-         * Stage 5 introduced shared authoring analysis layout properties.
+         * Authoring analysis uses shared layout properties.
          * Slope and Curvature are generated from the same authoritative
          * preview cache and are required above to have identical layout.
          */

@@ -9,7 +9,7 @@ public partial class WorldMeshesEditorWindow :
     private bool showSceneStampEditingHelp;
 
     /*
-     * Package 5 authoritative Scene-edit UI.
+     * Authoritative Scene-edit UI.
      *
      * TerrainStampEditorTool itself is unchanged. This toolbar only moves the
      * existing activation/deactivation and overlay preferences to the top of

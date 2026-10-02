@@ -76,7 +76,7 @@ internal readonly struct TerrainAuthoringPreviewResidencyDecision
 }
 
 /*
- * Pure Package 03A residency policy.
+ * Pure preview residency policy.
  *
  * RequiredWindow is the correctness boundary. DesiredWindow is the guarded
  * resident target. Active coverage safety and active size health are

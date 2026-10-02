@@ -202,7 +202,7 @@ public static class TerrainSurfaceMaskBindingUtility
         if (boundRendererCount <= 0)
         {
             errorMessage =
-                "No clipmap terrain renderer exposes the Stage 8 surface-mask shader properties.";
+                "No clipmap terrain renderer exposes the surface-mask shader properties.";
 
             return false;
         }

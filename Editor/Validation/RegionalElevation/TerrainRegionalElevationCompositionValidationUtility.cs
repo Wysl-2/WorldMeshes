@@ -379,7 +379,7 @@ public static class TerrainRegionalElevationCompositionValidationUtility
                 : ValidationOutcome.Fail,
             passed
                 ? "TerrainNodeElevationSource now identifies its operational " +
-                  "terrain-output semantics as V2, invalidating pre-Package-4 " +
+                  "terrain-output semantics as V2, invalidating earlier regional-elevation " +
                   "derived node-regional output without globally versioning " +
                   "no-source worlds."
                 : "Expected TerrainNodeElevationSourceV2 in deterministic " +

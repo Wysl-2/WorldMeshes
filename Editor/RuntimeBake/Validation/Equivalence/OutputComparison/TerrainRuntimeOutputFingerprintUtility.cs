@@ -8,7 +8,7 @@ using UnityEditor;
 using UnityEngine;
 
 /*
- * Explicit, read-only runtime output fingerprinting for Package 10.1.
+ * Explicit, read-only runtime output fingerprinting for runtime output equivalence validation.
  *
  * No importer settings, manifests, Addressables state, persistent bake state,
  * generated revisions, or scenes are mutated by this utility.

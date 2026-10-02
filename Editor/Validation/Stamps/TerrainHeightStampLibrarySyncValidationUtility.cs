@@ -115,7 +115,7 @@ public static class TerrainHeightStampLibrarySyncValidationUtility
         string tempRoot =
             Path.Combine(
                 Path.GetTempPath(),
-                "WorldMeshes_StampLibraryPackage2_"
+                "WorldMeshes_StampLibrarySync_"
                 +
                 Guid.NewGuid()
                     .ToString(
@@ -251,7 +251,7 @@ public static class TerrainHeightStampLibrarySyncValidationUtility
 
         EnsureFolder(
             WorldMeshesPaths.GeneratedValidation,
-            "StampLibraryPackage2",
+            "StampLibrarySync",
             ValidationRoot
         );
 

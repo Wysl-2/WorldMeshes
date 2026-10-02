@@ -6,7 +6,7 @@ using UnityEngine;
 /*
  * Asynchronous compiler for final runtime surface suitability.
  *
- * Package 06 keeps two truths deliberately separate:
+ * Surface generation keeps two truths deliberately separate:
  *
  * 1. Physical surface Texture2D assets may advance tile-by-tile.
  * 2. WorldSettings + TerrainSurfaceMaskManifest advance only after every tile
@@ -1619,7 +1619,7 @@ public static class TerrainSurfaceMaskCompiler
             {
                 SchedulePostCommitBoundary(
                     TerrainSurfaceMaskGenerationOutcome.Cancelled,
-                    "Package 10.2 validation intentionally cancelled Surface generation at a completed batch boundary."
+                    "Persistence / Resume validation intentionally cancelled Surface generation at a completed batch boundary."
                 );
 
                 return;

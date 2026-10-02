@@ -4,7 +4,7 @@ using UnityEditor;
 using UnityEngine;
 
 /*
- * Package 08 orchestration layer.
+ * Runtime bake orchestration layer.
  *
  * This class deliberately owns no generation state. Each lower-level stage
  * remains responsible for its own assets, manifests, dirty queues, revisions,
@@ -23,7 +23,7 @@ public static class TerrainRuntimeBakePipeline
         public TerrainRuntimeBakePlan initialPlan;
         public TerrainRuntimeBakePlan currentPlan;
 
-        // Package 10.1 preserves the exact fresh plan used at each stage.
+        // Execution validation preserves the exact fresh plan used at each stage.
         public TerrainRuntimeBakePlan heightPlan;
         public TerrainRuntimeBakePlan heightStreamingPlan;
         public TerrainRuntimeBakePlan surfacePlan;
@@ -232,9 +232,9 @@ public static class TerrainRuntimeBakePipeline
     }
 
     /*
-     * Package-level cancellation is boundary-safe only. Lower-level stages keep
+     * Pipeline cancellation is boundary-safe only. Lower-level stages keep
      * ownership of their own cancelable progress. If requested while Surface
-     * is running, the pipeline stops before the next stage unless Package 06's
+     * is running, the pipeline stops before the next stage unless Surface generation's
      * own cancel action terminates Surface earlier.
      */
     public static bool RequestCancel()
@@ -927,7 +927,7 @@ public static class TerrainRuntimeBakePipeline
         }
 
         /*
-         * Package 06 invokes the callback synchronously for immediate terminal
+         * Surface generation invokes the callback synchronously for immediate terminal
          * outcomes. A false return with no callback is therefore an unexpected
          * contract failure and must not leave the pipeline hanging.
          */
@@ -1340,9 +1340,9 @@ public static class TerrainRuntimeBakePipeline
         )
         {
             /*
-             * Package 10.2 validation models a cancellation request while the
+             * Persistence / Resume validation models a cancellation request while the
              * synchronous Addressables operation is active. The current safe
-             * operation still completes; Package 08 consumes cancellation at
+             * operation still completes; the pipeline consumes cancellation at
              * the next stage boundary rather than aborting BuildPlayerContent.
              */
             run.cancelRequested = true;

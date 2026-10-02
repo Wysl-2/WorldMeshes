@@ -16,7 +16,7 @@ internal enum TerrainAuthoringPreviewSuspensionReason
 }
 
 /*
- * Package 08A lifecycle coordination for the edit-mode preview.
+ * Lifecycle coordination for the edit-mode preview.
  *
  * Temporary editor instability pauses work but keeps healthy active/staging
  * resources alive. Ownership boundaries (Play Mode, active-scene replacement,
@@ -172,7 +172,7 @@ public static partial class TerrainAuthoringPreviewService
             OnEditorQuitting;
 
         /*
-         * Package 08A owns the update registration so temporary lifecycle
+         * Lifecycle coordination owns the update registration so temporary lifecycle
          * state is refreshed before incremental streaming is advanced.
          */
         EditorApplication.update +=

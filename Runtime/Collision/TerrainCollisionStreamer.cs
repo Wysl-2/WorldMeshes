@@ -31,7 +31,7 @@ public class TerrainCollisionStreamer :
      * Player/camera object whose world-space position determines
      * the collision chunk residency window.
      *
-     * Stage A2 requires this explicitly. Falling back to the
+     * Collision streaming requires this explicitly. Falling back to the
      * Collision root transform would silently stream the wrong
      * part of the world if the target were forgotten.
      */
@@ -346,7 +346,7 @@ public class TerrainCollisionStreamer :
     // =====================================================
 
     /*
-     * Stage B will use this API when assigning meshes to the
+     * The collider pool uses this API when assigning meshes to the
      * MeshCollider pool.
      */
     public bool TryGetResidentMesh(
@@ -1625,9 +1625,9 @@ public class TerrainCollisionStreamer :
     )
     {
         /*
-         * Release the entire Stage A2 residency set after a fatal
+         * Release the entire collision residency set after a fatal
          * Addressables failure. Continuing with a partially valid
-         * set would make later Stage B physics behavior ambiguous.
+         * set would make later collider-pool physics behavior ambiguous.
          */
         if (
             newlyRequestedCoordinates !=

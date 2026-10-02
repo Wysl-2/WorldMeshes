@@ -1282,7 +1282,7 @@ public static partial class TerrainAuthoringVisualizationController
         {
             SetStatus(
                 TerrainAuthoringVisualizationStatus.Error,
-                "No clipmap renderer uses a terrain material with the Stage 9 authoring visualization/analysis properties."
+                "No clipmap renderer uses a terrain material with the authoring visualization/analysis properties."
             );
 
             RepaintEditorViews();

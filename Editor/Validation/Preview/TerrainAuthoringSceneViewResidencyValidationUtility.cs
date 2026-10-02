@@ -692,6 +692,43 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
                     : $"Small={smallError}; Large={largeError}; " +
                       $"smallWindow={smallWindow}; largeWindow={largeWindow}."
             );
+
+            if (smallSucceeded && largeSucceeded)
+            {
+                long smallTransitionBytes =
+                    EstimateTransitionMemoryBytes(
+                        small,
+                        smallWindow
+                    );
+
+                long largeTransitionBytes =
+                    EstimateTransitionMemoryBytes(
+                        large,
+                        largeWindow
+                    );
+
+                bool memoryBounded =
+                    smallWindow.Size == largeWindow.Size
+                    && smallTransitionBytes > 0L
+                    && smallTransitionBytes == largeTransitionBytes;
+
+                AddResult(
+                    "Large-world transition memory remains bounded",
+                    memoryBounded
+                        ? ValidationOutcome.Pass
+                        : ValidationOutcome.Fail,
+                    $"Active + staging bytes: small={smallTransitionBytes:N0}; " +
+                    $"large={largeTransitionBytes:N0}. Logical world growth must not increase local cache payload."
+                );
+            }
+            else
+            {
+                AddResult(
+                    "Large-world transition memory remains bounded",
+                    ValidationOutcome.Fail,
+                    $"Canonical residency calculation failed. Small={smallError}; Large={largeError}."
+                );
+            }
         }
         finally
         {
@@ -711,6 +748,47 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
 
     private static void RunLivePreviewValidation()
     {
+        TerrainAuthoringPreviewDiagnosticsSnapshot snapshot =
+            TerrainAuthoringPreviewService.GetDiagnosticsSnapshot();
+
+        AddResult(
+            "Live preview transition cache ownership",
+            snapshot.CacheLiveCount <= 2
+                ? ValidationOutcome.Pass
+                : ValidationOutcome.Fail,
+            $"Live caches={snapshot.CacheLiveCount:N0}; active + staging ownership permits at most two."
+        );
+
+        bool settled =
+            !snapshot.IsStreaming
+            && !snapshot.HasStagingWindow;
+
+        if (!settled)
+        {
+            AddResult(
+                "Settled preview cache ownership",
+                ValidationOutcome.Blocked,
+                $"Streaming or staging is still active. Live caches={snapshot.CacheLiveCount:N0}."
+            );
+        }
+        else
+        {
+            int expectedLive =
+                snapshot.CacheReady
+                    ? 1
+                    : 0;
+
+            AddResult(
+                "Settled preview cache ownership",
+                snapshot.CacheLiveCount == expectedLive
+                    ? ValidationOutcome.Pass
+                    : ValidationOutcome.Fail,
+                $"CacheReady={snapshot.CacheReady}; Created={snapshot.CacheCreateCount:N0}; " +
+                $"Disposed={snapshot.CacheDisposeCount:N0}; Live={snapshot.CacheLiveCount:N0}; " +
+                $"Expected live={expectedLive:N0}."
+            );
+        }
+
         WorldSettings worldSettings =
             AssetDatabase
                 .LoadAssetAtPath<WorldSettings>(
@@ -995,6 +1073,37 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
     // =====================================================
     // HELPERS
     // =====================================================
+
+    private static long EstimateCacheMemoryBytes(
+        WorldSettings settings,
+        TerrainHeightCacheWindow window
+    )
+    {
+        long samplesPerSide =
+            settings.HeightTileSamplesPerSide;
+
+        return checked(
+            samplesPerSide
+            * samplesPerSide
+            * window.Width
+            * window.Height
+            * sizeof(float)
+        );
+    }
+
+    private static long EstimateTransitionMemoryBytes(
+        WorldSettings settings,
+        TerrainHeightCacheWindow window
+    )
+    {
+        long cacheBytes =
+            EstimateCacheMemoryBytes(
+                settings,
+                window
+            );
+
+        return checked(cacheBytes + cacheBytes);
+    }
 
     private static WorldSettings CreateSyntheticSettings(
         int gridWidth,

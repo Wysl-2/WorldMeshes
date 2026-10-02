@@ -8,7 +8,7 @@ using UnityEngine;
  * Persistent regional-elevation source backed by an ordered collection of
  * freely placeable elevation nodes.
  *
- * Package 1 defines source storage/signature behavior only. Node placement,
+ * This type defines source storage/signature behavior only. Node placement,
  * interpolation, terrain composition, and production editor mutation are not
  * implemented here.
  */

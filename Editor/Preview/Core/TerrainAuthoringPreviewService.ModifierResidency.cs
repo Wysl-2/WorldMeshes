@@ -128,8 +128,8 @@ public static partial class TerrainAuthoringPreviewService
         else
         {
             /*
-             * Generation is part of Package 05 streaming diagnostics. Force a
-             * publication even when the Package 04 phase/counters are otherwise
+             * Generation is part of authoring-content streaming diagnostics. Force a
+             * publication even when the streaming phase/counters are otherwise
              * unchanged.
              */
             lastPublishedStreamingSnapshot =

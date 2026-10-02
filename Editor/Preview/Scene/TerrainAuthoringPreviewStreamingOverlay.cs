@@ -3,7 +3,7 @@ using UnityEditor;
 using UnityEngine;
 
 /*
- * Package 08B non-modal Scene View feedback.
+ * Non-modal Scene View feedback.
  *
  * This class observes PreviewService state only. It never requests residency,
  * mutates cache/lifecycle state, changes Scene View ownership, or retries

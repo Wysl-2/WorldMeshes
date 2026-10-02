@@ -581,7 +581,7 @@ public static class TerrainAuthoringStateUtility
             }
 
             /*
-             * Preserve the pre-Stage-11 overall signature exactly while
+             * Preserve the established overall signature exactly while
              * the modifier stack is empty and no regional source exists.
              * Once modifiers exist, their ordered output-relevant state is
              * appended to the overall authoring signature.
@@ -1775,7 +1775,7 @@ public static class TerrainAuthoringStateUtility
 
 
     /*
-     * Stage 12 per-modifier snapshot signature.
+     * Per-modifier snapshot signature.
      */
     internal static string GetModifierContentSignature(
         TerrainHeightModifier modifier

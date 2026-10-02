@@ -2,7 +2,7 @@ using System;
 using UnityEditor;
 
 /*
- * Package 10.2 transient validation hooks.
+ * Transient runtime bake validation hooks.
  *
  * These hooks are editor-session only and are disabled by default. They exist
  * solely to create deterministic safe-boundary cancellation/failure scenarios.
@@ -150,7 +150,7 @@ public static class TerrainRuntimeBakeValidationHooks
 
         failureBeforeStageConsumed = true;
         message =
-            "Package 10.2 validation intentionally injected a non-destructive failure before " +
+            "Persistence / Resume validation intentionally injected a non-destructive failure before " +
             GetStageLabel(stage) + ".";
         return true;
     }

@@ -688,7 +688,7 @@ public static partial class TerrainAuthoringSceneViewController
         }
 
         /*
-         * Package 08A makes Scene View ownership explicit. Only the current
+         * Scene View lifecycle coordination makes Scene View ownership explicit. Only the current
          * controlling Scene View may publish placement/residency intent.
          */
         if (
@@ -867,8 +867,8 @@ public static partial class TerrainAuthoringSceneViewController
         }
 
         /*
-         * Package 03A still lets PreviewService evaluate residency before
-         * placement. Package 08A adds one ownership rule: temporary editor
+         * The residency policy lets PreviewService evaluate residency before
+         * placement. Lifecycle coordination enforces an ownership rule: temporary editor
          * suspension may use already-safe active coverage, but it must not
          * publish new streaming intent until lifecycle stability returns.
          */

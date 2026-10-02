@@ -4,10 +4,10 @@ using UnityEditor;
 using UnityEngine;
 
 /*
- * Package I7 GPU execution for Triangulated Smooth regional elevation.
+ * GPU execution for Triangulated Smooth regional elevation.
  *
- * I2 remains the topology authority, I5 remains the gradient authority, and I6
- * remains the reduced-HCT coefficient authority. This partial class only
+ * TerrainNodeElevationTopologyCache owns topology, TerrainNodeElevationGradientUtility owns gradients, and TerrainNodeElevationSmoothPatchUtility
+ * owns reduced-HCT coefficients. This partial class only
  * prepares/uploads those derived CPU products and dispatches the production
  * Smooth compute shader.
  */
@@ -392,7 +392,7 @@ public sealed partial class TerrainHeightCompositor
         }
 
         /*
-         * Reuse Package I4's canonical I2 geometry upload. The Linear shader is
+         * Reuse the Triangulated Linear compositor's canonical topology upload. The Linear shader is
          * not dispatched here; only its topology cache/buffers are shared.
          */
         if (!TryPrepareTriangulatedLinearGpuData(

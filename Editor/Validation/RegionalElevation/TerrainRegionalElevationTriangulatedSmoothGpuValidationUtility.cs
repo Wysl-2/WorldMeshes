@@ -9,7 +9,7 @@ using UnityEngine.Rendering;
 /*
  * Triangulated Smooth GPU validation for production Triangulated Smooth GPU composition.
  *
- * I6 CPU evaluation is the semantic reference. Numerical checks use the real
+ * Smooth CPU evaluation is the semantic reference. Numerical checks use the real
  * production Smooth compute shader through TerrainHeightCompositor; production
  * code performs no GPU readback.
  */
@@ -133,7 +133,7 @@ public static class TerrainRegionalElevationTriangulatedSmoothGpuValidationUtili
                 "Validation prerequisites",
                 ValidationOutcome.Pass,
                 "Compute shaders, current WorldSettings/TerrainAuthoringData, " +
-                "I2/I5/I6 CPU derivation, and the production Smooth compute " +
+                "topology/gradient/Smooth patch CPU derivation, and the production Smooth compute " +
                 "shader are available.");
 
             ValidateCapabilityAndCompositionResolution();
@@ -308,7 +308,7 @@ public static class TerrainRegionalElevationTriangulatedSmoothGpuValidationUtili
             patches.PatchCount != topology.TriangleCount)
         {
             errorMessage =
-                "I6 Smooth patch data did not match the I2 topology.";
+                "Smooth patch data did not match the triangulated topology.";
             return false;
         }
 
@@ -579,7 +579,7 @@ public static class TerrainRegionalElevationTriangulatedSmoothGpuValidationUtili
             out string error))
         {
             AddResult(
-                "Shared I2 macro-edge samples match CPU Smooth",
+                "Shared topology macro-edge samples match CPU Smooth",
                 ValidationOutcome.Fail,
                 error);
             return;
@@ -591,9 +591,9 @@ public static class TerrainRegionalElevationTriangulatedSmoothGpuValidationUtili
             out int vertexB))
         {
             AddResult(
-                "Shared I2 macro-edge samples match CPU Smooth",
+                "Shared topology macro-edge samples match CPU Smooth",
                 ValidationOutcome.Blocked,
-                "The validation fixture did not produce a shared I2 edge.");
+                "The validation fixture did not produce a shared topology edge.");
             return;
         }
 
@@ -604,7 +604,7 @@ public static class TerrainRegionalElevationTriangulatedSmoothGpuValidationUtili
             topology.Vertices[vertexB].PositionXZ;
 
         RunParityCase(
-            "Shared I2 macro-edge samples match CPU Smooth",
+            "Shared topology macro-edge samples match CPU Smooth",
             source,
             new[]
             {
@@ -938,7 +938,7 @@ public static class TerrainRegionalElevationTriangulatedSmoothGpuValidationUtili
         }
 
         AddResult(
-            "Elevation-only edits reuse I2 topology and rebuild I5/I6 numerics",
+            "Elevation-only edits reuse triangulated topology and rebuild gradient/Smooth patch numerics",
             passed
                 ? ValidationOutcome.Pass
                 : ValidationOutcome.Fail,
@@ -998,7 +998,7 @@ public static class TerrainRegionalElevationTriangulatedSmoothGpuValidationUtili
         }
 
         AddResult(
-            "Position edits rebuild I2 topology and dependent Smooth data",
+            "Position edits rebuild triangulated topology and dependent Smooth data",
             passed
                 ? ValidationOutcome.Pass
                 : ValidationOutcome.Fail,
@@ -1070,7 +1070,7 @@ public static class TerrainRegionalElevationTriangulatedSmoothGpuValidationUtili
                 ? ValidationOutcome.Pass
                 : ValidationOutcome.Fail,
             passed
-                ? "Adding a valid node invalidated I2/I5/I6 derivation once."
+                ? "Adding a valid node invalidated topology/gradient/Smooth patch derivation once."
                 : error);
     }
 
@@ -1152,7 +1152,7 @@ public static class TerrainRegionalElevationTriangulatedSmoothGpuValidationUtili
                 ? "Validation could not access the current serialized StableId " +
                   "field to perform an identity-only mutation."
                 : passed
-                    ? "Changing only persistent node identity left I2/I5/I6 " +
+                    ? "Changing only persistent node identity left topology/gradient/Smooth patch " +
                       "cache counts and Smooth numeric uploads unchanged."
                     : error);
     }
@@ -1230,7 +1230,7 @@ public static class TerrainRegionalElevationTriangulatedSmoothGpuValidationUtili
                 : ValidationOutcome.Fail,
             passed
                 ? "Switching modes changed dispatch semantics without " +
-                  "rebuilding I2/I5/I6 data or reuploading unchanged Smooth " +
+                  "rebuilding topology/gradient/Smooth patch data or reuploading unchanged Smooth " +
                   "numerics."
                 : error);
     }
@@ -1315,7 +1315,7 @@ public static class TerrainRegionalElevationTriangulatedSmoothGpuValidationUtili
 
             Undo.RegisterCompleteObjectUndo(
                 data,
-                "WorldMeshes I7 Smooth GPU validation");
+                "WorldMeshes Triangulated Smooth GPU validation");
 
             source.Nodes[0].SetElevationInternal(
                 edited);
@@ -1623,7 +1623,7 @@ public static class TerrainRegionalElevationTriangulatedSmoothGpuValidationUtili
         }
 
         AddResult(
-            "Existing IDW GPU composition remains compatible after I7",
+            "Existing IDW GPU composition remains compatible with Smooth GPU composition",
             passed
                 ? ValidationOutcome.Pass
                 : ValidationOutcome.Fail,
@@ -1713,7 +1713,7 @@ public static class TerrainRegionalElevationTriangulatedSmoothGpuValidationUtili
                 : ValidationOutcome.Fail,
             passed
                 ? "The production Linear evaluator still matches its CPU " +
-                  "reference after sharing I2 topology buffers with Smooth."
+                  "reference after sharing triangulated topology buffers with Smooth."
                 : error);
     }
 
@@ -1797,11 +1797,11 @@ public static class TerrainRegionalElevationTriangulatedSmoothGpuValidationUtili
                 ? ValidationOutcome.Pass
                 : ValidationOutcome.Fail,
             passed
-                ? "Transient I7 validation did not mutate the real regional " +
+                ? "Transient Smooth GPU validation did not mutate the real regional " +
                   "source, revision, committed/overall identity, mode, or " +
                   "selection state."
                 : "Real WorldMeshes authoring or regional selection state " +
-                  "changed during I7 validation.");
+                  "changed during Smooth GPU validation.");
     }
 
     private static void RunParityCase(

@@ -551,7 +551,7 @@ public class TerrainCollisionColliderPool :
 )
 {
     /*
-     * Stage C movement safety invariant:
+     * Collision movement safety invariant:
      *
      * The Player may not advance the collision streaming center
      * by more than one terrain chunk beyond the last completely
@@ -814,7 +814,7 @@ public class TerrainCollisionColliderPool :
             );
 
         /*
-         * Stage C requires one complete resident preload ring around
+         * Collision residency requires one complete resident preload ring around
          * the active physics window.
          *
          * Example:
@@ -845,7 +845,7 @@ public class TerrainCollisionColliderPool :
                 $"Minimum Safe Resident Radius: " +
                 $"{minimumResidentRadius}\n\n" +
 
-                "Collision Stage C requires at least one complete " +
+                "Collision residency requires at least one complete " +
                 "resident preload ring outside the active physics " +
                 "window.\n\n" +
 

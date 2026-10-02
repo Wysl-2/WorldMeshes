@@ -66,7 +66,7 @@ public sealed class TerrainRegionalElevationMutationDiagnostics
 }
 
 /*
- * Package 5 production mutation boundary for node regional elevation.
+ * Production mutation boundary for node regional elevation.
  *
  * Normal editor UI and future Scene tools should author nodes through this
  * service rather than calling TerrainAuthoringData/TerrainNodeElevationSource/
@@ -341,7 +341,7 @@ public static partial class TerrainRegionalElevationService
         if (!(source is TerrainNodeElevationSource))
         {
             errorMessage =
-                "Package 5 manages TerrainNodeElevationSource only and will not remove an unsupported regional source type.";
+                "Regional elevation authoring manages TerrainNodeElevationSource only and will not remove an unsupported regional source type.";
             return false;
         }
 
@@ -671,7 +671,7 @@ public static partial class TerrainRegionalElevationService
         if (!(source is TerrainNodeElevationSource nodes))
         {
             errorMessage =
-                "Package 5 cannot mutate an unsupported regional elevation source type.";
+                "Regional elevation authoring cannot mutate an unsupported regional elevation source type.";
             return false;
         }
 
@@ -701,7 +701,7 @@ public static partial class TerrainRegionalElevationService
 
         if (!(source is TerrainNodeElevationSource nodes))
         {
-            errorMessage = "Package 5 produced an unsupported regional source type.";
+            errorMessage = "Regional elevation authoring produced an unsupported regional source type.";
             return false;
         }
 

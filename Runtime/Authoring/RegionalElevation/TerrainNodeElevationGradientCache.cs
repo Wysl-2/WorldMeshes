@@ -1,7 +1,7 @@
 using UnityEngine;
 
 /*
- * Demand-driven cache for Package I5 derived node gradients.
+ * Demand-driven cache for derived node gradients.
  *
  * Unlike TerrainNodeElevationTopologyCache, this cache depends on both source
  * XZ geometry and elevation. StableId, interpolation mode, selection, and

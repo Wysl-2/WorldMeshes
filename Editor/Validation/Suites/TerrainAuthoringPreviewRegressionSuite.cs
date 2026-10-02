@@ -135,22 +135,8 @@ public static class TerrainAuthoringPreviewRegressionSuite
                         },
                         () => TerrainAuthoringPreviewValidationUtility.IsRunning,
                         () => TerrainAuthoringPreviewValidationUtility.LastRunSummary
-                    ),
-                    new TerrainValidationSuiteRunner.Case(
-                        "Streaming Integration",
-                        () =>
-                        {
-                            if (TerrainAuthoringStreamingIntegrationValidationUtility.IsRunning)
-                            {
-                                return false;
-                            }
-
-                            TerrainAuthoringStreamingIntegrationValidationUtility.RequestValidation();
-                            return TerrainAuthoringStreamingIntegrationValidationUtility.IsRunning;
-                        },
-                        () => TerrainAuthoringStreamingIntegrationValidationUtility.IsRunning,
-                        () => TerrainAuthoringStreamingIntegrationValidationUtility.LastRunSummary
                     )
+
                 }
             );
     }

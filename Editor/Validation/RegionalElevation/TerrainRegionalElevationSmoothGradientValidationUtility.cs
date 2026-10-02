@@ -8,8 +8,8 @@ using UnityEngine;
 /*
  * Smooth Gradient validation for derived regional-elevation node gradients.
  *
- * Fixtures are transient plain managed node sources. Production I2 topology
- * and production I5 gradient builder/cache code are exercised directly. The
+ * Fixtures are transient plain managed node sources. Production triangulated topology
+ * and production node gradient builder/cache code are exercised directly. The
  * real WorldMeshes authoring asset is observed only to prove validation does
  * not mutate persistent state or Regional Elevation Multi-Selection selection.
  */
@@ -249,11 +249,11 @@ public static class TerrainRegionalElevationSmoothGradientValidationUtility
                 TerrainNodeElevationInterpolationMode.TriangulatedSmooth);
 
         AddResult(
-            "Interpolation capability matrix reflects I6 CPU Smooth support",
+            "Interpolation capability matrix reflects Smooth CPU support",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "IDW, Linear, and Smooth are CPU/GPU-ready after I7, and enum values stay 0/1/2."
-                : "Interpolation capability reporting does not match the post-I7 contract.");
+                ? "IDW, Linear, and Smooth are CPU/GPU-ready with Smooth GPU composition, and enum values stay 0/1/2."
+                : "Interpolation capability reporting does not match the interpolation capability contract.");
     }
 
     private static void ValidateFlatAndPlanarFields()
@@ -660,7 +660,7 @@ public static class TerrainRegionalElevationSmoothGradientValidationUtility
                     ? ValidationOutcome.Pass
                     : ValidationOutcome.Fail,
                 safelyRejected
-                    ? "I2 deterministically rejected the pathological nearly-collinear fixture before I5 evaluation, so no unstable gradient data was produced."
+                    ? "Triangulated topology deterministically rejected the pathological nearly-collinear fixture before gradient evaluation, so no unstable gradient data was produced."
                     : "The pathological near-singular fixture was not rejected deterministically. First error: " +
                         firstError +
                         " Second error: " +
@@ -698,8 +698,8 @@ public static class TerrainRegionalElevationSmoothGradientValidationUtility
             "Near-singular local geometry remains bounded or is rejected safely",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "I2 accepted the nearly-collinear topology and I5 produced finite, bounded, exactly repeatable directional gradients instead of dividing by a tiny 2D determinant."
-                : "Near-singular gradient evaluation failed after I2 accepted the topology. First error: " +
+                ? "Triangulated topology accepted the nearly-collinear topology and gradient derivation produced finite, bounded, exactly repeatable directional gradients instead of dividing by a tiny 2D determinant."
+                : "Near-singular gradient evaluation failed after Triangulated topology accepted the topology. First error: " +
                     firstError +
                     " Second error: " +
                     secondGradientError);
@@ -929,11 +929,11 @@ public static class TerrainRegionalElevationSmoothGradientValidationUtility
             gradientChanged;
 
         AddResult(
-            "Elevation-only edits reuse I2 topology and lazily rebuild gradient data",
+            "Elevation-only edits reuse triangulated topology and lazily rebuild gradient data",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
                 ? "Topology RebuildCount stayed fixed while Gradient RebuildCount advanced once on the next request and reflected the new height."
-                : "Elevation-only cache dependency behavior did not match the I5 contract.");
+                : "Elevation-only cache dependency behavior did not match the gradient derivation contract.");
     }
 
     private static void ValidateGeometryAndMembershipCacheBehavior()
@@ -1069,7 +1069,7 @@ public static class TerrainRegionalElevationSmoothGradientValidationUtility
             "Position and membership edits lazily rebuild topology and gradients together",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "A later derived-data request rebuilt I2/I5 once after XZ movement, once after node addition, and once after node removal."
+                ? "A later derived-data request rebuilt topology/gradient once after XZ movement, once after node addition, and once after node removal."
                 : "Geometry or membership cache invalidation/rebuild behavior failed.");
     }
 

@@ -6,9 +6,9 @@ using UnityEngine;
 /*
  * Persistent base type for broad regional-elevation authoring data.
  *
- * Package 1 defines source identity/data only. Terrain evaluation,
- * composition, interpolation, and editor authoring tools are added by
- * later packages.
+ * This type defines source identity/data only. Terrain evaluation,
+ * composition, interpolation, and editor authoring tools are owned by
+ * their respective evaluation and authoring systems.
  */
 [Serializable]
 public abstract class TerrainRegionalElevationSource

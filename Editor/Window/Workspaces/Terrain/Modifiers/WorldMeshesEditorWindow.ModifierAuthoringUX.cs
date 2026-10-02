@@ -737,7 +737,7 @@ public partial class WorldMeshesEditorWindow :
         }
 
         /*
-         * Reuse the existing interactive slider implementation so Package 5
+         * Reuse the existing interactive slider implementation so Scene editing
          * does not create a second Undo/preview/cancel transaction path.
          */
         DrawStampSourceRemapSettings(

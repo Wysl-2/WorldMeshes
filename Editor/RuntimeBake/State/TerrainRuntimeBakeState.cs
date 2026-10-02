@@ -20,8 +20,8 @@ internal static class TerrainRuntimeBakeStateStorage
  * 2. TerrainAuthoringPreviewService, whose dirty-tile state is transient
  *    GPU preview lifecycle state.
  *
- * Package 01 stores independent pending-work primitives only. Dependency
- * propagation and bake planning belong to later packages.
+ * The bake state stores independent pending-work primitives only. Dependency
+ * propagation and bake planning belong to the invalidation service and bake planner.
  */
 [FilePath(
     TerrainRuntimeBakeStateStorage.PersistencePath,

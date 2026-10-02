@@ -54,7 +54,7 @@ internal static class TerrainAuthoringPreviewReadinessPolicy
 }
 
 /*
- * Package 08B keeps blocked-edit wording beside the readiness interpretation
+ * Preview readiness keeps blocked-edit wording beside the readiness interpretation
  * so authoring tools do not invent different meanings for the same state.
  */
 internal static class TerrainAuthoringPreviewReadinessFeedback

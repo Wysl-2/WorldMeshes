@@ -3,7 +3,7 @@ using UnityEditor;
 using UnityEngine;
 
 /*
- * Package 5 regional-elevation Undo/Redo observer.
+ * Regional-elevation Undo/Redo observer.
  *
  * Normal mutations are owned by TerrainRegionalElevationService. This tracker
  * exists because Unity restores serialized TerrainAuthoringData directly when

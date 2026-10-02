@@ -194,7 +194,7 @@ public partial class WorldMeshesEditorWindow :
             "Rapid movement coalesces obsolete destinations toward the latest " +
             "meaningful target instead of completing an A/B/C queue.\n\n" +
 
-            "Package 04 performs bounded work through EditorApplication.update. " +
+            "Incremental preview streaming performs bounded work through EditorApplication.update. " +
             "Camera and ScenePivot follow modes, Freeze Preview, and Center On " +
             "World all use the same residency/streaming path.",
             MessageType.Info

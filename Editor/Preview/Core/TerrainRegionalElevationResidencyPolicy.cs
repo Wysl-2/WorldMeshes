@@ -50,7 +50,7 @@ internal readonly struct TerrainRegionalElevationInvalidationScope
 }
 
 /*
- * Package 06 pure regional-elevation residency policy.
+ * Pure regional-elevation residency policy.
  *
  * Regional authoring may have whole-world logical influence without
  * materializing the complete logical height-tile grid for preview work.

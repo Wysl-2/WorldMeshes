@@ -4,10 +4,10 @@ using System.Text;
 using UnityEngine;
 
 /*
- * Editor-only presentation/helper layer for the Package 4 stamp browser.
+ * Editor-only presentation/helper layer for the stamp browser.
  *
  * This class deliberately does not scan the AssetDatabase. The editor window
- * supplies cached Package 2 scan data so search, sorting, selection resolution,
+ * supplies cached library scan data so search, sorting, selection resolution,
  * thumbnail access, and layout calculations remain repaint-cheap.
  */
 public static class TerrainHeightStampLibraryBrowserUtility
@@ -439,7 +439,7 @@ public static class TerrainHeightStampLibraryBrowserUtility
     /*
      * Production Add Selected Stamp boundary.
      *
-     * TerrainAuthoringData is mutated only through the Package 3 service.
+     * TerrainAuthoringData is mutated only through TerrainAuthoringModifierService.
      * Successful creation also updates the existing modifier selection model.
      */
     public static bool TryAddSelectedStamp(

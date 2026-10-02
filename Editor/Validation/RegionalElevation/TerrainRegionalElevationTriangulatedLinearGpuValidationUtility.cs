@@ -9,7 +9,7 @@ using UnityEngine.Rendering;
  * Triangulated Linear GPU validation for production Triangulated Linear GPU composition.
  *
  * Triangulated Linear CPU evaluation is the semantic reference. GPU parity fixtures are
- * transient and use the production I2 topology cache plus the same production
+ * transient and use the production triangulated topology cache plus the same production
  * compute shader used by TerrainHeightCompositor tile composition.
  */
 public static class TerrainRegionalElevationTriangulatedLinearGpuValidationUtility
@@ -646,7 +646,7 @@ public static class TerrainRegionalElevationTriangulatedLinearGpuValidationUtili
             "Collinear projected piecewise-linear interpolation matches CPU including endpoint clamps",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "GPU collinear evaluation follows the deterministic I2 vertex order and is invariant to perpendicular distance."
+                ? "GPU collinear evaluation follows the deterministic topology vertex order and is invariant to perpendicular distance."
                 : errorMessage);
     }
 
@@ -749,7 +749,7 @@ public static class TerrainRegionalElevationTriangulatedLinearGpuValidationUtili
             "Linear GPU preparation reuses position-only topology and rebuilds lazily after geometry changes",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "Elevation-only changes reused I2 topology; a later XZ position change rebuilt topology on the next actual GPU evaluation."
+                ? "Elevation-only changes reused triangulated topology; a later XZ position change rebuilt topology on the next actual GPU evaluation."
                 : error);
     }
 
@@ -878,7 +878,7 @@ public static class TerrainRegionalElevationTriangulatedLinearGpuValidationUtili
             "Existing IDW GPU compositor remains numerically compatible with CPU IDW samples",
             passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             passed
-                ? "The unchanged production IDW kernel matched CPU IDW at exact endpoints and multiple interior tile samples after I4 dispatch integration."
+                ? "The unchanged production IDW kernel matched CPU IDW at exact endpoints and multiple interior tile samples through the production GPU dispatch."
                 : error);
     }
 

@@ -33,7 +33,7 @@ public static class TerrainRuntimeAddressablesUtility
     }
 
     // =====================================================
-    // PACKAGE 09 ADVANCED MAINTENANCE
+    // ADVANCED MAINTENANCE
     // =====================================================
 
     public static bool ReconfigureAllRuntimeAddressables(

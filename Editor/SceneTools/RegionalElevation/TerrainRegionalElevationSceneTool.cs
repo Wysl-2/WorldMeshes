@@ -3,10 +3,10 @@ using UnityEditor;
 using UnityEngine;
 
 /*
- * Package 7 SceneView authoring layer for TerrainNodeElevationSource.
+ * SceneView authoring layer for TerrainNodeElevationSource.
  *
  * Selection is a transient StableId set with one primary node. One selected
- * node retains the Package 6 XZ/elevation handles; multiple selected nodes use
+ * node retains the single-node XZ/elevation handles; multiple selected nodes use
  * one group XZ handle. All terrain mutation remains service-owned.
  */
 [InitializeOnLoad]

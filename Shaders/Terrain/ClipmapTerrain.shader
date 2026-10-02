@@ -552,7 +552,7 @@ Shader "Custom/ClipmapTerrain"
             );
 
             /*
-             * Stage 8 synchronized baked runtime suitability cache.
+             * Synchronized baked runtime suitability cache.
              *
              * Current channel layout:
              *     R = Scree Suitability
@@ -561,7 +561,7 @@ Shader "Custom/ClipmapTerrain"
                 _SurfaceMaskCache;
 
             /*
-             * Stage 9 generic editor-only raw Terrain Analysis texture.
+             * Generic editor-only raw Terrain Analysis texture.
              * Slope, Curvature, Roughness, and Local Relief all use this
              * same transient binding path.
              */
@@ -569,7 +569,7 @@ Shader "Custom/ClipmapTerrain"
                 _AuthoringAnalysisTexture;
 
             /*
-             * Stage 6 edit-mode Scree Suitability inputs.
+             * Edit-mode Scree Suitability inputs.
              * Runtime leaves _AuthoringScreeAnalysisReady at zero and uses
              * the direct terrain-analysis fallback.
              */
@@ -680,7 +680,7 @@ Shader "Custom/ClipmapTerrain"
                 float _AuthoringLODCount;
 
                 /*
-                 * Stage 6 editor-only fill suppression.
+                 * Editor-only fill suppression.
                  *
                  * The transient displaced wireframe renderer sets this
                  * through MaterialPropertyBlock only while Wireframe Only

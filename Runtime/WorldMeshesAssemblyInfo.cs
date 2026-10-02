@@ -7,7 +7,7 @@ using System.Runtime.CompilerServices;
  *
  * Unity compiles scripts under an Editor folder into the predefined
  * Assembly-CSharp-Editor assembly, while Runtime scripts compile into
- * Assembly-CSharp. Stage 11 editor validation/signature code needs
+ * Assembly-CSharp. Editor validation/signature code needs
  * controlled access to those internal helpers.
  */
 [assembly: InternalsVisibleTo("Assembly-CSharp-Editor")]

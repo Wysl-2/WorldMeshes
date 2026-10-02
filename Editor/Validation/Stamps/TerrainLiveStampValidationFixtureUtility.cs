@@ -346,8 +346,8 @@ public static class TerrainLiveStampValidationFixtureUtility
 
         /*
          * A failed/aborted import can leave the physical directory present
-         * before AssetDatabase has registered it. This can happen after the
-         * Package 1 startup bug. Refresh only when such a stale physical
+         * before AssetDatabase has registered it. This can happen after an
+         * interrupted library import. Refresh only when such a stale physical
          * directory actually exists.
          */
         string absolutePath =

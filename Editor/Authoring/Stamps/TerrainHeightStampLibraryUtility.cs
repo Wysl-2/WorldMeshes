@@ -1587,7 +1587,7 @@ public static class TerrainHeightStampLibraryUtility
             AddOperationError(
                 report,
                 "UnsupportedSourceFormat",
-                "Package 2 supports PNG heightmaps only.",
+                "Stamp import supports PNG heightmaps only.",
                 sourcePath
             );
 
