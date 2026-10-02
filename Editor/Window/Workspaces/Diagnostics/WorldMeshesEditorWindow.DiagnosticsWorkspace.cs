@@ -16,12 +16,6 @@ public partial class WorldMeshesEditorWindow :
     private bool
         runtimeBakeDiagnosticsSummaryEvaluated;
 
-    private TerrainGenerationStateEvaluationResult
-        runtimeBakeDiagnosticsGenerationState;
-
-    private bool
-        runtimeBakeDiagnosticsGenerationStateEvaluated;
-
     private WorldSettings
         runtimeBakeDiagnosticsTrackedWorldSettings;
 
@@ -135,12 +129,6 @@ public partial class WorldMeshesEditorWindow :
             null;
 
         runtimeBakeDiagnosticsSummaryEvaluated =
-            false;
-
-        runtimeBakeDiagnosticsGenerationState =
-            default(TerrainGenerationStateEvaluationResult);
-
-        runtimeBakeDiagnosticsGenerationStateEvaluated =
             false;
 
         InvalidateSystemHealth();
@@ -264,32 +252,4 @@ public partial class WorldMeshesEditorWindow :
             runtimeBakeDiagnosticsSummary;
     }
 
-    /*
-     * Routine Diagnostics display code uses operational generation state only,
-     * then retains the immutable status results across IMGUI passes. Physical
-     * generated-output integrity verification is explicit validation work and
-     * must never be triggered by Layout/Repaint, including continuous Play Mode
-     * repaint used by live runtime diagnostics.
-     */
-    private TerrainGenerationStateEvaluationResult
-        GetRuntimeBakeDiagnosticsGenerationState()
-    {
-        RefreshRuntimeBakeDiagnosticsInputState();
-
-        if (!runtimeBakeDiagnosticsGenerationStateEvaluated)
-        {
-            runtimeBakeDiagnosticsGenerationState =
-                TerrainGenerationStateUtility
-                    .EvaluateOperationalGenerationState(
-                        worldSettings,
-                        terrainAuthoringData
-                    );
-
-            runtimeBakeDiagnosticsGenerationStateEvaluated =
-                true;
-        }
-
-        return
-            runtimeBakeDiagnosticsGenerationState;
-    }
 }

@@ -53,7 +53,7 @@ public partial class WorldMeshesEditorWindow :
 
         EditorGUILayout.LabelField(
             "Pending Payload",
-            FormatRuntimeValidationBytes(
+            FormatDiagnosticsBytes(
                 deferred.EstimatedPendingSourceBytes
             )
         );
@@ -65,7 +65,7 @@ public partial class WorldMeshesEditorWindow :
 
         EditorGUILayout.LabelField(
             "Peak Pending Payload",
-            FormatRuntimeValidationBytes(
+            FormatDiagnosticsBytes(
                 deferred.PeakEstimatedPendingSourceBytes
             )
         );

@@ -41,4 +41,22 @@ public partial class WorldMeshesEditorWindow :
                 : status
         );
     }
+
+    private static string FormatDiagnosticsBytes(
+        long bytes
+    )
+    {
+        if (bytes <= 0L)
+        {
+            return "0 MiB";
+        }
+
+        double mib =
+            bytes /
+            (1024d * 1024d);
+
+        return
+            mib.ToString("N2") +
+            " MiB";
+    }
 }

@@ -1634,6 +1634,52 @@ public partial class WorldMeshesEditorWindow :
             EditorStyles.boldLabel
         );
 
+        if (
+            GUILayout.Button(
+                "Synchronize Runtime Scene Metadata",
+                GUILayout.ExpandWidth(true)
+            )
+        )
+        {
+            TerrainRuntimeSceneSynchronizationResult result =
+                TerrainRuntimeSceneSynchronizer
+                    .SynchronizeExistingHierarchy(
+                        worldSettings
+                    );
+
+            if (result == null)
+            {
+                SetAdvancedRuntimeMessage(
+                    "Runtime scene metadata synchronization returned no result.",
+                    MessageType.Error
+                );
+            }
+            else
+            {
+                Debug.Log(
+                    result.BuildDiagnosticReport()
+                );
+
+                string resultMessage =
+                    result.Outcome +
+                    "\n" +
+                    (
+                        !string.IsNullOrEmpty(
+                            result.ErrorMessage
+                        )
+                            ? result.ErrorMessage
+                            : result.SummaryMessage
+                    );
+
+                SetAdvancedRuntimeMessage(
+                    resultMessage,
+                    GetRuntimeSceneSynchronizationMessageType(
+                        result.Outcome
+                    )
+                );
+            }
+        }
+
         DrawSetupRepairWorldHierarchyButton();
 
         EditorGUI.EndDisabledGroup();
@@ -1744,6 +1790,35 @@ public partial class WorldMeshesEditorWindow :
         }
 
         EditorGUI.EndDisabledGroup();
+    }
+
+    private static MessageType
+        GetRuntimeSceneSynchronizationMessageType(
+            TerrainRuntimeSceneSynchronizationOutcome outcome
+        )
+    {
+        switch (outcome)
+        {
+            case TerrainRuntimeSceneSynchronizationOutcome
+                .Completed:
+            case TerrainRuntimeSceneSynchronizationOutcome
+                .NoWork:
+                return
+                    MessageType.Info;
+
+            case TerrainRuntimeSceneSynchronizationOutcome
+                .CompletedWithWarnings:
+            case TerrainRuntimeSceneSynchronizationOutcome
+                .Blocked:
+            case TerrainRuntimeSceneSynchronizationOutcome
+                .RepairRequired:
+                return
+                    MessageType.Warning;
+
+            default:
+                return
+                    MessageType.Error;
+        }
     }
 
     private bool TryGetRuntimeHierarchyReadiness(
@@ -1940,6 +2015,17 @@ public partial class WorldMeshesEditorWindow :
             message,
             messageType
         );
+
+        if (
+            GUILayout.Button(
+                "Open Last Bake Diagnostics",
+                GUILayout.ExpandWidth(true)
+            )
+        )
+        {
+            TerrainRuntimeBakeDiagnosticsViewerWindow
+                .OpenWindow();
+        }
 
         if (
             result.SceneSyncResult != null

@@ -80,10 +80,114 @@ public partial class WorldMeshesEditorWindow :
 
         GUILayout.Space(5f);
 
+        DrawRuntimeHeightRangeMetadataValidation();
+
         EditorGUILayout.HelpBox(
-            "Deep generated-output regression validation will be presented here after the existing runtime output validators are consolidated. Use System Health > Refresh Full Health Check for explicit structural output integrity verification.",
+            "Additional generated-output regression validation will be presented here as the existing runtime output validators are consolidated.",
             MessageType.None
         );
+    }
+
+    private void DrawRuntimeHeightRangeMetadataValidation()
+    {
+        TerrainHeightmapManifest manifest =
+            AssetDatabase.LoadAssetAtPath<TerrainHeightmapManifest>(
+                TerrainRuntimeHeightAssetUtility
+                    .HeightmapManifestPath
+            );
+
+        GUILayout.BeginVertical(
+            EditorStyles.helpBox,
+            GUILayout.ExpandWidth(true)
+        );
+
+        GUILayout.Label(
+            "Runtime Height Range Metadata",
+            EditorStyles.boldLabel
+        );
+
+        if (manifest == null)
+        {
+            EditorGUILayout.LabelField(
+                "Manifest",
+                "Not Generated"
+            );
+        }
+        else
+        {
+            EditorGUILayout.LabelField(
+                "Manifest Complete",
+                manifest.isComplete
+                    ? "Yes"
+                    : "No"
+            );
+
+            EditorGUILayout.LabelField(
+                "Expected Range Records",
+                manifest.ExpectedTileHeightRangeCount
+                    .ToString("N0")
+            );
+
+            EditorGUILayout.LabelField(
+                "Stored Range Records",
+                manifest.TileHeightRangeCount
+                    .ToString("N0")
+            );
+
+            EditorGUILayout.LabelField(
+                "Valid Range Records",
+                manifest.ValidTileHeightRangeCount
+                    .ToString("N0")
+            );
+
+            if (manifest.HasValidHeightRange)
+            {
+                EditorGUILayout.LabelField(
+                    "Global Range",
+                    manifest.minimumTerrainHeight
+                        .ToString("R") +
+                    " -> " +
+                    manifest.maximumTerrainHeight
+                        .ToString("R")
+                );
+            }
+        }
+
+        GUILayout.Space(5f);
+
+        bool validationDisabled =
+            worldSettings == null
+            || TerrainRuntimeBakePipeline.IsRunning
+            || TerrainSurfaceMaskCompiler.IsGenerating
+            || EditorApplication
+                .isPlayingOrWillChangePlaymode;
+
+        EditorGUI.BeginDisabledGroup(
+            validationDisabled
+        );
+
+        if (
+            GUILayout.Button(
+                "Validate Runtime Height Range Metadata",
+                GUILayout.ExpandWidth(true)
+            )
+        )
+        {
+            TerrainRuntimeHeightRangeMetadataValidator
+                .Validate(
+                    worldSettings,
+                    true
+                );
+        }
+
+        EditorGUI.EndDisabledGroup();
+
+        EditorGUILayout.HelpBox(
+            "This explicit output-integrity check compares runtime height-range metadata against the physical generated height textures. It can scan every runtime height tile and only runs when requested.",
+            MessageType.None
+        );
+
+        GUILayout.EndVertical();
     }
 
     private void DrawAuthoringPreviewValidation()
