@@ -4,11 +4,11 @@ using UnityEditor;
 using UnityEngine;
 
 /*
- * Package 10.1 validation facade.
+ * Runtime Bake execution validation utility.
  *
- * Validation deliberately runs the Package 08 unified pipeline rather than
- * calling individual generators. The planner and lower-level stage results
- * remain the authoritative sources for expected and actual work.
+ * Validation deliberately runs the canonical Runtime Bake pipeline rather
+ * than calling individual generators. The planner and lower-level stage
+ * results remain the authoritative sources for expected and actual work.
  */
 public static class TerrainRuntimeBakeValidationUtility
 {
@@ -61,8 +61,9 @@ public static class TerrainRuntimeBakeValidationUtility
         );
 
         /*
-         * Package 08 can invoke a blocked/rejected completion callback
-         * synchronously. Only clear the flag here when no callback consumed it.
+         * The Runtime Bake pipeline can invoke a blocked/rejected completion
+         * callback synchronously. Only clear the flag here when no callback
+         * consumed it.
          */
         if (!started && validationBakeRunning)
         {
@@ -123,7 +124,6 @@ public static class TerrainRuntimeBakeValidationUtility
                 null,
                 null,
                 false,
-                null,
                 null,
                 "The unified runtime bake pipeline produced no result.",
                 "Runtime pipeline validation could not run."
@@ -209,7 +209,7 @@ public static class TerrainRuntimeBakeValidationUtility
         if (!stagePlansCaptured)
         {
             warnings.Add(
-                "One or more Package 08 stage-local plans were not captured for a run that reached the runtime bake stages."
+                "One or more stage-local Runtime Bake plans were not captured for a run that reached the Runtime Bake stages."
             );
         }
 
@@ -253,9 +253,9 @@ public static class TerrainRuntimeBakeValidationUtility
                 {
                     outcome = TerrainRuntimeBakeValidationOutcome.Failed;
                     errorMessage =
-                        "The runtime pipeline completed, but Package 10.1 detected a planner/result validation mismatch.";
+                        "The Runtime Bake completed, but execution validation detected a planner/result mismatch.";
                     summaryMessage =
-                        "Runtime generation completed, but validation did not certify the observed stage work.";
+                        "Runtime generation completed, but the observed stage work did not satisfy execution validation.";
                 }
                 else
                 {
@@ -271,9 +271,9 @@ public static class TerrainRuntimeBakeValidationUtility
                 {
                     outcome = TerrainRuntimeBakeValidationOutcome.Failed;
                     errorMessage =
-                        "The runtime pipeline completed, but Package 10.1 detected a planner/result validation mismatch.";
+                        "The Runtime Bake completed, but execution validation detected a planner/result mismatch.";
                     summaryMessage =
-                        "Runtime generation completed, but validation did not certify the observed stage work.";
+                        "Runtime generation completed, but the observed stage work did not satisfy execution validation.";
                 }
                 else
                 {
@@ -303,7 +303,6 @@ public static class TerrainRuntimeBakeValidationUtility
             addressablesValidation,
             sceneValidation,
             finalPlanCurrent,
-            null,
             warnings,
             errorMessage,
             summaryMessage

@@ -315,7 +315,7 @@ public sealed class TerrainRuntimeFaultRecoveryValidationResult
 
             if (BakeValidationResult != null)
             {
-                b.AppendLine("  Package 10.1 Validation: " + BakeValidationResult.Outcome);
+                b.AppendLine("  Runtime Bake Execution Validation: " + BakeValidationResult.Outcome);
 
                 if (BakeValidationResult.AddressablesValidation != null)
                 {
@@ -807,7 +807,7 @@ public static class TerrainRuntimeFaultInjectionUtility
 
         if (!TryFindCheckpoint(out string checkpointPath, out TerrainRuntimeFaultRecoveryCheckpoint c))
         {
-            message = "No incomplete Package 10.4 validation quarantine was found.";
+            message = "No incomplete Fault Recovery validation quarantine was found.";
             return true;
         }
 
@@ -906,19 +906,19 @@ public static class TerrainRuntimeFaultInjectionUtility
                 }
 
                 message =
-                    "Incomplete Package 10.4 validation state was restored/reconciled.";
+                    "Incomplete Fault Recovery validation state was restored/reconciled.";
             }
             else
             {
                 message =
-                    "Package 10.4 orphan cleanup could not complete. Restore Runtime Ready before continuing.";
+                    "Fault Recovery orphan cleanup could not complete. Restore Runtime Ready before continuing.";
             }
         }
         catch (Exception exception)
         {
             ok = false;
             message =
-                "Package 10.4 orphan cleanup failed.\n\n" +
+                "Fault Recovery orphan cleanup failed.\n\n" +
                 exception.Message;
         }
 
@@ -2408,7 +2408,7 @@ public static class TerrainRuntimeFaultInjectionUtility
         catch (Exception exception)
         {
             Debug.LogWarning(
-                "Could not delete Package 10.4 validation quarantine:\n" +
+                "Could not delete Fault Recovery validation quarantine:\n" +
                 exception.Message
             );
         }
@@ -2622,7 +2622,7 @@ public static class TerrainRuntimeFaultRecoveryScenarioRunner
         {
             return Blocked(
                 scenario,
-                "A Package 10.4 fault/recovery scenario is already active."
+                "A Fault Recovery validation scenario is already active."
             );
         }
 
@@ -2735,7 +2735,7 @@ public static class TerrainRuntimeFaultRecoveryScenarioRunner
                 TerrainRuntimeFaultRecoveryValidationOutcome.FaultInjected;
 
             lastResult.SummaryMessage =
-                "The fault was detected and classified correctly. Run Canonical Recovery to complete certification.";
+                "The fault was detected and classified correctly. Run Canonical Recovery to complete recovery validation.";
         }
         else
         {
@@ -2941,7 +2941,7 @@ public static class TerrainRuntimeFaultRecoveryScenarioRunner
             }
 
             message =
-                "No active Package 10.4 fault exists.";
+                "No active Fault Recovery validation fault exists.";
             return true;
         }
 
@@ -2961,11 +2961,11 @@ public static class TerrainRuntimeFaultRecoveryScenarioRunner
                 TerrainRuntimeReadinessUtility.Evaluate(true);
 
             lastResult.SummaryMessage =
-                "Active validation fault was restored without canonical recovery certification.";
+                "Active validation fault was restored without running canonical recovery validation.";
 
             activeState = null;
             message =
-                "Active Package 10.4 fault restored.";
+                "Active validation fault restored.";
         }
         else
         {
@@ -3074,7 +3074,7 @@ public static class TerrainRuntimeFaultRecoveryScenarioRunner
         if (EditorApplication.isPlayingOrWillChangePlaymode)
         {
             error =
-                "Package 10.4 fault validation must run outside Play Mode.";
+                "Fault Recovery validation must run outside Play Mode.";
             return false;
         }
 
@@ -3088,14 +3088,14 @@ public static class TerrainRuntimeFaultRecoveryScenarioRunner
         if (TerrainRuntimeBakeValidationUtility.IsValidationBakeRunning)
         {
             error =
-                "A Package 10.1 validation bake is already running.";
+                "Runtime Bake execution validation is already running.";
             return false;
         }
 
         if (TerrainRuntimeBakeResumeValidationUtility.IsRunning)
         {
             error =
-                "A Package 10.2 persistence/resume scenario is already running.";
+                "A Persistence / Resume validation scenario is already running.";
             return false;
         }
 
@@ -3112,7 +3112,7 @@ public static class TerrainRuntimeFaultRecoveryScenarioRunner
         )
         {
             error =
-                "An incomplete Package 10.4 validation quarantine exists. Restore it before starting another fault.";
+                "An incomplete Fault Recovery validation quarantine exists. Restore it before starting another fault.";
             return false;
         }
 
@@ -3122,7 +3122,7 @@ public static class TerrainRuntimeFaultRecoveryScenarioRunner
         if (!baseline.IsReady)
         {
             error =
-                "Package 10.4 destructive tests require Runtime Ready.\n\n" +
+                "Fault Recovery destructive tests require Runtime Ready.\n\n" +
                 baseline.ErrorMessage;
             return false;
         }

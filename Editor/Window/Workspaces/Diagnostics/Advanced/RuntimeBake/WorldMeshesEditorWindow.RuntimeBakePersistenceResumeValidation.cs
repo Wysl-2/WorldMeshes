@@ -9,8 +9,25 @@ public partial class WorldMeshesEditorWindow : EditorWindow
     private TerrainRuntimeBakeResumeValidationResult
         lastRuntimeResumeValidationResult;
 
-    private void DrawRuntimePersistenceResumeValidationDiagnostics()
+    [SerializeField]
+    private bool showRuntimeBakePersistenceResumeValidation;
+
+    private void DrawRuntimeBakePersistenceResumeValidation()
     {
+        showRuntimeBakePersistenceResumeValidation =
+            EditorGUILayout.Foldout(
+                showRuntimeBakePersistenceResumeValidation,
+                "Persistence / Resume",
+                true
+            );
+
+        if (!showRuntimeBakePersistenceResumeValidation)
+        {
+            return;
+        }
+
+        GUILayout.Space(5f);
+
         TerrainRuntimeBakeStateSummary snapshot =
             GetRuntimeBakeDiagnosticsSummary();
 
@@ -25,7 +42,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         );
 
         EditorGUILayout.HelpBox(
-            "Package 10.2 validates that pending work survives editor lifecycle events and that cancelled/failed incremental bakes resume without repeating safely acknowledged work. Validation hooks are transient, editor-only, and disabled during normal Runtime baking.",
+            "Validates that pending Runtime Bake work survives editor lifecycle events and that cancelled/failed incremental bakes resume without repeating safely acknowledged work. Validation hooks are transient, editor-only, and disabled during normal Runtime baking.",
             MessageType.None
         );
 
@@ -269,7 +286,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
         }
 
         EditorGUILayout.HelpBox(
-            "Prepare pending Incremental work manually before individual cancellation/failure tests. Package 10.2 does not move/delete/toggle terrain modifiers, alter settings, or damage generated assets, Addressables configuration, or hierarchy objects.",
+            "Prepare pending Incremental work manually before individual cancellation/failure tests. Persistence / Resume validation does not move, delete, or toggle terrain modifiers, alter settings, or damage generated assets, Addressables configuration, or hierarchy objects.",
             MessageType.None
         );
 

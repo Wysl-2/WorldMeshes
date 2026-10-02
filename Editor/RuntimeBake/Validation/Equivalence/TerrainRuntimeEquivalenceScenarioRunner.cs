@@ -101,7 +101,7 @@ public static class TerrainRuntimeEquivalenceScenarioRunner
         if (IsRunning)
         {
             message =
-                "A Package 10.5 equivalence run is already active.";
+                "An Incremental / Full Equivalence run is already active.";
             return false;
         }
 
@@ -133,7 +133,7 @@ public static class TerrainRuntimeEquivalenceScenarioRunner
         {
             message =
                 readiness != null
-                    ? "Capture the Package 10.5 baseline from Runtime Ready.\n\n" +
+                    ? "Capture the equivalence baseline from Runtime Ready.\n\n" +
                         readiness.ErrorMessage
                     : "Runtime readiness could not be evaluated.";
             return false;
@@ -146,7 +146,7 @@ public static class TerrainRuntimeEquivalenceScenarioRunner
         if (identity == null)
         {
             message =
-                "Could not capture the Package 10.5 source identity.";
+                "Could not capture the equivalence source identity.";
             return false;
         }
 
@@ -302,7 +302,7 @@ public static class TerrainRuntimeEquivalenceScenarioRunner
                             FinishFailureFromBake(
                                 run,
                                 validation,
-                                "The normal runtime bake was not certified by Package 10.1."
+                                "The normal Runtime Bake did not pass execution validation."
                             );
                             return;
                         }
@@ -385,7 +385,7 @@ public static class TerrainRuntimeEquivalenceScenarioRunner
                 );
 
         /*
-         * Package 10.1 can reject synchronously and invoke the completion
+         * Runtime Bake execution validation can reject synchronously and invoke the completion
          * callback before returning. Keep the return value truthful without
          * resurrecting an already-finished ActiveRun.
          */
@@ -456,7 +456,7 @@ public static class TerrainRuntimeEquivalenceScenarioRunner
             lastResult =
                 CreateBlockedResult(
                     TerrainRuntimeEquivalenceScenario.InitialBake,
-                    "Initial Bake equivalence is available only when the canonical planner is already in a legitimate Initial Bake state. Package 10.5 will not delete a healthy generated runtime dataset merely to create this condition."
+                    "Initial Bake equivalence is available only when the canonical planner is already in a legitimate Initial Bake state. Equivalence validation will not delete a healthy generated runtime dataset merely to create this condition."
                 );
 
             Invoke(
@@ -536,7 +536,7 @@ public static class TerrainRuntimeEquivalenceScenarioRunner
                             FinishFailureFromBake(
                                 run,
                                 validation,
-                                "The canonical Initial Bake was not certified by Package 10.1."
+                                "The canonical Initial Bake did not pass execution validation."
                             );
                             return;
                         }
@@ -719,7 +719,7 @@ public static class TerrainRuntimeEquivalenceScenarioRunner
         if (IsRunning)
         {
             message =
-                "Cannot clear Package 10.5 state while validation is running.";
+                "Cannot clear equivalence validation state while validation is running.";
             return false;
         }
 
@@ -733,7 +733,7 @@ public static class TerrainRuntimeEquivalenceScenarioRunner
             TerrainRuntimeEquivalencePhase.Idle;
 
         message =
-            "Package 10.5 validation state cleared.";
+            "Equivalence validation state cleared.";
 
         return true;
     }
@@ -807,9 +807,9 @@ public static class TerrainRuntimeEquivalenceScenarioRunner
                         run.result.FullBakeValidation =
                             validation;
 
-                        run.result.FullExecutionCertified =
+                        run.result.FullExecutionValid =
                             TerrainRuntimeEquivalenceValidationUtility
-                                .IsFullExecutionCertified(
+                                .IsFullExecutionValid(
                                     validation
                                 );
 
@@ -819,15 +819,15 @@ public static class TerrainRuntimeEquivalenceScenarioRunner
                                     validation
                                 )
                             || !run.result
-                                .FullExecutionCertified
+                                .FullExecutionValid
                         )
                         {
                             FinishFailureFromBake(
                                 run,
                                 validation,
-                                !run.result.FullExecutionCertified
+                                !run.result.FullExecutionValid
                                     ? "The forced rebuild completed without proving Full Height / Surface / Collision execution over the complete coordinate spaces."
-                                    : "The forced Full rebuild was not certified by Package 10.1."
+                                    : "The forced Full rebuild did not pass execution validation."
                             );
                             return;
                         }
@@ -969,7 +969,7 @@ public static class TerrainRuntimeEquivalenceScenarioRunner
                                 : "Dataset payloads match, but the final runtime health invariant failed.";
 
                         run.result.SummaryMessage =
-                            "Incremental / Full equivalence certification failed. Preserve this report and investigate the listed coordinates before weakening comparison strictness.";
+                            "Incremental / Full equivalence validation failed. Preserve this report and investigate the listed coordinates before weakening comparison strictness.";
 
                         run.result.Outcome =
                             TerrainRuntimeEquivalenceValidationOutcome
@@ -999,9 +999,9 @@ public static class TerrainRuntimeEquivalenceScenarioRunner
             run.result.FullBakeValidation =
                 validation;
 
-            run.result.FullExecutionCertified =
+            run.result.FullExecutionValid =
                 TerrainRuntimeEquivalenceValidationUtility
-                    .IsFullExecutionCertified(
+                    .IsFullExecutionValid(
                         validation
                     );
 
@@ -1031,7 +1031,7 @@ public static class TerrainRuntimeEquivalenceScenarioRunner
             && run.result.FullSnapshot.IsComplete;
 
         if (
-            run.result.FullExecutionCertified
+            run.result.FullExecutionValid
             && snapshotComplete
             && finalHealthy
         )
@@ -1055,10 +1055,10 @@ public static class TerrainRuntimeEquivalenceScenarioRunner
                     .Failed;
 
             run.result.ErrorMessage =
-                "Forced Full rebuild health certification failed.";
+                "Forced Full rebuild health validation failed.";
 
             run.result.SummaryMessage =
-                "Rebuild All Runtime Data did not satisfy every Package 10.5 Full execution and final-health invariant.";
+                "Rebuild All Runtime Data did not satisfy every Full execution and final-health invariant.";
         }
 
         Finish(
@@ -1155,7 +1155,7 @@ public static class TerrainRuntimeEquivalenceScenarioRunner
                 .Evaluate(true);
 
         run.result.SummaryMessage =
-            "Package 10.5 did not certify equivalence.";
+            "The equivalence workflow did not establish exact output equivalence.";
 
         Finish(
             run
@@ -1183,7 +1183,7 @@ public static class TerrainRuntimeEquivalenceScenarioRunner
             "";
 
         run.result.SummaryMessage =
-            message ?? "Package 10.5 validation was cancelled.";
+            message ?? "Equivalence validation was cancelled.";
 
         run.result.FinalReadiness =
             TerrainRuntimeReadinessUtility
@@ -1215,7 +1215,7 @@ public static class TerrainRuntimeEquivalenceScenarioRunner
             "";
 
         run.result.SummaryMessage =
-            message ?? "Package 10.5 comparison source identity changed.";
+            message ?? "Equivalence comparison source identity changed.";
 
         run.result.FinalReadiness =
             TerrainRuntimeReadinessUtility
@@ -1290,7 +1290,7 @@ public static class TerrainRuntimeEquivalenceScenarioRunner
             message ?? "";
 
         result.SummaryMessage =
-            "Package 10.5 validation did not run.";
+            "Equivalence validation did not run.";
 
         return result;
     }

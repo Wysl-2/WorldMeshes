@@ -37,6 +37,12 @@ public partial class WorldMeshesEditorWindow :
     private TerrainValidationSuiteRunner
         stampValidationRunner;
 
+    private TerrainValidationSuiteRunner
+        runtimeOutputValidationRunner;
+
+    private TerrainValidationRunSummary runtimeCollisionPhysicsSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
     private bool authoringStreamingStressCaptureActive;
     private long authoringStreamingStressBaselineCreateCount;
     private long authoringStreamingStressBaselineDisposeCount;
@@ -91,101 +97,96 @@ public partial class WorldMeshesEditorWindow :
         }
 
         GUILayout.Space(5f);
-        DrawRuntimeHeightRangeMetadataValidation();
 
-        EditorGUILayout.HelpBox(
-            "Additional generated-output regression validation will be presented here as the existing runtime output validators are consolidated.",
-            MessageType.None
+        DrawValidationSuite(
+            "Runtime Output Validation",
+            "Run Runtime Output Validation",
+            GetRuntimeOutputValidationRunner(),
+            "Runs explicit deep generated-output checks for height content, the streaming pyramid, physical height-range metadata, composed runtime height, collision seams, and clipmap geometry. These checks can scan large generated datasets and only run when requested.",
+            TerrainRuntimeBakePipeline.IsRunning
+                || TerrainSurfaceMaskCompiler.IsGenerating
+                || EditorApplication.isCompiling
+                || EditorApplication.isUpdating
         );
+
+        DrawWorkspaceSectionGap();
+        DrawRuntimeCollisionPhysicsValidation();
     }
 
-    private void DrawRuntimeHeightRangeMetadataValidation()
+    private void DrawRuntimeCollisionPhysicsValidation()
     {
-        TerrainHeightmapManifest manifest =
-            AssetDatabase.LoadAssetAtPath<TerrainHeightmapManifest>(
-                TerrainRuntimeHeightAssetUtility.HeightmapManifestPath
-            );
-
         GUILayout.BeginVertical(
             EditorStyles.helpBox,
             GUILayout.ExpandWidth(true)
         );
 
         GUILayout.Label(
-            "Runtime Height Range Metadata",
+            "Runtime Collision Physics",
             EditorStyles.boldLabel
         );
 
-        if (manifest == null)
-        {
-            EditorGUILayout.LabelField(
-                "Manifest",
-                "Not Generated"
-            );
-        }
-        else
-        {
-            EditorGUILayout.LabelField(
-                "Manifest Complete",
-                manifest.isComplete ? "Yes" : "No"
-            );
+        DrawValidationRunSummary(
+            runtimeCollisionPhysicsSummary
+        );
 
-            EditorGUILayout.LabelField(
-                "Expected Range Records",
-                manifest.ExpectedTileHeightRangeCount.ToString("N0")
-            );
+        EditorGUILayout.HelpBox(
+            "Runs the existing collision physics, raycast, transform, and runtime seam checks against the live generated hierarchy. This validation is available only in Play Mode.",
+            MessageType.None
+        );
 
-            EditorGUILayout.LabelField(
-                "Stored Range Records",
-                manifest.TileHeightRangeCount.ToString("N0")
-            );
-
-            EditorGUILayout.LabelField(
-                "Valid Range Records",
-                manifest.ValidTileHeightRangeCount.ToString("N0")
-            );
-
-            if (manifest.HasValidHeightRange)
-            {
-                EditorGUILayout.LabelField(
-                    "Global Range",
-                    manifest.minimumTerrainHeight.ToString("R") +
-                    " -> " +
-                    manifest.maximumTerrainHeight.ToString("R")
-                );
-            }
-        }
-
-        GUILayout.Space(5f);
-
-        bool validationDisabled =
-            worldSettings == null
-            || TerrainRuntimeBakePipeline.IsRunning
-            || TerrainSurfaceMaskCompiler.IsGenerating
-            || EditorApplication.isPlayingOrWillChangePlaymode;
-
-        EditorGUI.BeginDisabledGroup(validationDisabled);
+        EditorGUI.BeginDisabledGroup(
+            !EditorApplication.isPlaying
+            || worldSettings == null
+            || IsValidationSuiteRunning()
+        );
 
         if (
             GUILayout.Button(
-                "Validate Runtime Height Range Metadata",
+                "Validate Runtime Collision Physics",
                 GUILayout.ExpandWidth(true)
             )
         )
         {
-            TerrainRuntimeHeightRangeMetadataValidator.Validate(
-                worldSettings,
-                true
-            );
+            runtimeCollisionPhysicsSummary =
+                TerrainValidationRunSummary.CreateRunning(
+                    "Runtime Collision Physics is running."
+                );
+
+            try
+            {
+                bool passed =
+                    TerrainCollisionPhysicsValidator
+                        .ValidateRuntimeCollisionPhysics(
+                            worldSettings
+                        );
+
+                runtimeCollisionPhysicsSummary =
+                    TerrainValidationRunSummary.CreateCompleted(
+                        passed ? 1 : 0,
+                        passed ? 0 : 1,
+                        0,
+                        passed
+                            ? "Runtime Collision Physics passed."
+                            : "Runtime Collision Physics failed. See the Unity Console for details."
+                    );
+            }
+            catch (System.Exception exception)
+            {
+                Debug.LogException(exception);
+
+                runtimeCollisionPhysicsSummary =
+                    TerrainValidationRunSummary.CreateCompleted(
+                        0,
+                        1,
+                        0,
+                        "Runtime Collision Physics failed with an exception.\n\n" + exception
+                    );
+            }
+
+            Repaint();
         }
 
         EditorGUI.EndDisabledGroup();
-
-        EditorGUILayout.HelpBox(
-            "This explicit output-integrity check compares runtime height-range metadata against the physical generated height textures. It can scan every runtime height tile and only runs when requested.",
-            MessageType.None
-        );
-
         GUILayout.EndVertical();
     }
 
@@ -288,11 +289,24 @@ public partial class WorldMeshesEditorWindow :
         return stampValidationRunner;
     }
 
+    private TerrainValidationSuiteRunner
+        GetRuntimeOutputValidationRunner()
+    {
+        if (runtimeOutputValidationRunner == null)
+        {
+            runtimeOutputValidationRunner =
+                TerrainRuntimeOutputValidationSuite.CreateRunner();
+        }
+
+        return runtimeOutputValidationRunner;
+    }
+
     private void DrawValidationSuite(
         string title,
         string buttonLabel,
         TerrainValidationSuiteRunner suiteRunner,
-        string description
+        string description,
+        bool runDisabled = false
     )
     {
         GUILayout.BeginVertical(
@@ -312,7 +326,8 @@ public partial class WorldMeshesEditorWindow :
         GUILayout.Space(5f);
 
         EditorGUI.BeginDisabledGroup(
-            IsValidationSuiteRunning()
+            runDisabled
+            || IsValidationSuiteRunning()
             || Application.isPlaying
             || EditorApplication.isPlayingOrWillChangePlaymode
         );
@@ -457,7 +472,10 @@ public partial class WorldMeshesEditorWindow :
                 && regionalElevationValidationRunner.IsRunning)
             ||
             (stampValidationRunner != null
-                && stampValidationRunner.IsRunning);
+                && stampValidationRunner.IsRunning)
+            ||
+            (runtimeOutputValidationRunner != null
+                && runtimeOutputValidationRunner.IsRunning);
     }
 
     private void DrawManualAuthoringStreamingStress()

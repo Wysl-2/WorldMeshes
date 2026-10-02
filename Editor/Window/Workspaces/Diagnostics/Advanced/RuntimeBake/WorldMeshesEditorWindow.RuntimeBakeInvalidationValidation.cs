@@ -21,8 +21,25 @@ public partial class WorldMeshesEditorWindow :
 
     private string invalidationValidationUiMessage = "";
 
-    private void DrawRuntimeInvalidationValidationDiagnostics()
+    [SerializeField]
+    private bool showRuntimeBakeInvalidationValidation;
+
+    private void DrawRuntimeBakeInvalidationValidation()
     {
+        showRuntimeBakeInvalidationValidation =
+            EditorGUILayout.Foldout(
+                showRuntimeBakeInvalidationValidation,
+                "Invalidation",
+                true
+            );
+
+        if (!showRuntimeBakeInvalidationValidation)
+        {
+            return;
+        }
+
+        GUILayout.Space(5f);
+
         GUILayout.BeginVertical(
             EditorStyles.helpBox
         );
@@ -33,7 +50,7 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.HelpBox(
-            "Package 10.3 derives expected authoring footprints independently from the runtime bake planner, expands downstream dependencies through Package 02 utilities, then compares persistent bake state and the current TerrainRuntimeBakePlan.",
+            "Derives expected authoring footprints independently from the Runtime Bake planner, expands downstream Runtime output dependencies, then compares persistent bake state and the current TerrainRuntimeBakePlan.",
             MessageType.Info
         );
 
@@ -106,7 +123,7 @@ public partial class WorldMeshesEditorWindow :
 
             if (
                 GUILayout.Button(
-                    "Bake Current Invalidation + Package 10.1 Validate"
+                    "Bake Current Invalidation + Validate Execution"
                 )
             )
             {
@@ -129,7 +146,7 @@ public partial class WorldMeshesEditorWindow :
                 if (!started)
                 {
                     invalidationValidationUiMessage =
-                        "The Package 10.1 validation bake could not start.";
+                        "Runtime Bake execution validation could not start.";
                 }
             }
 

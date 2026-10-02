@@ -844,7 +844,7 @@ public sealed class TerrainRuntimeEquivalenceValidationResult
 
     public TerrainRuntimeReadinessResult FinalReadiness { get; internal set; }
 
-    public bool FullExecutionCertified { get; internal set; }
+    public bool FullExecutionValid { get; internal set; }
 
     public IReadOnlyList<string> SourceIdentityDifferences =>
         sourceIdentityDifferences;
@@ -968,8 +968,8 @@ public sealed class TerrainRuntimeEquivalenceValidationResult
         )
         {
             builder.AppendLine(
-                "  Full Execution Certified: " +
-                FullExecutionCertified
+                "  Full Execution Valid: " +
+                FullExecutionValid
             );
         }
 
@@ -3042,7 +3042,7 @@ public static class TerrainRuntimeEquivalenceValidationUtility
             );
     }
 
-    public static bool IsFullExecutionCertified(
+    public static bool IsFullExecutionValid(
         TerrainRuntimeBakeValidationResult validation
     )
     {
@@ -3060,13 +3060,13 @@ public static class TerrainRuntimeEquivalenceValidationUtility
         }
 
         return
-            IsFullStageCertified(
+            IsFullStageValid(
                 validation.HeightValidation
             )
-            && IsFullStageCertified(
+            && IsFullStageValid(
                 validation.SurfaceValidation
             )
-            && IsFullStageCertified(
+            && IsFullStageValid(
                 validation.CollisionValidation
             );
     }
@@ -3495,7 +3495,7 @@ public static class TerrainRuntimeEquivalenceValidationUtility
         return true;
     }
 
-    private static bool IsFullStageCertified(
+    private static bool IsFullStageValid(
         TerrainRuntimeBakeStageValidationResult stage
     )
     {

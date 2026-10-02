@@ -13,18 +13,6 @@ public partial class WorldMeshesEditorWindow :
     [SerializeField]
     private bool showAdvancedLiveStampValidation;
 
-    [SerializeField]
-    private bool showRuntimeHeightCompositionDiagnostics;
-
-    [SerializeField]
-    private bool showRuntimePipelineValidationDiagnostics;
-
-    [SerializeField]
-    private bool showRuntimePersistenceResumeDiagnostics;
-
-    [SerializeField]
-    private bool showRuntimeInvalidationDiagnostics;
-
     private void DrawAdvancedValidation()
     {
         showAdvancedValidation =
@@ -64,71 +52,23 @@ public partial class WorldMeshesEditorWindow :
 
         GUILayout.Space(5f);
 
-        showRuntimeHeightCompositionDiagnostics =
-            EditorGUILayout.Foldout(
-                showRuntimeHeightCompositionDiagnostics,
-                "Height Composition",
-                true
-            );
-
-        if (showRuntimeHeightCompositionDiagnostics)
-        {
-            GUILayout.Space(5f);
-            DrawRuntimeHeightCompositionValidationSettings();
-        }
+        DrawRuntimeBakeExecutionValidation();
 
         DrawWorkspaceSectionGap();
 
-        showRuntimePipelineValidationDiagnostics =
-            EditorGUILayout.Foldout(
-                showRuntimePipelineValidationDiagnostics,
-                "Runtime Pipeline",
-                true
-            );
-
-        if (showRuntimePipelineValidationDiagnostics)
-        {
-            GUILayout.Space(5f);
-            DrawRuntimePipelineValidationDiagnostics();
-        }
+        DrawRuntimeBakeInvalidationValidation();
 
         DrawWorkspaceSectionGap();
 
-        showRuntimePersistenceResumeDiagnostics =
-            EditorGUILayout.Foldout(
-                showRuntimePersistenceResumeDiagnostics,
-                "Persistence / Resume",
-                true
-            );
-
-        if (showRuntimePersistenceResumeDiagnostics)
-        {
-            GUILayout.Space(5f);
-            DrawRuntimePersistenceResumeValidationDiagnostics();
-        }
+        DrawRuntimeBakePersistenceResumeValidation();
 
         DrawWorkspaceSectionGap();
 
-        showRuntimeInvalidationDiagnostics =
-            EditorGUILayout.Foldout(
-                showRuntimeInvalidationDiagnostics,
-                "Invalidation",
-                true
-            );
-
-        if (showRuntimeInvalidationDiagnostics)
-        {
-            GUILayout.Space(5f);
-            DrawRuntimeInvalidationValidationDiagnostics();
-        }
+        DrawRuntimeBakeFaultRecoveryValidation();
 
         DrawWorkspaceSectionGap();
 
-        DrawRuntimeFaultRecoveryValidationDiagnostics();
-
-        DrawWorkspaceSectionGap();
-
-        DrawRuntimeEquivalenceValidationDiagnostics();
+        DrawRuntimeBakeEquivalenceValidation();
     }
 
     private void DrawAdvancedLiveStampValidation()

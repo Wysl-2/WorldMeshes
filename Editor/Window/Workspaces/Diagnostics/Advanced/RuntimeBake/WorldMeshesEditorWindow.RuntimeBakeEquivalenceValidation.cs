@@ -19,7 +19,7 @@ public partial class WorldMeshesEditorWindow :
     private MessageType runtimeEquivalenceMessageType =
         MessageType.None;
 
-    private void DrawRuntimeEquivalenceValidationDiagnostics()
+    private void DrawRuntimeBakeEquivalenceValidation()
     {
         showRuntimeEquivalenceValidation =
             EditorGUILayout.Foldout(
@@ -39,7 +39,7 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.HelpBox(
-            "Package 10.5 performs a normal smallest-correct runtime bake, fingerprints the COMPLETE generated Height / Surface / Collision dataset, then performs Rebuild All Runtime Data and fingerprints the complete dataset again.\n\nA representative run can be substantially slower than Packages 10.1-10.4 because it intentionally includes a genuine Full rebuild and complete-world fingerprint capture.",
+            "Performs a normal smallest-correct Runtime Bake, fingerprints the complete generated Height / Surface / Collision dataset, then performs Rebuild All Runtime Data and fingerprints the complete dataset again. A representative run can be substantially slower than routine validation because it intentionally includes a genuine Full rebuild and complete-world output comparison.",
             MessageType.Warning
         );
 
@@ -146,7 +146,7 @@ public partial class WorldMeshesEditorWindow :
             if (started)
             {
                 runtimeEquivalenceMessage =
-                    "Package 10.5 equivalence validation started.";
+                    "Incremental / Full Equivalence validation started.";
 
                 runtimeEquivalenceMessageType =
                     MessageType.Info;
@@ -160,7 +160,7 @@ public partial class WorldMeshesEditorWindow :
         GUILayout.Space(5f);
 
         EditorGUILayout.LabelField(
-            "Canonical Workflow Certification",
+            "Additional Equivalence Scenarios",
             EditorStyles.boldLabel
         );
 
@@ -348,7 +348,7 @@ public partial class WorldMeshesEditorWindow :
 
         if (
             GUILayout.Button(
-                "Clear Package 10.5 Validation State",
+                "Clear Equivalence Validation State",
                 GUILayout.ExpandWidth(true)
             )
         )
@@ -396,7 +396,7 @@ public partial class WorldMeshesEditorWindow :
         if (result == null)
         {
             runtimeEquivalenceMessage =
-                "Package 10.5 returned no validation result.";
+                "Incremental / Full Equivalence returned no validation result.";
 
             runtimeEquivalenceMessageType =
                 MessageType.Error;

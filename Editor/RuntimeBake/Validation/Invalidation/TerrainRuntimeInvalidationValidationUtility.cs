@@ -23,13 +23,13 @@ public static class TerrainRuntimeInvalidationValidationUtility
 
         if (TerrainRuntimeBakeValidationUtility.IsValidationBakeRunning)
         {
-            errorMessage = "A Package 10.1 validation bake is already running.";
+            errorMessage = "Runtime Bake execution validation is already running.";
             return false;
         }
 
         if (TerrainRuntimeBakeResumeValidationUtility.IsRunning)
         {
-            errorMessage = "A Package 10.2 resume validation scenario is already running.";
+            errorMessage = "A Persistence / Resume validation scenario is already running.";
             return false;
         }
 
@@ -522,7 +522,7 @@ public static class TerrainRuntimeInvalidationValidationUtility
                 worldSettings,
                 surfaceSettings,
                 height,
-                "Old enabled footprint UNION new enabled footprint, with Package 02 downstream dependency expansion."
+                "Old enabled footprint UNION new enabled footprint, with downstream Runtime output dependency expansion."
             );
 
         return true;

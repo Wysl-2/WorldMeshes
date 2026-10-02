@@ -286,7 +286,6 @@ public sealed class TerrainRuntimeBakeValidationResult
 
     public bool FinalPlanCurrent { get; private set; }
 
-    public TerrainRuntimeOutputFingerprintSnapshot FingerprintSnapshot { get; private set; }
 
     public DateTime CreatedAtUtc { get; private set; }
     public IReadOnlyList<string> WarningMessages => warningMessages;
@@ -305,7 +304,6 @@ public sealed class TerrainRuntimeBakeValidationResult
         TerrainRuntimeAddressablesStageValidationResult addressablesValidation,
         TerrainRuntimeSceneStageValidationResult sceneValidation,
         bool finalPlanCurrent,
-        TerrainRuntimeOutputFingerprintSnapshot fingerprintSnapshot,
         IEnumerable<string> warnings,
         string errorMessage,
         string summaryMessage
@@ -321,7 +319,6 @@ public sealed class TerrainRuntimeBakeValidationResult
         AddressablesValidation = addressablesValidation;
         SceneValidation = sceneValidation;
         FinalPlanCurrent = finalPlanCurrent;
-        FingerprintSnapshot = fingerprintSnapshot;
         CreatedAtUtc = DateTime.UtcNow;
 
         warningMessages = new List<string>(warnings ?? new string[0]).AsReadOnly();

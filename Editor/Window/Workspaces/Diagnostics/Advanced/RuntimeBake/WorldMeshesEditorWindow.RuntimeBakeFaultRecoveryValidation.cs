@@ -19,12 +19,12 @@ public partial class WorldMeshesEditorWindow :
     private MessageType runtimeFaultRecoveryMessageType =
         MessageType.None;
 
-    private void DrawRuntimeFaultRecoveryValidationDiagnostics()
+    private void DrawRuntimeBakeFaultRecoveryValidation()
     {
         showRuntimeFaultRecoveryValidation =
             EditorGUILayout.Foldout(
                 showRuntimeFaultRecoveryValidation,
-                "Fault Recovery Validation",
+                "Fault Recovery",
                 true
             );
 
@@ -160,7 +160,7 @@ public partial class WorldMeshesEditorWindow :
 
         if (
             GUILayout.Button(
-                "Restore Active Fault Without Certification",
+                "Restore Active Fault Directly",
                 GUILayout.ExpandWidth(true)
             )
         )
