@@ -1,14 +1,17 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 /*
  * Runtime metadata for the baked terrain surface-mask tiles.
  *
- * The manifest stores one normalized R8 channel:
+ * The authoritative native dataset stores one normalized R8 channel:
  *
  *     R = final Scree suitability
  *
- * The channel-layout version is explicit so future packed channels can be
- * added without silently reinterpreting old generated assets.
+ * The optional streaming pyramid is a rendering derivative of that native
+ * dataset. Native completeness and streaming completeness are deliberately
+ * independent so derived data can be rebuilt without redefining the
+ * authoritative Surface result.
  */
 public sealed class TerrainSurfaceMaskManifest :
     ScriptableObject
@@ -17,6 +20,9 @@ public sealed class TerrainSurfaceMaskManifest :
         1;
 
     public const int CurrentChannelLayoutVersion =
+        1;
+
+    public const int CurrentStreamingPyramidCompilerVersion =
         1;
 
     public const string SurfaceTileAddressPrefix =
@@ -37,6 +43,266 @@ public sealed class TerrainSurfaceMaskManifest :
 
     public int surfaceMaskGenerationRevision =
         0;
+
+    // =====================================================
+    // STREAMING SURFACE PYRAMID STATE
+    // =====================================================
+
+    public bool streamingPyramidIsComplete =
+        false;
+
+    public int streamingPyramidCompilerVersion =
+        0;
+
+    public int streamingPyramidPolicyVersion =
+        0;
+
+    public int streamingSourceSurfaceMaskGenerationRevision =
+        -1;
+
+    public string streamingSourceSurfaceGenerationSignature =
+        "";
+
+    public int streamingGenerationRevision =
+        0;
+
+    public string streamingGenerationSignature =
+        "";
+
+    [SerializeField]
+    private List<TerrainSurfaceStreamingLevelDescriptor>
+        streamingLevels =
+            new List<TerrainSurfaceStreamingLevelDescriptor>();
+
+    public int StreamingLevelCount =>
+        streamingLevels != null
+            ? streamingLevels.Count
+            : 0;
+
+    public bool TryGetStreamingLevelDescriptor(
+        int sampleStride,
+        out TerrainSurfaceStreamingLevelDescriptor descriptor
+    )
+    {
+        descriptor =
+            default;
+
+        if (
+            sampleStride <= 1
+            ||
+            streamingLevels == null
+        )
+        {
+            return false;
+        }
+
+        for (
+            int index = 0;
+            index < streamingLevels.Count;
+            index++
+        )
+        {
+            TerrainSurfaceStreamingLevelDescriptor candidate =
+                streamingLevels[index];
+
+            if (
+                candidate.SampleStride ==
+                    sampleStride
+            )
+            {
+                descriptor =
+                    candidate;
+
+                return
+                    descriptor
+                        .IsStructurallyValid;
+            }
+        }
+
+        return false;
+    }
+
+    public bool HasStreamingStride(
+        int sampleStride
+    )
+    {
+        return
+            TryGetStreamingLevelDescriptor(
+                sampleStride,
+                out _
+            );
+    }
+
+    public bool TryGetSurfaceRepresentationDescriptor(
+        int sampleStride,
+        out TerrainSurfaceStreamingLevelDescriptor descriptor
+    )
+    {
+        descriptor =
+            default;
+
+        if (sampleStride == 1)
+        {
+            descriptor =
+                TerrainSurfaceStreamingLevelDescriptor
+                    .Create(
+                        1,
+                        sampleSpacing,
+                        samplesPerSide,
+                        tileWorldSize,
+                        tileGridWidth,
+                        tileGridHeight,
+                        TextureFormat.R8
+                    );
+
+            return
+                descriptor
+                    .IsStructurallyValid;
+        }
+
+        return
+            TryGetStreamingLevelDescriptor(
+                sampleStride,
+                out descriptor
+            );
+    }
+
+    public bool TrySetStreamingLevelDescriptors(
+        IReadOnlyList<TerrainSurfaceStreamingLevelDescriptor> descriptors
+    )
+    {
+        if (descriptors == null)
+        {
+            return false;
+        }
+
+        int previousStride =
+            1;
+
+        for (
+            int index = 0;
+            index < descriptors.Count;
+            index++
+        )
+        {
+            TerrainSurfaceStreamingLevelDescriptor descriptor =
+                descriptors[index];
+
+            if (
+                !IsStreamingDescriptorCompatible(
+                    descriptor,
+                    previousStride
+                )
+            )
+            {
+                return false;
+            }
+
+            previousStride =
+                descriptor.SampleStride;
+        }
+
+        if (streamingLevels == null)
+        {
+            streamingLevels =
+                new List<TerrainSurfaceStreamingLevelDescriptor>(
+                    descriptors.Count
+                );
+        }
+        else
+        {
+            streamingLevels.Clear();
+
+            if (
+                streamingLevels.Capacity <
+                    descriptors.Count
+            )
+            {
+                streamingLevels.Capacity =
+                    descriptors.Count;
+            }
+        }
+
+        for (
+            int index = 0;
+            index < descriptors.Count;
+            index++
+        )
+        {
+            streamingLevels.Add(
+                descriptors[index]
+            );
+        }
+
+        return true;
+    }
+
+    public void ClearStreamingLevelDescriptors()
+    {
+        if (streamingLevels != null)
+        {
+            streamingLevels.Clear();
+        }
+    }
+
+    private bool IsStreamingDescriptorCompatible(
+        TerrainSurfaceStreamingLevelDescriptor descriptor,
+        int previousStride
+    )
+    {
+        int nativeIntervals =
+            samplesPerSide - 1;
+
+        if (
+            !descriptor.IsStructurallyValid
+            ||
+            !descriptor.IsDerived
+            ||
+            descriptor.SampleStride <=
+                previousStride
+            ||
+            nativeIntervals <= 0
+            ||
+            nativeIntervals %
+                descriptor.SampleStride !=
+                0
+        )
+        {
+            return false;
+        }
+
+        int expectedSamplesPerSide =
+            nativeIntervals /
+                descriptor.SampleStride +
+            1;
+
+        float expectedSpacing =
+            sampleSpacing *
+            descriptor.SampleStride;
+
+        return
+            descriptor.SamplesPerSide ==
+                expectedSamplesPerSide
+            &&
+            Mathf.Approximately(
+                descriptor.SampleSpacing,
+                expectedSpacing
+            )
+            &&
+            Mathf.Approximately(
+                descriptor.TileWorldSize,
+                tileWorldSize
+            )
+            &&
+            descriptor.TileGridWidth ==
+                tileGridWidth
+            &&
+            descriptor.TileGridHeight ==
+                tileGridHeight
+            &&
+            descriptor.TextureFormat ==
+                TextureFormat.R8;
+    }
 
     // =====================================================
     // SOURCE HEIGHTMAP STATE

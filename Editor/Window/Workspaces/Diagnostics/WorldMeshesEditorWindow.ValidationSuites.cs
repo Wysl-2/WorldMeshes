@@ -43,6 +43,9 @@ public partial class WorldMeshesEditorWindow :
     private TerrainRuntimeStreamingValidationSession
         runtimeStreamingValidationSession;
 
+    private TerrainValidationRunSummary surfaceStreamingPyramidSummary =
+        TerrainValidationRunSummary.CreateNotRun();
+
     private TerrainValidationRunSummary runtimeCollisionPhysicsSummary =
         TerrainValidationRunSummary.CreateNotRun();
 
@@ -113,7 +116,95 @@ public partial class WorldMeshesEditorWindow :
         );
 
         DrawWorkspaceSectionGap();
+        DrawSurfaceStreamingPyramidValidation();
+
+        DrawWorkspaceSectionGap();
         DrawRuntimeCollisionPhysicsValidation();
+    }
+
+    private void DrawSurfaceStreamingPyramidValidation()
+    {
+        GUILayout.BeginVertical(
+            EditorStyles.helpBox,
+            GUILayout.ExpandWidth(true)
+        );
+
+        GUILayout.Label(
+            "Surface Streaming Pyramid",
+            EditorStyles.boldLabel
+        );
+
+        DrawValidationRunSummary(
+            surfaceStreamingPyramidSummary
+        );
+
+        EditorGUILayout.HelpBox(
+            "Explicitly validates the generated Surface streaming representations against native R8 Surface masks, including descriptor compatibility, exact shared-lattice samples, and derived tile borders.",
+            MessageType.None
+        );
+
+        bool unavailable =
+            worldSettings == null
+            || Application.isPlaying
+            || EditorApplication.isPlayingOrWillChangePlaymode
+            || EditorApplication.isCompiling
+            || EditorApplication.isUpdating
+            || TerrainRuntimeBakePipeline.IsRunning
+            || TerrainSurfaceMaskCompiler.IsGenerating
+            || TerrainRuntimeSurfaceStreamingCompiler.IsGenerating
+            || IsValidationSuiteRunning();
+
+        EditorGUI.BeginDisabledGroup(
+            unavailable
+        );
+
+        if (
+            GUILayout.Button(
+                "Validate Surface Streaming Pyramid",
+                GUILayout.ExpandWidth(true)
+            )
+        )
+        {
+            surfaceStreamingPyramidSummary =
+                TerrainValidationRunSummary.CreateRunning(
+                    "Surface Streaming Pyramid is running."
+                );
+
+            try
+            {
+                bool passed =
+                    TerrainSurfaceStreamingPyramidValidator.Validate(
+                        worldSettings
+                    );
+
+                surfaceStreamingPyramidSummary =
+                    TerrainValidationRunSummary.CreateCompleted(
+                        passed ? 1 : 0,
+                        passed ? 0 : 1,
+                        0,
+                        passed
+                            ? "Surface Streaming Pyramid passed."
+                            : "Surface Streaming Pyramid failed. See the Unity Console for details."
+                    );
+            }
+            catch (System.Exception exception)
+            {
+                Debug.LogException(exception);
+
+                surfaceStreamingPyramidSummary =
+                    TerrainValidationRunSummary.CreateCompleted(
+                        0,
+                        1,
+                        0,
+                        "Surface Streaming Pyramid failed with an exception.\n\n" + exception
+                    );
+            }
+
+            Repaint();
+        }
+
+        EditorGUI.EndDisabledGroup();
+        GUILayout.EndVertical();
     }
 
     private void DrawRuntimeCollisionPhysicsValidation()

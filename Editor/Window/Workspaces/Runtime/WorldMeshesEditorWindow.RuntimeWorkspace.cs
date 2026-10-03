@@ -1540,6 +1540,39 @@ public partial class WorldMeshesEditorWindow :
             }
         }
 
+        EditorGUI.BeginDisabledGroup(
+            surfaceStatus !=
+                TerrainGenerationStateUtility.GenerationStatus.Current
+        );
+
+        if (
+            GUILayout.Button(
+                "Rebuild Surface Streaming",
+                GUILayout.ExpandWidth(true)
+            )
+        )
+        {
+            if (
+                ConfirmAdvancedRebuild(
+                    "Rebuild Surface Streaming?",
+                    "This will regenerate every derived runtime Surface streaming representation from the current native Surface masks."
+                )
+            )
+            {
+                TerrainRuntimeSurfaceStreamingCompileResult result =
+                    TerrainRuntimeSurfaceStreamingCompiler
+                        .RebuildAllSurfaceStreaming(
+                            worldSettings
+                        );
+
+                LogAdvancedSurfaceStreamingResult(
+                    result
+                );
+            }
+        }
+
+        EditorGUI.EndDisabledGroup();
+
         if (
             GUILayout.Button(
                 "Rebuild Collision Meshes",
@@ -1730,6 +1763,8 @@ public partial class WorldMeshesEditorWindow :
             ||
             TerrainSurfaceMaskCompiler.IsGenerating
             ||
+            TerrainRuntimeSurfaceStreamingCompiler.IsGenerating
+            ||
             EditorApplication.isPlayingOrWillChangePlaymode;
     }
 
@@ -1745,6 +1780,12 @@ public partial class WorldMeshesEditorWindow :
         {
             return
                 "Advanced runtime mutations are disabled while Surface Mask generation is running.";
+        }
+
+        if (TerrainRuntimeSurfaceStreamingCompiler.IsGenerating)
+        {
+            return
+                "Advanced runtime mutations are disabled while Surface Streaming generation is running.";
         }
 
         if (
@@ -2148,6 +2189,44 @@ public partial class WorldMeshesEditorWindow :
         );
 
         Repaint();
+    }
+
+    private void LogAdvancedSurfaceStreamingResult(
+        TerrainRuntimeSurfaceStreamingCompileResult result
+    )
+    {
+        if (result == null)
+        {
+            SetAdvancedRuntimeMessage(
+                "Surface Streaming rebuild returned no result.",
+                MessageType.Error
+            );
+
+            return;
+        }
+
+        Debug.Log(
+            result.BuildDiagnosticReport()
+        );
+
+        bool success =
+            result.Outcome ==
+                TerrainRuntimeSurfaceStreamingCompileOutcome.Completed;
+
+        MessageType messageType =
+            success
+                ? MessageType.Info
+                : result.Outcome == TerrainRuntimeSurfaceStreamingCompileOutcome.Cancelled
+                    || result.Outcome == TerrainRuntimeSurfaceStreamingCompileOutcome.Blocked
+                        ? MessageType.Warning
+                        : MessageType.Error;
+
+        SetAdvancedRuntimeMessage(
+            success
+                ? "Full runtime Surface Streaming rebuild completed."
+                : "Full runtime Surface Streaming rebuild did not complete. See the Console for details.",
+            messageType
+        );
     }
 
     private void LogAdvancedCollisionResult(

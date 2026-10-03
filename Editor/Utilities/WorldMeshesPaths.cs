@@ -143,6 +143,10 @@ public static class WorldMeshesPaths
         GeneratedSurfaceMasks +
         "/Tiles";
 
+    public const string SurfaceMaskStreaming =
+        GeneratedSurfaceMasks +
+        "/Streaming";
+
     public const string SurfaceMaskManifestAssetPath =
         GeneratedSurfaceMasks +
         "/SurfaceMaskManifest.asset";

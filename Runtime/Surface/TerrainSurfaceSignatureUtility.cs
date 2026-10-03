@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -140,6 +141,73 @@ public static class TerrainSurfaceSignatureUtility
             builder,
             surfaceSettingsSignature
         );
+
+        return
+            ComputeSHA256(
+                builder.ToString()
+            );
+    }
+
+    public static string GetStreamingGenerationSignature(
+        int compilerVersion,
+        int policyVersion,
+        int sourceSurfaceMaskGenerationRevision,
+        string sourceSurfaceGenerationSignature,
+        TerrainSurfaceMaskManifest manifest,
+        IReadOnlyList<TerrainSurfaceStreamingLevelDescriptor> descriptors
+    )
+    {
+        if (
+            sourceSurfaceMaskGenerationRevision <= 0
+            || string.IsNullOrEmpty(sourceSurfaceGenerationSignature)
+            || manifest == null
+            || !manifest.isComplete
+            || descriptors == null
+        )
+        {
+            return "";
+        }
+
+        StringBuilder builder =
+            new StringBuilder();
+
+        builder.Append(
+            "TerrainSurfaceStreamingPyramid"
+        );
+
+        AppendValue(builder, compilerVersion);
+        AppendValue(builder, policyVersion);
+        AppendValue(builder, sourceSurfaceMaskGenerationRevision);
+        AppendValue(builder, sourceSurfaceGenerationSignature);
+        AppendValue(builder, manifest.samplesPerSide);
+        AppendValue(builder, manifest.sampleSpacing);
+        AppendValue(builder, manifest.tileWorldSize);
+        AppendValue(builder, manifest.tileGridWidth);
+        AppendValue(builder, manifest.tileGridHeight);
+        AppendValue(builder, (int)UnityEngine.TextureFormat.R8);
+        AppendValue(builder, descriptors.Count);
+
+        for (
+            int index = 0;
+            index < descriptors.Count;
+            index++
+        )
+        {
+            TerrainSurfaceStreamingLevelDescriptor descriptor =
+                descriptors[index];
+
+            if (
+                !descriptor.IsStructurallyValid
+                || !descriptor.IsDerived
+            )
+            {
+                return "";
+            }
+
+            AppendValue(builder, descriptor.SampleStride);
+            AppendValue(builder, descriptor.SamplesPerSide);
+            AppendValue(builder, descriptor.SampleSpacing);
+        }
 
         return
             ComputeSHA256(
