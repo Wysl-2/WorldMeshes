@@ -35,6 +35,14 @@ public sealed class TerrainRuntimeBakeStateMutation
             new HashSet<Vector2Int>();
 
     private readonly HashSet<Vector2Int>
+        surfaceStreamingTilesToAdd =
+            new HashSet<Vector2Int>();
+
+    private readonly HashSet<Vector2Int>
+        surfaceStreamingTilesToRemove =
+            new HashSet<Vector2Int>();
+
+    private readonly HashSet<Vector2Int>
         collisionChunksToAdd =
             new HashSet<Vector2Int>();
 
@@ -60,6 +68,12 @@ public sealed class TerrainRuntimeBakeStateMutation
     internal IEnumerable<Vector2Int> SurfaceTilesToRemove =>
         surfaceTilesToRemove;
 
+    internal IEnumerable<Vector2Int> SurfaceStreamingTilesToAdd =>
+        surfaceStreamingTilesToAdd;
+
+    internal IEnumerable<Vector2Int> SurfaceStreamingTilesToRemove =>
+        surfaceStreamingTilesToRemove;
+
     internal IEnumerable<Vector2Int> CollisionChunksToAdd =>
         collisionChunksToAdd;
 
@@ -79,6 +93,12 @@ public sealed class TerrainRuntimeBakeStateMutation
     }
 
     internal bool ClearAllSurfaceTilesRequested
+    {
+        get;
+        private set;
+    }
+
+    internal bool ClearAllSurfaceStreamingTilesRequested
     {
         get;
         private set;
@@ -121,6 +141,18 @@ public sealed class TerrainRuntimeBakeStateMutation
     }
 
     internal bool ClearFullSurfaceRebuildRequired
+    {
+        get;
+        private set;
+    }
+
+    internal bool RequireFullSurfaceStreamingRebuild
+    {
+        get;
+        private set;
+    }
+
+    internal bool ClearFullSurfaceStreamingRebuildRequired
     {
         get;
         private set;
@@ -264,6 +296,38 @@ public sealed class TerrainRuntimeBakeStateMutation
         return this;
     }
 
+    public TerrainRuntimeBakeStateMutation AddSurfaceStreamingTiles(
+        IEnumerable<Vector2Int> coordinates
+    )
+    {
+        AddCoordinates(
+            surfaceStreamingTilesToAdd,
+            coordinates
+        );
+
+        return this;
+    }
+
+    public TerrainRuntimeBakeStateMutation RemoveSurfaceStreamingTiles(
+        IEnumerable<Vector2Int> coordinates
+    )
+    {
+        AddCoordinates(
+            surfaceStreamingTilesToRemove,
+            coordinates
+        );
+
+        return this;
+    }
+
+    public TerrainRuntimeBakeStateMutation ClearAllSurfaceStreamingTiles()
+    {
+        ClearAllSurfaceStreamingTilesRequested =
+            true;
+
+        return this;
+    }
+
     public TerrainRuntimeBakeStateMutation AddCollisionChunks(
         IEnumerable<Vector2Int> coordinates
     )
@@ -339,6 +403,22 @@ public sealed class TerrainRuntimeBakeStateMutation
     public TerrainRuntimeBakeStateMutation ClearFullSurface()
     {
         ClearFullSurfaceRebuildRequired =
+            true;
+
+        return this;
+    }
+
+    public TerrainRuntimeBakeStateMutation RequireFullSurfaceStreaming()
+    {
+        RequireFullSurfaceStreamingRebuild =
+            true;
+
+        return this;
+    }
+
+    public TerrainRuntimeBakeStateMutation ClearFullSurfaceStreaming()
+    {
+        ClearFullSurfaceStreamingRebuildRequired =
             true;
 
         return this;

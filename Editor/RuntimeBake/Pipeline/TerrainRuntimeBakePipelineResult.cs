@@ -17,6 +17,7 @@ public enum TerrainRuntimeBakePipelineState
     Heightmaps,
     HeightStreaming,
     SurfaceMasks,
+    SurfaceStreaming,
     Collision,
     Addressables,
     SceneSync,
@@ -52,6 +53,7 @@ public sealed class TerrainRuntimeBakePipelineResult
     public TerrainRuntimeBakePlan HeightPlan { get; private set; }
     public TerrainRuntimeBakePlan HeightStreamingPlan { get; private set; }
     public TerrainRuntimeBakePlan SurfacePlan { get; private set; }
+    public TerrainRuntimeBakePlan SurfaceStreamingPlan { get; private set; }
     public TerrainRuntimeBakePlan CollisionPlan { get; private set; }
     public TerrainRuntimeBakePlan AddressablesPlan { get; private set; }
     public TerrainRuntimeBakePlan SceneSyncPlan { get; private set; }
@@ -61,6 +63,7 @@ public sealed class TerrainRuntimeBakePipelineResult
     public bool HeightStageExecuted { get; private set; }
     public bool HeightStreamingStageExecuted { get; private set; }
     public bool SurfaceStageExecuted { get; private set; }
+    public bool SurfaceStreamingStageExecuted { get; private set; }
     public bool CollisionStageExecuted { get; private set; }
     public bool AddressablesStageExecuted { get; private set; }
     public bool SceneSyncStageExecuted { get; private set; }
@@ -68,6 +71,7 @@ public sealed class TerrainRuntimeBakePipelineResult
     public TerrainRuntimeHeightCompileResult HeightResult { get; private set; }
     public TerrainRuntimeHeightStreamingCompileResult HeightStreamingResult { get; private set; }
     public TerrainSurfaceMaskGenerationResult SurfaceResult { get; private set; }
+    public TerrainRuntimeSurfaceStreamingCompileResult SurfaceStreamingResult { get; private set; }
     public TerrainCollisionGenerationResult CollisionResult { get; private set; }
     public TerrainRuntimeAddressablesResult AddressablesResult { get; private set; }
     public TerrainRuntimeSceneSynchronizationResult SceneSyncResult { get; private set; }
@@ -77,6 +81,7 @@ public sealed class TerrainRuntimeBakePipelineResult
     public double HeightDurationSeconds { get; private set; }
     public double HeightStreamingDurationSeconds { get; private set; }
     public double SurfaceDurationSeconds { get; private set; }
+    public double SurfaceStreamingDurationSeconds { get; private set; }
     public double CollisionDurationSeconds { get; private set; }
     public double AddressablesDurationSeconds { get; private set; }
     public double SceneSyncDurationSeconds { get; private set; }
@@ -98,6 +103,7 @@ public sealed class TerrainRuntimeBakePipelineResult
         TerrainRuntimeBakePlan heightPlan,
         TerrainRuntimeBakePlan heightStreamingPlan,
         TerrainRuntimeBakePlan surfacePlan,
+        TerrainRuntimeBakePlan surfaceStreamingPlan,
         TerrainRuntimeBakePlan collisionPlan,
         TerrainRuntimeBakePlan addressablesPlan,
         TerrainRuntimeBakePlan sceneSyncPlan,
@@ -105,12 +111,14 @@ public sealed class TerrainRuntimeBakePipelineResult
         bool heightStageExecuted,
         bool heightStreamingStageExecuted,
         bool surfaceStageExecuted,
+        bool surfaceStreamingStageExecuted,
         bool collisionStageExecuted,
         bool addressablesStageExecuted,
         bool sceneSyncStageExecuted,
         TerrainRuntimeHeightCompileResult heightResult,
         TerrainRuntimeHeightStreamingCompileResult heightStreamingResult,
         TerrainSurfaceMaskGenerationResult surfaceResult,
+        TerrainRuntimeSurfaceStreamingCompileResult surfaceStreamingResult,
         TerrainCollisionGenerationResult collisionResult,
         TerrainRuntimeAddressablesResult addressablesResult,
         TerrainRuntimeSceneSynchronizationResult sceneSyncResult,
@@ -118,6 +126,7 @@ public sealed class TerrainRuntimeBakePipelineResult
         double heightDurationSeconds,
         double heightStreamingDurationSeconds,
         double surfaceDurationSeconds,
+        double surfaceStreamingDurationSeconds,
         double collisionDurationSeconds,
         double addressablesDurationSeconds,
         double sceneSyncDurationSeconds,
@@ -138,6 +147,7 @@ public sealed class TerrainRuntimeBakePipelineResult
         HeightPlan = heightPlan;
         HeightStreamingPlan = heightStreamingPlan;
         SurfacePlan = surfacePlan;
+        SurfaceStreamingPlan = surfaceStreamingPlan;
         CollisionPlan = collisionPlan;
         AddressablesPlan = addressablesPlan;
         SceneSyncPlan = sceneSyncPlan;
@@ -146,6 +156,7 @@ public sealed class TerrainRuntimeBakePipelineResult
         HeightStageExecuted = heightStageExecuted;
         HeightStreamingStageExecuted = heightStreamingStageExecuted;
         SurfaceStageExecuted = surfaceStageExecuted;
+        SurfaceStreamingStageExecuted = surfaceStreamingStageExecuted;
         CollisionStageExecuted = collisionStageExecuted;
         AddressablesStageExecuted = addressablesStageExecuted;
         SceneSyncStageExecuted = sceneSyncStageExecuted;
@@ -153,6 +164,7 @@ public sealed class TerrainRuntimeBakePipelineResult
         HeightResult = heightResult;
         HeightStreamingResult = heightStreamingResult;
         SurfaceResult = surfaceResult;
+        SurfaceStreamingResult = surfaceStreamingResult;
         CollisionResult = collisionResult;
         AddressablesResult = addressablesResult;
         SceneSyncResult = sceneSyncResult;
@@ -162,6 +174,7 @@ public sealed class TerrainRuntimeBakePipelineResult
         HeightDurationSeconds = Math.Max(0d, heightDurationSeconds);
         HeightStreamingDurationSeconds = Math.Max(0d, heightStreamingDurationSeconds);
         SurfaceDurationSeconds = Math.Max(0d, surfaceDurationSeconds);
+        SurfaceStreamingDurationSeconds = Math.Max(0d, surfaceStreamingDurationSeconds);
         CollisionDurationSeconds = Math.Max(0d, collisionDurationSeconds);
         AddressablesDurationSeconds = Math.Max(0d, addressablesDurationSeconds);
         SceneSyncDurationSeconds = Math.Max(0d, sceneSyncDurationSeconds);
@@ -215,6 +228,7 @@ public sealed class TerrainRuntimeBakePipelineResult
         AppendHeightSummary(builder);
         AppendHeightStreamingSummary(builder);
         AppendSurfaceSummary(builder);
+        AppendSurfaceStreamingSummary(builder);
         AppendCollisionSummary(builder);
         AppendAddressablesSummary(builder);
         AppendSceneSummary(builder);
@@ -224,6 +238,7 @@ public sealed class TerrainRuntimeBakePipelineResult
         builder.AppendLine("  Heightmaps: " + HeightDurationSeconds.ToString("0.00") + " seconds");
         builder.AppendLine("  Height Streaming: " + HeightStreamingDurationSeconds.ToString("0.00") + " seconds");
         builder.AppendLine("  Surface Masks: " + SurfaceDurationSeconds.ToString("0.00") + " seconds");
+        builder.AppendLine("  Surface Streaming: " + SurfaceStreamingDurationSeconds.ToString("0.00") + " seconds");
         builder.AppendLine("  Collision: " + CollisionDurationSeconds.ToString("0.00") + " seconds");
         builder.AppendLine("  Addressables: " + AddressablesDurationSeconds.ToString("0.00") + " seconds");
         builder.AppendLine("  Scene Sync: " + SceneSyncDurationSeconds.ToString("0.00") + " seconds");
@@ -278,6 +293,11 @@ public sealed class TerrainRuntimeBakePipelineResult
 
         builder.Append(
             "Surface " + plan.SurfaceWorkMode + " (" + plan.SurfaceTileCount + " tiles), "
+        );
+
+        builder.Append(
+            "Surface Streaming " + plan.SurfaceStreamingWorkMode + " (" +
+            plan.SurfaceStreamingTileCount + " tile families), "
         );
 
         builder.Append(
@@ -359,6 +379,28 @@ public sealed class TerrainRuntimeBakePipelineResult
         builder.AppendLine(
             "Surface: " + SurfaceResult.Outcome + ", " + SurfaceResult.WorkMode + ", " +
             SurfaceResult.SucceededTileCount + " / " + SurfaceResult.RequestedTileCount + " tiles"
+        );
+    }
+
+    private void AppendSurfaceStreamingSummary(StringBuilder builder)
+    {
+        if (!SurfaceStreamingStageExecuted)
+        {
+            builder.AppendLine("Surface Streaming: Skipped");
+            return;
+        }
+
+        if (SurfaceStreamingResult == null)
+        {
+            builder.AppendLine("Surface Streaming: No result");
+            return;
+        }
+
+        builder.AppendLine(
+            "Surface Streaming: " + SurfaceStreamingResult.Outcome + ", " +
+            SurfaceStreamingResult.WorkMode + ", " +
+            SurfaceStreamingResult.CompletedFamilyCount + " / " +
+            SurfaceStreamingResult.RequestedFamilyCount + " tile families"
         );
     }
 

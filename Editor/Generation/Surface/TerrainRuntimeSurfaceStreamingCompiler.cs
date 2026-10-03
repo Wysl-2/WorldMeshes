@@ -17,34 +17,162 @@ public static class TerrainRuntimeSurfaceStreamingCompiler
         WorldSettings worldSettings
     )
     {
+        return CompileInternal(
+            worldSettings,
+            TerrainRuntimeBakeWorkMode.Full,
+            null,
+            null,
+            false
+        );
+    }
+
+    public static TerrainRuntimeSurfaceStreamingCompileResult CompileFullSurfaceStreamingWork(
+        WorldSettings worldSettings
+    )
+    {
+        return CompileInternal(
+            worldSettings,
+            TerrainRuntimeBakeWorkMode.Full,
+            null,
+            null,
+            true
+        );
+    }
+
+    public static TerrainRuntimeSurfaceStreamingCompileResult CompilePlannedSurfaceStreamingWork(
+        WorldSettings worldSettings,
+        TerrainRuntimeBakePlan plan
+    )
+    {
+        TerrainSurfaceMaskManifest manifest =
+            LoadManifest();
+
+        int revision =
+            manifest != null
+                ? Mathf.Max(0, manifest.streamingGenerationRevision)
+                : 0;
+
+        if (plan == null)
+        {
+            return CreateTerminalResult(
+                TerrainRuntimeSurfaceStreamingCompileOutcome.Failed,
+                TerrainRuntimeBakeWorkMode.None,
+                revision,
+                "Surface Streaming compilation received a null bake plan."
+            );
+        }
+
+        if (plan.IsBlocked)
+        {
+            return CreateTerminalResult(
+                TerrainRuntimeSurfaceStreamingCompileOutcome.Blocked,
+                plan.SurfaceStreamingWorkMode,
+                revision,
+                string.IsNullOrEmpty(plan.BlockReason)
+                    ? "The runtime bake plan is blocked."
+                    : plan.BlockReason
+            );
+        }
+
+        if (
+            plan.SurfaceStreamingWorkMode ==
+                TerrainRuntimeBakeWorkMode.None
+        )
+        {
+            return new TerrainRuntimeSurfaceStreamingCompileResult(
+                TerrainRuntimeSurfaceStreamingCompileOutcome.NoWork,
+                TerrainRuntimeBakeWorkMode.None,
+                null,
+                null,
+                null,
+                null,
+                0,
+                0,
+                0,
+                false,
+                revision,
+                revision,
+                "",
+                "No Surface Streaming work is required."
+            );
+        }
+
+        TerrainRuntimeBakeStateSummary summary =
+            TerrainRuntimeBakeStateService.GetSummary();
+
+        if (
+            summary.StateRevision !=
+                plan.SourceStateRevision
+        )
+        {
+            return CreateTerminalResult(
+                TerrainRuntimeSurfaceStreamingCompileOutcome.StalePlan,
+                plan.SurfaceStreamingWorkMode,
+                revision,
+                "Persistent runtime bake state changed after the Surface Streaming plan was created."
+            );
+        }
+
+        return CompileInternal(
+            worldSettings,
+            plan.SurfaceStreamingWorkMode,
+            plan.SurfaceStreamingTiles,
+            plan,
+            true
+        );
+    }
+
+    private static TerrainRuntimeSurfaceStreamingCompileResult CompileInternal(
+        WorldSettings worldSettings,
+        TerrainRuntimeBakeWorkMode workMode,
+        IReadOnlyList<Vector2Int> plannedCoordinates,
+        TerrainRuntimeBakePlan sourcePlan,
+        bool allowPipelineOwnership
+    )
+    {
+        TerrainSurfaceMaskManifest manifest =
+            LoadManifest();
+
+        int revisionBefore =
+            manifest != null
+                ? Mathf.Max(0, manifest.streamingGenerationRevision)
+                : 0;
+
         if (isGenerating)
         {
             return CreateTerminalResult(
                 TerrainRuntimeSurfaceStreamingCompileOutcome.Blocked,
-                0,
-                0,
+                workMode,
+                revisionBefore,
                 "Surface Streaming generation is already in progress."
             );
         }
 
-        TerrainSurfaceMaskManifest manifest =
-            AssetDatabase.LoadAssetAtPath<TerrainSurfaceMaskManifest>(
-                TerrainRuntimeSurfaceMaskAssetUtility.SurfaceMaskManifestPath
+        if (workMode == TerrainRuntimeBakeWorkMode.None)
+        {
+            return new TerrainRuntimeSurfaceStreamingCompileResult(
+                TerrainRuntimeSurfaceStreamingCompileOutcome.NoWork,
+                TerrainRuntimeBakeWorkMode.None,
+                null,
+                null,
+                null,
+                null,
+                0,
+                0,
+                0,
+                false,
+                revisionBefore,
+                revisionBefore,
+                "",
+                "No Surface Streaming work is required."
             );
-
-        int revisionBefore =
-            manifest != null
-                ? Mathf.Max(
-                    0,
-                    manifest.streamingGenerationRevision
-                )
-                : 0;
+        }
 
         if (worldSettings == null)
         {
             return CreateTerminalResult(
                 TerrainRuntimeSurfaceStreamingCompileOutcome.Blocked,
-                0,
+                workMode,
                 revisionBefore,
                 "WorldSettings is unavailable."
             );
@@ -54,7 +182,7 @@ public static class TerrainRuntimeSurfaceStreamingCompiler
         {
             return CreateTerminalResult(
                 TerrainRuntimeSurfaceStreamingCompileOutcome.Blocked,
-                0,
+                workMode,
                 revisionBefore,
                 "Surface Streaming generation must run outside Play Mode."
             );
@@ -62,34 +190,40 @@ public static class TerrainRuntimeSurfaceStreamingCompiler
 
         if (TerrainRuntimeBakePipeline.IsRunning)
         {
-            return CreateTerminalResult(
-                TerrainRuntimeSurfaceStreamingCompileOutcome.Blocked,
-                0,
-                revisionBefore,
-                "Surface Streaming generation is unavailable while the unified Runtime Bake is running."
-            );
+            bool pipelineOwnsCall =
+                allowPipelineOwnership
+                && TerrainRuntimeBakePipeline.CurrentState ==
+                    TerrainRuntimeBakePipelineState.SurfaceStreaming;
+
+            if (!pipelineOwnsCall)
+            {
+                return CreateTerminalResult(
+                    TerrainRuntimeSurfaceStreamingCompileOutcome.Blocked,
+                    workMode,
+                    revisionBefore,
+                    "Surface Streaming generation is unavailable while another unified Runtime Bake stage is running."
+                );
+            }
         }
 
         if (TerrainSurfaceMaskCompiler.IsGenerating)
         {
             return CreateTerminalResult(
                 TerrainRuntimeSurfaceStreamingCompileOutcome.Blocked,
-                0,
+                workMode,
                 revisionBefore,
                 "Surface Streaming generation is unavailable while authoritative Surface generation is running."
             );
         }
 
         if (
-            TerrainGenerationStateUtility.GetSurfaceMaskStatus(
-                worldSettings
-            )
-            != TerrainGenerationStateUtility.GenerationStatus.Current
+            TerrainGenerationStateUtility.GetSurfaceMaskStatus(worldSettings) !=
+                TerrainGenerationStateUtility.GenerationStatus.Current
         )
         {
             return CreateTerminalResult(
                 TerrainRuntimeSurfaceStreamingCompileOutcome.Blocked,
-                0,
+                workMode,
                 revisionBefore,
                 "Authoritative runtime Surface masks are not current. Rebuild Surface Masks first."
             );
@@ -98,89 +232,94 @@ public static class TerrainRuntimeSurfaceStreamingCompiler
         if (
             manifest == null
             || !manifest.isComplete
-            || manifest.compilerVersion != TerrainSurfaceMaskManifest.CurrentCompilerVersion
-            || manifest.channelLayoutVersion != TerrainSurfaceMaskManifest.CurrentChannelLayoutVersion
+            || manifest.compilerVersion !=
+                TerrainSurfaceMaskManifest.CurrentCompilerVersion
+            || manifest.channelLayoutVersion !=
+                TerrainSurfaceMaskManifest.CurrentChannelLayoutVersion
             || manifest.surfaceMaskGenerationRevision <= 0
             || string.IsNullOrEmpty(manifest.surfaceGenerationSignature)
         )
         {
             return CreateTerminalResult(
                 TerrainRuntimeSurfaceStreamingCompileOutcome.Blocked,
-                0,
+                workMode,
                 revisionBefore,
                 "The authoritative Surface manifest is missing, incomplete, or incompatible."
             );
         }
 
-        List<int> targetStrides =
-            new List<int>();
-
         if (
-            !TerrainSurfaceStreamingPyramidPolicy.TryGetDerivedStrides(
+            !TerrainGenerationStateUtility.TryBuildCurrentSurfaceStreamingTarget(
                 worldSettings,
                 manifest,
-                targetStrides,
-                out string policyError
+                out List<TerrainSurfaceStreamingLevelDescriptor> targetDescriptors,
+                out string targetSignature,
+                out string targetError
             )
         )
         {
             return CreateTerminalResult(
                 TerrainRuntimeSurfaceStreamingCompileOutcome.Blocked,
-                0,
+                workMode,
                 revisionBefore,
-                policyError
+                targetError
             );
         }
 
-        List<TerrainSurfaceStreamingLevelDescriptor> targetDescriptors =
-            new List<TerrainSurfaceStreamingLevelDescriptor>(
-                targetStrides.Count
-            );
-
-        for (
-            int index = 0;
-            index < targetStrides.Count;
-            index++
+        if (
+            workMode == TerrainRuntimeBakeWorkMode.Incremental
+            && !TerrainGenerationStateUtility.IsSurfaceStreamingTargetMetadataCompatible(
+                manifest,
+                worldSettings
+            )
         )
         {
-            if (
-                !TerrainSurfaceStreamingPyramidPolicy.TryBuildLevelDescriptor(
-                    worldSettings,
-                    manifest,
-                    targetStrides[index],
-                    out TerrainSurfaceStreamingLevelDescriptor descriptor,
-                    out string descriptorError
-                )
+            return CreateTerminalResult(
+                TerrainRuntimeSurfaceStreamingCompileOutcome.StalePlan,
+                workMode,
+                revisionBefore,
+                "The existing Surface Streaming pyramid is not compatible with incremental repair. A full rebuild is required."
+            );
+        }
+
+        List<Vector2Int> requestedFamilies =
+            BuildRequestedCoordinates(
+                manifest,
+                workMode,
+                plannedCoordinates,
+                targetDescriptors.Count > 0,
+                out string coordinateError
+            );
+
+        if (requestedFamilies == null)
+        {
+            RequireFullRepair();
+
+            return CreateTerminalResult(
+                TerrainRuntimeSurfaceStreamingCompileOutcome.StalePlan,
+                workMode,
+                revisionBefore,
+                coordinateError
+            );
+        }
+
+        if (
+            !TerrainSurfaceStreamingAssetLifecycleUtility.EnsureTargetFolders(
+                targetDescriptors,
+                out string folderError
             )
+        )
+        {
+            if (workMode == TerrainRuntimeBakeWorkMode.Full)
             {
-                return CreateTerminalResult(
-                    TerrainRuntimeSurfaceStreamingCompileOutcome.Blocked,
-                    0,
-                    revisionBefore,
-                    descriptorError
-                );
+                RequireFullRepair();
             }
 
-            targetDescriptors.Add(descriptor);
-        }
-
-        string targetSignature =
-            TerrainSurfaceSignatureUtility.GetStreamingGenerationSignature(
-                TerrainSurfaceMaskManifest.CurrentStreamingPyramidCompilerVersion,
-                TerrainSurfaceStreamingPyramidPolicy.CurrentPolicyVersion,
-                manifest.surfaceMaskGenerationRevision,
-                manifest.surfaceGenerationSignature,
-                manifest,
-                targetDescriptors
-            );
-
-        if (string.IsNullOrEmpty(targetSignature))
-        {
             return CreateTerminalResult(
-                TerrainRuntimeSurfaceStreamingCompileOutcome.Blocked,
-                0,
+                TerrainRuntimeSurfaceStreamingCompileOutcome.Failed,
+                workMode,
                 revisionBefore,
-                "The Surface Streaming generation signature could not be calculated."
+                folderError
             );
         }
 
@@ -190,53 +329,45 @@ public static class TerrainRuntimeSurfaceStreamingCompiler
         string sourceSurfaceSignature =
             manifest.surfaceGenerationSignature;
 
-        int requestedFamilyCount =
-            targetDescriptors.Count > 0
-                ? manifest.TileCount
-                : 0;
+        long expectedStateRevision =
+            sourcePlan != null
+                ? sourcePlan.SourceStateRevision
+                : TerrainRuntimeBakeStateService.GetSummary().StateRevision;
 
-        if (
-            !TerrainSurfaceStreamingAssetLifecycleUtility.EnsureTargetFolders(
-                targetDescriptors,
-                out string folderError
-            )
-        )
+        if (workMode == TerrainRuntimeBakeWorkMode.Full)
         {
-            return CreateTerminalResult(
-                TerrainRuntimeSurfaceStreamingCompileOutcome.Failed,
-                requestedFamilyCount,
-                revisionBefore,
-                folderError
-            );
-        }
+            if (!manifest.TrySetStreamingLevelDescriptors(targetDescriptors))
+            {
+                RequireFullRepair();
 
-        if (!manifest.TrySetStreamingLevelDescriptors(targetDescriptors))
-        {
-            return CreateTerminalResult(
-                TerrainRuntimeSurfaceStreamingCompileOutcome.Failed,
-                requestedFamilyCount,
-                revisionBefore,
-                "The Surface manifest rejected the target streaming descriptor set."
-            );
-        }
+                return CreateTerminalResult(
+                    TerrainRuntimeSurfaceStreamingCompileOutcome.Failed,
+                    workMode,
+                    revisionBefore,
+                    "The Surface manifest rejected the target streaming descriptor set."
+                );
+            }
 
-        manifest.streamingPyramidIsComplete = false;
-        manifest.streamingPyramidCompilerVersion =
-            TerrainSurfaceMaskManifest.CurrentStreamingPyramidCompilerVersion;
-        manifest.streamingPyramidPolicyVersion =
-            TerrainSurfaceStreamingPyramidPolicy.CurrentPolicyVersion;
-        manifest.streamingSourceSurfaceMaskGenerationRevision = -1;
-        manifest.streamingSourceSurfaceGenerationSignature = "";
-        manifest.streamingGenerationSignature = targetSignature;
+            manifest.streamingPyramidIsComplete = false;
+            manifest.streamingPyramidCompilerVersion =
+                TerrainSurfaceMaskManifest.CurrentStreamingPyramidCompilerVersion;
+            manifest.streamingPyramidPolicyVersion =
+                TerrainSurfaceStreamingPyramidPolicy.CurrentPolicyVersion;
+            manifest.streamingSourceSurfaceMaskGenerationRevision = -1;
+            manifest.streamingSourceSurfaceGenerationSignature = "";
+            manifest.streamingGenerationSignature = targetSignature;
 
-        if (!TrySaveManifest(manifest, out string manifestPrepareError))
-        {
-            return CreateTerminalResult(
-                TerrainRuntimeSurfaceStreamingCompileOutcome.Failed,
-                requestedFamilyCount,
-                revisionBefore,
-                manifestPrepareError
-            );
+            if (!TrySaveManifest(manifest, out string manifestPrepareError))
+            {
+                RequireFullRepair();
+
+                return CreateTerminalResult(
+                    TerrainRuntimeSurfaceStreamingCompileOutcome.Failed,
+                    workMode,
+                    revisionBefore,
+                    manifestPrepareError
+                );
+            }
         }
 
         Dictionary<int, byte[]> reusableDerivedBuffers =
@@ -245,211 +376,226 @@ public static class TerrainRuntimeSurfaceStreamingCompiler
         List<Texture2D> dirtyOutputs =
             new List<Texture2D>();
 
-        int completedFamilies = 0;
+        List<Vector2Int> succeededFamilies =
+            new List<Vector2Int>();
+
+        List<Vector2Int> failedFamilies =
+            new List<Vector2Int>();
+
+        List<Vector2Int> unprocessedFamilies =
+            new List<Vector2Int>();
+
+        List<TerrainSurfaceStreamingFamilyWriteResult> preparedBatch =
+            new List<TerrainSurfaceStreamingFamilyWriteResult>();
+
         int createdAssetCount = 0;
         int updatedAssetCount = 0;
         int removedAssetCount = 0;
-        int familiesInCurrentBatch = 0;
         bool cancelled = false;
+        bool stalePlan = false;
+        bool staleSource = false;
+        bool persistenceFailed = false;
         string errorMessage = "";
 
         isGenerating = true;
 
         try
         {
-            if (targetDescriptors.Count > 0)
+            for (
+                int requestIndex = 0;
+                requestIndex < requestedFamilies.Count;
+                requestIndex++
+            )
             {
-                for (
-                    int tileZ = 0;
-                    tileZ < manifest.tileGridHeight;
-                    tileZ++
-                )
+                if (preparedBatch.Count == 0)
                 {
-                    for (
-                        int tileX = 0;
-                        tileX < manifest.tileGridWidth;
-                        tileX++
+                    if (
+                        sourcePlan != null
+                        && TerrainRuntimeBakeStateService.GetSummary().StateRevision !=
+                            expectedStateRevision
                     )
                     {
-                        if (
-                            familiesInCurrentBatch == 0
-                            && EditorUtility.DisplayCancelableProgressBar(
-                                "Rebuild Surface Streaming",
-                                $"Surface streaming family {completedFamilies + 1} / {requestedFamilyCount}",
-                                requestedFamilyCount > 0
-                                    ? (float)completedFamilies /
-                                        requestedFamilyCount
-                                    : 1f
-                            )
-                        )
-                        {
-                            cancelled = true;
-                            break;
-                        }
-
-                        if (
-                            !SourceStillCurrent(
-                                worldSettings,
-                                manifest,
-                                sourceSurfaceRevision,
-                                sourceSurfaceSignature
-                            )
-                        )
-                        {
-                            errorMessage =
-                                "Authoritative Surface generation changed while Surface Streaming generation was running.";
-                            break;
-                        }
-
-                        Vector2Int coordinate =
-                            new Vector2Int(
-                                tileX,
-                                tileZ
-                            );
-
-                        Texture2D nativeTexture =
-                            AssetDatabase.LoadAssetAtPath<Texture2D>(
-                                TerrainRuntimeSurfaceMaskAssetUtility.GetSurfaceTilePath(
-                                    tileX,
-                                    tileZ
-                                )
-                            );
-
-                        TerrainSurfaceStreamingFamilyWriteResult familyResult;
-
-                        try
-                        {
-                            familyResult =
-                                TerrainSurfaceStreamingPyramidGenerator
-                                    .PrepareFamilyFromExistingNativeTexture(
-                                        worldSettings,
-                                        manifest,
-                                        coordinate,
-                                        targetDescriptors,
-                                        nativeTexture,
-                                        reusableDerivedBuffers,
-                                        dirtyOutputs
-                                    );
-                        }
-                        finally
-                        {
-                            if (nativeTexture != null)
-                            {
-                                Resources.UnloadAsset(nativeTexture);
-                            }
-                        }
-
-                        createdAssetCount +=
-                            familyResult != null
-                                ? familyResult.CreatedAssetCount
-                                : 0;
-
-                        updatedAssetCount +=
-                            familyResult != null
-                                ? familyResult.UpdatedAssetCount
-                                : 0;
-
-                        if (
-                            familyResult == null
-                            || !familyResult.Attempted
-                            || !familyResult.PreparedComplete
-                        )
-                        {
-                            errorMessage =
-                                familyResult != null
-                                    ? familyResult.ErrorMessage
-                                    : "Surface Streaming generation returned no family result.";
-
-                            if (dirtyOutputs.Count > 0)
-                            {
-                                if (
-                                    TryPersistPreparedBatch(
-                                        out string persistenceError
-                                    )
-                                )
-                                {
-                                    ReleasePersistedOutputs(dirtyOutputs);
-                                }
-                                else if (string.IsNullOrEmpty(errorMessage))
-                                {
-                                    errorMessage = persistenceError;
-                                }
-                            }
-
-                            break;
-                        }
-
-                        completedFamilies++;
-                        familiesInCurrentBatch++;
-
-                        bool batchBoundaryReached =
-                            familiesInCurrentBatch >= PersistenceBatchFamilyCount
-                            || completedFamilies == requestedFamilyCount;
-
-                        if (batchBoundaryReached)
-                        {
-                            if (
-                                !TryPersistPreparedBatch(
-                                    out string persistenceError
-                                )
-                            )
-                            {
-                                errorMessage = persistenceError;
-                                break;
-                            }
-
-                            ReleasePersistedOutputs(dirtyOutputs);
-                            familiesInCurrentBatch = 0;
-                        }
+                        stalePlan = true;
+                        errorMessage =
+                            "Persistent runtime bake state changed while Surface Streaming generation was running.";
+                        AddRemainingCoordinates(
+                            requestedFamilies,
+                            requestIndex,
+                            unprocessedFamilies
+                        );
+                        break;
                     }
 
+                    bool userCancelled =
+                        TerrainRuntimeBakePipeline.CancelRequested
+                        || EditorUtility.DisplayCancelableProgressBar(
+                            workMode == TerrainRuntimeBakeWorkMode.Full
+                                ? "Rebuild Surface Streaming"
+                                : "Compile Surface Streaming",
+                            $"Surface streaming family {requestIndex + 1} / {requestedFamilies.Count}",
+                            requestedFamilies.Count > 0
+                                ? (float)requestIndex / requestedFamilies.Count
+                                : 1f
+                        );
+
+                    if (userCancelled)
+                    {
+                        cancelled = true;
+                        AddRemainingCoordinates(
+                            requestedFamilies,
+                            requestIndex,
+                            unprocessedFamilies
+                        );
+                        break;
+                    }
+                }
+
+                if (
+                    !SourceStillCurrent(
+                        worldSettings,
+                        manifest,
+                        sourceSurfaceRevision,
+                        sourceSurfaceSignature
+                    )
+                )
+                {
+                    staleSource = true;
+                    errorMessage =
+                        "Authoritative Surface generation changed while Surface Streaming generation was running.";
+                    AddRemainingCoordinates(
+                        requestedFamilies,
+                        requestIndex,
+                        unprocessedFamilies
+                    );
+                    break;
+                }
+
+                Vector2Int coordinate =
+                    requestedFamilies[requestIndex];
+
+                Texture2D nativeTexture =
+                    AssetDatabase.LoadAssetAtPath<Texture2D>(
+                        TerrainRuntimeSurfaceMaskAssetUtility.GetSurfaceTilePath(
+                            coordinate.x,
+                            coordinate.y
+                        )
+                    );
+
+                TerrainSurfaceStreamingFamilyWriteResult familyResult;
+
+                try
+                {
+                    familyResult =
+                        TerrainSurfaceStreamingPyramidGenerator
+                            .PrepareFamilyFromExistingNativeTexture(
+                                worldSettings,
+                                manifest,
+                                coordinate,
+                                targetDescriptors,
+                                nativeTexture,
+                                reusableDerivedBuffers,
+                                dirtyOutputs
+                            );
+                }
+                finally
+                {
+                    if (nativeTexture != null)
+                    {
+                        Resources.UnloadAsset(nativeTexture);
+                    }
+                }
+
+                createdAssetCount +=
+                    familyResult != null
+                        ? familyResult.CreatedAssetCount
+                        : 0;
+
+                updatedAssetCount +=
+                    familyResult != null
+                        ? familyResult.UpdatedAssetCount
+                        : 0;
+
+                bool prepared =
+                    familyResult != null
+                    && familyResult.Attempted
+                    && familyResult.PreparedComplete;
+
+                if (!prepared)
+                {
+                    failedFamilies.Add(coordinate);
+                    errorMessage =
+                        familyResult != null
+                            ? familyResult.ErrorMessage
+                            : "Surface Streaming generation returned no family result.";
+
+                    AddRemainingCoordinates(
+                        requestedFamilies,
+                        requestIndex + 1,
+                        unprocessedFamilies
+                    );
+
                     if (
-                        cancelled
-                        || !string.IsNullOrEmpty(errorMessage)
+                        !PersistPreparedBatch(
+                            preparedBatch,
+                            dirtyOutputs,
+                            workMode,
+                            sourcePlan,
+                            ref expectedStateRevision,
+                            succeededFamilies,
+                            out string persistenceError
+                        )
                     )
                     {
+                        persistenceFailed = true;
+                        errorMessage = persistenceError;
+                    }
+
+                    break;
+                }
+
+                preparedBatch.Add(familyResult);
+
+                bool batchBoundaryReached =
+                    preparedBatch.Count >= PersistenceBatchFamilyCount
+                    || requestIndex == requestedFamilies.Count - 1;
+
+                if (batchBoundaryReached)
+                {
+                    if (
+                        !PersistPreparedBatch(
+                            preparedBatch,
+                            dirtyOutputs,
+                            workMode,
+                            sourcePlan,
+                            ref expectedStateRevision,
+                            succeededFamilies,
+                            out string persistenceError
+                        )
+                    )
+                    {
+                        persistenceFailed = true;
+                        errorMessage = persistenceError;
+                        AddRemainingCoordinates(
+                            requestedFamilies,
+                            requestIndex + 1,
+                            unprocessedFamilies
+                        );
                         break;
                     }
                 }
             }
 
-            if (cancelled)
+            if (persistenceFailed)
             {
-                return new TerrainRuntimeSurfaceStreamingCompileResult(
-                    TerrainRuntimeSurfaceStreamingCompileOutcome.Cancelled,
-                    requestedFamilyCount,
-                    completedFamilies,
-                    createdAssetCount,
-                    updatedAssetCount,
-                    removedAssetCount,
-                    false,
-                    revisionBefore,
-                    manifest.streamingGenerationRevision,
-                    "",
-                    "Surface Streaming generation was cancelled at a durability-safe batch boundary. Authoritative Surface data remains valid."
-                );
-            }
+                RequireFullRepair();
 
-            if (!string.IsNullOrEmpty(errorMessage))
-            {
-                if (dirtyOutputs.Count > 0)
-                {
-                    if (TryPersistPreparedBatch(out string persistenceError))
-                    {
-                        ReleasePersistedOutputs(dirtyOutputs);
-                    }
-                    else
-                    {
-                        errorMessage +=
-                            "\n\nAdditionally, the final partial Surface Streaming batch could not be persisted.\n\n" +
-                            persistenceError;
-                    }
-                }
-
-                return new TerrainRuntimeSurfaceStreamingCompileResult(
+                return CreateResult(
                     TerrainRuntimeSurfaceStreamingCompileOutcome.Failed,
-                    requestedFamilyCount,
-                    completedFamilies,
+                    workMode,
+                    requestedFamilies,
+                    succeededFamilies,
+                    failedFamilies,
+                    unprocessedFamilies,
                     createdAssetCount,
                     updatedAssetCount,
                     removedAssetCount,
@@ -457,7 +603,137 @@ public static class TerrainRuntimeSurfaceStreamingCompiler
                     revisionBefore,
                     manifest.streamingGenerationRevision,
                     errorMessage,
-                    "Surface Streaming generation did not complete. Authoritative Surface data remains valid."
+                    "Surface Streaming durability could not be proven. A full derived-data repair is required."
+                );
+            }
+
+            if (cancelled)
+            {
+                if (workMode == TerrainRuntimeBakeWorkMode.Full)
+                {
+                    RequireFullRepair();
+                }
+
+                return CreateResult(
+                    TerrainRuntimeSurfaceStreamingCompileOutcome.Cancelled,
+                    workMode,
+                    requestedFamilies,
+                    succeededFamilies,
+                    failedFamilies,
+                    unprocessedFamilies,
+                    createdAssetCount,
+                    updatedAssetCount,
+                    removedAssetCount,
+                    false,
+                    revisionBefore,
+                    manifest.streamingGenerationRevision,
+                    "",
+                    workMode == TerrainRuntimeBakeWorkMode.Full
+                        ? "Surface Streaming generation was cancelled. The full rebuild remains pending."
+                        : "Surface Streaming generation was cancelled at a durability-safe batch boundary. Completed families were preserved."
+                );
+            }
+
+            if (stalePlan)
+            {
+                if (workMode == TerrainRuntimeBakeWorkMode.Full)
+                {
+                    RequireFullRepair();
+                }
+
+                return CreateResult(
+                    TerrainRuntimeSurfaceStreamingCompileOutcome.StalePlan,
+                    workMode,
+                    requestedFamilies,
+                    succeededFamilies,
+                    failedFamilies,
+                    unprocessedFamilies,
+                    createdAssetCount,
+                    updatedAssetCount,
+                    removedAssetCount,
+                    false,
+                    revisionBefore,
+                    manifest.streamingGenerationRevision,
+                    errorMessage,
+                    "Surface Streaming generation stopped because persistent bake state changed."
+                );
+            }
+
+            if (staleSource)
+            {
+                RequireFullRepair();
+
+                return CreateResult(
+                    TerrainRuntimeSurfaceStreamingCompileOutcome.StaleSource,
+                    workMode,
+                    requestedFamilies,
+                    succeededFamilies,
+                    failedFamilies,
+                    unprocessedFamilies,
+                    createdAssetCount,
+                    updatedAssetCount,
+                    removedAssetCount,
+                    false,
+                    revisionBefore,
+                    manifest.streamingGenerationRevision,
+                    errorMessage,
+                    "The captured native Surface source changed before Surface Streaming could be finalized."
+                );
+            }
+
+            if (failedFamilies.Count > 0)
+            {
+                if (workMode == TerrainRuntimeBakeWorkMode.Full)
+                {
+                    RequireFullRepair();
+                }
+
+                return CreateResult(
+                    TerrainRuntimeSurfaceStreamingCompileOutcome.Failed,
+                    workMode,
+                    requestedFamilies,
+                    succeededFamilies,
+                    failedFamilies,
+                    unprocessedFamilies,
+                    createdAssetCount,
+                    updatedAssetCount,
+                    removedAssetCount,
+                    false,
+                    revisionBefore,
+                    manifest.streamingGenerationRevision,
+                    errorMessage,
+                    workMode == TerrainRuntimeBakeWorkMode.Full
+                        ? "Surface Streaming generation failed. The full rebuild remains pending."
+                        : "One or more Surface Streaming families failed. Durable successful families were preserved and the failed work remains pending."
+                );
+            }
+
+            if (
+                sourcePlan != null
+                && TerrainRuntimeBakeStateService.GetSummary().StateRevision !=
+                    expectedStateRevision
+            )
+            {
+                if (workMode == TerrainRuntimeBakeWorkMode.Full)
+                {
+                    RequireFullRepair();
+                }
+
+                return CreateResult(
+                    TerrainRuntimeSurfaceStreamingCompileOutcome.StalePlan,
+                    workMode,
+                    requestedFamilies,
+                    succeededFamilies,
+                    failedFamilies,
+                    unprocessedFamilies,
+                    createdAssetCount,
+                    updatedAssetCount,
+                    removedAssetCount,
+                    false,
+                    revisionBefore,
+                    manifest.streamingGenerationRevision,
+                    "Persistent runtime bake state changed before Surface Streaming finalization.",
+                    "The derived data was not published as current."
                 );
             }
 
@@ -470,10 +746,15 @@ public static class TerrainRuntimeSurfaceStreamingCompiler
                 )
             )
             {
-                return new TerrainRuntimeSurfaceStreamingCompileResult(
+                RequireFullRepair();
+
+                return CreateResult(
                     TerrainRuntimeSurfaceStreamingCompileOutcome.StaleSource,
-                    requestedFamilyCount,
-                    completedFamilies,
+                    workMode,
+                    requestedFamilies,
+                    succeededFamilies,
+                    failedFamilies,
+                    unprocessedFamilies,
                     createdAssetCount,
                     updatedAssetCount,
                     removedAssetCount,
@@ -486,36 +767,109 @@ public static class TerrainRuntimeSurfaceStreamingCompiler
             }
 
             if (
-                !TerrainSurfaceStreamingAssetLifecycleUtility.DeleteObsoleteOutputs(
+                workMode == TerrainRuntimeBakeWorkMode.Incremental
+                && !TerrainGenerationStateUtility.IsSurfaceStreamingTargetMetadataCompatible(
                     manifest,
-                    targetDescriptors,
-                    out removedAssetCount,
-                    out string cleanupError
+                    worldSettings
                 )
             )
             {
-                return new TerrainRuntimeSurfaceStreamingCompileResult(
-                    TerrainRuntimeSurfaceStreamingCompileOutcome.Failed,
-                    requestedFamilyCount,
-                    completedFamilies,
+                RequireFullRepair();
+
+                return CreateResult(
+                    TerrainRuntimeSurfaceStreamingCompileOutcome.StalePlan,
+                    workMode,
+                    requestedFamilies,
+                    succeededFamilies,
+                    failedFamilies,
+                    unprocessedFamilies,
                     createdAssetCount,
                     updatedAssetCount,
                     removedAssetCount,
                     false,
                     revisionBefore,
                     manifest.streamingGenerationRevision,
-                    cleanupError,
-                    "Surface Streaming generation completed its target representations but obsolete-output cleanup failed."
+                    "Surface Streaming representation metadata changed before finalization.",
+                    "A full Surface Streaming repair is required."
                 );
             }
 
-            AssetDatabase.SaveAssets();
+            if (workMode == TerrainRuntimeBakeWorkMode.Full)
+            {
+                if (
+                    !TerrainSurfaceStreamingAssetLifecycleUtility.DeleteObsoleteOutputs(
+                        manifest,
+                        targetDescriptors,
+                        out removedAssetCount,
+                        out string cleanupError
+                    )
+                )
+                {
+                    RequireFullRepair();
+
+                    return CreateResult(
+                        TerrainRuntimeSurfaceStreamingCompileOutcome.Failed,
+                        workMode,
+                        requestedFamilies,
+                        succeededFamilies,
+                        failedFamilies,
+                        unprocessedFamilies,
+                        createdAssetCount,
+                        updatedAssetCount,
+                        removedAssetCount,
+                        false,
+                        revisionBefore,
+                        manifest.streamingGenerationRevision,
+                        cleanupError,
+                        "Surface Streaming generation completed its target representations but obsolete-output cleanup failed."
+                    );
+                }
+
+                AssetDatabase.SaveAssets();
+            }
+
+            if (!manifest.TrySetStreamingLevelDescriptors(targetDescriptors))
+            {
+                RequireFullRepair();
+
+                return CreateResult(
+                    TerrainRuntimeSurfaceStreamingCompileOutcome.Failed,
+                    workMode,
+                    requestedFamilies,
+                    succeededFamilies,
+                    failedFamilies,
+                    unprocessedFamilies,
+                    createdAssetCount,
+                    updatedAssetCount,
+                    removedAssetCount,
+                    false,
+                    revisionBefore,
+                    manifest.streamingGenerationRevision,
+                    "The Surface manifest rejected the final streaming descriptor set.",
+                    "Surface Streaming remains pending."
+                );
+            }
 
             int previousRevision =
-                Mathf.Max(
-                    0,
-                    manifest.streamingGenerationRevision
-                );
+                Mathf.Max(0, manifest.streamingGenerationRevision);
+
+            bool previousComplete =
+                manifest.streamingPyramidIsComplete;
+
+            int previousCompilerVersion =
+                manifest.streamingPyramidCompilerVersion;
+
+            int previousPolicyVersion =
+                manifest.streamingPyramidPolicyVersion;
+
+            int previousSourceRevision =
+                manifest.streamingSourceSurfaceMaskGenerationRevision;
+
+            string previousSourceSignature =
+                manifest.streamingSourceSurfaceGenerationSignature;
+
+            string previousGenerationSignature =
+                manifest.streamingGenerationSignature;
 
             manifest.streamingPyramidCompilerVersion =
                 TerrainSurfaceMaskManifest.CurrentStreamingPyramidCompilerVersion;
@@ -529,29 +883,41 @@ public static class TerrainRuntimeSurfaceStreamingCompiler
                 targetSignature;
             manifest.streamingGenerationRevision =
                 previousRevision + 1;
-            manifest.streamingPyramidIsComplete =
-                true;
+            manifest.streamingPyramidIsComplete = true;
 
             if (!TrySaveManifest(manifest, out string finalizationError))
             {
+                manifest.streamingPyramidIsComplete =
+                    workMode == TerrainRuntimeBakeWorkMode.Incremental
+                        ? previousComplete
+                        : false;
+                manifest.streamingPyramidCompilerVersion =
+                    previousCompilerVersion;
+                manifest.streamingPyramidPolicyVersion =
+                    previousPolicyVersion;
+                manifest.streamingSourceSurfaceMaskGenerationRevision =
+                    workMode == TerrainRuntimeBakeWorkMode.Incremental
+                        ? previousSourceRevision
+                        : -1;
+                manifest.streamingSourceSurfaceGenerationSignature =
+                    workMode == TerrainRuntimeBakeWorkMode.Incremental
+                        ? previousSourceSignature
+                        : "";
+                manifest.streamingGenerationSignature =
+                    previousGenerationSignature;
                 manifest.streamingGenerationRevision =
                     previousRevision;
-                manifest.streamingPyramidIsComplete =
-                    false;
-                manifest.streamingSourceSurfaceMaskGenerationRevision =
-                    -1;
-                manifest.streamingSourceSurfaceGenerationSignature =
-                    "";
 
-                TrySaveManifest(
-                    manifest,
-                    out _
-                );
+                TrySaveManifest(manifest, out _);
+                RequireFullRepair();
 
-                return new TerrainRuntimeSurfaceStreamingCompileResult(
+                return CreateResult(
                     TerrainRuntimeSurfaceStreamingCompileOutcome.Failed,
-                    requestedFamilyCount,
-                    completedFamilies,
+                    workMode,
+                    requestedFamilies,
+                    succeededFamilies,
+                    failedFamilies,
+                    unprocessedFamilies,
                     createdAssetCount,
                     updatedAssetCount,
                     removedAssetCount,
@@ -563,10 +929,34 @@ public static class TerrainRuntimeSurfaceStreamingCompiler
                 );
             }
 
-            return new TerrainRuntimeSurfaceStreamingCompileResult(
+            TerrainRuntimeBakeStateMutation completionMutation =
+                new TerrainRuntimeBakeStateMutation()
+                    .DirtyAddressablesContent();
+
+            if (workMode == TerrainRuntimeBakeWorkMode.Full)
+            {
+                completionMutation
+                    .ClearAllSurfaceStreamingTiles()
+                    .ClearFullSurfaceStreaming();
+            }
+            else
+            {
+                completionMutation.RemoveSurfaceStreamingTiles(
+                    succeededFamilies
+                );
+            }
+
+            TerrainRuntimeBakeStateService.ApplyMutation(
+                completionMutation
+            );
+
+            return CreateResult(
                 TerrainRuntimeSurfaceStreamingCompileOutcome.Completed,
-                requestedFamilyCount,
-                completedFamilies,
+                workMode,
+                requestedFamilies,
+                succeededFamilies,
+                failedFamilies,
+                unprocessedFamilies,
                 createdAssetCount,
                 updatedAssetCount,
                 removedAssetCount,
@@ -574,9 +964,9 @@ public static class TerrainRuntimeSurfaceStreamingCompiler
                 revisionBefore,
                 manifest.streamingGenerationRevision,
                 "",
-                targetDescriptors.Count > 0
+                workMode == TerrainRuntimeBakeWorkMode.Full
                     ? "The complete Surface Streaming pyramid was rebuilt and finalized."
-                    : "The current clipmap configuration requires no derived Surface representations; streaming metadata was finalized with an empty derived pyramid."
+                    : "Planned Surface Streaming families were repaired and the derived dataset was finalized against the current native Surface generation."
             );
         }
         catch (Exception exception)
@@ -594,19 +984,26 @@ public static class TerrainRuntimeSurfaceStreamingCompiler
                 }
             }
 
-            return new TerrainRuntimeSurfaceStreamingCompileResult(
+            RequireFullRepair();
+
+            return CreateResult(
                 TerrainRuntimeSurfaceStreamingCompileOutcome.Failed,
-                requestedFamilyCount,
-                completedFamilies,
+                workMode,
+                requestedFamilies,
+                succeededFamilies,
+                failedFamilies,
+                unprocessedFamilies,
                 createdAssetCount,
                 updatedAssetCount,
                 removedAssetCount,
                 false,
                 revisionBefore,
-                manifest.streamingGenerationRevision,
+                manifest != null
+                    ? manifest.streamingGenerationRevision
+                    : revisionBefore,
                 "Surface Streaming generation failed with an exception.\n\n" +
                 exception.Message,
-                "Authoritative Surface data remains valid."
+                "Authoritative Surface data remains valid; the derived Surface Streaming dataset requires repair."
             );
         }
         finally
@@ -614,6 +1011,167 @@ public static class TerrainRuntimeSurfaceStreamingCompiler
             EditorUtility.ClearProgressBar();
             isGenerating = false;
         }
+    }
+
+    private static TerrainSurfaceMaskManifest LoadManifest()
+    {
+        return AssetDatabase.LoadAssetAtPath<TerrainSurfaceMaskManifest>(
+            TerrainRuntimeSurfaceMaskAssetUtility.SurfaceMaskManifestPath
+        );
+    }
+
+    private static List<Vector2Int> BuildRequestedCoordinates(
+        TerrainSurfaceMaskManifest manifest,
+        TerrainRuntimeBakeWorkMode workMode,
+        IReadOnlyList<Vector2Int> plannedCoordinates,
+        bool physicalDerivedDataRequired,
+        out string errorMessage
+    )
+    {
+        errorMessage = "";
+
+        List<Vector2Int> output =
+            new List<Vector2Int>();
+
+        if (!physicalDerivedDataRequired)
+        {
+            return output;
+        }
+
+        if (manifest == null)
+        {
+            errorMessage =
+                "The Surface manifest is unavailable while building Surface Streaming work coordinates.";
+            return null;
+        }
+
+        if (workMode == TerrainRuntimeBakeWorkMode.Full)
+        {
+            for (int tileZ = 0; tileZ < manifest.tileGridHeight; tileZ++)
+            {
+                for (int tileX = 0; tileX < manifest.tileGridWidth; tileX++)
+                {
+                    output.Add(new Vector2Int(tileX, tileZ));
+                }
+            }
+
+            return output;
+        }
+
+        if (plannedCoordinates == null)
+        {
+            errorMessage =
+                "Incremental Surface Streaming work has no planned coordinates.";
+            return null;
+        }
+
+        HashSet<Vector2Int> unique =
+            new HashSet<Vector2Int>();
+
+        for (int index = 0; index < plannedCoordinates.Count; index++)
+        {
+            Vector2Int coordinate =
+                plannedCoordinates[index];
+
+            if (!manifest.IsTileCoordinateValid(coordinate.x, coordinate.y))
+            {
+                errorMessage =
+                    "Surface Streaming work contains a coordinate outside the current Surface tile layout: " +
+                    coordinate;
+                return null;
+            }
+
+            unique.Add(coordinate);
+        }
+
+        output.AddRange(unique);
+        output.Sort(CompareCoordinates);
+
+        return output;
+    }
+
+    private static bool PersistPreparedBatch(
+        List<TerrainSurfaceStreamingFamilyWriteResult> preparedBatch,
+        List<Texture2D> dirtyOutputs,
+        TerrainRuntimeBakeWorkMode workMode,
+        TerrainRuntimeBakePlan sourcePlan,
+        ref long expectedStateRevision,
+        List<Vector2Int> succeededFamilies,
+        out string errorMessage
+    )
+    {
+        errorMessage = "";
+
+        if (
+            (preparedBatch == null || preparedBatch.Count == 0)
+            && (dirtyOutputs == null || dirtyOutputs.Count == 0)
+        )
+        {
+            return true;
+        }
+
+        if (!TryPersistPreparedBatch(out errorMessage))
+        {
+            return false;
+        }
+
+        ReleasePersistedOutputs(dirtyOutputs);
+
+        if (preparedBatch == null || preparedBatch.Count == 0)
+        {
+            return true;
+        }
+
+        List<Vector2Int> durableCoordinates =
+            new List<Vector2Int>(preparedBatch.Count);
+
+        bool outputChanged =
+            false;
+
+        for (int index = 0; index < preparedBatch.Count; index++)
+        {
+            TerrainSurfaceStreamingFamilyWriteResult result =
+                preparedBatch[index];
+
+            if (
+                result == null
+                || !result.Attempted
+                || !result.PreparedComplete
+            )
+            {
+                continue;
+            }
+
+            durableCoordinates.Add(result.Coordinate);
+            outputChanged |= result.OutputMayHaveChanged;
+            succeededFamilies.Add(result.Coordinate);
+        }
+
+        if (
+            workMode == TerrainRuntimeBakeWorkMode.Incremental
+            && sourcePlan != null
+            && durableCoordinates.Count > 0
+        )
+        {
+            TerrainRuntimeBakeStateMutation mutation =
+                new TerrainRuntimeBakeStateMutation()
+                    .RemoveSurfaceStreamingTiles(
+                        durableCoordinates
+                    );
+
+            if (outputChanged)
+            {
+                mutation.DirtyAddressablesContent();
+            }
+
+            TerrainRuntimeBakeStateService.ApplyMutation(mutation);
+
+            expectedStateRevision =
+                TerrainRuntimeBakeStateService.GetSummary().StateRevision;
+        }
+
+        preparedBatch.Clear();
+        return true;
     }
 
     private static bool SourceStillCurrent(
@@ -627,8 +1185,8 @@ public static class TerrainRuntimeSurfaceStreamingCompiler
             worldSettings != null
             && manifest != null
             && manifest.isComplete
-            && TerrainGenerationStateUtility.GetSurfaceMaskStatus(worldSettings)
-                == TerrainGenerationStateUtility.GenerationStatus.Current
+            && TerrainGenerationStateUtility.GetSurfaceMaskStatus(worldSettings) ==
+                TerrainGenerationStateUtility.GenerationStatus.Current
             && manifest.surfaceMaskGenerationRevision == sourceSurfaceRevision
             && string.Equals(
                 manifest.surfaceGenerationSignature ?? "",
@@ -653,7 +1211,6 @@ public static class TerrainRuntimeSurfaceStreamingCompiler
             errorMessage =
                 "Could not persist the current Surface Streaming output batch.\n\n" +
                 exception.Message;
-
             return false;
         }
     }
@@ -667,11 +1224,7 @@ public static class TerrainRuntimeSurfaceStreamingCompiler
             return;
         }
 
-        for (
-            int index = 0;
-            index < dirtyOutputs.Count;
-            index++
-        )
+        for (int index = 0; index < dirtyOutputs.Count; index++)
         {
             Texture2D texture =
                 dirtyOutputs[index];
@@ -708,7 +1261,6 @@ public static class TerrainRuntimeSurfaceStreamingCompiler
         {
             errorMessage =
                 "The Surface manifest is unavailable.";
-
             return false;
         }
 
@@ -723,22 +1275,54 @@ public static class TerrainRuntimeSurfaceStreamingCompiler
             errorMessage =
                 "Could not persist Surface Streaming manifest metadata.\n\n" +
                 exception.Message;
-
             return false;
+        }
+    }
+
+    private static void RequireFullRepair()
+    {
+        TerrainRuntimeBakeStateService.ApplyMutation(
+            new TerrainRuntimeBakeStateMutation()
+                .RequireFullSurfaceStreaming()
+                .DirtyAddressablesContent()
+        );
+    }
+
+    private static void AddRemainingCoordinates(
+        IReadOnlyList<Vector2Int> source,
+        int startIndex,
+        ICollection<Vector2Int> output
+    )
+    {
+        if (source == null || output == null)
+        {
+            return;
+        }
+
+        for (
+            int index = Mathf.Max(0, startIndex);
+            index < source.Count;
+            index++
+        )
+        {
+            output.Add(source[index]);
         }
     }
 
     private static TerrainRuntimeSurfaceStreamingCompileResult CreateTerminalResult(
         TerrainRuntimeSurfaceStreamingCompileOutcome outcome,
-        int requestedFamilyCount,
+        TerrainRuntimeBakeWorkMode workMode,
         int revision,
         string errorMessage
     )
     {
         return new TerrainRuntimeSurfaceStreamingCompileResult(
             outcome,
-            requestedFamilyCount,
-            0,
+            workMode,
+            null,
+            null,
+            null,
+            null,
             0,
             0,
             0,
@@ -748,5 +1332,53 @@ public static class TerrainRuntimeSurfaceStreamingCompiler
             errorMessage,
             ""
         );
+    }
+
+    private static TerrainRuntimeSurfaceStreamingCompileResult CreateResult(
+        TerrainRuntimeSurfaceStreamingCompileOutcome outcome,
+        TerrainRuntimeBakeWorkMode workMode,
+        IEnumerable<Vector2Int> requestedFamilies,
+        IEnumerable<Vector2Int> succeededFamilies,
+        IEnumerable<Vector2Int> failedFamilies,
+        IEnumerable<Vector2Int> unprocessedFamilies,
+        int createdAssetCount,
+        int updatedAssetCount,
+        int removedAssetCount,
+        bool datasetFinalized,
+        int revisionBefore,
+        int revisionAfter,
+        string errorMessage,
+        string summaryMessage
+    )
+    {
+        return new TerrainRuntimeSurfaceStreamingCompileResult(
+            outcome,
+            workMode,
+            requestedFamilies,
+            succeededFamilies,
+            failedFamilies,
+            unprocessedFamilies,
+            createdAssetCount,
+            updatedAssetCount,
+            removedAssetCount,
+            datasetFinalized,
+            revisionBefore,
+            revisionAfter,
+            errorMessage,
+            summaryMessage
+        );
+    }
+
+    private static int CompareCoordinates(
+        Vector2Int left,
+        Vector2Int right
+    )
+    {
+        int yComparison =
+            left.y.CompareTo(right.y);
+
+        return yComparison != 0
+            ? yComparison
+            : left.x.CompareTo(right.x);
     }
 }

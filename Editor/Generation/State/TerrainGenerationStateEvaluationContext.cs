@@ -56,6 +56,10 @@ internal sealed class TerrainGenerationStateEvaluationContext
     private bool surfaceMaskStatusEvaluated;
 
     private TerrainGenerationStateUtility.GenerationStatus
+        surfaceStreamingStatus;
+    private bool surfaceStreamingStatusEvaluated;
+
+    private TerrainGenerationStateUtility.GenerationStatus
         collisionMeshStatus;
     private bool collisionMeshStatusEvaluated;
 
@@ -371,6 +375,31 @@ internal sealed class TerrainGenerationStateEvaluationContext
             status;
 
         surfaceMaskStatusEvaluated =
+            true;
+
+        return status;
+    }
+
+    internal bool TryGetSurfaceStreamingStatus(
+        out TerrainGenerationStateUtility.GenerationStatus status
+    )
+    {
+        status =
+            surfaceStreamingStatus;
+
+        return
+            surfaceStreamingStatusEvaluated;
+    }
+
+    internal TerrainGenerationStateUtility.GenerationStatus
+        CacheSurfaceStreamingStatus(
+            TerrainGenerationStateUtility.GenerationStatus status
+        )
+    {
+        surfaceStreamingStatus =
+            status;
+
+        surfaceStreamingStatusEvaluated =
             true;
 
         return status;

@@ -31,7 +31,7 @@ internal sealed class TerrainRuntimeBakeState :
     ScriptableSingleton<TerrainRuntimeBakeState>
 {
     internal const int CurrentSerializedVersion =
-        5;
+        6;
 
     [SerializeField]
     private int serializedVersion =
@@ -54,6 +54,10 @@ internal sealed class TerrainRuntimeBakeState :
         new List<Vector2Int>();
 
     [SerializeField]
+    private List<Vector2Int> pendingSurfaceStreamingTiles =
+        new List<Vector2Int>();
+
+    [SerializeField]
     private List<Vector2Int> pendingCollisionChunks =
         new List<Vector2Int>();
 
@@ -65,6 +69,9 @@ internal sealed class TerrainRuntimeBakeState :
 
     [SerializeField]
     private bool fullSurfaceRebuildRequired;
+
+    [SerializeField]
+    private bool fullSurfaceStreamingRebuildRequired;
 
     [SerializeField]
     private bool fullCollisionRebuildRequired;
@@ -139,6 +146,14 @@ internal sealed class TerrainRuntimeBakeState :
         }
     }
 
+    internal List<Vector2Int> PendingSurfaceStreamingTiles
+    {
+        get
+        {
+            return pendingSurfaceStreamingTiles;
+        }
+    }
+
     internal List<Vector2Int> PendingCollisionChunks
     {
         get
@@ -185,6 +200,20 @@ internal sealed class TerrainRuntimeBakeState :
         set
         {
             fullSurfaceRebuildRequired =
+                value;
+        }
+    }
+
+    internal bool FullSurfaceStreamingRebuildRequired
+    {
+        get
+        {
+            return fullSurfaceStreamingRebuildRequired;
+        }
+
+        set
+        {
+            fullSurfaceStreamingRebuildRequired =
                 value;
         }
     }
@@ -373,6 +402,15 @@ internal sealed class TerrainRuntimeBakeState :
         if (pendingSurfaceTiles == null)
         {
             pendingSurfaceTiles =
+                new List<Vector2Int>();
+
+            changed =
+                true;
+        }
+
+        if (pendingSurfaceStreamingTiles == null)
+        {
+            pendingSurfaceStreamingTiles =
                 new List<Vector2Int>();
 
             changed =

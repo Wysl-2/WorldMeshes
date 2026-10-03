@@ -407,6 +407,7 @@ public sealed class TerrainRuntimeBakeDiagnosticsViewerWindow : EditorWindow
         TerrainRuntimeBakePipelineState.Preflight,
         TerrainRuntimeBakePipelineState.Heightmaps,
         TerrainRuntimeBakePipelineState.SurfaceMasks,
+        TerrainRuntimeBakePipelineState.SurfaceStreaming,
         TerrainRuntimeBakePipelineState.Collision,
         TerrainRuntimeBakePipelineState.Addressables,
         TerrainRuntimeBakePipelineState.SceneSync,
@@ -423,6 +424,7 @@ public sealed class TerrainRuntimeBakeDiagnosticsViewerWindow : EditorWindow
         "Preflight",
         "Heightmaps",
         "SurfaceMasks",
+        "SurfaceStreaming",
         "Collision",
         "Addressables",
         "SceneSync",
@@ -1318,6 +1320,10 @@ public sealed class TerrainRuntimeBakeDiagnosticsViewerWindow : EditorWindow
         DrawStageTimingRow(
             TerrainRuntimeBakePipelineState.SurfaceMasks,
             result.SurfaceDurationSeconds
+        );
+        DrawStageTimingRow(
+            TerrainRuntimeBakePipelineState.SurfaceStreaming,
+            result.SurfaceStreamingDurationSeconds
         );
         DrawStageTimingRow(
             TerrainRuntimeBakePipelineState.Collision,
@@ -3243,6 +3249,9 @@ public sealed class TerrainRuntimeBakeDiagnosticsViewerWindow : EditorWindow
             case TerrainRuntimeBakePlanSnapshotKind.Surface:
                 return TerrainRuntimeBakePipelineState.SurfaceMasks;
 
+            case TerrainRuntimeBakePlanSnapshotKind.SurfaceStreaming:
+                return TerrainRuntimeBakePipelineState.SurfaceStreaming;
+
             case TerrainRuntimeBakePlanSnapshotKind.Collision:
                 return TerrainRuntimeBakePipelineState.Collision;
 
@@ -3269,6 +3278,9 @@ public sealed class TerrainRuntimeBakeDiagnosticsViewerWindow : EditorWindow
 
             case TerrainRuntimeBakeReasonTarget.Surface:
                 return TerrainRuntimeBakePipelineState.SurfaceMasks;
+
+            case TerrainRuntimeBakeReasonTarget.SurfaceStreaming:
+                return TerrainRuntimeBakePipelineState.SurfaceStreaming;
 
             case TerrainRuntimeBakeReasonTarget.Collision:
                 return TerrainRuntimeBakePipelineState.Collision;
@@ -3304,6 +3316,9 @@ public sealed class TerrainRuntimeBakeDiagnosticsViewerWindow : EditorWindow
 
             case TerrainRuntimeBakePipelineState.SurfaceMasks:
                 return result.SurfaceDurationSeconds;
+
+            case TerrainRuntimeBakePipelineState.SurfaceStreaming:
+                return result.SurfaceStreamingDurationSeconds;
 
             case TerrainRuntimeBakePipelineState.Collision:
                 return result.CollisionDurationSeconds;

@@ -1827,11 +1827,14 @@ public static class TerrainSurfaceMaskCompiler
             {
                 mutation
                     .ClearAllSurfaceTiles()
-                    .ClearFullSurface();
+                    .ClearFullSurface()
+                    .RequireFullSurfaceStreaming();
             }
             else
             {
-                mutation.RemoveSurfaceTiles(succeeded);
+                mutation
+                    .RemoveSurfaceTiles(succeeded)
+                    .AddSurfaceStreamingTiles(succeeded);
             }
 
             if (anyPhysicalContentChange)
@@ -2057,7 +2060,9 @@ public static class TerrainSurfaceMaskCompiler
                  * to describe the previous complete logical generation until
                  * the remaining pending surface tiles catch up.
                  */
-                mutation.RemoveSurfaceTiles(succeeded);
+                mutation
+                    .RemoveSurfaceTiles(succeeded)
+                    .AddSurfaceStreamingTiles(succeeded);
             }
 
             if (anyPhysicalContentChange)

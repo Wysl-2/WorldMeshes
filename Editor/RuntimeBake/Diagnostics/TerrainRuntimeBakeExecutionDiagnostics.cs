@@ -286,6 +286,10 @@ internal sealed partial class TerrainRuntimeBakeDiagnosticsSession
                 record.plannedCount = plan.SurfaceTileCount;
                 break;
 
+            case TerrainRuntimeBakePipelineState.SurfaceStreaming:
+                record.plannedCount = plan.SurfaceStreamingTileCount;
+                break;
+
             case TerrainRuntimeBakePipelineState.Collision:
                 record.plannedCount = plan.CollisionChunkCount;
                 break;
@@ -389,6 +393,34 @@ internal sealed partial class TerrainRuntimeBakeDiagnosticsSession
             result.SucceededTiles,
             result.FailedTiles,
             result.UnprocessedTiles
+        );
+    }
+
+    internal void RecordSurfaceStreamingExecution(
+        TerrainRuntimeSurfaceStreamingCompileResult result
+    )
+    {
+        if (completed || result == null)
+        {
+            return;
+        }
+
+        MutableExecutionStage record =
+            GetOrCreateExecutionStage(
+                TerrainRuntimeBakePipelineState.SurfaceStreaming
+            );
+
+        ApplyCoordinateResult(
+            record,
+            result.RequestedFamilyCount,
+            result.CompletedFamilyCount,
+            result.FailedFamilyCount,
+            result.UnprocessedFamilyCount,
+            result.CreatedAssetCount + result.UpdatedAssetCount,
+            result.RequestedFamilies,
+            result.SucceededFamilies,
+            result.FailedFamilies,
+            result.UnprocessedFamilies
         );
     }
 

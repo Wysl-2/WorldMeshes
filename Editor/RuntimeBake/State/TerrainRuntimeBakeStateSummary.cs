@@ -7,89 +7,23 @@
  */
 public sealed class TerrainRuntimeBakeStateSummary
 {
-    public int PendingHeightTileCount
-    {
-        get;
-        private set;
-    }
+    public int PendingHeightTileCount { get; private set; }
+    public int PendingHeightStreamingTileCount { get; private set; }
+    public int PendingSurfaceTileCount { get; private set; }
+    public int PendingSurfaceStreamingTileCount { get; private set; }
+    public int PendingCollisionChunkCount { get; private set; }
 
-    public int PendingHeightStreamingTileCount
-    {
-        get;
-        private set;
-    }
-
-    public int PendingSurfaceTileCount
-    {
-        get;
-        private set;
-    }
-
-    public int PendingCollisionChunkCount
-    {
-        get;
-        private set;
-    }
-
-    public bool FullHeightRebuildRequired
-    {
-        get;
-        private set;
-    }
-
-    public bool FullHeightStreamingRebuildRequired
-    {
-        get;
-        private set;
-    }
-
-    public bool FullSurfaceRebuildRequired
-    {
-        get;
-        private set;
-    }
-
-    public bool FullCollisionRebuildRequired
-    {
-        get;
-        private set;
-    }
-
-    public bool AddressablesConfigurationDirty
-    {
-        get;
-        private set;
-    }
-
-    public bool AddressablesContentDirty
-    {
-        get;
-        private set;
-    }
-
-    public bool RuntimeSceneMetadataDirty
-    {
-        get;
-        private set;
-    }
-
-    public string LastObservedAuthoringSignature
-    {
-        get;
-        private set;
-    }
-
-    public int SerializedVersion
-    {
-        get;
-        private set;
-    }
-
-    public long StateRevision
-    {
-        get;
-        private set;
-    }
+    public bool FullHeightRebuildRequired { get; private set; }
+    public bool FullHeightStreamingRebuildRequired { get; private set; }
+    public bool FullSurfaceRebuildRequired { get; private set; }
+    public bool FullSurfaceStreamingRebuildRequired { get; private set; }
+    public bool FullCollisionRebuildRequired { get; private set; }
+    public bool AddressablesConfigurationDirty { get; private set; }
+    public bool AddressablesContentDirty { get; private set; }
+    public bool RuntimeSceneMetadataDirty { get; private set; }
+    public string LastObservedAuthoringSignature { get; private set; }
+    public int SerializedVersion { get; private set; }
+    public long StateRevision { get; private set; }
 
     public bool HasPendingWork
     {
@@ -97,26 +31,18 @@ public sealed class TerrainRuntimeBakeStateSummary
         {
             return
                 PendingHeightTileCount > 0
-                ||
-                PendingHeightStreamingTileCount > 0
-                ||
-                PendingSurfaceTileCount > 0
-                ||
-                PendingCollisionChunkCount > 0
-                ||
-                FullHeightRebuildRequired
-                ||
-                FullHeightStreamingRebuildRequired
-                ||
-                FullSurfaceRebuildRequired
-                ||
-                FullCollisionRebuildRequired
-                ||
-                AddressablesConfigurationDirty
-                ||
-                AddressablesContentDirty
-                ||
-                RuntimeSceneMetadataDirty;
+                || PendingHeightStreamingTileCount > 0
+                || PendingSurfaceTileCount > 0
+                || PendingSurfaceStreamingTileCount > 0
+                || PendingCollisionChunkCount > 0
+                || FullHeightRebuildRequired
+                || FullHeightStreamingRebuildRequired
+                || FullSurfaceRebuildRequired
+                || FullSurfaceStreamingRebuildRequired
+                || FullCollisionRebuildRequired
+                || AddressablesConfigurationDirty
+                || AddressablesContentDirty
+                || RuntimeSceneMetadataDirty;
         }
     }
 
@@ -124,10 +50,12 @@ public sealed class TerrainRuntimeBakeStateSummary
         int pendingHeightTileCount,
         int pendingHeightStreamingTileCount,
         int pendingSurfaceTileCount,
+        int pendingSurfaceStreamingTileCount,
         int pendingCollisionChunkCount,
         bool fullHeightRebuildRequired,
         bool fullHeightStreamingRebuildRequired,
         bool fullSurfaceRebuildRequired,
+        bool fullSurfaceStreamingRebuildRequired,
         bool fullCollisionRebuildRequired,
         bool addressablesConfigurationDirty,
         bool addressablesContentDirty,
@@ -137,47 +65,21 @@ public sealed class TerrainRuntimeBakeStateSummary
         long stateRevision
     )
     {
-        PendingHeightTileCount =
-            pendingHeightTileCount;
-
-        PendingHeightStreamingTileCount =
-            pendingHeightStreamingTileCount;
-
-        PendingSurfaceTileCount =
-            pendingSurfaceTileCount;
-
-        PendingCollisionChunkCount =
-            pendingCollisionChunkCount;
-
-        FullHeightRebuildRequired =
-            fullHeightRebuildRequired;
-
-        FullHeightStreamingRebuildRequired =
-            fullHeightStreamingRebuildRequired;
-
-        FullSurfaceRebuildRequired =
-            fullSurfaceRebuildRequired;
-
-        FullCollisionRebuildRequired =
-            fullCollisionRebuildRequired;
-
-        AddressablesConfigurationDirty =
-            addressablesConfigurationDirty;
-
-        AddressablesContentDirty =
-            addressablesContentDirty;
-
-        RuntimeSceneMetadataDirty =
-            runtimeSceneMetadataDirty;
-
-        LastObservedAuthoringSignature =
-            lastObservedAuthoringSignature ??
-            "";
-
-        SerializedVersion =
-            serializedVersion;
-
-        StateRevision =
-            stateRevision;
+        PendingHeightTileCount = pendingHeightTileCount;
+        PendingHeightStreamingTileCount = pendingHeightStreamingTileCount;
+        PendingSurfaceTileCount = pendingSurfaceTileCount;
+        PendingSurfaceStreamingTileCount = pendingSurfaceStreamingTileCount;
+        PendingCollisionChunkCount = pendingCollisionChunkCount;
+        FullHeightRebuildRequired = fullHeightRebuildRequired;
+        FullHeightStreamingRebuildRequired = fullHeightStreamingRebuildRequired;
+        FullSurfaceRebuildRequired = fullSurfaceRebuildRequired;
+        FullSurfaceStreamingRebuildRequired = fullSurfaceStreamingRebuildRequired;
+        FullCollisionRebuildRequired = fullCollisionRebuildRequired;
+        AddressablesConfigurationDirty = addressablesConfigurationDirty;
+        AddressablesContentDirty = addressablesContentDirty;
+        RuntimeSceneMetadataDirty = runtimeSceneMetadataDirty;
+        LastObservedAuthoringSignature = lastObservedAuthoringSignature ?? "";
+        SerializedVersion = serializedVersion;
+        StateRevision = stateRevision;
     }
 }

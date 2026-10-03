@@ -450,6 +450,7 @@ internal sealed partial class TerrainRuntimeBakeDiagnosticsSession
         bool heightStageExecuted,
         bool heightStreamingStageExecuted,
         bool surfaceStageExecuted,
+        bool surfaceStreamingStageExecuted,
         bool collisionStageExecuted,
         bool addressablesStageExecuted,
         bool sceneSyncStageExecuted,
@@ -504,6 +505,10 @@ internal sealed partial class TerrainRuntimeBakeDiagnosticsSession
                 BuildStageRecord(
                     TerrainRuntimeBakePipelineState.SurfaceMasks,
                     surfaceStageExecuted
+                ),
+                BuildStageRecord(
+                    TerrainRuntimeBakePipelineState.SurfaceStreaming,
+                    surfaceStreamingStageExecuted
                 ),
                 BuildStageRecord(
                     TerrainRuntimeBakePipelineState.Collision,

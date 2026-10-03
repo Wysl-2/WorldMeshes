@@ -16,93 +16,68 @@ public static class TerrainRuntimeInvalidationService
         IEnumerable<Vector2Int> dirtyHeightTiles
     )
     {
-        if (
-            worldSettings == null
-            ||
-            authoringData == null
-        )
+        if (worldSettings == null || authoringData == null)
         {
             return false;
         }
 
         string currentAuthoringSignature =
-            TerrainAuthoringStateUtility
-                .GetOverallAuthoringSignature(
-                    worldSettings,
-                    authoringData
-                );
+            TerrainAuthoringStateUtility.GetOverallAuthoringSignature(
+                worldSettings,
+                authoringData
+            );
 
         HashSet<Vector2Int> heightTiles =
             new HashSet<Vector2Int>();
 
         if (
-            string.IsNullOrEmpty(
-                currentAuthoringSignature
+            string.IsNullOrEmpty(currentAuthoringSignature)
+            || !TerrainRuntimeBakeDependencyUtility.TryCopyValidHeightTiles(
+                worldSettings,
+                dirtyHeightTiles,
+                heightTiles,
+                out _
             )
-            ||
-            !TerrainRuntimeBakeDependencyUtility
-                .TryCopyValidHeightTiles(
-                    worldSettings,
-                    dirtyHeightTiles,
-                    heightTiles,
-                    out _
-                )
-            ||
-            heightTiles.Count == 0
+            || heightTiles.Count == 0
         )
         {
-            return
-                InvalidateFullHeightDependencyChain(
-                    currentAuthoringSignature,
-                    false
-                );
+            return InvalidateFullHeightDependencyChain(
+                currentAuthoringSignature,
+                false
+            );
         }
 
         HashSet<Vector2Int> collisionChunks =
             new HashSet<Vector2Int>();
 
         if (
-            !TerrainRuntimeBakeDependencyUtility
-                .TryCollectDependentCollisionChunks(
-                    worldSettings,
-                    heightTiles,
-                    collisionChunks,
-                    out _
-                )
+            !TerrainRuntimeBakeDependencyUtility.TryCollectDependentCollisionChunks(
+                worldSettings,
+                heightTiles,
+                collisionChunks,
+                out _
+            )
         )
         {
-            return
-                InvalidateFullHeightDependencyChain(
-                    currentAuthoringSignature,
-                    true
-                );
+            return InvalidateFullHeightDependencyChain(
+                currentAuthoringSignature,
+                true
+            );
         }
 
         TerrainRuntimeBakeStateMutation mutation =
             new TerrainRuntimeBakeStateMutation();
 
         mutation
-            .AddHeightTiles(
-                heightTiles
-            )
-            .AddCollisionChunks(
-                collisionChunks
-            )
+            .AddHeightTiles(heightTiles)
+            .AddCollisionChunks(collisionChunks)
             .DirtyAddressablesContent()
             .DirtyRuntimeSceneMetadata()
-            .SetObservedAuthoringSignature(
-                currentAuthoringSignature
-            );
+            .SetObservedAuthoringSignature(currentAuthoringSignature);
 
-        if (
-            IsCurrentStreamingBaseline(
-                worldSettings
-            )
-        )
+        if (IsCurrentHeightStreamingBaseline(worldSettings))
         {
-            mutation.AddHeightStreamingTiles(
-                heightTiles
-            );
+            mutation.AddHeightStreamingTiles(heightTiles);
         }
         else
         {
@@ -110,42 +85,43 @@ public static class TerrainRuntimeInvalidationService
         }
 
         TerrainSurfaceSettings surfaceSettings =
-            AssetDatabase
-                .LoadAssetAtPath<TerrainSurfaceSettings>(
-                    WorldMeshesPaths
-                        .TerrainSurfaceSettingsAssetPath
-                );
+            AssetDatabase.LoadAssetAtPath<TerrainSurfaceSettings>(
+                WorldMeshesPaths.TerrainSurfaceSettingsAssetPath
+            );
 
         HashSet<Vector2Int> surfaceTiles =
             new HashSet<Vector2Int>();
 
         if (
             surfaceSettings == null
-            ||
-            !TerrainRuntimeBakeDependencyUtility
-                .TryCollectDependentSurfaceTiles(
-                    worldSettings,
-                    surfaceSettings,
-                    heightTiles,
-                    surfaceTiles,
-                    out _
-                )
+            || !TerrainRuntimeBakeDependencyUtility.TryCollectDependentSurfaceTiles(
+                worldSettings,
+                surfaceSettings,
+                heightTiles,
+                surfaceTiles,
+                out _
+            )
         )
         {
-            mutation.RequireFullSurface();
+            mutation
+                .RequireFullSurface()
+                .RequireFullSurfaceStreaming();
         }
         else
         {
-            mutation.AddSurfaceTiles(
-                surfaceTiles
-            );
+            mutation.AddSurfaceTiles(surfaceTiles);
+
+            if (IsCurrentSurfaceStreamingBaseline(worldSettings))
+            {
+                mutation.AddSurfaceStreamingTiles(surfaceTiles);
+            }
+            else
+            {
+                mutation.RequireFullSurfaceStreaming();
+            }
         }
 
-        return
-            TerrainRuntimeBakeStateService
-                .ApplyMutation(
-                    mutation
-                );
+        return TerrainRuntimeBakeStateService.ApplyMutation(mutation);
     }
 
     public static bool InvalidateGlobalAuthoringHeightOutput(
@@ -153,28 +129,21 @@ public static class TerrainRuntimeInvalidationService
         TerrainAuthoringData authoringData
     )
     {
-        string currentAuthoringSignature =
-            "";
+        string currentAuthoringSignature = "";
 
-        if (
-            worldSettings != null
-            &&
-            authoringData != null
-        )
+        if (worldSettings != null && authoringData != null)
         {
             currentAuthoringSignature =
-                TerrainAuthoringStateUtility
-                    .GetOverallAuthoringSignature(
-                        worldSettings,
-                        authoringData
-                    );
+                TerrainAuthoringStateUtility.GetOverallAuthoringSignature(
+                    worldSettings,
+                    authoringData
+                );
         }
 
-        return
-            InvalidateFullHeightDependencyChain(
-                currentAuthoringSignature,
-                false
-            );
+        return InvalidateFullHeightDependencyChain(
+            currentAuthoringSignature,
+            false
+        );
     }
 
     public static bool InvalidateCommittedAuthoringHeightfield(
@@ -182,28 +151,21 @@ public static class TerrainRuntimeInvalidationService
         TerrainAuthoringData authoringData
     )
     {
-        string currentAuthoringSignature =
-            "";
+        string currentAuthoringSignature = "";
 
-        if (
-            worldSettings != null
-            &&
-            authoringData != null
-        )
+        if (worldSettings != null && authoringData != null)
         {
             currentAuthoringSignature =
-                TerrainAuthoringStateUtility
-                    .GetOverallAuthoringSignature(
-                        worldSettings,
-                        authoringData
-                    );
+                TerrainAuthoringStateUtility.GetOverallAuthoringSignature(
+                    worldSettings,
+                    authoringData
+                );
         }
 
-        return
-            InvalidateFullHeightDependencyChain(
-                currentAuthoringSignature,
-                false
-            );
+        return InvalidateFullHeightDependencyChain(
+            currentAuthoringSignature,
+            false
+        );
     }
 
     public static bool InvalidateWorldSettingsChanged(
@@ -220,35 +182,23 @@ public static class TerrainRuntimeInvalidationService
         }
 
         bool gridChanged =
-            previousGridWidth !=
-                worldSettings.gridWidth
-            ||
-            previousGridHeight !=
-                worldSettings.gridHeight;
+            previousGridWidth != worldSettings.gridWidth
+            || previousGridHeight != worldSettings.gridHeight;
 
         bool metricLayoutChanged =
-            !Mathf.Approximately(
-                previousChunkSize,
-                worldSettings.chunkSize
-            )
-            ||
-            previousHeightfieldResolutionPerChunk !=
+            !Mathf.Approximately(previousChunkSize, worldSettings.chunkSize)
+            || previousHeightfieldResolutionPerChunk !=
                 worldSettings.heightfieldResolutionPerChunk;
 
-        if (
-            !gridChanged
-            &&
-            !metricLayoutChanged
-        )
+        if (!gridChanged && !metricLayoutChanged)
         {
             return false;
         }
 
-        return
-            InvalidateFullHeightDependencyChain(
-                "",
-                gridChanged
-            );
+        return InvalidateFullHeightDependencyChain(
+            "",
+            gridChanged
+        );
     }
 
     public static bool InvalidateHeightTileChunkSpanChanged(
@@ -258,19 +208,16 @@ public static class TerrainRuntimeInvalidationService
     {
         if (
             worldSettings == null
-            ||
-            previousHeightTileChunkSpan ==
-                worldSettings.heightTileChunkSpan
+            || previousHeightTileChunkSpan == worldSettings.heightTileChunkSpan
         )
         {
             return false;
         }
 
-        return
-            InvalidateFullHeightDependencyChain(
-                "",
-                true
-            );
+        return InvalidateFullHeightDependencyChain(
+            "",
+            true
+        );
     }
 
     public static bool InvalidateHeightStreamingTiles(
@@ -287,33 +234,24 @@ public static class TerrainRuntimeInvalidationService
             new HashSet<Vector2Int>();
 
         if (
-            !TerrainRuntimeBakeDependencyUtility
-                .TryCopyValidHeightTiles(
-                    worldSettings,
-                    dirtyHeightTiles,
-                    heightTiles,
-                    out _
-                )
-            ||
-            heightTiles.Count == 0
+            !TerrainRuntimeBakeDependencyUtility.TryCopyValidHeightTiles(
+                worldSettings,
+                dirtyHeightTiles,
+                heightTiles,
+                out _
+            )
+            || heightTiles.Count == 0
         )
         {
-            return
-                InvalidateFullHeightStreaming();
+            return InvalidateFullHeightStreaming();
         }
 
         TerrainRuntimeBakeStateMutation mutation =
             new TerrainRuntimeBakeStateMutation();
 
-        if (
-            IsCurrentStreamingBaseline(
-                worldSettings
-            )
-        )
+        if (IsCurrentHeightStreamingBaseline(worldSettings))
         {
-            mutation.AddHeightStreamingTiles(
-                heightTiles
-            );
+            mutation.AddHeightStreamingTiles(heightTiles);
         }
         else
         {
@@ -322,22 +260,68 @@ public static class TerrainRuntimeInvalidationService
 
         mutation.DirtyAddressablesContent();
 
-        return
-            TerrainRuntimeBakeStateService
-                .ApplyMutation(
-                    mutation
-                );
+        return TerrainRuntimeBakeStateService.ApplyMutation(mutation);
     }
 
     public static bool InvalidateFullHeightStreaming()
     {
-        return
-            TerrainRuntimeBakeStateService
-                .ApplyMutation(
-                    new TerrainRuntimeBakeStateMutation()
-                        .RequireFullHeightStreaming()
-                        .DirtyAddressablesContent()
-                );
+        return TerrainRuntimeBakeStateService.ApplyMutation(
+            new TerrainRuntimeBakeStateMutation()
+                .RequireFullHeightStreaming()
+                .DirtyAddressablesContent()
+        );
+    }
+
+    public static bool InvalidateSurfaceStreamingTiles(
+        WorldSettings worldSettings,
+        IEnumerable<Vector2Int> dirtySurfaceTiles
+    )
+    {
+        if (worldSettings == null)
+        {
+            return false;
+        }
+
+        HashSet<Vector2Int> surfaceTiles =
+            new HashSet<Vector2Int>();
+
+        if (
+            !TerrainRuntimeBakeDependencyUtility.TryCopyValidSurfaceTiles(
+                worldSettings,
+                dirtySurfaceTiles,
+                surfaceTiles,
+                out _
+            )
+            || surfaceTiles.Count == 0
+        )
+        {
+            return InvalidateFullSurfaceStreaming();
+        }
+
+        TerrainRuntimeBakeStateMutation mutation =
+            new TerrainRuntimeBakeStateMutation();
+
+        if (IsCurrentSurfaceStreamingBaseline(worldSettings))
+        {
+            mutation.AddSurfaceStreamingTiles(surfaceTiles);
+        }
+        else
+        {
+            mutation.RequireFullSurfaceStreaming();
+        }
+
+        mutation.DirtyAddressablesContent();
+
+        return TerrainRuntimeBakeStateService.ApplyMutation(mutation);
+    }
+
+    public static bool InvalidateFullSurfaceStreaming()
+    {
+        return TerrainRuntimeBakeStateService.ApplyMutation(
+            new TerrainRuntimeBakeStateMutation()
+                .RequireFullSurfaceStreaming()
+                .DirtyAddressablesContent()
+        );
     }
 
     public static bool InvalidateSurfaceSettingsChanged()
@@ -347,13 +331,10 @@ public static class TerrainRuntimeInvalidationService
 
         mutation
             .RequireFullSurface()
+            .RequireFullSurfaceStreaming()
             .DirtyAddressablesContent();
 
-        return
-            TerrainRuntimeBakeStateService
-                .ApplyMutation(
-                    mutation
-                );
+        return TerrainRuntimeBakeStateService.ApplyMutation(mutation);
     }
 
     public static bool InvalidateCollisionSettingsChanged(
@@ -363,9 +344,7 @@ public static class TerrainRuntimeInvalidationService
     {
         if (
             worldSettings == null
-            ||
-            previousCollisionResolution ==
-                worldSettings.collisionResolution
+            || previousCollisionResolution == worldSettings.collisionResolution
         )
         {
             return false;
@@ -378,11 +357,7 @@ public static class TerrainRuntimeInvalidationService
             .RequireFullCollision()
             .DirtyAddressablesContent();
 
-        return
-            TerrainRuntimeBakeStateService
-                .ApplyMutation(
-                    mutation
-                );
+        return TerrainRuntimeBakeStateService.ApplyMutation(mutation);
     }
 
     private static bool InvalidateFullHeightDependencyChain(
@@ -397,27 +372,21 @@ public static class TerrainRuntimeInvalidationService
             .RequireFullHeight()
             .RequireFullHeightStreaming()
             .RequireFullSurface()
+            .RequireFullSurfaceStreaming()
             .RequireFullCollision()
             .DirtyAddressablesContent()
             .DirtyRuntimeSceneMetadata()
-            .SetObservedAuthoringSignature(
-                observedAuthoringSignature
-            );
+            .SetObservedAuthoringSignature(observedAuthoringSignature);
 
         if (addressablesConfigurationDirty)
         {
-            mutation
-                .DirtyAddressablesConfiguration();
+            mutation.DirtyAddressablesConfiguration();
         }
 
-        return
-            TerrainRuntimeBakeStateService
-                .ApplyMutation(
-                    mutation
-                );
+        return TerrainRuntimeBakeStateService.ApplyMutation(mutation);
     }
 
-    private static bool IsCurrentStreamingBaseline(
+    private static bool IsCurrentHeightStreamingBaseline(
         WorldSettings worldSettings
     )
     {
@@ -427,18 +396,34 @@ public static class TerrainRuntimeInvalidationService
         }
 
         TerrainHeightmapManifest manifest =
-            AssetDatabase
-                .LoadAssetAtPath<TerrainHeightmapManifest>(
-                    TerrainRuntimeHeightAssetUtility
-                        .HeightmapManifestPath
-                );
+            AssetDatabase.LoadAssetAtPath<TerrainHeightmapManifest>(
+                TerrainRuntimeHeightAssetUtility.HeightmapManifestPath
+            );
 
-        return
-            TerrainGenerationStateUtility
-                .IsHeightStreamingManifestCurrent(
-                    manifest,
-                    worldSettings,
-                    worldSettings.heightmapGenerationRevision
-                );
+        return TerrainGenerationStateUtility.IsHeightStreamingManifestCurrent(
+            manifest,
+            worldSettings,
+            worldSettings.heightmapGenerationRevision
+        );
+    }
+
+    private static bool IsCurrentSurfaceStreamingBaseline(
+        WorldSettings worldSettings
+    )
+    {
+        if (worldSettings == null)
+        {
+            return false;
+        }
+
+        TerrainSurfaceMaskManifest manifest =
+            AssetDatabase.LoadAssetAtPath<TerrainSurfaceMaskManifest>(
+                TerrainRuntimeSurfaceMaskAssetUtility.SurfaceMaskManifestPath
+            );
+
+        return TerrainGenerationStateUtility.IsSurfaceStreamingTargetMetadataCompatible(
+            manifest,
+            worldSettings
+        );
     }
 }

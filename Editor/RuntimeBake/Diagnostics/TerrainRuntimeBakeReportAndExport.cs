@@ -219,6 +219,11 @@ public static class TerrainRuntimeBakeReportFormatter
         );
         AppendDuration(
             builder,
+            "Surface Streaming",
+            result.SurfaceStreamingDurationSeconds
+        );
+        AppendDuration(
+            builder,
             "Collision",
             result.CollisionDurationSeconds
         );
@@ -548,6 +553,13 @@ public static class TerrainRuntimeBakeReportFormatter
                 " tiles)"
             );
             builder.AppendLine(
+                "    Surface Streaming: " +
+                snapshot.SurfaceStreamingWorkMode +
+                " (" +
+                snapshot.SurfaceStreamingTileCount +
+                " tile families)"
+            );
+            builder.AppendLine(
                 "    Collision: " +
                 snapshot.CollisionWorkMode +
                 " (" +
@@ -598,6 +610,13 @@ public static class TerrainRuntimeBakeReportFormatter
                 builder,
                 "    Surface Tiles",
                 snapshot.SurfaceTiles,
+                snapshot.CoordinatesCaptured,
+                MaxDetailedCoordinates
+            );
+            AppendCoordinates(
+                builder,
+                "    Surface Streaming Tiles",
+                snapshot.SurfaceStreamingTiles,
                 snapshot.CoordinatesCaptured,
                 MaxDetailedCoordinates
             );
@@ -1184,9 +1203,11 @@ public static class TerrainRuntimeBakeReportJsonExporter
         public bool coordinatesCaptured;
         public string heightWorkMode;
         public string surfaceWorkMode;
+        public string surfaceStreamingWorkMode;
         public string collisionWorkMode;
         public int heightTileCount;
         public int surfaceTileCount;
+        public int surfaceStreamingTileCount;
         public int collisionChunkCount;
         public bool addressablesConfigurationRequired;
         public bool addressablesContentBuildRequired;
@@ -1203,6 +1224,8 @@ public static class TerrainRuntimeBakeReportJsonExporter
         public List<CoordinateDto> heightTiles =
             new List<CoordinateDto>();
         public List<CoordinateDto> surfaceTiles =
+            new List<CoordinateDto>();
+        public List<CoordinateDto> surfaceStreamingTiles =
             new List<CoordinateDto>();
         public List<CoordinateDto> collisionChunks =
             new List<CoordinateDto>();
@@ -1406,6 +1429,11 @@ public static class TerrainRuntimeBakeReportJsonExporter
         );
         AddStageTiming(
             dto,
+            "SurfaceStreaming",
+            result.SurfaceStreamingDurationSeconds
+        );
+        AddStageTiming(
+            dto,
             "Collision",
             result.CollisionDurationSeconds
         );
@@ -1545,9 +1573,11 @@ public static class TerrainRuntimeBakeReportJsonExporter
                     coordinatesCaptured = source.CoordinatesCaptured,
                     heightWorkMode = source.HeightWorkMode.ToString(),
                     surfaceWorkMode = source.SurfaceWorkMode.ToString(),
+                    surfaceStreamingWorkMode = source.SurfaceStreamingWorkMode.ToString(),
                     collisionWorkMode = source.CollisionWorkMode.ToString(),
                     heightTileCount = source.HeightTileCount,
                     surfaceTileCount = source.SurfaceTileCount,
+                    surfaceStreamingTileCount = source.SurfaceStreamingTileCount,
                     collisionChunkCount = source.CollisionChunkCount,
                     addressablesConfigurationRequired =
                         source.AddressablesConfigurationRequired,
@@ -1577,6 +1607,10 @@ public static class TerrainRuntimeBakeReportJsonExporter
             AddCoordinates(
                 target.surfaceTiles,
                 source.SurfaceTiles
+            );
+            AddCoordinates(
+                target.surfaceStreamingTiles,
+                source.SurfaceStreamingTiles
             );
             AddCoordinates(
                 target.collisionChunks,

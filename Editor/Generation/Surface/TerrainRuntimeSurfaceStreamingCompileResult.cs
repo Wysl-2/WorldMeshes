@@ -1,19 +1,60 @@
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Text;
+using UnityEngine;
 
 public enum TerrainRuntimeSurfaceStreamingCompileOutcome
 {
     Completed,
+    NoWork,
     Cancelled,
     Failed,
     Blocked,
+    StalePlan,
     StaleSource
 }
 
 public sealed class TerrainRuntimeSurfaceStreamingCompileResult
 {
+    private readonly ReadOnlyCollection<Vector2Int>
+        requestedFamilies;
+
+    private readonly ReadOnlyCollection<Vector2Int>
+        succeededFamilies;
+
+    private readonly ReadOnlyCollection<Vector2Int>
+        failedFamilies;
+
+    private readonly ReadOnlyCollection<Vector2Int>
+        unprocessedFamilies;
+
     public TerrainRuntimeSurfaceStreamingCompileOutcome Outcome { get; private set; }
-    public int RequestedFamilyCount { get; private set; }
-    public int CompletedFamilyCount { get; private set; }
+    public TerrainRuntimeBakeWorkMode WorkMode { get; private set; }
+
+    public IReadOnlyList<Vector2Int> RequestedFamilies =>
+        requestedFamilies;
+
+    public IReadOnlyList<Vector2Int> SucceededFamilies =>
+        succeededFamilies;
+
+    public IReadOnlyList<Vector2Int> FailedFamilies =>
+        failedFamilies;
+
+    public IReadOnlyList<Vector2Int> UnprocessedFamilies =>
+        unprocessedFamilies;
+
+    public int RequestedFamilyCount =>
+        requestedFamilies.Count;
+
+    public int CompletedFamilyCount =>
+        succeededFamilies.Count;
+
+    public int FailedFamilyCount =>
+        failedFamilies.Count;
+
+    public int UnprocessedFamilyCount =>
+        unprocessedFamilies.Count;
+
     public int CreatedAssetCount { get; private set; }
     public int UpdatedAssetCount { get; private set; }
     public int RemovedAssetCount { get; private set; }
@@ -25,8 +66,11 @@ public sealed class TerrainRuntimeSurfaceStreamingCompileResult
 
     internal TerrainRuntimeSurfaceStreamingCompileResult(
         TerrainRuntimeSurfaceStreamingCompileOutcome outcome,
-        int requestedFamilyCount,
-        int completedFamilyCount,
+        TerrainRuntimeBakeWorkMode workMode,
+        IEnumerable<Vector2Int> requestedFamilies,
+        IEnumerable<Vector2Int> succeededFamilies,
+        IEnumerable<Vector2Int> failedFamilies,
+        IEnumerable<Vector2Int> unprocessedFamilies,
         int createdAssetCount,
         int updatedAssetCount,
         int removedAssetCount,
@@ -38,8 +82,20 @@ public sealed class TerrainRuntimeSurfaceStreamingCompileResult
     )
     {
         Outcome = outcome;
-        RequestedFamilyCount = System.Math.Max(0, requestedFamilyCount);
-        CompletedFamilyCount = System.Math.Max(0, completedFamilyCount);
+        WorkMode = workMode;
+
+        this.requestedFamilies =
+            CreateReadOnlyCoordinates(requestedFamilies);
+
+        this.succeededFamilies =
+            CreateReadOnlyCoordinates(succeededFamilies);
+
+        this.failedFamilies =
+            CreateReadOnlyCoordinates(failedFamilies);
+
+        this.unprocessedFamilies =
+            CreateReadOnlyCoordinates(unprocessedFamilies);
+
         CreatedAssetCount = System.Math.Max(0, createdAssetCount);
         UpdatedAssetCount = System.Math.Max(0, updatedAssetCount);
         RemovedAssetCount = System.Math.Max(0, removedAssetCount);
@@ -55,6 +111,7 @@ public sealed class TerrainRuntimeSurfaceStreamingCompileResult
         StringBuilder builder = new StringBuilder();
         builder.AppendLine("WorldMeshes Runtime Surface Streaming Compile Result");
         builder.AppendLine("Outcome: " + Outcome);
+        builder.AppendLine("Work Mode: " + WorkMode);
         builder.AppendLine("Dataset Finalized: " + DatasetFinalized);
         builder.AppendLine(
             "Streaming Generation Revision: " +
@@ -63,7 +120,9 @@ public sealed class TerrainRuntimeSurfaceStreamingCompileResult
             StreamingGenerationRevisionAfter
         );
         builder.AppendLine("Requested Tile Families: " + RequestedFamilyCount);
-        builder.AppendLine("Completed Tile Families: " + CompletedFamilyCount);
+        builder.AppendLine("Succeeded Tile Families: " + CompletedFamilyCount);
+        builder.AppendLine("Failed Tile Families: " + FailedFamilyCount);
+        builder.AppendLine("Unprocessed Tile Families: " + UnprocessedFamilyCount);
         builder.AppendLine("Created Assets: " + CreatedAssetCount);
         builder.AppendLine("Updated Assets: " + UpdatedAssetCount);
         builder.AppendLine("Removed Assets: " + RemovedAssetCount);
@@ -81,5 +140,35 @@ public sealed class TerrainRuntimeSurfaceStreamingCompileResult
         }
 
         return builder.ToString();
+    }
+
+    private static ReadOnlyCollection<Vector2Int> CreateReadOnlyCoordinates(
+        IEnumerable<Vector2Int> source
+    )
+    {
+        HashSet<Vector2Int> unique =
+            source != null
+                ? new HashSet<Vector2Int>(source)
+                : new HashSet<Vector2Int>();
+
+        List<Vector2Int> sorted =
+            new List<Vector2Int>(unique);
+
+        sorted.Sort(CompareCoordinates);
+
+        return sorted.AsReadOnly();
+    }
+
+    private static int CompareCoordinates(
+        Vector2Int left,
+        Vector2Int right
+    )
+    {
+        int yComparison =
+            left.y.CompareTo(right.y);
+
+        return yComparison != 0
+            ? yComparison
+            : left.x.CompareTo(right.x);
     }
 }

@@ -10,141 +10,35 @@ using UnityEngine;
  */
 public sealed class TerrainRuntimeBakeStateSnapshot
 {
-    private readonly ReadOnlyCollection<Vector2Int>
-        pendingHeightTiles;
+    private readonly ReadOnlyCollection<Vector2Int> pendingHeightTiles;
+    private readonly ReadOnlyCollection<Vector2Int> pendingHeightStreamingTiles;
+    private readonly ReadOnlyCollection<Vector2Int> pendingSurfaceTiles;
+    private readonly ReadOnlyCollection<Vector2Int> pendingSurfaceStreamingTiles;
+    private readonly ReadOnlyCollection<Vector2Int> pendingCollisionChunks;
 
-    private readonly ReadOnlyCollection<Vector2Int>
-        pendingHeightStreamingTiles;
+    public IReadOnlyList<Vector2Int> PendingHeightTiles => pendingHeightTiles;
+    public IReadOnlyList<Vector2Int> PendingHeightStreamingTiles => pendingHeightStreamingTiles;
+    public IReadOnlyList<Vector2Int> PendingSurfaceTiles => pendingSurfaceTiles;
+    public IReadOnlyList<Vector2Int> PendingSurfaceStreamingTiles => pendingSurfaceStreamingTiles;
+    public IReadOnlyList<Vector2Int> PendingCollisionChunks => pendingCollisionChunks;
 
-    private readonly ReadOnlyCollection<Vector2Int>
-        pendingSurfaceTiles;
+    public int PendingHeightTileCount => pendingHeightTiles.Count;
+    public int PendingHeightStreamingTileCount => pendingHeightStreamingTiles.Count;
+    public int PendingSurfaceTileCount => pendingSurfaceTiles.Count;
+    public int PendingSurfaceStreamingTileCount => pendingSurfaceStreamingTiles.Count;
+    public int PendingCollisionChunkCount => pendingCollisionChunks.Count;
 
-    private readonly ReadOnlyCollection<Vector2Int>
-        pendingCollisionChunks;
-
-    public IReadOnlyList<Vector2Int> PendingHeightTiles
-    {
-        get
-        {
-            return pendingHeightTiles;
-        }
-    }
-
-    public IReadOnlyList<Vector2Int> PendingHeightStreamingTiles
-    {
-        get
-        {
-            return pendingHeightStreamingTiles;
-        }
-    }
-
-    public IReadOnlyList<Vector2Int> PendingSurfaceTiles
-    {
-        get
-        {
-            return pendingSurfaceTiles;
-        }
-    }
-
-    public IReadOnlyList<Vector2Int> PendingCollisionChunks
-    {
-        get
-        {
-            return pendingCollisionChunks;
-        }
-    }
-
-    public int PendingHeightTileCount
-    {
-        get
-        {
-            return pendingHeightTiles.Count;
-        }
-    }
-
-    public int PendingHeightStreamingTileCount
-    {
-        get
-        {
-            return pendingHeightStreamingTiles.Count;
-        }
-    }
-
-    public int PendingSurfaceTileCount
-    {
-        get
-        {
-            return pendingSurfaceTiles.Count;
-        }
-    }
-
-    public int PendingCollisionChunkCount
-    {
-        get
-        {
-            return pendingCollisionChunks.Count;
-        }
-    }
-
-    public bool FullHeightRebuildRequired
-    {
-        get;
-        private set;
-    }
-
-    public bool FullHeightStreamingRebuildRequired
-    {
-        get;
-        private set;
-    }
-
-    public bool FullSurfaceRebuildRequired
-    {
-        get;
-        private set;
-    }
-
-    public bool FullCollisionRebuildRequired
-    {
-        get;
-        private set;
-    }
-
-    public bool AddressablesConfigurationDirty
-    {
-        get;
-        private set;
-    }
-
-    public bool AddressablesContentDirty
-    {
-        get;
-        private set;
-    }
-
-    public bool RuntimeSceneMetadataDirty
-    {
-        get;
-        private set;
-    }
-
-    public string LastObservedAuthoringSignature
-    {
-        get;
-        private set;
-    }
-
-    public int SerializedVersion
-    {
-        get;
-        private set;
-    }
-
-    public long StateRevision
-    {
-        get;
-        private set;
-    }
+    public bool FullHeightRebuildRequired { get; private set; }
+    public bool FullHeightStreamingRebuildRequired { get; private set; }
+    public bool FullSurfaceRebuildRequired { get; private set; }
+    public bool FullSurfaceStreamingRebuildRequired { get; private set; }
+    public bool FullCollisionRebuildRequired { get; private set; }
+    public bool AddressablesConfigurationDirty { get; private set; }
+    public bool AddressablesContentDirty { get; private set; }
+    public bool RuntimeSceneMetadataDirty { get; private set; }
+    public string LastObservedAuthoringSignature { get; private set; }
+    public int SerializedVersion { get; private set; }
+    public long StateRevision { get; private set; }
 
     public bool HasPendingWork
     {
@@ -152,26 +46,18 @@ public sealed class TerrainRuntimeBakeStateSnapshot
         {
             return
                 pendingHeightTiles.Count > 0
-                ||
-                pendingHeightStreamingTiles.Count > 0
-                ||
-                pendingSurfaceTiles.Count > 0
-                ||
-                pendingCollisionChunks.Count > 0
-                ||
-                FullHeightRebuildRequired
-                ||
-                FullHeightStreamingRebuildRequired
-                ||
-                FullSurfaceRebuildRequired
-                ||
-                FullCollisionRebuildRequired
-                ||
-                AddressablesConfigurationDirty
-                ||
-                AddressablesContentDirty
-                ||
-                RuntimeSceneMetadataDirty;
+                || pendingHeightStreamingTiles.Count > 0
+                || pendingSurfaceTiles.Count > 0
+                || pendingSurfaceStreamingTiles.Count > 0
+                || pendingCollisionChunks.Count > 0
+                || FullHeightRebuildRequired
+                || FullHeightStreamingRebuildRequired
+                || FullSurfaceRebuildRequired
+                || FullSurfaceStreamingRebuildRequired
+                || FullCollisionRebuildRequired
+                || AddressablesConfigurationDirty
+                || AddressablesContentDirty
+                || RuntimeSceneMetadataDirty;
         }
     }
 
@@ -179,10 +65,12 @@ public sealed class TerrainRuntimeBakeStateSnapshot
         IEnumerable<Vector2Int> heightTiles,
         IEnumerable<Vector2Int> heightStreamingTiles,
         IEnumerable<Vector2Int> surfaceTiles,
+        IEnumerable<Vector2Int> surfaceStreamingTiles,
         IEnumerable<Vector2Int> collisionChunks,
         bool fullHeightRebuildRequired,
         bool fullHeightStreamingRebuildRequired,
         bool fullSurfaceRebuildRequired,
+        bool fullSurfaceStreamingRebuildRequired,
         bool fullCollisionRebuildRequired,
         bool addressablesConfigurationDirty,
         bool addressablesContentDirty,
@@ -192,59 +80,22 @@ public sealed class TerrainRuntimeBakeStateSnapshot
         long stateRevision
     )
     {
-        pendingHeightTiles =
-            new List<Vector2Int>(
-                heightTiles
-            )
-            .AsReadOnly();
+        pendingHeightTiles = new List<Vector2Int>(heightTiles).AsReadOnly();
+        pendingHeightStreamingTiles = new List<Vector2Int>(heightStreamingTiles).AsReadOnly();
+        pendingSurfaceTiles = new List<Vector2Int>(surfaceTiles).AsReadOnly();
+        pendingSurfaceStreamingTiles = new List<Vector2Int>(surfaceStreamingTiles).AsReadOnly();
+        pendingCollisionChunks = new List<Vector2Int>(collisionChunks).AsReadOnly();
 
-        pendingHeightStreamingTiles =
-            new List<Vector2Int>(
-                heightStreamingTiles
-            )
-            .AsReadOnly();
-
-        pendingSurfaceTiles =
-            new List<Vector2Int>(
-                surfaceTiles
-            )
-            .AsReadOnly();
-
-        pendingCollisionChunks =
-            new List<Vector2Int>(
-                collisionChunks
-            )
-            .AsReadOnly();
-
-        FullHeightRebuildRequired =
-            fullHeightRebuildRequired;
-
-        FullHeightStreamingRebuildRequired =
-            fullHeightStreamingRebuildRequired;
-
-        FullSurfaceRebuildRequired =
-            fullSurfaceRebuildRequired;
-
-        FullCollisionRebuildRequired =
-            fullCollisionRebuildRequired;
-
-        AddressablesConfigurationDirty =
-            addressablesConfigurationDirty;
-
-        AddressablesContentDirty =
-            addressablesContentDirty;
-
-        RuntimeSceneMetadataDirty =
-            runtimeSceneMetadataDirty;
-
-        LastObservedAuthoringSignature =
-            lastObservedAuthoringSignature ??
-            "";
-
-        SerializedVersion =
-            serializedVersion;
-
-        StateRevision =
-            stateRevision;
+        FullHeightRebuildRequired = fullHeightRebuildRequired;
+        FullHeightStreamingRebuildRequired = fullHeightStreamingRebuildRequired;
+        FullSurfaceRebuildRequired = fullSurfaceRebuildRequired;
+        FullSurfaceStreamingRebuildRequired = fullSurfaceStreamingRebuildRequired;
+        FullCollisionRebuildRequired = fullCollisionRebuildRequired;
+        AddressablesConfigurationDirty = addressablesConfigurationDirty;
+        AddressablesContentDirty = addressablesContentDirty;
+        RuntimeSceneMetadataDirty = runtimeSceneMetadataDirty;
+        LastObservedAuthoringSignature = lastObservedAuthoringSignature ?? "";
+        SerializedVersion = serializedVersion;
+        StateRevision = stateRevision;
     }
 }

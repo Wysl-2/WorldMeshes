@@ -215,6 +215,26 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             "Update Clipmap Settings"
         );
 
+        TerrainSurfaceMaskManifest surfaceManifest =
+            AssetDatabase.LoadAssetAtPath<TerrainSurfaceMaskManifest>(
+                TerrainRuntimeSurfaceMaskAssetUtility.SurfaceMaskManifestPath
+            );
+
+        int previousClipmapLevelCount =
+            worldSettings.clipmapLevelCount;
+
+        int previousClipmapBaseSampleStep =
+            worldSettings.clipmapBaseSampleStep;
+
+        bool previousSurfaceStreamingTargetValid =
+            TerrainGenerationStateUtility.TryBuildCurrentSurfaceStreamingTarget(
+                worldSettings,
+                surfaceManifest,
+                out _,
+                out string previousSurfaceStreamingTarget,
+                out _
+            );
+
         // -------------------------------------------------
         // Save settings
         // -------------------------------------------------
@@ -257,6 +277,39 @@ public partial class WorldMeshesEditorWindow : EditorWindow
                     .DirtyAddressablesConfiguration()
                     .DirtyAddressablesContent()
             );
+        }
+
+        bool surfaceStrideInputsChanged =
+            previousClipmapLevelCount !=
+                worldSettings.clipmapLevelCount
+            ||
+            previousClipmapBaseSampleStep !=
+                worldSettings.clipmapBaseSampleStep;
+
+        if (surfaceStrideInputsChanged)
+        {
+            bool currentSurfaceStreamingTargetValid =
+                TerrainGenerationStateUtility.TryBuildCurrentSurfaceStreamingTarget(
+                    worldSettings,
+                    surfaceManifest,
+                    out _,
+                    out string currentSurfaceStreamingTarget,
+                    out _
+                );
+
+            if (
+                !previousSurfaceStreamingTargetValid
+                || !currentSurfaceStreamingTargetValid
+                || !string.Equals(
+                    previousSurfaceStreamingTarget,
+                    currentSurfaceStreamingTarget,
+                    System.StringComparison.Ordinal
+                )
+            )
+            {
+                TerrainRuntimeInvalidationService
+                    .InvalidateFullSurfaceStreaming();
+            }
         }
 
         /*

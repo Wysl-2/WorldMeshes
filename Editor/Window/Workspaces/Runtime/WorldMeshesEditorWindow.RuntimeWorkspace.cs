@@ -433,8 +433,8 @@ public partial class WorldMeshesEditorWindow :
                 .isPlayingOrWillChangePlaymode;
 
         bool independentSurfaceBake =
-            TerrainSurfaceMaskCompiler
-                .IsGenerating;
+            TerrainSurfaceMaskCompiler.IsGenerating
+            || TerrainRuntimeSurfaceStreamingCompiler.IsGenerating;
 
         bool canBake =
             plan != null
@@ -505,7 +505,7 @@ public partial class WorldMeshesEditorWindow :
         )
         {
             EditorGUILayout.HelpBox(
-                "A Surface Mask bake is already running. Finish or cancel that operation before starting the unified runtime bake.",
+                "An independent Surface generation operation is already running. Finish or cancel it before starting the unified runtime bake.",
                 MessageType.None
             );
         }
@@ -546,6 +546,11 @@ public partial class WorldMeshesEditorWindow :
 
             EditorGUILayout.LabelField(
                 "Surface Masks",
+                "Full rebuild"
+            );
+
+            EditorGUILayout.LabelField(
+                "Surface Streaming",
                 "Full rebuild"
             );
 
@@ -613,6 +618,23 @@ public partial class WorldMeshesEditorWindow :
                     plan.SurfaceTileCount,
                     "tile",
                     "tiles",
+                    initialBake
+                )
+            );
+        }
+
+        if (
+            plan.SurfaceStreamingWorkMode !=
+            TerrainRuntimeBakeWorkMode.None
+        )
+        {
+            EditorGUILayout.LabelField(
+                "Surface Streaming",
+                GetGeneratedWorkLabel(
+                    plan.SurfaceStreamingWorkMode,
+                    plan.SurfaceStreamingTileCount,
+                    "tile family",
+                    "tile families",
                     initialBake
                 )
             );
@@ -1216,6 +1238,43 @@ public partial class WorldMeshesEditorWindow :
                 surfaceManifest != null
                 &&
                 surfaceManifest.isComplete
+            )
+        );
+
+        GUILayout.Space(5f);
+
+        GUILayout.Label(
+            "Surface Streaming",
+            EditorStyles.boldLabel
+        );
+
+        EditorGUILayout.LabelField(
+            "Generation Revision",
+            surfaceManifest != null
+                ? surfaceManifest.streamingGenerationRevision.ToString()
+                : "-"
+        );
+
+        EditorGUILayout.LabelField(
+            "Source Surface Revision",
+            surfaceManifest != null
+                ? surfaceManifest.streamingSourceSurfaceMaskGenerationRevision.ToString()
+                : "-"
+        );
+
+        EditorGUILayout.LabelField(
+            "Derived Levels",
+            surfaceManifest != null
+                ? surfaceManifest.StreamingLevelCount.ToString()
+                : "-"
+        );
+
+        EditorGUILayout.LabelField(
+            "Manifest",
+            GetManifestStatusLabel(
+                surfaceManifest != null,
+                surfaceManifest != null
+                && surfaceManifest.streamingPyramidIsComplete
             )
         );
 
@@ -2094,6 +2153,9 @@ public partial class WorldMeshesEditorWindow :
 
             case TerrainRuntimeBakePipelineState.SurfaceMasks:
                 return "Surface Masks";
+
+            case TerrainRuntimeBakePipelineState.SurfaceStreaming:
+                return "Surface Streaming";
 
             case TerrainRuntimeBakePipelineState.Collision:
                 return "Collision Meshes";

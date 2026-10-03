@@ -10,6 +10,7 @@ public enum TerrainRuntimeBakePlanSnapshotKind
     Height,
     HeightStreaming,
     Surface,
+    SurfaceStreaming,
     Collision,
     Addressables,
     SceneSync,
@@ -28,6 +29,7 @@ public enum TerrainRuntimeBakeReasonTarget
     Height,
     HeightStreaming,
     Surface,
+    SurfaceStreaming,
     Collision,
     Addressables,
     SceneSync,
@@ -46,6 +48,7 @@ public enum TerrainRuntimeBakeReasonCode
     PendingAuthoringChange,
     PendingHeightStreamingChange,
     PendingSurfaceChange,
+    PendingSurfaceStreamingChange,
     PendingCollisionChange,
     AuthoringSignatureChanged,
     SurfaceSettingsChanged,
@@ -104,6 +107,7 @@ public sealed class TerrainRuntimeBakePlanDiagnosticSnapshot
     private readonly ReadOnlyCollection<Vector2Int> heightTiles;
     private readonly ReadOnlyCollection<Vector2Int> heightStreamingTiles;
     private readonly ReadOnlyCollection<Vector2Int> surfaceTiles;
+    private readonly ReadOnlyCollection<Vector2Int> surfaceStreamingTiles;
     private readonly ReadOnlyCollection<Vector2Int> collisionChunks;
     private readonly ReadOnlyCollection<string> safetyEscalationReasons;
     private readonly ReadOnlyCollection<TerrainRuntimeBakeReasonRecord> reasons;
@@ -117,16 +121,19 @@ public sealed class TerrainRuntimeBakePlanDiagnosticSnapshot
     public TerrainRuntimeBakeWorkMode HeightWorkMode { get; private set; }
     public TerrainRuntimeBakeWorkMode HeightStreamingWorkMode { get; private set; }
     public TerrainRuntimeBakeWorkMode SurfaceWorkMode { get; private set; }
+    public TerrainRuntimeBakeWorkMode SurfaceStreamingWorkMode { get; private set; }
     public TerrainRuntimeBakeWorkMode CollisionWorkMode { get; private set; }
 
     public IReadOnlyList<Vector2Int> HeightTiles => heightTiles;
     public IReadOnlyList<Vector2Int> HeightStreamingTiles => heightStreamingTiles;
     public IReadOnlyList<Vector2Int> SurfaceTiles => surfaceTiles;
+    public IReadOnlyList<Vector2Int> SurfaceStreamingTiles => surfaceStreamingTiles;
     public IReadOnlyList<Vector2Int> CollisionChunks => collisionChunks;
 
     public int HeightTileCount { get; private set; }
     public int HeightStreamingTileCount { get; private set; }
     public int SurfaceTileCount { get; private set; }
+    public int SurfaceStreamingTileCount { get; private set; }
     public int CollisionChunkCount { get; private set; }
 
     public bool AddressablesConfigurationRequired { get; private set; }
@@ -168,11 +175,13 @@ public sealed class TerrainRuntimeBakePlanDiagnosticSnapshot
             HeightWorkMode = plan.HeightWorkMode;
             HeightStreamingWorkMode = plan.HeightStreamingWorkMode;
             SurfaceWorkMode = plan.SurfaceWorkMode;
+            SurfaceStreamingWorkMode = plan.SurfaceStreamingWorkMode;
             CollisionWorkMode = plan.CollisionWorkMode;
 
             HeightTileCount = plan.HeightTileCount;
             HeightStreamingTileCount = plan.HeightStreamingTileCount;
             SurfaceTileCount = plan.SurfaceTileCount;
+            SurfaceStreamingTileCount = plan.SurfaceStreamingTileCount;
             CollisionChunkCount = plan.CollisionChunkCount;
 
             AddressablesConfigurationRequired =
@@ -201,6 +210,7 @@ public sealed class TerrainRuntimeBakePlanDiagnosticSnapshot
             HeightWorkMode = TerrainRuntimeBakeWorkMode.None;
             HeightStreamingWorkMode = TerrainRuntimeBakeWorkMode.None;
             SurfaceWorkMode = TerrainRuntimeBakeWorkMode.None;
+            SurfaceStreamingWorkMode = TerrainRuntimeBakeWorkMode.None;
             CollisionWorkMode = TerrainRuntimeBakeWorkMode.None;
             BlockReason = "";
             CurrentAuthoringSignature = "";
@@ -222,6 +232,11 @@ public sealed class TerrainRuntimeBakePlanDiagnosticSnapshot
         surfaceTiles =
             CreateCoordinates(
                 CoordinatesCaptured ? plan.SurfaceTiles : null
+            );
+
+        surfaceStreamingTiles =
+            CreateCoordinates(
+                CoordinatesCaptured ? plan.SurfaceStreamingTiles : null
             );
 
         collisionChunks =

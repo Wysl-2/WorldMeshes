@@ -27,6 +27,7 @@ public static class TerrainRuntimeBakePipeline
         public TerrainRuntimeBakePlan heightPlan;
         public TerrainRuntimeBakePlan heightStreamingPlan;
         public TerrainRuntimeBakePlan surfacePlan;
+        public TerrainRuntimeBakePlan surfaceStreamingPlan;
         public TerrainRuntimeBakePlan collisionPlan;
         public TerrainRuntimeBakePlan addressablesPlan;
         public TerrainRuntimeBakePlan sceneSyncPlan;
@@ -36,6 +37,7 @@ public static class TerrainRuntimeBakePipeline
         public TerrainRuntimeHeightCompileResult heightResult;
         public TerrainRuntimeHeightStreamingCompileResult heightStreamingResult;
         public TerrainSurfaceMaskGenerationResult surfaceResult;
+        public TerrainRuntimeSurfaceStreamingCompileResult surfaceStreamingResult;
         public TerrainCollisionGenerationResult collisionResult;
         public TerrainRuntimeAddressablesResult addressablesResult;
         public TerrainRuntimeSceneSynchronizationResult sceneSyncResult;
@@ -43,6 +45,7 @@ public static class TerrainRuntimeBakePipeline
         public bool heightStageExecuted;
         public bool heightStreamingStageExecuted;
         public bool surfaceStageExecuted;
+        public bool surfaceStreamingStageExecuted;
         public bool collisionStageExecuted;
         public bool addressablesStageExecuted;
         public bool sceneSyncStageExecuted;
@@ -50,6 +53,7 @@ public static class TerrainRuntimeBakePipeline
         public double heightDurationSeconds;
         public double heightStreamingDurationSeconds;
         public double surfaceDurationSeconds;
+        public double surfaceStreamingDurationSeconds;
         public double collisionDurationSeconds;
         public double addressablesDurationSeconds;
         public double sceneSyncDurationSeconds;
@@ -138,6 +142,9 @@ public static class TerrainRuntimeBakePipeline
                 case TerrainRuntimeBakePipelineState.SurfaceMasks:
                     return "Surface Masks";
 
+                case TerrainRuntimeBakePipelineState.SurfaceStreaming:
+                    return "Surface Streaming";
+
                 case TerrainRuntimeBakePipelineState.Collision:
                     return "Collision Meshes";
 
@@ -184,13 +191,16 @@ public static class TerrainRuntimeBakePipeline
                     return 0.32f;
 
                 case TerrainRuntimeBakePipelineState.SurfaceMasks:
-                    return 0.47f;
+                    return 0.45f;
+
+                case TerrainRuntimeBakePipelineState.SurfaceStreaming:
+                    return 0.57f;
 
                 case TerrainRuntimeBakePipelineState.Collision:
-                    return 0.63f;
+                    return 0.68f;
 
                 case TerrainRuntimeBakePipelineState.Addressables:
-                    return 0.80f;
+                    return 0.82f;
 
                 case TerrainRuntimeBakePipelineState.SceneSync:
                     return 0.95f;
@@ -856,7 +866,7 @@ public static class TerrainRuntimeBakePipeline
         {
             Schedule(
                 run,
-                ExecuteCollisionStage
+                ExecuteSurfaceStreamingStage
             );
 
             return;
@@ -1038,7 +1048,7 @@ public static class TerrainRuntimeBakePipeline
             case TerrainSurfaceMaskGenerationOutcome.NoWork:
                 Schedule(
                     run,
-                    ExecuteCollisionStage
+                    ExecuteSurfaceStreamingStage
                 );
                 return;
 
@@ -1074,6 +1084,175 @@ public static class TerrainRuntimeBakePipeline
                         result.ErrorMessage,
                         result.SummaryMessage,
                         "Runtime surface-mask generation did not complete. Outcome: " +
+                        result.Outcome
+                    )
+                );
+                return;
+        }
+    }
+
+    // =====================================================
+    // SURFACE STREAMING
+    // =====================================================
+
+    private static void ExecuteSurfaceStreamingStage(
+        ActiveRun run
+    )
+    {
+        SetState(
+            run,
+            TerrainRuntimeBakePipelineState.SurfaceStreaming,
+            true
+        );
+
+        if (!PrepareStageBoundary(run))
+        {
+            return;
+        }
+
+        TerrainRuntimeBakePlan plan =
+            BuildFreshPlan(
+                run
+            );
+
+        run.surfaceStreamingPlan =
+            plan;
+
+        run.diagnostics?.RecordExecutionPlan(
+            TerrainRuntimeBakePipelineState.SurfaceStreaming,
+            plan
+        );
+
+        if (!ValidateStagePlan(run, plan))
+        {
+            return;
+        }
+
+        if (
+            TerrainRuntimeBakeValidationHooks.TryConsumeFailureBeforeStage(
+                TerrainRuntimeBakePipelineState.SurfaceStreaming,
+                out string validationFailureMessage
+            )
+        )
+        {
+            FinishFailed(
+                run,
+                TerrainRuntimeBakePipelineState.SurfaceStreaming,
+                validationFailureMessage
+            );
+            return;
+        }
+
+        if (
+            run.mode == TerrainRuntimeBakePipelineMode.PendingChanges
+            && plan.SurfaceStreamingWorkMode == TerrainRuntimeBakeWorkMode.None
+        )
+        {
+            Schedule(
+                run,
+                ExecuteCollisionStage
+            );
+            return;
+        }
+
+        run.surfaceStreamingStageExecuted =
+            true;
+
+        double stageStartedAt =
+            EditorApplication.timeSinceStartup;
+
+        TerrainRuntimeSurfaceStreamingCompileResult result;
+
+        try
+        {
+            result =
+                TraceExecutionCall(
+                    run,
+                    TerrainRuntimeBakePipelineState.SurfaceStreaming,
+                    run.mode == TerrainRuntimeBakePipelineMode.RebuildAll
+                        ? "TerrainRuntimeSurfaceStreamingCompiler.CompileFullSurfaceStreamingWork"
+                        : "TerrainRuntimeSurfaceStreamingCompiler.CompilePlannedSurfaceStreamingWork",
+                    () => run.mode == TerrainRuntimeBakePipelineMode.RebuildAll
+                        ? TerrainRuntimeSurfaceStreamingCompiler
+                            .CompileFullSurfaceStreamingWork(
+                                run.worldSettings
+                            )
+                        : TerrainRuntimeSurfaceStreamingCompiler
+                            .CompilePlannedSurfaceStreamingWork(
+                                run.worldSettings,
+                                plan
+                            )
+                );
+        }
+        finally
+        {
+            run.surfaceStreamingDurationSeconds =
+                Math.Max(
+                    0d,
+                    EditorApplication.timeSinceStartup -
+                    stageStartedAt
+                );
+        }
+
+        run.surfaceStreamingResult =
+            result;
+
+        run.diagnostics?.RecordSurfaceStreamingExecution(
+            result
+        );
+
+        if (result == null)
+        {
+            FinishFailed(
+                run,
+                TerrainRuntimeBakePipelineState.SurfaceStreaming,
+                "Surface Streaming generation returned no result."
+            );
+            return;
+        }
+
+        switch (result.Outcome)
+        {
+            case TerrainRuntimeSurfaceStreamingCompileOutcome.Completed:
+            case TerrainRuntimeSurfaceStreamingCompileOutcome.NoWork:
+                Schedule(
+                    run,
+                    ExecuteCollisionStage
+                );
+                return;
+
+            case TerrainRuntimeSurfaceStreamingCompileOutcome.Cancelled:
+                FinishCancelled(
+                    run,
+                    TerrainRuntimeBakePipelineState.SurfaceStreaming,
+                    GetStageMessage(
+                        result.ErrorMessage,
+                        result.SummaryMessage,
+                        "Surface Streaming generation was cancelled."
+                    )
+                );
+                return;
+
+            case TerrainRuntimeSurfaceStreamingCompileOutcome.Blocked:
+                FinishBlocked(
+                    run,
+                    TerrainRuntimeBakePipelineState.SurfaceStreaming,
+                    GetStageMessage(
+                        result.ErrorMessage,
+                        result.SummaryMessage,
+                        "Surface Streaming generation was blocked."
+                    )
+                );
+                return;
+
+            default:
+                FinishFailed(
+                    run,
+                    TerrainRuntimeBakePipelineState.SurfaceStreaming,
+                    GetStageMessage(
+                        result.ErrorMessage,
+                        result.SummaryMessage,
+                        "Surface Streaming generation did not complete. Outcome: " +
                         result.Outcome
                     )
                 );
@@ -1803,6 +1982,9 @@ public static class TerrainRuntimeBakePipeline
             case TerrainRuntimeBakePipelineState.SurfaceMasks:
                 return TerrainRuntimeBakePlanSnapshotKind.Surface;
 
+            case TerrainRuntimeBakePipelineState.SurfaceStreaming:
+                return TerrainRuntimeBakePlanSnapshotKind.SurfaceStreaming;
+
             case TerrainRuntimeBakePipelineState.Collision:
                 return TerrainRuntimeBakePlanSnapshotKind.Collision;
 
@@ -2242,6 +2424,7 @@ public static class TerrainRuntimeBakePipeline
                 run.heightStageExecuted,
                 run.heightStreamingStageExecuted,
                 run.surfaceStageExecuted,
+                run.surfaceStreamingStageExecuted,
                 run.collisionStageExecuted,
                 run.addressablesStageExecuted,
                 run.sceneSyncStageExecuted,
@@ -2261,6 +2444,7 @@ public static class TerrainRuntimeBakePipeline
                 run.heightPlan,
                 run.heightStreamingPlan,
                 run.surfacePlan,
+                run.surfaceStreamingPlan,
                 run.collisionPlan,
                 run.addressablesPlan,
                 run.sceneSyncPlan,
@@ -2268,12 +2452,14 @@ public static class TerrainRuntimeBakePipeline
                 run.heightStageExecuted,
                 run.heightStreamingStageExecuted,
                 run.surfaceStageExecuted,
+                run.surfaceStreamingStageExecuted,
                 run.collisionStageExecuted,
                 run.addressablesStageExecuted,
                 run.sceneSyncStageExecuted,
                 run.heightResult,
                 run.heightStreamingResult,
                 run.surfaceResult,
+                run.surfaceStreamingResult,
                 run.collisionResult,
                 run.addressablesResult,
                 run.sceneSyncResult,
@@ -2281,6 +2467,7 @@ public static class TerrainRuntimeBakePipeline
                 run.heightDurationSeconds,
                 run.heightStreamingDurationSeconds,
                 run.surfaceDurationSeconds,
+                run.surfaceStreamingDurationSeconds,
                 run.collisionDurationSeconds,
                 run.addressablesDurationSeconds,
                 run.sceneSyncDurationSeconds,
@@ -2413,6 +2600,7 @@ public static class TerrainRuntimeBakePipeline
                 false,
                 false,
                 false,
+                false,
                 null,
                 errorMessage,
                 "Unified runtime bake start was blocked."
@@ -2433,12 +2621,15 @@ public static class TerrainRuntimeBakePipeline
                 null,
                 null,
                 null,
+                null,
                 false,
                 false,
                 false,
                 false,
                 false,
                 false,
+                false,
+                null,
                 null,
                 null,
                 null,
@@ -2446,6 +2637,7 @@ public static class TerrainRuntimeBakePipeline
                 null,
                 null,
                 DateTime.UtcNow,
+                0d,
                 0d,
                 0d,
                 0d,
@@ -2529,6 +2721,9 @@ public static class TerrainRuntimeBakePipeline
 
             case TerrainRuntimeBakePipelineState.SurfaceMasks:
                 return "Surface Masks";
+
+            case TerrainRuntimeBakePipelineState.SurfaceStreaming:
+                return "Surface Streaming";
 
             case TerrainRuntimeBakePipelineState.Collision:
                 return "Collision Meshes";

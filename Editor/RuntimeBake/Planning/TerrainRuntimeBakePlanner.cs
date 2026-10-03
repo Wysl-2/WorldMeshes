@@ -107,6 +107,9 @@ public static class TerrainRuntimeBakePlanner
         HashSet<Vector2Int> surfaceTiles =
             new HashSet<Vector2Int>();
 
+        HashSet<Vector2Int> surfaceStreamingTiles =
+            new HashSet<Vector2Int>();
+
         HashSet<Vector2Int> collisionChunks =
             new HashSet<Vector2Int>();
 
@@ -134,9 +137,11 @@ public static class TerrainRuntimeBakePlanner
                     TerrainRuntimeBakeWorkMode.None,
                     TerrainRuntimeBakeWorkMode.None,
                     TerrainRuntimeBakeWorkMode.None,
+                    TerrainRuntimeBakeWorkMode.None,
                     heightTiles,
                     heightStreamingTiles,
                     surfaceTiles,
+                    surfaceStreamingTiles,
                     collisionChunks,
                     false,
                     false,
@@ -1085,6 +1090,230 @@ public static class TerrainRuntimeBakePlanner
 
         surfaceTrace?.Complete();
 
+
+        TerrainRuntimeBakeTraceScope surfaceStreamingTrace =
+            diagnostics?.BeginTrace(
+                "TerrainRuntimeBakePlanner.EvaluateSurfaceStreaming"
+            );
+
+        // =================================================
+        // SURFACE STREAMING
+        // =================================================
+
+        TerrainGenerationStateUtility.GenerationStatus
+            surfaceStreamingStatus =
+                TerrainGenerationStateUtility
+                    .GetSurfaceStreamingStatus(
+                        generationState
+                    );
+
+        TerrainRuntimeBakeWorkMode surfaceStreamingMode =
+            TerrainRuntimeBakeWorkMode.None;
+
+        bool pendingSurfaceStreamingValid =
+            TerrainRuntimeBakeDependencyUtility
+                .TryCopyValidSurfaceTiles(
+                    worldSettings,
+                    snapshot.PendingSurfaceStreamingTiles,
+                    surfaceStreamingTiles,
+                    out string surfaceStreamingCoordinateError
+                );
+
+        if (
+            surfaceMode ==
+            TerrainRuntimeBakeWorkMode.Full
+        )
+        {
+            surfaceStreamingMode =
+                TerrainRuntimeBakeWorkMode.Full;
+
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.DependencyPropagation,
+                TerrainRuntimeBakeReasonTarget.SurfaceStreaming,
+                "A full native Surface rebuild requires a full Surface Streaming rebuild.",
+                false,
+                0,
+                TerrainRuntimeBakeReasonTarget.Surface
+            );
+        }
+        else if (!pendingSurfaceStreamingValid)
+        {
+            surfaceStreamingMode =
+                TerrainRuntimeBakeWorkMode.Full;
+
+            string reason =
+                "Persistent Surface Streaming dirty coordinates do not match the current Surface tile layout. " +
+                surfaceStreamingCoordinateError;
+
+            safetyReasons.Add(reason);
+
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.InvalidPersistentDirtyState,
+                TerrainRuntimeBakeReasonTarget.SurfaceStreaming,
+                reason,
+                true,
+                snapshot.PendingSurfaceStreamingTileCount
+            );
+        }
+        else if (snapshot.FullSurfaceStreamingRebuildRequired)
+        {
+            surfaceStreamingMode =
+                TerrainRuntimeBakeWorkMode.Full;
+
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.FullRebuildFlag,
+                TerrainRuntimeBakeReasonTarget.SurfaceStreaming,
+                "Persistent runtime bake state requires a full Surface Streaming rebuild."
+            );
+        }
+        else
+        {
+            if (
+                surfaceMode ==
+                TerrainRuntimeBakeWorkMode.Incremental
+            )
+            {
+                int beforeDependencyCount =
+                    surfaceStreamingTiles.Count;
+
+                surfaceStreamingTiles.UnionWith(
+                    surfaceTiles
+                );
+
+                int addedCount =
+                    Mathf.Max(
+                        0,
+                        surfaceStreamingTiles.Count -
+                        beforeDependencyCount
+                    );
+
+                if (addedCount > 0)
+                {
+                    diagnostics?.AddPlannerReason(
+                        TerrainRuntimeBakeReasonCode.DependencyPropagation,
+                        TerrainRuntimeBakeReasonTarget.SurfaceStreaming,
+                        "Incremental native Surface work invalidates the corresponding Surface Streaming families.",
+                        false,
+                        addedCount,
+                        TerrainRuntimeBakeReasonTarget.Surface
+                    );
+                }
+            }
+
+            if (surfaceStreamingTiles.Count > 0)
+            {
+                if (
+                    TerrainGenerationStateUtility
+                        .IsSurfaceStreamingTargetMetadataCompatible(
+                            surfaceManifest,
+                            worldSettings
+                        )
+                )
+                {
+                    surfaceStreamingMode =
+                        TerrainRuntimeBakeWorkMode.Incremental;
+
+                    diagnostics?.AddPlannerReason(
+                        TerrainRuntimeBakeReasonCode.PendingSurfaceStreamingChange,
+                        TerrainRuntimeBakeReasonTarget.SurfaceStreaming,
+                        "Known Surface Streaming dirty coordinates can be repaired incrementally.",
+                        false,
+                        surfaceStreamingTiles.Count
+                    );
+                }
+                else
+                {
+                    surfaceStreamingMode =
+                        TerrainRuntimeBakeWorkMode.Full;
+
+                    string reason =
+                        "Surface Streaming has local dirty coordinates but no compatible complete representation baseline can prove that the pending set is sufficient.";
+
+                    safetyReasons.Add(reason);
+
+                    diagnostics?.AddPlannerReason(
+                        TerrainRuntimeBakeReasonCode.NoProvableDirtySet,
+                        TerrainRuntimeBakeReasonTarget.SurfaceStreaming,
+                        reason,
+                        true,
+                        surfaceStreamingTiles.Count
+                    );
+                }
+            }
+            else if (
+                surfaceStreamingStatus ==
+                TerrainGenerationStateUtility.GenerationStatus.Current
+            )
+            {
+                diagnostics?.AddPlannerReason(
+                    TerrainRuntimeBakeReasonCode.GeneratedDataCurrent,
+                    TerrainRuntimeBakeReasonTarget.SurfaceStreaming,
+                    "Surface Streaming is current; no work is required."
+                );
+            }
+            else
+            {
+                surfaceStreamingMode =
+                    TerrainRuntimeBakeWorkMode.Full;
+
+                diagnostics?.AddPlannerReason(
+                    surfaceStreamingStatus ==
+                        TerrainGenerationStateUtility.GenerationStatus.NotGenerated
+                        ? TerrainRuntimeBakeReasonCode.MissingGeneratedData
+                        : TerrainRuntimeBakeReasonCode.OutdatedGeneratedData,
+                    TerrainRuntimeBakeReasonTarget.SurfaceStreaming,
+                    "Surface Streaming is missing or incompatible; a full derived pyramid rebuild is required.",
+                    true
+                );
+            }
+        }
+
+        if (
+            surfaceStreamingMode ==
+            TerrainRuntimeBakeWorkMode.Full
+        )
+        {
+            surfaceStreamingTiles.Clear();
+
+            TerrainRuntimeBakeDependencyUtility
+                .CollectAllHeightTiles(
+                    worldSettings,
+                    surfaceStreamingTiles
+                );
+        }
+
+        if (
+            surfaceMode ==
+                TerrainRuntimeBakeWorkMode.None
+            &&
+            surfaceStreamingMode !=
+                TerrainRuntimeBakeWorkMode.None
+            &&
+            !TerrainGenerationStateUtility
+                .TryBuildCurrentSurfaceStreamingTarget(
+                    worldSettings,
+                    surfaceManifest,
+                    out _,
+                    out _,
+                    out string surfaceStreamingTargetError
+                )
+        )
+        {
+            blockReason =
+                AppendBlockReason(
+                    blockReason,
+                    surfaceStreamingTargetError
+                );
+
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.BlockingValidation,
+                TerrainRuntimeBakeReasonTarget.SurfaceStreaming,
+                surfaceStreamingTargetError
+            );
+        }
+
+        surfaceStreamingTrace?.Complete();
+
         TerrainRuntimeBakeTraceScope collisionTrace =
             diagnostics?.BeginTrace(
                 "TerrainRuntimeBakePlanner.EvaluateCollision"
@@ -1509,6 +1738,9 @@ public static class TerrainRuntimeBakePlanner
             surfaceMode !=
                 TerrainRuntimeBakeWorkMode.None
             ||
+            surfaceStreamingMode !=
+                TerrainRuntimeBakeWorkMode.None
+            ||
             collisionMode !=
                 TerrainRuntimeBakeWorkMode.None;
 
@@ -1679,10 +1911,12 @@ public static class TerrainRuntimeBakePlanner
                 heightMode,
                 heightStreamingMode,
                 surfaceMode,
+                surfaceStreamingMode,
                 collisionMode,
                 heightTiles,
                 heightStreamingTiles,
                 surfaceTiles,
+                surfaceStreamingTiles,
                 collisionChunks,
                 addressablesConfigurationRequired,
                 addressablesContentRequired,
@@ -1704,10 +1938,12 @@ public static class TerrainRuntimeBakePlanner
         TerrainRuntimeBakeWorkMode heightMode,
         TerrainRuntimeBakeWorkMode heightStreamingMode,
         TerrainRuntimeBakeWorkMode surfaceMode,
+        TerrainRuntimeBakeWorkMode surfaceStreamingMode,
         TerrainRuntimeBakeWorkMode collisionMode,
         IEnumerable<Vector2Int> heightTiles,
         IEnumerable<Vector2Int> heightStreamingTiles,
         IEnumerable<Vector2Int> surfaceTiles,
+        IEnumerable<Vector2Int> surfaceStreamingTiles,
         IEnumerable<Vector2Int> collisionChunks,
         bool addressablesConfigurationRequired,
         bool addressablesContentRequired,
@@ -1726,10 +1962,12 @@ public static class TerrainRuntimeBakePlanner
                 heightMode,
                 heightStreamingMode,
                 surfaceMode,
+                surfaceStreamingMode,
                 collisionMode,
                 heightTiles,
                 heightStreamingTiles,
                 surfaceTiles,
+                surfaceStreamingTiles,
                 collisionChunks,
                 addressablesConfigurationRequired,
                 addressablesContentRequired,
