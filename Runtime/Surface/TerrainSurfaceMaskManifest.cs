@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -27,6 +28,9 @@ public sealed class TerrainSurfaceMaskManifest :
 
     public const string SurfaceTileAddressPrefix =
         "TerrainSurface/SurfaceTile";
+
+    public const string SurfaceRepresentationAddressRoot =
+        "TerrainSurface";
 
     // =====================================================
     // GENERATED OUTPUT STATE
@@ -386,6 +390,43 @@ public sealed class TerrainSurfaceMaskManifest :
         return
             $"{SurfaceTileAddressPrefix}_" +
             $"{tileX}_{tileZ}";
+    }
+
+    public string GetSurfaceRepresentationAddress(
+        int sampleStride,
+        int tileX,
+        int tileZ
+    )
+    {
+        if (
+            sampleStride < 1
+            ||
+            !TerrainSurfaceStreamingPyramidPolicy
+                .IsPowerOfTwo(
+                    sampleStride
+                )
+        )
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(sampleStride),
+                sampleStride,
+                "A Surface representation stride must be a positive power of two."
+            );
+        }
+
+        if (sampleStride == 1)
+        {
+            return
+                GetSurfaceTileAddress(
+                    tileX,
+                    tileZ
+                );
+        }
+
+        return
+            $"{SurfaceRepresentationAddressRoot}/" +
+            $"Stride{sampleStride}/" +
+            $"SurfaceTile_{tileX}_{tileZ}";
     }
 
     public bool MatchesHeightLayout(

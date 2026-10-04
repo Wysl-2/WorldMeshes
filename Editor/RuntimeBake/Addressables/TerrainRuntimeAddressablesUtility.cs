@@ -20,6 +20,9 @@ public static class TerrainRuntimeAddressablesUtility
         public int surfaceSourceHeightRevision;
         public string surfaceSignature;
 
+        public int surfaceStreamingGenerationRevision;
+        public string surfaceStreamingGenerationSignature;
+
         public int collisionRevision;
         public int collisionSourceHeightRevision;
         public string collisionSignature;
@@ -164,6 +167,7 @@ public static class TerrainRuntimeAddressablesUtility
 
         if (
             !TerrainSurfaceMaskAddressablesUtility.ReconcileConfiguration(
+                worldSettings,
                 surfaceManifest,
                 stats,
                 out bool surfaceCancelled,
@@ -935,6 +939,7 @@ public static class TerrainRuntimeAddressablesUtility
 
             if (
                 !TerrainSurfaceMaskAddressablesUtility.ReconcileConfiguration(
+                    worldSettings,
                     surfaceManifest,
                     stats,
                     out bool surfaceCancelled,
@@ -1307,6 +1312,7 @@ public static class TerrainRuntimeAddressablesUtility
         {
             surfaceValid =
                 TerrainSurfaceMaskAddressablesUtility.ValidateExistingConfiguration(
+                    worldSettings,
                     surfaceManifest,
                     out surfaceError
                 );
@@ -1820,6 +1826,17 @@ public static class TerrainRuntimeAddressablesUtility
         }
 
         if (
+            TerrainGenerationStateUtility.GetSurfaceStreamingStatus(
+                worldSettings
+            ) !=
+            TerrainGenerationStateUtility.GenerationStatus.Current
+        )
+        {
+            errorMessage = "Surface Streaming is not current.";
+            return false;
+        }
+
+        if (
             generationState.CollisionMeshStatus !=
             TerrainGenerationStateUtility.GenerationStatus.Current
         )
@@ -1866,6 +1883,15 @@ public static class TerrainRuntimeAddressablesUtility
         }
 
         if (
+            TerrainGenerationStateUtility.GetSurfaceStreamingStatus(worldSettings)
+            != TerrainGenerationStateUtility.GenerationStatus.Current
+        )
+        {
+            errorMessage = "Surface Streaming is not current.";
+            return false;
+        }
+
+        if (
             TerrainGenerationStateUtility.GetCollisionMeshStatus(worldSettings)
             != TerrainGenerationStateUtility.GenerationStatus.Current
         )
@@ -1884,6 +1910,11 @@ public static class TerrainRuntimeAddressablesUtility
         TerrainHeightmapManifest heightManifest =
             AssetDatabase.LoadAssetAtPath<TerrainHeightmapManifest>(
                 TerrainRuntimeHeightAssetUtility.HeightmapManifestPath
+            );
+
+        TerrainSurfaceMaskManifest surfaceManifest =
+            AssetDatabase.LoadAssetAtPath<TerrainSurfaceMaskManifest>(
+                TerrainRuntimeSurfaceMaskAssetUtility.SurfaceMaskManifestPath
             );
 
         return
@@ -1913,6 +1944,16 @@ public static class TerrainRuntimeAddressablesUtility
 
                 surfaceSignature =
                     worldSettings.lastGeneratedSurfaceSignature ?? "",
+
+                surfaceStreamingGenerationRevision =
+                    surfaceManifest != null
+                        ? surfaceManifest.streamingGenerationRevision
+                        : -1,
+
+                surfaceStreamingGenerationSignature =
+                    surfaceManifest != null
+                        ? surfaceManifest.streamingGenerationSignature ?? ""
+                        : "",
 
                 collisionRevision =
                     worldSettings.collisionMeshGenerationRevision,
@@ -1971,7 +2012,16 @@ public static class TerrainRuntimeAddressablesUtility
                 TerrainRuntimeHeightAssetUtility.HeightmapManifestPath
             );
 
-        if (heightManifest == null)
+        TerrainSurfaceMaskManifest surfaceManifest =
+            AssetDatabase.LoadAssetAtPath<TerrainSurfaceMaskManifest>(
+                TerrainRuntimeSurfaceMaskAssetUtility.SurfaceMaskManifestPath
+            );
+
+        if (
+            heightManifest == null
+            ||
+            surfaceManifest == null
+        )
         {
             return false;
         }
@@ -2002,6 +2052,15 @@ public static class TerrainRuntimeAddressablesUtility
             string.Equals(
                 worldSettings.lastGeneratedSurfaceSignature ?? "",
                 target.surfaceSignature,
+                StringComparison.Ordinal
+            )
+            &&
+            surfaceManifest.streamingGenerationRevision ==
+                target.surfaceStreamingGenerationRevision
+            &&
+            string.Equals(
+                surfaceManifest.streamingGenerationSignature ?? "",
+                target.surfaceStreamingGenerationSignature,
                 StringComparison.Ordinal
             )
             &&

@@ -11,18 +11,31 @@ public static class TerrainSurfaceMaskAddressablesUtility
     public const string SurfaceMaskAddressablesGroupName =
         "Terrain Surface Mask Tiles";
 
+    public const string SurfaceStrideLabelPrefix =
+        "TerrainSurface_Stride";
+
     // =====================================================
     // READ-ONLY VALIDATION
     // =====================================================
 
     public static bool ValidateExistingConfiguration(
+        WorldSettings worldSettings,
         TerrainSurfaceMaskManifest manifest,
         out string errorMessage
     )
     {
         errorMessage = "";
 
-        if (!ValidateManifest(manifest, out errorMessage))
+        if (
+            !TryBuildRepresentationStrides(
+                worldSettings,
+                manifest,
+                out List<int> representationStrides,
+                out int tileGridWidth,
+                out int tileGridHeight,
+                out errorMessage
+            )
+        )
         {
             return false;
         }
@@ -73,23 +86,19 @@ public static class TerrainSurfaceMaskAddressablesUtility
             return false;
         }
 
-        int tileGridWidth =
-            Mathf.Max(
-                1,
-                manifest.tileGridWidth
-            );
-
-        int tileGridHeight =
-            Mathf.Max(
-                1,
-                manifest.tileGridHeight
-            );
-
-        long expectedTileCountLong =
+        long geographicTileCountLong =
             (long)tileGridWidth *
             tileGridHeight;
 
-        if (expectedTileCountLong > int.MaxValue)
+        long expectedEntryCountLong =
+            geographicTileCountLong *
+            representationStrides.Count;
+
+        if (
+            geographicTileCountLong > int.MaxValue
+            ||
+            expectedEntryCountLong > int.MaxValue
+        )
         {
             errorMessage =
                 "Surface Addressables expected entry count exceeds the supported Int32 range.";
@@ -97,7 +106,7 @@ public static class TerrainSurfaceMaskAddressablesUtility
             return false;
         }
 
-        HashSet<string> expectedGuids =
+        HashSet<string> expectedStrideLabels =
             new HashSet<string>();
 
         HashSet<string> expectedRegionLabels =
@@ -123,94 +132,135 @@ public static class TerrainSurfaceMaskAddressablesUtility
             }
         }
 
-        for (int tileZ = 0; tileZ < tileGridHeight; tileZ++)
+        HashSet<string> expectedGuids =
+            new HashSet<string>();
+
+        foreach (int sampleStride in representationStrides)
         {
-            for (int tileX = 0; tileX < tileGridWidth; tileX++)
-            {
-                if (
-                    !TryGetExpectedTile(
-                        manifest,
-                        tileX,
-                        tileZ,
-                        out string assetPath,
-                        out string guid,
-                        out string expectedAddress,
-                        out errorMessage
-                    )
+            if (
+                !TryGetValidatedDescriptor(
+                    manifest,
+                    sampleStride,
+                    tileGridWidth,
+                    tileGridHeight,
+                    out TerrainSurfaceStreamingLevelDescriptor descriptor,
+                    out errorMessage
                 )
+            )
+            {
+                return false;
+            }
+
+            string strideLabel =
+                GetStrideLabel(
+                    sampleStride
+                );
+
+            expectedStrideLabels.Add(
+                strideLabel
+            );
+
+            if (!registeredLabels.Contains(strideLabel))
+            {
+                errorMessage =
+                    "Surface Addressables stride label is missing: " +
+                    strideLabel;
+
+                return false;
+            }
+
+            for (int tileZ = 0; tileZ < tileGridHeight; tileZ++)
+            {
+                for (int tileX = 0; tileX < tileGridWidth; tileX++)
                 {
-                    return false;
-                }
-
-                if (!expectedGuids.Add(guid))
-                {
-                    errorMessage =
-                        "Multiple Surface tile identities resolve to the same GUID:\n" +
-                        guid;
-
-                    return false;
-                }
-
-                AddressableAssetEntry entry =
-                    settings.FindAssetEntry(
-                        guid
-                    );
-
-                if (entry == null)
-                {
-                    errorMessage =
-                        "Surface Addressables entry is missing:\n" +
-                        assetPath;
-
-                    return false;
-                }
-
-                if (entry.parentGroup != group)
-                {
-                    errorMessage =
-                        "Surface Addressables entry is in the wrong group:\n" +
-                        assetPath;
-
-                    return false;
-                }
-
-                if (entry.address != expectedAddress)
-                {
-                    errorMessage =
-                        "Surface Addressables entry has an incorrect address:\n" +
-                        assetPath +
-                        "\n\nExpected: " +
-                        expectedAddress +
-                        "\nActual: " +
-                        entry.address;
-
-                    return false;
-                }
-
-                string expectedRegionLabel =
-                    TerrainSurfaceAddressablesPackingPolicy
-                        .GetRegionLabel(
+                    if (
+                        !TryResolveSurfaceRepresentation(
+                            manifest,
+                            descriptor,
+                            sampleStride,
                             tileX,
-                            tileZ
+                            tileZ,
+                            out string assetPath,
+                            out string guid,
+                            out string expectedAddress,
+                            out errorMessage
+                        )
+                    )
+                    {
+                        return false;
+                    }
+
+                    if (!expectedGuids.Add(guid))
+                    {
+                        errorMessage =
+                            "Multiple Surface representation identities resolve to the same GUID:\n" +
+                            guid;
+
+                        return false;
+                    }
+
+                    AddressableAssetEntry entry =
+                        settings.FindAssetEntry(
+                            guid
                         );
 
-                if (
-                    !EntryHasExactRegionLabel(
-                        entry,
-                        expectedRegionLabel
-                    )
-                )
-                {
-                    errorMessage =
-                        "Surface Addressables entry has incorrect deterministic packing labels:\n" +
-                        assetPath;
+                    if (entry == null)
+                    {
+                        errorMessage =
+                            "Surface Addressables entry is missing:\n" +
+                            assetPath;
 
-                    return false;
+                        return false;
+                    }
+
+                    if (entry.parentGroup != group)
+                    {
+                        errorMessage =
+                            "Surface Addressables entry is in the wrong group:\n" +
+                            assetPath;
+
+                        return false;
+                    }
+
+                    if (entry.address != expectedAddress)
+                    {
+                        errorMessage =
+                            "Surface Addressables entry has an incorrect address:\n" +
+                            assetPath +
+                            "\n\nExpected: " +
+                            expectedAddress +
+                            "\nActual: " +
+                            entry.address;
+
+                        return false;
+                    }
+
+                    string expectedRegionLabel =
+                        TerrainSurfaceAddressablesPackingPolicy
+                            .GetRegionLabel(
+                                tileX,
+                                tileZ
+                            );
+
+                    if (
+                        !EntryHasExactManagedLabels(
+                            entry,
+                            strideLabel,
+                            expectedRegionLabel
+                        )
+                    )
+                    {
+                        errorMessage =
+                            "Surface Addressables entry has incorrect deterministic packing labels:\n" +
+                            assetPath;
+
+                        return false;
+                    }
                 }
             }
         }
 
-        if (group.entries.Count != (int)expectedTileCountLong)
+        if (group.entries.Count != (int)expectedEntryCountLong)
         {
             errorMessage =
                 "Surface Addressables group contains an obsolete/unexpected entry or has an unexpected entry count.";
@@ -223,10 +273,13 @@ public static class TerrainSurfaceMaskAddressablesUtility
             if (
                 !expectedGuids.Contains(entry.guid)
                 ||
-                !TryGetSingleManagedRegionLabel(
+                !TryGetExactManagedLabels(
                     entry,
+                    out string strideLabel,
                     out string regionLabel
                 )
+                ||
+                !expectedStrideLabels.Contains(strideLabel)
                 ||
                 !expectedRegionLabels.Contains(regionLabel)
             )
@@ -241,6 +294,19 @@ public static class TerrainSurfaceMaskAddressablesUtility
 
         foreach (string label in settings.GetLabels())
         {
+            if (
+                IsManagedStrideLabel(label)
+                &&
+                !expectedStrideLabels.Contains(label)
+            )
+            {
+                errorMessage =
+                    "Surface Addressables settings contain an obsolete managed stride label: " +
+                    label;
+
+                return false;
+            }
+
             if (
                 TerrainSurfaceAddressablesPackingPolicy
                     .IsManagedRegionLabel(label)
@@ -264,6 +330,7 @@ public static class TerrainSurfaceMaskAddressablesUtility
     // =====================================================
 
     internal static bool ReconcileConfiguration(
+        WorldSettings worldSettings,
         TerrainSurfaceMaskManifest manifest,
         TerrainAddressablesOperationStats stats,
         out bool cancelled,
@@ -272,6 +339,9 @@ public static class TerrainSurfaceMaskAddressablesUtility
     {
         using var profilerScope =
             WorldMeshesProfiler.AddressablesSurfaceReconcile.Auto();
+
+        double startedAt =
+            EditorApplication.timeSinceStartup;
 
         cancelled = false;
         errorMessage = "";
@@ -282,10 +352,101 @@ public static class TerrainSurfaceMaskAddressablesUtility
                 new TerrainAddressablesOperationStats();
         }
 
-        if (!ValidateManifest(manifest, out errorMessage))
+        if (
+            !TryBuildRepresentationStrides(
+                worldSettings,
+                manifest,
+                out List<int> representationStrides,
+                out int tileGridWidth,
+                out int tileGridHeight,
+                out errorMessage
+            )
+        )
         {
+            stats.surfaceConfigurationReconciliationSeconds =
+                EditorApplication.timeSinceStartup - startedAt;
+
             return false;
         }
+
+        long geographicTileCountLong =
+            (long)tileGridWidth *
+            tileGridHeight;
+
+        long expectedEntryCountLong =
+            geographicTileCountLong *
+            representationStrides.Count;
+
+        int regionGridWidth =
+            TerrainSurfaceAddressablesPackingPolicy
+                .GetRegionGridWidth(
+                    tileGridWidth
+                );
+
+        int regionGridHeight =
+            TerrainSurfaceAddressablesPackingPolicy
+                .GetRegionGridHeight(
+                    tileGridHeight
+                );
+
+        long regionCountLong =
+            (long)regionGridWidth *
+            regionGridHeight;
+
+        if (
+            geographicTileCountLong > int.MaxValue
+            ||
+            expectedEntryCountLong > int.MaxValue
+            ||
+            regionCountLong > int.MaxValue
+        )
+        {
+            errorMessage =
+                "Surface Addressables scale exceeds the supported Int32 entry or region range.";
+
+            stats.surfaceConfigurationReconciliationSeconds =
+                EditorApplication.timeSinceStartup - startedAt;
+
+            return false;
+        }
+
+        int geographicTileCount =
+            (int)geographicTileCountLong;
+
+        int expectedEntryCount =
+            (int)expectedEntryCountLong;
+
+        stats.surfaceGeographicTileCount =
+            geographicTileCount;
+
+        stats.surfaceRepresentationLevelCount =
+            representationStrides.Count;
+
+        stats.surfaceAuthoritativeAssetCount =
+            geographicTileCount;
+
+        stats.surfaceDerivedAssetCount =
+            Mathf.Max(
+                0,
+                expectedEntryCount -
+                geographicTileCount
+            );
+
+        stats.surfaceExpectedEntryCount =
+            expectedEntryCount;
+
+        stats.surfaceManagedStrideLabelCount =
+            representationStrides.Count;
+
+        stats.surfacePackingRegionTileSpan =
+            TerrainSurfaceAddressablesPackingPolicy
+                .RegionTileSpan;
+
+        stats.surfacePackingRegionCount =
+            (int)regionCountLong;
+
+        stats.surfaceManagedRegionLabelCount =
+            (int)regionCountLong;
 
         AddressableAssetSettings settings =
             AddressableAssetSettingsDefaultObject.GetSettings(
@@ -297,10 +458,14 @@ public static class TerrainSurfaceMaskAddressablesUtility
             errorMessage =
                 "Could not load or create Addressables settings.";
 
+            stats.surfaceConfigurationReconciliationSeconds =
+                EditorApplication.timeSinceStartup - startedAt;
+
             return false;
         }
 
         bool configurationChanged = false;
+        bool settingsChanged = false;
 
         AddressableAssetGroup group =
             settings.FindGroup(
@@ -329,11 +494,15 @@ public static class TerrainSurfaceMaskAddressablesUtility
                     "Could not create Addressables group:\n" +
                     SurfaceMaskAddressablesGroupName;
 
+                stats.surfaceConfigurationReconciliationSeconds =
+                    EditorApplication.timeSinceStartup - startedAt;
+
                 return false;
             }
 
             stats.groupsCreated++;
             configurationChanged = true;
+            settingsChanged = true;
         }
 
         BundledAssetGroupSchema schema =
@@ -351,11 +520,15 @@ public static class TerrainSurfaceMaskAddressablesUtility
                 errorMessage =
                     "Could not configure the surface Addressables Content Packing & Loading schema.";
 
+                stats.surfaceConfigurationReconciliationSeconds =
+                    EditorApplication.timeSinceStartup - startedAt;
+
                 return false;
             }
 
             stats.schemasCreatedOrChanged++;
             configurationChanged = true;
+            settingsChanged = true;
         }
 
         bool schemaChanged = false;
@@ -387,68 +560,10 @@ public static class TerrainSurfaceMaskAddressablesUtility
 
             stats.schemasCreatedOrChanged++;
             configurationChanged = true;
+            settingsChanged = true;
         }
 
-        int tileGridWidth =
-            Mathf.Max(
-                1,
-                manifest.tileGridWidth
-            );
-
-        int tileGridHeight =
-            Mathf.Max(
-                1,
-                manifest.tileGridHeight
-            );
-
-        long expectedTileCountLong =
-            (long)tileGridWidth *
-            tileGridHeight;
-
-        int regionGridWidth =
-            TerrainSurfaceAddressablesPackingPolicy
-                .GetRegionGridWidth(
-                    tileGridWidth
-                );
-
-        int regionGridHeight =
-            TerrainSurfaceAddressablesPackingPolicy
-                .GetRegionGridHeight(
-                    tileGridHeight
-                );
-
-        long regionCountLong =
-            (long)regionGridWidth *
-            regionGridHeight;
-
-        if (
-            expectedTileCountLong > int.MaxValue
-            ||
-            regionCountLong > int.MaxValue
-        )
-        {
-            errorMessage =
-                "Surface Addressables scale exceeds the supported Int32 entry or region range.";
-
-            return false;
-        }
-
-        int expectedTileCount =
-            (int)expectedTileCountLong;
-
-        stats.surfacePackingRegionTileSpan =
-            TerrainSurfaceAddressablesPackingPolicy
-                .RegionTileSpan;
-
-        stats.surfacePackingRegionCount =
-            (int)regionCountLong;
-
-        stats.surfaceManagedRegionLabelCount =
-            (int)regionCountLong;
-
-        int currentTile = 0;
-
-        HashSet<string> expectedGuids =
+        HashSet<string> expectedStrideLabels =
             new HashSet<string>();
 
         HashSet<string> expectedRegionLabels =
@@ -483,89 +598,179 @@ public static class TerrainSurfaceMaskAddressablesUtility
 
             stats.labelsUpdated++;
             configurationChanged = true;
+            settingsChanged = true;
         }
+
+        int processedEntries = 0;
 
         try
         {
-            for (int tileZ = 0; tileZ < tileGridHeight; tileZ++)
+            foreach (int sampleStride in representationStrides)
             {
-                for (int tileX = 0; tileX < tileGridWidth; tileX++)
+                if (
+                    !TryGetValidatedDescriptor(
+                        manifest,
+                        sampleStride,
+                        tileGridWidth,
+                        tileGridHeight,
+                        out TerrainSurfaceStreamingLevelDescriptor descriptor,
+                        out errorMessage
+                    )
+                )
                 {
-                    cancelled =
-                        EditorUtility.DisplayCancelableProgressBar(
-                            "Preparing Surface Mask Addressables",
-                            "Tile (" +
-                            tileX +
-                            ", " +
-                            tileZ +
-                            ")\n\n" +
-                            (currentTile + 1) +
-                            " / " +
-                            expectedTileCount,
-                            expectedTileCount > 0
-                                ? (float)currentTile / expectedTileCount
-                                : 1f
+                    return false;
+                }
+
+                string strideLabel =
+                    GetStrideLabel(
+                        sampleStride
+                    );
+
+                expectedStrideLabels.Add(
+                    strideLabel
+                );
+
+                if (!registeredLabels.Contains(strideLabel))
+                {
+                    using (WorldMeshesProfiler.AddressablesSetLabel.Auto())
+                    {
+                        settings.AddLabel(
+                            strideLabel,
+                            true
                         );
+                    }
+
+                    registeredLabels.Add(
+                        strideLabel
+                    );
+
+                    stats.labelsUpdated++;
+                    configurationChanged = true;
+                    settingsChanged = true;
+                }
+
+                HashSet<string> expectedStrideGuids =
+                    new HashSet<string>();
+
+                for (int tileZ = 0; tileZ < tileGridHeight; tileZ++)
+                {
+                    for (int tileX = 0; tileX < tileGridWidth; tileX++)
+                    {
+                        cancelled =
+                            EditorUtility.DisplayCancelableProgressBar(
+                                "Preparing Surface Mask Addressables",
+                                $"Stride {sampleStride}, Tile ({tileX}, {tileZ})\n\n" +
+                                $"{processedEntries + 1} / {expectedEntryCount}",
+                                expectedEntryCount > 0
+                                    ? (float)processedEntries / expectedEntryCount
+                                    : 1f
+                            );
+
+                        if (cancelled)
+                        {
+                            break;
+                        }
+
+                        if (
+                            !TryResolveSurfaceRepresentation(
+                                manifest,
+                                descriptor,
+                                sampleStride,
+                                tileX,
+                                tileZ,
+                                out string assetPath,
+                                out string guid,
+                                out string expectedAddress,
+                                out errorMessage
+                            )
+                        )
+                        {
+                            return false;
+                        }
+
+                        if (!expectedStrideGuids.Add(guid))
+                        {
+                            errorMessage =
+                                "Multiple Surface representation identities resolve to the same GUID:\n" +
+                                guid;
+
+                            return false;
+                        }
+
+                        string regionLabel =
+                            TerrainSurfaceAddressablesPackingPolicy
+                                .GetRegionLabel(
+                                    tileX,
+                                    tileZ
+                                );
+
+                        if (
+                            !ReconcileEntry(
+                                settings,
+                                group,
+                                guid,
+                                expectedAddress,
+                                strideLabel,
+                                regionLabel,
+                                assetPath,
+                                stats,
+                                ref configurationChanged,
+                                ref settingsChanged,
+                                out errorMessage
+                            )
+                        )
+                        {
+                            return false;
+                        }
+
+                        processedEntries++;
+                    }
 
                     if (cancelled)
                     {
                         break;
                     }
-
-                    if (
-                        !TryGetExpectedTile(
-                            manifest,
-                            tileX,
-                            tileZ,
-                            out string assetPath,
-                            out string guid,
-                            out string expectedAddress,
-                            out errorMessage
-                        )
-                    )
-                    {
-                        return false;
-                    }
-
-                    if (!expectedGuids.Add(guid))
-                    {
-                        errorMessage =
-                            "Multiple Surface tile identities resolve to the same GUID:\n" +
-                            guid;
-
-                        return false;
-                    }
-
-                    string expectedRegionLabel =
-                        TerrainSurfaceAddressablesPackingPolicy
-                            .GetRegionLabel(
-                                tileX,
-                                tileZ
-                            );
-
-                    if (
-                        !ReconcileEntry(
-                            settings,
-                            group,
-                            guid,
-                            expectedAddress,
-                            expectedRegionLabel,
-                            assetPath,
-                            stats,
-                            ref configurationChanged,
-                            out errorMessage
-                        )
-                    )
-                    {
-                        return false;
-                    }
-
-                    currentTile++;
                 }
+
+                stats.surfacePeakStrideExpectedGuidCount =
+                    Mathf.Max(
+                        stats.surfacePeakStrideExpectedGuidCount,
+                        expectedStrideGuids.Count
+                    );
 
                 if (cancelled)
                 {
                     break;
+                }
+
+                List<AddressableAssetEntry> staleStrideEntries =
+                    new List<AddressableAssetEntry>();
+
+                foreach (AddressableAssetEntry entry in group.entries)
+                {
+                    if (
+                        entry.labels.Contains(strideLabel)
+                        &&
+                        !expectedStrideGuids.Contains(entry.guid)
+                    )
+                    {
+                        staleStrideEntries.Add(entry);
+                    }
+                }
+
+                foreach (AddressableAssetEntry staleEntry in staleStrideEntries)
+                {
+                    using (WorldMeshesProfiler.AddressablesRemoveEntry.Auto())
+                    {
+                        group.RemoveAssetEntry(
+                            staleEntry,
+                            true
+                        );
+                    }
+
+                    stats.entriesRemoved++;
+                    configurationChanged = true;
+                    settingsChanged = true;
                 }
             }
         }
@@ -579,7 +784,13 @@ public static class TerrainSurfaceMaskAddressablesUtility
             if (configurationChanged)
             {
                 stats.surfaceConfigurationChanged = true;
-                EditorUtility.SetDirty(settings);
+            }
+
+            if (settingsChanged)
+            {
+                EditorUtility.SetDirty(
+                    settings
+                );
 
                 using (WorldMeshesProfiler.AssetDatabaseSaveAssets.Auto())
                 {
@@ -587,50 +798,72 @@ public static class TerrainSurfaceMaskAddressablesUtility
                 }
             }
 
+            stats.surfaceActualEntryCount =
+                group.entries.Count;
+
+            stats.surfaceConfigurationReconciliationSeconds =
+                EditorApplication.timeSinceStartup - startedAt;
+
             return false;
         }
 
-        List<AddressableAssetEntry> obsoleteEntries =
+        List<AddressableAssetEntry> malformedEntries =
             new List<AddressableAssetEntry>();
 
         foreach (AddressableAssetEntry entry in group.entries)
         {
             if (
-                !expectedGuids.Contains(entry.guid)
-                ||
-                !TryGetSingleManagedRegionLabel(
+                !TryGetExactManagedLabels(
                     entry,
-                    out string regionLabel
+                    out string managedStrideLabel,
+                    out string managedRegionLabel
                 )
                 ||
-                !expectedRegionLabels.Contains(regionLabel)
+                !expectedStrideLabels.Contains(
+                    managedStrideLabel
+                )
+                ||
+                !expectedRegionLabels.Contains(
+                    managedRegionLabel
+                )
             )
             {
-                obsoleteEntries.Add(
+                malformedEntries.Add(
                     entry
                 );
             }
         }
 
-        foreach (AddressableAssetEntry obsoleteEntry in obsoleteEntries)
+        foreach (AddressableAssetEntry malformedEntry in malformedEntries)
         {
             using (WorldMeshesProfiler.AddressablesRemoveEntry.Auto())
             {
                 group.RemoveAssetEntry(
-                    obsoleteEntry,
+                    malformedEntry,
                     true
                 );
             }
 
             stats.entriesRemoved++;
             configurationChanged = true;
+            settingsChanged = true;
         }
 
-        List<string> staleRegionLabels =
+        List<string> staleManagedLabels =
             new List<string>();
 
         foreach (string label in settings.GetLabels())
         {
+            if (
+                IsManagedStrideLabel(label)
+                &&
+                !expectedStrideLabels.Contains(label)
+            )
+            {
+                staleManagedLabels.Add(label);
+                continue;
+            }
+
             if (
                 TerrainSurfaceAddressablesPackingPolicy
                     .IsManagedRegionLabel(label)
@@ -638,30 +871,32 @@ public static class TerrainSurfaceMaskAddressablesUtility
                 !expectedRegionLabels.Contains(label)
             )
             {
-                staleRegionLabels.Add(
-                    label
-                );
+                staleManagedLabels.Add(label);
             }
         }
 
-        foreach (string staleRegionLabel in staleRegionLabels)
+        foreach (string staleLabel in staleManagedLabels)
         {
             using (WorldMeshesProfiler.AddressablesSetLabel.Auto())
             {
                 settings.RemoveLabel(
-                    staleRegionLabel,
+                    staleLabel,
                     true
                 );
             }
 
             stats.labelsUpdated++;
             configurationChanged = true;
+            settingsChanged = true;
         }
 
         if (configurationChanged)
         {
             stats.surfaceConfigurationChanged = true;
+        }
 
+        if (settingsChanged)
+        {
             EditorUtility.SetDirty(
                 settings
             );
@@ -671,6 +906,12 @@ public static class TerrainSurfaceMaskAddressablesUtility
                 AssetDatabase.SaveAssets();
             }
         }
+
+        stats.surfaceActualEntryCount =
+            group.entries.Count;
+
+        stats.surfaceConfigurationReconciliationSeconds =
+            EditorApplication.timeSinceStartup - startedAt;
 
         return true;
     }
@@ -684,10 +925,12 @@ public static class TerrainSurfaceMaskAddressablesUtility
         AddressableAssetGroup group,
         string guid,
         string expectedAddress,
+        string expectedStrideLabel,
         string expectedRegionLabel,
         string assetPath,
         TerrainAddressablesOperationStats stats,
         ref bool configurationChanged,
+        ref bool settingsChanged,
         out string errorMessage
     )
     {
@@ -725,6 +968,7 @@ public static class TerrainSurfaceMaskAddressablesUtility
 
             stats.entriesCreated++;
             configurationChanged = true;
+            settingsChanged = true;
         }
         else if (existingEntry.parentGroup != group)
         {
@@ -750,6 +994,7 @@ public static class TerrainSurfaceMaskAddressablesUtility
 
             stats.entriesMoved++;
             configurationChanged = true;
+            settingsChanged = true;
         }
 
         if (entry.address != expectedAddress)
@@ -764,11 +1009,13 @@ public static class TerrainSurfaceMaskAddressablesUtility
 
             stats.addressesUpdated++;
             configurationChanged = true;
+            settingsChanged = true;
         }
 
         if (
-            !EntryHasExactRegionLabel(
+            !EntryHasExactManagedLabels(
                 entry,
+                expectedStrideLabel,
                 expectedRegionLabel
             )
         )
@@ -791,6 +1038,13 @@ public static class TerrainSurfaceMaskAddressablesUtility
                 }
 
                 entry.SetLabel(
+                    expectedStrideLabel,
+                    true,
+                    false,
+                    true
+                );
+
+                entry.SetLabel(
                     expectedRegionLabel,
                     true,
                     false,
@@ -800,59 +1054,108 @@ public static class TerrainSurfaceMaskAddressablesUtility
 
             stats.labelsUpdated++;
             configurationChanged = true;
+            settingsChanged = true;
         }
 
         return true;
     }
 
-    private static bool EntryHasExactRegionLabel(
+    private static bool EntryHasExactManagedLabels(
         AddressableAssetEntry entry,
+        string expectedStrideLabel,
         string expectedRegionLabel
     )
     {
         return
             entry != null
             &&
-            entry.labels.Count == 1
+            entry.labels.Count == 2
+            &&
+            entry.labels.Contains(
+                expectedStrideLabel
+            )
             &&
             entry.labels.Contains(
                 expectedRegionLabel
             );
     }
 
-    private static bool TryGetSingleManagedRegionLabel(
+    private static bool TryGetExactManagedLabels(
         AddressableAssetEntry entry,
+        out string strideLabel,
         out string regionLabel
     )
     {
+        strideLabel = "";
         regionLabel = "";
 
         if (
             entry == null
             ||
-            entry.labels.Count != 1
+            entry.labels.Count != 2
         )
         {
             return false;
         }
 
+        int strideLabelCount = 0;
+        int regionLabelCount = 0;
+
         foreach (string label in entry.labels)
         {
+            if (IsManagedStrideLabel(label))
+            {
+                strideLabel =
+                    label;
+
+                strideLabelCount++;
+                continue;
+            }
+
             if (
-                !TerrainSurfaceAddressablesPackingPolicy
+                TerrainSurfaceAddressablesPackingPolicy
                     .IsManagedRegionLabel(label)
             )
             {
-                return false;
+                regionLabel =
+                    label;
+
+                regionLabelCount++;
+                continue;
             }
 
-            regionLabel =
-                label;
+            return false;
         }
 
         return
-            !string.IsNullOrEmpty(
-                regionLabel
+            strideLabelCount == 1
+            &&
+            regionLabelCount == 1;
+    }
+
+    // =====================================================
+    // LABEL / REGION HELPERS
+    // =====================================================
+
+    private static string GetStrideLabel(
+        int sampleStride
+    )
+    {
+        return
+            SurfaceStrideLabelPrefix +
+            sampleStride;
+    }
+
+    private static bool IsManagedStrideLabel(
+        string label
+    )
+    {
+        return
+            !string.IsNullOrEmpty(label)
+            &&
+            label.StartsWith(
+                SurfaceStrideLabelPrefix,
+                StringComparison.Ordinal
             );
     }
 
@@ -898,28 +1201,193 @@ public static class TerrainSurfaceMaskAddressablesUtility
     }
 
     // =====================================================
-    // SHARED PREFLIGHT
+    // REPRESENTATION PREFLIGHT
     // =====================================================
 
-    private static bool ValidateManifest(
+    private static bool TryBuildRepresentationStrides(
+        WorldSettings worldSettings,
         TerrainSurfaceMaskManifest manifest,
+        out List<int> representationStrides,
+        out int tileGridWidth,
+        out int tileGridHeight,
         out string errorMessage
     )
     {
+        representationStrides =
+            new List<int>();
+
+        tileGridWidth = 0;
+        tileGridHeight = 0;
         errorMessage = "";
 
-        if (manifest == null)
+        if (worldSettings == null)
         {
             errorMessage =
-                "Surface-mask manifest is missing.";
+                "WorldSettings is unavailable.";
 
             return false;
         }
 
-        if (!manifest.isComplete)
+        if (
+            manifest == null
+            ||
+            !manifest.isComplete
+        )
         {
             errorMessage =
-                "Surface-mask manifest is incomplete.";
+                "Surface-mask manifest is missing or incomplete.";
+
+            return false;
+        }
+
+        if (
+            TerrainGenerationStateUtility.GetSurfaceMaskStatus(
+                worldSettings
+            ) !=
+            TerrainGenerationStateUtility.GenerationStatus.Current
+        )
+        {
+            errorMessage =
+                "Runtime Surface Masks are not current.";
+
+            return false;
+        }
+
+        if (
+            TerrainGenerationStateUtility.GetSurfaceStreamingStatus(
+                worldSettings
+            ) !=
+            TerrainGenerationStateUtility.GenerationStatus.Current
+        )
+        {
+            errorMessage =
+                "Surface Streaming is not current.";
+
+            return false;
+        }
+
+        if (
+            !TerrainGenerationStateUtility.TryBuildCurrentSurfaceStreamingTarget(
+                worldSettings,
+                manifest,
+                out List<TerrainSurfaceStreamingLevelDescriptor>
+                    targetDescriptors,
+                out _,
+                out errorMessage
+            )
+        )
+        {
+            return false;
+        }
+
+        if (
+            manifest.StreamingLevelCount !=
+            targetDescriptors.Count
+        )
+        {
+            errorMessage =
+                "Surface Streaming manifest descriptor count does not match the current streaming target.";
+
+            return false;
+        }
+
+        representationStrides.Add(
+            1
+        );
+
+        int previousStride = 1;
+
+        for (
+            int index = 0;
+            index < targetDescriptors.Count;
+            index++
+        )
+        {
+            TerrainSurfaceStreamingLevelDescriptor descriptor =
+                targetDescriptors[index];
+
+            if (
+                !manifest.TryGetStreamingLevelDescriptor(
+                    descriptor.SampleStride,
+                    out TerrainSurfaceStreamingLevelDescriptor current
+                )
+                ||
+                !DescriptorsMatch(
+                    current,
+                    descriptor
+                )
+                ||
+                descriptor.SampleStride <=
+                    previousStride
+            )
+            {
+                errorMessage =
+                    "Surface Streaming manifest descriptors do not match the current streaming target.";
+
+                representationStrides.Clear();
+                return false;
+            }
+
+            representationStrides.Add(
+                descriptor.SampleStride
+            );
+
+            previousStride =
+                descriptor.SampleStride;
+        }
+
+        tileGridWidth =
+            Mathf.Max(
+                1,
+                manifest.tileGridWidth
+            );
+
+        tileGridHeight =
+            Mathf.Max(
+                1,
+                manifest.tileGridHeight
+            );
+
+        return true;
+    }
+
+    private static bool TryGetValidatedDescriptor(
+        TerrainSurfaceMaskManifest manifest,
+        int sampleStride,
+        int tileGridWidth,
+        int tileGridHeight,
+        out TerrainSurfaceStreamingLevelDescriptor descriptor,
+        out string errorMessage
+    )
+    {
+        descriptor = default;
+        errorMessage = "";
+
+        if (
+            !manifest.TryGetSurfaceRepresentationDescriptor(
+                sampleStride,
+                out descriptor
+            )
+        )
+        {
+            errorMessage =
+                $"Surface representation stride {sampleStride} has no valid manifest descriptor.";
+
+            return false;
+        }
+
+        if (
+            descriptor.TileGridWidth != tileGridWidth
+            ||
+            descriptor.TileGridHeight != tileGridHeight
+            ||
+            descriptor.TextureFormat != TextureFormat.R8
+            ||
+            descriptor.SamplesPerSide < 2
+        )
+        {
+            errorMessage =
+                $"Surface representation stride {sampleStride} has an incompatible descriptor.";
 
             return false;
         }
@@ -927,8 +1395,10 @@ public static class TerrainSurfaceMaskAddressablesUtility
         return true;
     }
 
-    private static bool TryGetExpectedTile(
+    private static bool TryResolveSurfaceRepresentation(
         TerrainSurfaceMaskManifest manifest,
+        TerrainSurfaceStreamingLevelDescriptor descriptor,
+        int sampleStride,
         int tileX,
         int tileZ,
         out string assetPath,
@@ -938,10 +1408,12 @@ public static class TerrainSurfaceMaskAddressablesUtility
     )
     {
         assetPath =
-            TerrainRuntimeSurfaceMaskAssetUtility.GetSurfaceTilePath(
-                tileX,
-                tileZ
-            );
+            TerrainRuntimeSurfaceMaskAssetUtility
+                .GetSurfaceRepresentationPath(
+                    sampleStride,
+                    tileX,
+                    tileZ
+                );
 
         guid = "";
         expectedAddress = "";
@@ -955,7 +1427,7 @@ public static class TerrainSurfaceMaskAddressablesUtility
         if (texture == null)
         {
             errorMessage =
-                "Missing runtime surface-mask tile:\n" +
+                "Missing runtime Surface representation:\n" +
                 assetPath;
 
             return false;
@@ -964,15 +1436,18 @@ public static class TerrainSurfaceMaskAddressablesUtility
         try
         {
             if (
-                texture.width != manifest.samplesPerSide
+                texture.width !=
+                    descriptor.SamplesPerSide
                 ||
-                texture.height != manifest.samplesPerSide
+                texture.height !=
+                    descriptor.SamplesPerSide
                 ||
-                texture.format != TextureFormat.R8
+                texture.format !=
+                    TextureFormat.R8
             )
             {
                 errorMessage =
-                    "Runtime surface-mask tile has an invalid layout or format:\n" +
+                    $"Runtime Surface representation stride {sampleStride} has an invalid layout or format:\n" +
                     assetPath;
 
                 return false;
@@ -993,18 +1468,51 @@ public static class TerrainSurfaceMaskAddressablesUtility
         if (string.IsNullOrEmpty(guid))
         {
             errorMessage =
-                "Could not resolve runtime surface-mask tile GUID:\n" +
+                "Could not resolve runtime Surface representation GUID:\n" +
                 assetPath;
 
             return false;
         }
 
         expectedAddress =
-            manifest.GetSurfaceTileAddress(
+            manifest.GetSurfaceRepresentationAddress(
+                sampleStride,
                 tileX,
                 tileZ
             );
 
         return true;
+    }
+
+    private static bool DescriptorsMatch(
+        TerrainSurfaceStreamingLevelDescriptor current,
+        TerrainSurfaceStreamingLevelDescriptor expected
+    )
+    {
+        return
+            current.SampleStride ==
+                expected.SampleStride
+            &&
+            current.SamplesPerSide ==
+                expected.SamplesPerSide
+            &&
+            current.TileGridWidth ==
+                expected.TileGridWidth
+            &&
+            current.TileGridHeight ==
+                expected.TileGridHeight
+            &&
+            current.TextureFormat ==
+                expected.TextureFormat
+            &&
+            Mathf.Approximately(
+                current.SampleSpacing,
+                expected.SampleSpacing
+            )
+            &&
+            Mathf.Approximately(
+                current.TileWorldSize,
+                expected.TileWorldSize
+            );
     }
 }

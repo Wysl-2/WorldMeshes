@@ -30,6 +30,19 @@ internal static class TerrainRuntimeAddressablesScaleUtility
             return false;
         }
 
+        if (
+            TerrainGenerationStateUtility.GetSurfaceStreamingStatus(
+                worldSettings
+            ) !=
+            TerrainGenerationStateUtility.GenerationStatus.Current
+        )
+        {
+            errorMessage =
+                "Addressables scale diagnostics require current Surface Streaming data.";
+
+            return false;
+        }
+
         int heightTileGridWidth =
             Mathf.Max(
                 1,
@@ -68,9 +81,19 @@ internal static class TerrainRuntimeAddressablesScaleUtility
                 surfaceManifest.tileGridHeight
             );
 
-        long surfaceEntryCount =
+        long surfaceGeographicTileCount =
             (long)surfaceTileGridWidth *
             surfaceTileGridHeight;
+
+        long surfaceRepresentationLevelCount =
+            Math.Max(
+                1,
+                surfaceManifest.StreamingLevelCount + 1
+            );
+
+        long surfaceEntryCount =
+            surfaceGeographicTileCount *
+            surfaceRepresentationLevelCount;
 
         long collisionMeshEntryCount =
             (long)Mathf.Max(1, worldSettings.gridWidth) *
@@ -139,6 +162,10 @@ internal static class TerrainRuntimeAddressablesScaleUtility
             ||
             surfaceEntryCount > int.MaxValue
             ||
+            surfaceGeographicTileCount > int.MaxValue
+            ||
+            surfaceRepresentationLevelCount > int.MaxValue
+            ||
             surfaceRegionCount > int.MaxValue
         )
         {
@@ -151,22 +178,29 @@ internal static class TerrainRuntimeAddressablesScaleUtility
         int heightEntryCountInt =
             (int)heightEntryCount;
 
-        int representationLevelCountInt =
+        int heightRepresentationLevelCountInt =
             (int)heightRepresentationLevelCount;
+
+        int surfaceEntryCountInt =
+            (int)surfaceEntryCount;
+
+        int surfaceRepresentationLevelCountInt =
+            (int)surfaceRepresentationLevelCount;
 
         long heightBundleCount =
             TerrainHeightAddressablesPackingPolicy
                 .EstimateHeightBundleCount(
                     heightTileGridWidth,
                     heightTileGridHeight,
-                    representationLevelCountInt
+                    heightRepresentationLevelCountInt
                 );
 
         long surfaceBundleCount =
             TerrainSurfaceAddressablesPackingPolicy
                 .EstimateSurfaceBundleCount(
                     surfaceTileGridWidth,
-                    surfaceTileGridHeight
+                    surfaceTileGridHeight,
+                    surfaceRepresentationLevelCountInt
                 );
 
         long collisionBundleCount =
@@ -233,7 +267,7 @@ internal static class TerrainRuntimeAddressablesScaleUtility
         if (stats.heightRepresentationLevelCount <= 0)
         {
             stats.heightRepresentationLevelCount =
-                representationLevelCountInt;
+                heightRepresentationLevelCountInt;
         }
 
         if (stats.heightExpectedEntryCount <= 0)
@@ -252,7 +286,38 @@ internal static class TerrainRuntimeAddressablesScaleUtility
                 );
 
             stats.heightManagedStrideLabelCount =
-                representationLevelCountInt;
+                heightRepresentationLevelCountInt;
+        }
+
+        if (stats.surfaceGeographicTileCount <= 0)
+        {
+            stats.surfaceGeographicTileCount =
+                (int)surfaceGeographicTileCount;
+        }
+
+        if (stats.surfaceRepresentationLevelCount <= 0)
+        {
+            stats.surfaceRepresentationLevelCount =
+                surfaceRepresentationLevelCountInt;
+        }
+
+        if (stats.surfaceExpectedEntryCount <= 0)
+        {
+            stats.surfaceExpectedEntryCount =
+                surfaceEntryCountInt;
+
+            stats.surfaceAuthoritativeAssetCount =
+                (int)surfaceGeographicTileCount;
+
+            stats.surfaceDerivedAssetCount =
+                Math.Max(
+                    0,
+                    surfaceEntryCountInt -
+                    (int)surfaceGeographicTileCount
+                );
+
+            stats.surfaceManagedStrideLabelCount =
+                surfaceRepresentationLevelCountInt;
         }
 
         return true;
@@ -272,6 +337,10 @@ internal static class TerrainRuntimeAddressablesScaleUtility
                 stats != null ? stats.expectedSurfaceBundleCount : 0L,
                 stats != null ? stats.surfacePackingRegionTileSpan : 0,
                 stats != null ? stats.surfacePackingRegionCount : 0,
+                stats != null ? stats.surfaceRepresentationLevelCount : 0,
+                stats != null ? stats.surfaceAuthoritativeAssetCount : 0,
+                stats != null ? stats.surfaceDerivedAssetCount : 0,
+                stats != null ? stats.surfaceManagedStrideLabelCount : 0,
                 stats != null ? stats.expectedCollisionMeshEntryCount : 0L,
                 stats != null ? stats.expectedCollisionMarkerEntryCount : 0L,
                 stats != null ? stats.expectedCollisionBundleCount : 0L,
@@ -292,6 +361,10 @@ public sealed class TerrainRuntimeAddressablesScaleReport
     public long ExpectedSurfaceBundleCount { get; private set; }
     public int SurfacePackingRegionTileSpan { get; private set; }
     public int SurfacePackingRegionCount { get; private set; }
+    public int SurfaceRepresentationLevelCount { get; private set; }
+    public int SurfaceAuthoritativeAssetCount { get; private set; }
+    public int SurfaceDerivedAssetCount { get; private set; }
+    public int SurfaceManagedStrideLabelCount { get; private set; }
 
     public long ExpectedCollisionMeshEntryCount { get; private set; }
     public long ExpectedCollisionMarkerEntryCount { get; private set; }
@@ -308,6 +381,10 @@ public sealed class TerrainRuntimeAddressablesScaleReport
         long expectedSurfaceBundleCount,
         int surfacePackingRegionTileSpan,
         int surfacePackingRegionCount,
+        int surfaceRepresentationLevelCount,
+        int surfaceAuthoritativeAssetCount,
+        int surfaceDerivedAssetCount,
+        int surfaceManagedStrideLabelCount,
         long expectedCollisionMeshEntryCount,
         long expectedCollisionMarkerEntryCount,
         long expectedCollisionBundleCount,
@@ -324,6 +401,10 @@ public sealed class TerrainRuntimeAddressablesScaleReport
         ExpectedSurfaceBundleCount = expectedSurfaceBundleCount;
         SurfacePackingRegionTileSpan = surfacePackingRegionTileSpan;
         SurfacePackingRegionCount = surfacePackingRegionCount;
+        SurfaceRepresentationLevelCount = surfaceRepresentationLevelCount;
+        SurfaceAuthoritativeAssetCount = surfaceAuthoritativeAssetCount;
+        SurfaceDerivedAssetCount = surfaceDerivedAssetCount;
+        SurfaceManagedStrideLabelCount = surfaceManagedStrideLabelCount;
 
         ExpectedCollisionMeshEntryCount = expectedCollisionMeshEntryCount;
         ExpectedCollisionMarkerEntryCount = expectedCollisionMarkerEntryCount;
@@ -341,6 +422,10 @@ public sealed class TerrainRuntimeAddressablesScaleReport
         builder.AppendLine("Height Packing Region Tile Span: " + HeightPackingRegionTileSpan);
         builder.AppendLine("Height Packing Region Count: " + HeightPackingRegionCount);
         builder.AppendLine("Expected Height Bundles: " + ExpectedHeightBundleCount);
+        builder.AppendLine("Surface Representation Levels: " + SurfaceRepresentationLevelCount);
+        builder.AppendLine("Surface Native Assets: " + SurfaceAuthoritativeAssetCount);
+        builder.AppendLine("Surface Derived Assets: " + SurfaceDerivedAssetCount);
+        builder.AppendLine("Surface Managed Stride Labels: " + SurfaceManagedStrideLabelCount);
         builder.AppendLine("Expected Surface Entries: " + ExpectedSurfaceEntryCount);
         builder.AppendLine("Surface Packing Region Tile Span: " + SurfacePackingRegionTileSpan);
         builder.AppendLine("Surface Packing Region Count: " + SurfacePackingRegionCount);

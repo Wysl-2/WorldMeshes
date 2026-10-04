@@ -198,11 +198,20 @@ internal sealed class TerrainAddressablesOperationStats
     public int heightPackingRegionCount;
     public double heightConfigurationReconciliationSeconds;
 
+    public int surfaceGeographicTileCount;
+    public int surfaceRepresentationLevelCount;
+    public int surfaceAuthoritativeAssetCount;
+    public int surfaceDerivedAssetCount;
+    public int surfaceExpectedEntryCount;
+    public int surfaceActualEntryCount;
+    public int surfaceManagedStrideLabelCount;
     public int surfaceManagedRegionLabelCount;
     public int surfacePackingRegionTileSpan;
     public int surfacePackingRegionCount;
+    public double surfaceConfigurationReconciliationSeconds;
 
     public int heightPeakStrideExpectedGuidCount;
+    public int surfacePeakStrideExpectedGuidCount;
     public int collisionPeakRegionExpectedGuidCount;
 
     public int residencyReleaseCount;
@@ -287,15 +296,24 @@ public sealed class TerrainRuntimeAddressablesResult
 
     public int ResidencyReleaseCount { get; private set; }
     public int HeightPeakStrideExpectedGuidCount { get; private set; }
+    public int SurfacePeakStrideExpectedGuidCount { get; private set; }
     public int CollisionPeakRegionExpectedGuidCount { get; private set; }
 
     public int HeightManagedRegionLabelCount { get; private set; }
     public int HeightPackingRegionTileSpan { get; private set; }
     public int HeightPackingRegionCount { get; private set; }
 
+    public int SurfaceGeographicTileCount { get; private set; }
+    public int SurfaceRepresentationLevelCount { get; private set; }
+    public int SurfaceAuthoritativeAssetCount { get; private set; }
+    public int SurfaceDerivedAssetCount { get; private set; }
+    public int SurfaceExpectedEntryCount { get; private set; }
+    public int SurfaceActualEntryCount { get; private set; }
+    public int SurfaceManagedStrideLabelCount { get; private set; }
     public int SurfaceManagedRegionLabelCount { get; private set; }
     public int SurfacePackingRegionTileSpan { get; private set; }
     public int SurfacePackingRegionCount { get; private set; }
+    public double SurfaceConfigurationReconciliationSeconds { get; private set; }
 
     public long ManagedBytesBeforeContentBuild { get; private set; }
     public long ManagedBytesAfterPreBuildCleanup { get; private set; }
@@ -391,6 +409,9 @@ public sealed class TerrainRuntimeAddressablesResult
         HeightPeakStrideExpectedGuidCount =
             stats != null ? stats.heightPeakStrideExpectedGuidCount : 0;
 
+        SurfacePeakStrideExpectedGuidCount =
+            stats != null ? stats.surfacePeakStrideExpectedGuidCount : 0;
+
         CollisionPeakRegionExpectedGuidCount =
             stats != null ? stats.collisionPeakRegionExpectedGuidCount : 0;
 
@@ -403,6 +424,27 @@ public sealed class TerrainRuntimeAddressablesResult
         HeightPackingRegionCount =
             stats != null ? stats.heightPackingRegionCount : 0;
 
+        SurfaceGeographicTileCount =
+            stats != null ? stats.surfaceGeographicTileCount : 0;
+
+        SurfaceRepresentationLevelCount =
+            stats != null ? stats.surfaceRepresentationLevelCount : 0;
+
+        SurfaceAuthoritativeAssetCount =
+            stats != null ? stats.surfaceAuthoritativeAssetCount : 0;
+
+        SurfaceDerivedAssetCount =
+            stats != null ? stats.surfaceDerivedAssetCount : 0;
+
+        SurfaceExpectedEntryCount =
+            stats != null ? stats.surfaceExpectedEntryCount : 0;
+
+        SurfaceActualEntryCount =
+            stats != null ? stats.surfaceActualEntryCount : 0;
+
+        SurfaceManagedStrideLabelCount =
+            stats != null ? stats.surfaceManagedStrideLabelCount : 0;
+
         SurfaceManagedRegionLabelCount =
             stats != null ? stats.surfaceManagedRegionLabelCount : 0;
 
@@ -411,6 +453,9 @@ public sealed class TerrainRuntimeAddressablesResult
 
         SurfacePackingRegionCount =
             stats != null ? stats.surfacePackingRegionCount : 0;
+
+        SurfaceConfigurationReconciliationSeconds =
+            stats != null ? stats.surfaceConfigurationReconciliationSeconds : 0d;
 
         ManagedBytesBeforeContentBuild =
             stats != null ? stats.managedBytesBeforeContentBuild : -1L;
@@ -607,6 +652,35 @@ public sealed class TerrainRuntimeAddressablesResult
             "Surface Managed Region Labels: " +
             SurfaceManagedRegionLabelCount
         );
+        builder.AppendLine(
+            "Surface Managed Stride Labels: " +
+            SurfaceManagedStrideLabelCount
+        );
+        builder.AppendLine(
+            "Surface Representation Levels: " +
+            SurfaceRepresentationLevelCount
+        );
+        builder.AppendLine(
+            "Surface Native Assets: " +
+            SurfaceAuthoritativeAssetCount
+        );
+        builder.AppendLine(
+            "Surface Derived Assets: " +
+            SurfaceDerivedAssetCount
+        );
+        builder.AppendLine(
+            "Surface Expected Entries: " +
+            SurfaceExpectedEntryCount
+        );
+        builder.AppendLine(
+            "Surface Actual Entries: " +
+            SurfaceActualEntryCount
+        );
+        builder.AppendLine(
+            "Surface Configuration Reconciliation: " +
+            SurfaceConfigurationReconciliationSeconds.ToString("0.00") +
+            " seconds"
+        );
 
         builder.AppendLine();
         builder.AppendLine("Addressables Memory Hardening");
@@ -617,6 +691,10 @@ public sealed class TerrainRuntimeAddressablesResult
         builder.AppendLine(
             "Peak Height Stride Expected GUIDs: " +
             HeightPeakStrideExpectedGuidCount
+        );
+        builder.AppendLine(
+            "Peak Surface Stride Expected GUIDs: " +
+            SurfacePeakStrideExpectedGuidCount
         );
         builder.AppendLine(
             "Peak Collision Region Expected GUIDs: " +

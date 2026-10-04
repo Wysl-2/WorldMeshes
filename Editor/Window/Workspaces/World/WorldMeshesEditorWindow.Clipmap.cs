@@ -308,7 +308,7 @@ public partial class WorldMeshesEditorWindow : EditorWindow
             )
             {
                 TerrainRuntimeInvalidationService
-                    .InvalidateFullSurfaceStreaming();
+                    .InvalidateSurfaceStreamingRepresentationChanged();
             }
         }
 

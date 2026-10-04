@@ -3,8 +3,9 @@ using UnityEditor.AddressableAssets.Settings.GroupSchemas;
 
 /*
  * Physical packing policy for generated Surface Mask Addressables.
- * Logical tile addresses remain unchanged; ARH02 groups nearby tiles into
- * deterministic spatial bundles through one tool-owned region label.
+ * Logical representation addresses are independent from physical packing.
+ * Entries are grouped by representation stride and deterministic spatial
+ * region through tool-owned labels.
  */
 internal static class TerrainSurfaceAddressablesPackingPolicy
 {
@@ -89,7 +90,8 @@ internal static class TerrainSurfaceAddressablesPackingPolicy
 
     internal static long EstimateSurfaceBundleCount(
         int tileGridWidth,
-        int tileGridHeight
+        int tileGridHeight,
+        int representationLevelCount
     )
     {
         return
@@ -99,6 +101,11 @@ internal static class TerrainSurfaceAddressablesPackingPolicy
             *
             GetRegionGridHeight(
                 tileGridHeight
+            )
+            *
+            Math.Max(
+                0,
+                representationLevelCount
             );
     }
 

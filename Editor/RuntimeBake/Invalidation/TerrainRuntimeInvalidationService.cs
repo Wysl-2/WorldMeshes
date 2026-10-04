@@ -324,6 +324,16 @@ public static class TerrainRuntimeInvalidationService
         );
     }
 
+    public static bool InvalidateSurfaceStreamingRepresentationChanged()
+    {
+        return TerrainRuntimeBakeStateService.ApplyMutation(
+            new TerrainRuntimeBakeStateMutation()
+                .RequireFullSurfaceStreaming()
+                .DirtyAddressablesConfiguration()
+                .DirtyAddressablesContent()
+        );
+    }
+
     public static bool InvalidateSurfaceSettingsChanged()
     {
         TerrainRuntimeBakeStateMutation mutation =

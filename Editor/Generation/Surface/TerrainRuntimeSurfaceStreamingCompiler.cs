@@ -933,6 +933,16 @@ public static class TerrainRuntimeSurfaceStreamingCompiler
                 new TerrainRuntimeBakeStateMutation()
                     .DirtyAddressablesContent();
 
+            if (
+                workMode == TerrainRuntimeBakeWorkMode.Full
+                &&
+                revisionBefore <= 0
+            )
+            {
+                completionMutation
+                    .DirtyAddressablesConfiguration();
+            }
+
             if (workMode == TerrainRuntimeBakeWorkMode.Full)
             {
                 completionMutation

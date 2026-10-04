@@ -1704,6 +1704,14 @@ public static class TerrainRuntimeBakePlanner
         // GLOBAL WORK
         // =================================================
 
+        bool surfaceStreamingIntroducesAddressablesConfiguration =
+            surfaceStreamingMode !=
+                TerrainRuntimeBakeWorkMode.None
+            &&
+            surfaceStreamingStatus ==
+                TerrainGenerationStateUtility
+                    .GenerationStatus.NotGenerated;
+
         bool topologyRequiresAddressablesConfiguration =
             !heightTopologyCompatible
             ||
@@ -1771,6 +1779,10 @@ public static class TerrainRuntimeBakePlanner
                 TerrainGenerationStateUtility
                     .GenerationStatus.Current
             &&
+            surfaceStreamingStatus ==
+                TerrainGenerationStateUtility
+                    .GenerationStatus.Current
+            &&
             collisionStatus ==
                 TerrainGenerationStateUtility
                     .GenerationStatus.Current
@@ -1804,6 +1816,8 @@ public static class TerrainRuntimeBakePlanner
             ||
             topologyRequiresAddressablesConfiguration
             ||
+            surfaceStreamingIntroducesAddressablesConfiguration
+            ||
             externalAddressablesRepairRequired;
 
         bool addressablesContentRequired =
@@ -1836,6 +1850,18 @@ public static class TerrainRuntimeBakePlanner
                 TerrainRuntimeBakeReasonCode.AddressablesContentDirty,
                 TerrainRuntimeBakeReasonTarget.Addressables,
                 "Persistent runtime bake state marks Addressables content dirty."
+            );
+        }
+
+        if (surfaceStreamingIntroducesAddressablesConfiguration)
+        {
+            diagnostics?.AddPlannerReason(
+                TerrainRuntimeBakeReasonCode.DependencyPropagation,
+                TerrainRuntimeBakeReasonTarget.Addressables,
+                "First-time Surface Streaming generation introduces derived Surface Addressables representations and requires structural reconciliation.",
+                false,
+                0,
+                TerrainRuntimeBakeReasonTarget.SurfaceStreaming
             );
         }
 
