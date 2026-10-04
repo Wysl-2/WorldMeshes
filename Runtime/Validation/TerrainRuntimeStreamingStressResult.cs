@@ -33,8 +33,7 @@ public sealed class TerrainRuntimeStreamingStressResult
     public int MaximumHeightSampleStride { get; internal set; }
     public int NativeHeightPageSamplesPerSide { get; internal set; }
     public long HeightSourceUpperBoundBytes { get; internal set; }
-    public int SurfaceCacheWidth { get; internal set; }
-    public int SurfaceCacheHeight { get; internal set; }
+    public int SurfaceLodCount { get; internal set; }
     public long SurfaceSourceUpperBoundBytes { get; internal set; }
 
     public int BoundaryLayoutsCompleted { get; internal set; }
@@ -100,7 +99,7 @@ public sealed class TerrainRuntimeStreamingStressResult
             $"  Height Source Bound: {FormatBytes(HeightSourceUpperBoundBytes)}"
         );
         builder.AppendLine(
-            $"  Surface Cache: {SurfaceCacheWidth} x {SurfaceCacheHeight}"
+            $"  Surface LOD States: {SurfaceLodCount}"
         );
         builder.AppendLine(
             $"  Surface Source Bound: {FormatBytes(SurfaceSourceUpperBoundBytes)}"
@@ -189,7 +188,7 @@ public sealed class TerrainRuntimeStreamingStressResult
         builder.AppendLine();
         builder.AppendLine("Surface:");
         builder.AppendLine(
-            $"  Maximum Resident Sources: {MaximumSurfaceResidentSources}"
+            $"  Maximum Transient Sources: {MaximumSurfaceResidentSources}"
         );
         builder.AppendLine(
             $"  Maximum Source Payload: {FormatBytes(MaximumSurfaceSourceBytes)} / {FormatBytes(SurfaceSourceUpperBoundBytes)}"

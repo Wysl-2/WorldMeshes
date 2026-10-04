@@ -149,6 +149,11 @@ public partial class WorldMeshesEditorWindow :
         );
 
         GUILayout.Space(5f);
+        DrawRuntimeLegacySurfaceResidency(
+            capacity
+        );
+
+        GUILayout.Space(5f);
         DrawRuntimeTotalResidency(
             capacity
         );
@@ -331,9 +336,8 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.LabelField(
-            "Cache Grid",
-            $"{snapshot.Surface.CacheWidth} x " +
-            $"{snapshot.Surface.CacheHeight}"
+            "LOD States",
+            capacity.SurfaceLodCount.ToString("N0")
         );
 
         DrawRuntimeResidencyBytes(
@@ -347,13 +351,18 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.LabelField(
-            "Resident Source Pages",
-            capacity.SurfaceResidentSourceCount.ToString("N0")
+            "Transient Source Pages",
+            capacity.SurfaceTransientSourceCount.ToString("N0")
         );
 
         DrawRuntimeResidencyBytes(
             "Current Source",
             capacity.SurfaceCurrentSourceBytes
+        );
+
+        DrawRuntimeResidencyBytes(
+            "Observed Source Peak",
+            capacity.SurfaceObservedPeakSourceBytes
         );
 
         DrawRuntimeResidencyBytes(
@@ -364,6 +373,11 @@ public partial class WorldMeshesEditorWindow :
         DrawRuntimeResidencyBytes(
             "Current Logical Residency",
             capacity.SurfaceCurrentLogicalBytes
+        );
+
+        DrawRuntimeResidencyBytes(
+            "Observed Peak Logical Residency",
+            capacity.SurfaceObservedPeakLogicalBytes
         );
 
         DrawRuntimeResidencyBytes(
@@ -386,6 +400,57 @@ public partial class WorldMeshesEditorWindow :
         DrawRuntimeCapacityStatus(
             "Surface Target Status",
             capacity.SurfaceStatus
+        );
+    }
+
+    private void DrawRuntimeLegacySurfaceResidency(
+        TerrainRuntimeCapacityResult capacity
+    )
+    {
+        GUILayout.Label(
+            "Legacy Surface Baseline",
+            EditorStyles.boldLabel
+        );
+
+        EditorGUILayout.LabelField(
+            "Native Cache Grid",
+            $"{capacity.LegacySurfaceCacheWidth} x " +
+            $"{capacity.LegacySurfaceCacheHeight}"
+        );
+
+        DrawRuntimeResidencyBytes(
+            "Native Page Payload",
+            capacity.LegacySurfaceNativePageBytes
+        );
+
+        DrawRuntimeResidencyBytes(
+            "GPU Cache Payload",
+            capacity.LegacySurfaceGpuBytes
+        );
+
+        DrawRuntimeResidencyBytes(
+            "Steady Source",
+            capacity.LegacySurfaceSteadySourceBytes
+        );
+
+        DrawRuntimeResidencyBytes(
+            "Transition Source Upper Bound",
+            capacity.LegacySurfaceTransitionSourceUpperBoundBytes
+        );
+
+        DrawRuntimeResidencyBytes(
+            "Conservative Upper Bound",
+            capacity.LegacySurfaceConservativeUpperBoundBytes
+        );
+
+        EditorGUILayout.LabelField(
+            "GPU Cache Reduction",
+            capacity.SurfaceGpuSavingsPercent.ToString("N2") + "%"
+        );
+
+        EditorGUILayout.LabelField(
+            "Conservative Reduction",
+            capacity.SurfaceUpperBoundSavingsPercent.ToString("N2") + "%"
         );
     }
 
@@ -444,7 +509,7 @@ public partial class WorldMeshesEditorWindow :
                 );
 
         EditorGUILayout.LabelField(
-            "Surface Scaling",
+            "Additional Surface Scaling",
             recommendation
         );
 

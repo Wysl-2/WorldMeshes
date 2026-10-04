@@ -2,15 +2,14 @@ using UnityEngine;
 
 public readonly struct TerrainSurfaceResidencyDiagnosticsSnapshot
 {
+    public int LodCount { get; }
     public bool CacheReady { get; }
     public TerrainSurfaceCacheTransitionState TransitionState { get; }
-    public int CacheWidth { get; }
-    public int CacheHeight { get; }
-    public int SamplesPerSide { get; }
-    public int ResidentSourceCount { get; }
+    public int TransientSourceCount { get; }
     public long EstimatedActiveGpuBytes { get; }
     public long EstimatedStagingGpuBytes { get; }
     public long EstimatedCurrentSourceBytes { get; }
+    public long EstimatedObservedPeakSourceBytes { get; }
     public long EstimatedSourceUpperBoundBytes { get; }
 
     public long EstimatedGpuCacheBytes =>
@@ -21,32 +20,38 @@ public readonly struct TerrainSurfaceResidencyDiagnosticsSnapshot
         EstimatedGpuCacheBytes +
         EstimatedCurrentSourceBytes;
 
+    public long EstimatedObservedPeakLogicalBytes =>
+        EstimatedGpuCacheBytes +
+        System.Math.Max(
+            EstimatedCurrentSourceBytes,
+            EstimatedObservedPeakSourceBytes
+        );
+
     public long EstimatedConservativeUpperBoundBytes =>
         EstimatedGpuCacheBytes +
         EstimatedSourceUpperBoundBytes;
 
     internal TerrainSurfaceResidencyDiagnosticsSnapshot(
+        int lodCount,
         bool cacheReady,
         TerrainSurfaceCacheTransitionState transitionState,
-        int cacheWidth,
-        int cacheHeight,
-        int samplesPerSide,
-        int residentSourceCount,
+        int transientSourceCount,
         long estimatedActiveGpuBytes,
         long estimatedStagingGpuBytes,
         long estimatedCurrentSourceBytes,
+        long estimatedObservedPeakSourceBytes,
         long estimatedSourceUpperBoundBytes
     )
     {
+        LodCount = lodCount;
         CacheReady = cacheReady;
         TransitionState = transitionState;
-        CacheWidth = cacheWidth;
-        CacheHeight = cacheHeight;
-        SamplesPerSide = samplesPerSide;
-        ResidentSourceCount = residentSourceCount;
+        TransientSourceCount = transientSourceCount;
         EstimatedActiveGpuBytes = estimatedActiveGpuBytes;
         EstimatedStagingGpuBytes = estimatedStagingGpuBytes;
         EstimatedCurrentSourceBytes = estimatedCurrentSourceBytes;
+        EstimatedObservedPeakSourceBytes =
+            estimatedObservedPeakSourceBytes;
         EstimatedSourceUpperBoundBytes = estimatedSourceUpperBoundBytes;
     }
 }
@@ -94,6 +99,49 @@ public readonly struct TerrainHeightLegacyResidencyEstimate
     }
 }
 
+public readonly struct TerrainSurfaceLegacyResidencyEstimate
+{
+    public int CacheWidth { get; }
+    public int CacheHeight { get; }
+    public long NativePageBytes { get; }
+    public long EstimatedActiveGpuBytes { get; }
+    public long EstimatedStagingGpuBytes { get; }
+    public long EstimatedSteadySourceBytes { get; }
+    public long EstimatedTransitionSourceUpperBoundBytes { get; }
+
+    public long EstimatedGpuCacheBytes =>
+        EstimatedActiveGpuBytes +
+        EstimatedStagingGpuBytes;
+
+    public long EstimatedSteadyLogicalBytes =>
+        EstimatedGpuCacheBytes +
+        EstimatedSteadySourceBytes;
+
+    public long EstimatedConservativeUpperBoundBytes =>
+        EstimatedGpuCacheBytes +
+        EstimatedTransitionSourceUpperBoundBytes;
+
+    internal TerrainSurfaceLegacyResidencyEstimate(
+        int cacheWidth,
+        int cacheHeight,
+        long nativePageBytes,
+        long estimatedActiveGpuBytes,
+        long estimatedStagingGpuBytes,
+        long estimatedSteadySourceBytes,
+        long estimatedTransitionSourceUpperBoundBytes
+    )
+    {
+        CacheWidth = cacheWidth;
+        CacheHeight = cacheHeight;
+        NativePageBytes = nativePageBytes;
+        EstimatedActiveGpuBytes = estimatedActiveGpuBytes;
+        EstimatedStagingGpuBytes = estimatedStagingGpuBytes;
+        EstimatedSteadySourceBytes = estimatedSteadySourceBytes;
+        EstimatedTransitionSourceUpperBoundBytes =
+            estimatedTransitionSourceUpperBoundBytes;
+    }
+}
+
 public readonly struct TerrainRuntimeResidencyDiagnosticsSnapshot
 {
     public int HeightLodCount { get; }
@@ -104,6 +152,7 @@ public readonly struct TerrainRuntimeResidencyDiagnosticsSnapshot
     public long HeightSourceUpperBoundBytes { get; }
     public TerrainSurfaceResidencyDiagnosticsSnapshot Surface { get; }
     public TerrainHeightLegacyResidencyEstimate LegacyHeight { get; }
+    public TerrainSurfaceLegacyResidencyEstimate LegacySurface { get; }
 
     public long HeightGpuCacheBytes =>
         HeightActiveGpuBytes +
@@ -140,7 +189,8 @@ public readonly struct TerrainRuntimeResidencyDiagnosticsSnapshot
         long heightObservedPeakSourceBytes,
         long heightSourceUpperBoundBytes,
         TerrainSurfaceResidencyDiagnosticsSnapshot surface,
-        TerrainHeightLegacyResidencyEstimate legacyHeight
+        TerrainHeightLegacyResidencyEstimate legacyHeight,
+        TerrainSurfaceLegacyResidencyEstimate legacySurface
     )
     {
         HeightLodCount = heightLodCount;
@@ -151,6 +201,7 @@ public readonly struct TerrainRuntimeResidencyDiagnosticsSnapshot
         HeightSourceUpperBoundBytes = heightSourceUpperBoundBytes;
         Surface = surface;
         LegacyHeight = legacyHeight;
+        LegacySurface = legacySurface;
     }
 }
 
@@ -229,6 +280,8 @@ public partial class TerrainHeightmapStreamer
         }
 
         if (
+            surfaceMaskManifest.samplesPerSide <= 0
+            ||
             surfaceMaskManifest.tileGridWidth <= 0
             ||
             surfaceMaskManifest.tileGridHeight <= 0
@@ -286,7 +339,12 @@ public partial class TerrainHeightmapStreamer
             return false;
         }
 
-        if (surfacePageLoadScheduler == null)
+        if (
+            !TryGetSurfaceSchedulerDiagnostics(
+                out TerrainSurfaceSchedulerDiagnosticsSnapshot
+                    surfaceScheduler
+            )
+        )
         {
             reason =
                 "Surface scheduler diagnostics are unavailable.";
@@ -360,37 +418,23 @@ public partial class TerrainHeightmapStreamer
         long surfaceStagingGpuBytes =
             EstimateSurfaceStagingGpuCacheBytes();
 
-        int residentSurfaceSourceCount =
-            surfacePageLoadScheduler
-                .TransientSourceSlotCount;
-
-        long surfaceCurrentSourceBytes =
-            surfacePageLoadScheduler
-                .EstimatedLogicalSourceBytes;
-
         long surfaceSourceUpperBoundBytes =
             surfaceMaximumSourceBytes *
             Mathf.Max(
                 1,
-                MaxConcurrentSurfacePageLoads
+                surfaceScheduler.ConcurrencyLimit
             );
-
-        TerrainSurfaceLodRuntimeState compatibilityState =
-            surfaceLodStates[0];
 
         TerrainSurfaceResidencyDiagnosticsSnapshot surface =
             new TerrainSurfaceResidencyDiagnosticsSnapshot(
+                surfaceLodStates.Length,
                 SurfaceCacheReady,
                 SurfaceTransitionState,
-                compatibilityState.CacheWidth,
-                compatibilityState.CacheHeight,
-                compatibilityState
-                    .Descriptor
-                    .SamplesPerSide,
-                residentSurfaceSourceCount,
+                surfaceScheduler.TransientSourceSlotCount,
                 surfaceActiveGpuBytes,
                 surfaceStagingGpuBytes,
-                surfaceCurrentSourceBytes,
+                surfaceScheduler.EstimatedLogicalSourceBytes,
+                surfaceScheduler.PeakEstimatedLogicalSourceBytes,
                 surfaceSourceUpperBoundBytes
             );
 
@@ -398,6 +442,9 @@ public partial class TerrainHeightmapStreamer
             CalculateLegacyHeightResidencyEstimate(
                 nativeHeightPageBytes
             );
+
+        TerrainSurfaceLegacyResidencyEstimate legacySurface =
+            CalculateLegacySurfaceResidencyEstimate();
 
         snapshot =
             new TerrainRuntimeResidencyDiagnosticsSnapshot(
@@ -408,7 +455,8 @@ public partial class TerrainHeightmapStreamer
                 scheduler.PeakEstimatedLogicalSourceBytes,
                 heightSourceUpperBoundBytes,
                 surface,
-                legacyHeight
+                legacyHeight,
+                legacySurface
             );
 
         return true;
@@ -500,6 +548,100 @@ public partial class TerrainHeightmapStreamer
                 cacheBytes,
                 cacheBytes,
                 nativeHeightPageBytes *
+                    transitionSourceCount
+            );
+    }
+
+    private TerrainSurfaceLegacyResidencyEstimate
+        CalculateLegacySurfaceResidencyEstimate()
+    {
+        long samplesPerSide =
+            Mathf.Max(
+                0,
+                surfaceMaskManifest.samplesPerSide
+            );
+
+        long nativePageBytes =
+            samplesPerSide *
+            samplesPerSide;
+
+        float tileWorldSize =
+            Mathf.Max(
+                0.0001f,
+                surfaceMaskManifest.tileWorldSize
+            );
+
+        int clipmapTileSpan =
+            Mathf.CeilToInt(
+                CalculateClipmapDiameter() /
+                tileWorldSize
+            );
+
+        int requestedCacheSize =
+            Mathf.Max(
+                1,
+                clipmapTileSpan +
+                1 +
+                Mathf.Max(
+                    0,
+                    guardTileCount
+                )
+                *
+                2
+            );
+
+        int cacheWidth =
+            Mathf.Min(
+                requestedCacheSize,
+                Mathf.Max(
+                    1,
+                    surfaceMaskManifest.tileGridWidth
+                )
+            );
+
+        int cacheHeight =
+            Mathf.Min(
+                requestedCacheSize,
+                Mathf.Max(
+                    1,
+                    surfaceMaskManifest.tileGridHeight
+                )
+            );
+
+        long cacheSliceCount =
+            (long)cacheWidth *
+            cacheHeight;
+
+        long cacheBytes =
+            nativePageBytes *
+            cacheSliceCount;
+
+        long totalNativeTileCount =
+            (long)Mathf.Max(
+                0,
+                surfaceMaskManifest.tileGridWidth
+            )
+            *
+            Mathf.Max(
+                0,
+                surfaceMaskManifest.tileGridHeight
+            );
+
+        long transitionSourceCount =
+            System.Math.Min(
+                totalNativeTileCount,
+                cacheSliceCount * 2L
+            );
+
+        return
+            new TerrainSurfaceLegacyResidencyEstimate(
+                cacheWidth,
+                cacheHeight,
+                nativePageBytes,
+                cacheBytes,
+                cacheBytes,
+                cacheBytes,
+                nativePageBytes *
                     transitionSourceCount
             );
     }

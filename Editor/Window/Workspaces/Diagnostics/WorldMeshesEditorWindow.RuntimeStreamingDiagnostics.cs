@@ -64,7 +64,7 @@ public partial class WorldMeshesEditorWindow :
             return;
         }
 
-        DrawLiveRuntimeStreamingState(
+        DrawMultiresolutionRuntimeStreamingState(
             streamer
         );
 

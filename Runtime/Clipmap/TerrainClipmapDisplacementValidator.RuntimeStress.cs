@@ -565,11 +565,8 @@ public partial class TerrainClipmapDisplacementValidator
         result.HeightSourceUpperBoundBytes =
             residency.HeightSourceUpperBoundBytes;
 
-        result.SurfaceCacheWidth =
-            residency.Surface.CacheWidth;
-
-        result.SurfaceCacheHeight =
-            residency.Surface.CacheHeight;
+        result.SurfaceLodCount =
+            residency.Surface.LodCount;
 
         result.SurfaceSourceUpperBoundBytes =
             residency.Surface.EstimatedSourceUpperBoundBytes;
@@ -1376,7 +1373,7 @@ public partial class TerrainClipmapDisplacementValidator
         result.MaximumSurfaceResidentSources =
             Math.Max(
                 result.MaximumSurfaceResidentSources,
-                residency.Surface.ResidentSourceCount
+                residency.Surface.TransientSourceCount
             );
 
         result.MaximumSurfaceSourceBytes =
@@ -1462,16 +1459,39 @@ public partial class TerrainClipmapDisplacementValidator
             return false;
         }
 
-        int surfaceCapacity =
-            Mathf.Max(
-                0,
-                streamer.SurfaceCacheWidth
+        long surfaceCapacity =
+            0L;
+
+        for (
+            int level = 0;
+            level < streamer.SurfaceLodRuntimeStateCount;
+            level++
+        )
+        {
+            if (
+                !streamer.TryGetSurfaceLodDiagnostics(
+                    level,
+                    out TerrainSurfaceLodDiagnosticsSnapshot surfaceLod
+                )
             )
-            *
-            Mathf.Max(
-                0,
-                streamer.SurfaceCacheHeight
-            );
+            {
+                error =
+                    $"Surface LOD{level} diagnostics were unavailable while validating settled Surface residency.";
+
+                return false;
+            }
+
+            surfaceCapacity +=
+                (long)Mathf.Max(
+                    0,
+                    surfaceLod.CacheWidth
+                )
+                *
+                Mathf.Max(
+                    0,
+                    surfaceLod.CacheHeight
+                );
+        }
 
         if (
             streamer.ResidentSurfaceTileCount >
@@ -1479,7 +1499,7 @@ public partial class TerrainClipmapDisplacementValidator
         )
         {
             error =
-                "Settled Surface source residency exceeded one active cache window.";
+                "Settled Surface residency exceeded the combined active Surface cache capacity.";
 
             return false;
         }

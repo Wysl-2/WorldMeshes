@@ -44,7 +44,7 @@ internal sealed class TerrainSurfacePageSourceTransfer
  * every source handle from load start until a GPU-safe release boundary.
  * Durable Surface residency remains in the per-LOD Texture2DArray caches.
  */
-internal sealed class TerrainSurfacePageLoadScheduler
+internal sealed partial class TerrainSurfacePageLoadScheduler
 {
     private sealed class PendingGpuRelease
     {
@@ -350,6 +350,15 @@ internal sealed class TerrainSurfacePageLoadScheduler
                 queued[
                     requestIndex
                 ];
+
+            if (
+                !request.Required
+                &&
+                HasQueuedRequiredRequest()
+            )
+            {
+                priorityViolationCount++;
+            }
 
             queued.RemoveAt(
                 requestIndex
@@ -834,6 +843,25 @@ internal sealed class TerrainSurfacePageLoadScheduler
         TerrainSurfacePageSourceTransfer request
     )
     {
+        if (
+            HasInFlightKey(
+                request.Key
+            )
+        )
+        {
+            duplicateStartViolationCount++;
+
+            requestsByKey.Remove(
+                request.Key
+            );
+
+            MarkRequiredFailure(
+                request
+            );
+
+            return;
+        }
+
         try
         {
             request.Handle =

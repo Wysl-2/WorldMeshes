@@ -57,10 +57,12 @@ public sealed class TerrainRuntimeCapacityResult
 
     public long HeightBudgetHeadroomBytes { get; }
 
+    public int SurfaceLodCount { get; }
     public long SurfaceActiveGpuBytes { get; }
     public long SurfaceStagingGpuBytes { get; }
-    public int SurfaceResidentSourceCount { get; }
+    public int SurfaceTransientSourceCount { get; }
     public long SurfaceCurrentSourceBytes { get; }
+    public long SurfaceObservedPeakSourceBytes { get; }
     public long SurfaceSourceUpperBoundBytes { get; }
     public long SurfaceConservativeUpperBoundBytes { get; }
 
@@ -71,6 +73,13 @@ public sealed class TerrainRuntimeCapacityResult
     public long SurfaceCurrentLogicalBytes =>
         SurfaceGpuCacheBytes +
         SurfaceCurrentSourceBytes;
+
+    public long SurfaceObservedPeakLogicalBytes =>
+        SurfaceGpuCacheBytes +
+        Math.Max(
+            SurfaceCurrentSourceBytes,
+            SurfaceObservedPeakSourceBytes
+        );
 
     public long SurfaceBudgetHeadroomBytes { get; }
 
@@ -85,6 +94,19 @@ public sealed class TerrainRuntimeCapacityResult
     public float HeightGpuSavingsPercent { get; }
     public long HeightUpperBoundSavingsBytes { get; }
     public float HeightUpperBoundSavingsPercent { get; }
+
+    public int LegacySurfaceCacheWidth { get; }
+    public int LegacySurfaceCacheHeight { get; }
+    public long LegacySurfaceNativePageBytes { get; }
+    public long LegacySurfaceGpuBytes { get; }
+    public long LegacySurfaceSteadySourceBytes { get; }
+    public long LegacySurfaceTransitionSourceUpperBoundBytes { get; }
+    public long LegacySurfaceConservativeUpperBoundBytes { get; }
+
+    public long SurfaceGpuSavingsBytes { get; }
+    public float SurfaceGpuSavingsPercent { get; }
+    public long SurfaceUpperBoundSavingsBytes { get; }
+    public float SurfaceUpperBoundSavingsPercent { get; }
 
     public float SurfaceSharePercent { get; }
     public bool SurfaceIsDominant { get; }
@@ -109,6 +131,10 @@ public sealed class TerrainRuntimeCapacityResult
         float heightGpuSavingsPercent,
         long heightUpperBoundSavingsBytes,
         float heightUpperBoundSavingsPercent,
+        long surfaceGpuSavingsBytes,
+        float surfaceGpuSavingsPercent,
+        long surfaceUpperBoundSavingsBytes,
+        float surfaceUpperBoundSavingsPercent,
         float surfaceSharePercent,
         bool surfaceIsDominant
     )
@@ -150,14 +176,18 @@ public sealed class TerrainRuntimeCapacityResult
                     HeightConservativeUpperBoundBytes
                 : 0L;
 
+        SurfaceLodCount =
+            snapshot.Surface.LodCount;
         SurfaceActiveGpuBytes =
             snapshot.Surface.EstimatedActiveGpuBytes;
         SurfaceStagingGpuBytes =
             snapshot.Surface.EstimatedStagingGpuBytes;
-        SurfaceResidentSourceCount =
-            snapshot.Surface.ResidentSourceCount;
+        SurfaceTransientSourceCount =
+            snapshot.Surface.TransientSourceCount;
         SurfaceCurrentSourceBytes =
             snapshot.Surface.EstimatedCurrentSourceBytes;
+        SurfaceObservedPeakSourceBytes =
+            snapshot.Surface.EstimatedObservedPeakSourceBytes;
         SurfaceSourceUpperBoundBytes =
             snapshot.Surface.EstimatedSourceUpperBoundBytes;
         SurfaceConservativeUpperBoundBytes =
@@ -185,6 +215,31 @@ public sealed class TerrainRuntimeCapacityResult
         HeightUpperBoundSavingsBytes = heightUpperBoundSavingsBytes;
         HeightUpperBoundSavingsPercent =
             heightUpperBoundSavingsPercent;
+
+        LegacySurfaceCacheWidth =
+            snapshot.LegacySurface.CacheWidth;
+        LegacySurfaceCacheHeight =
+            snapshot.LegacySurface.CacheHeight;
+        LegacySurfaceNativePageBytes =
+            snapshot.LegacySurface.NativePageBytes;
+        LegacySurfaceGpuBytes =
+            snapshot.LegacySurface.EstimatedGpuCacheBytes;
+        LegacySurfaceSteadySourceBytes =
+            snapshot.LegacySurface.EstimatedSteadySourceBytes;
+        LegacySurfaceTransitionSourceUpperBoundBytes =
+            snapshot.LegacySurface
+                .EstimatedTransitionSourceUpperBoundBytes;
+        LegacySurfaceConservativeUpperBoundBytes =
+            snapshot.LegacySurface
+                .EstimatedConservativeUpperBoundBytes;
+
+        SurfaceGpuSavingsBytes = surfaceGpuSavingsBytes;
+        SurfaceGpuSavingsPercent = surfaceGpuSavingsPercent;
+        SurfaceUpperBoundSavingsBytes =
+            surfaceUpperBoundSavingsBytes;
+        SurfaceUpperBoundSavingsPercent =
+            surfaceUpperBoundSavingsPercent;
+
         SurfaceSharePercent = surfaceSharePercent;
         SurfaceIsDominant = surfaceIsDominant;
     }
@@ -283,15 +338,23 @@ public sealed class TerrainRuntimeCapacityResult
         builder.AppendLine();
 
         builder.AppendLine("Surface:");
+        builder.AppendLine(
+            $"  LOD States: {SurfaceLodCount:N0}"
+        );
         AppendBytes(builder, "  Active GPU", SurfaceActiveGpuBytes);
         AppendBytes(builder, "  Staging GPU", SurfaceStagingGpuBytes);
         builder.AppendLine(
-            $"  Resident Source Pages: {SurfaceResidentSourceCount:N0}"
+            $"  Transient Source Pages: {SurfaceTransientSourceCount:N0}"
         );
         AppendBytes(
             builder,
             "  Current Source",
             SurfaceCurrentSourceBytes
+        );
+        AppendBytes(
+            builder,
+            "  Observed Source Peak",
+            SurfaceObservedPeakSourceBytes
         );
         AppendBytes(
             builder,
@@ -302,6 +365,11 @@ public sealed class TerrainRuntimeCapacityResult
             builder,
             "  Current Logical Residency",
             SurfaceCurrentLogicalBytes
+        );
+        AppendBytes(
+            builder,
+            "  Observed Peak Logical Residency",
+            SurfaceObservedPeakLogicalBytes
         );
         AppendBytes(
             builder,
@@ -330,6 +398,43 @@ public sealed class TerrainRuntimeCapacityResult
         builder.AppendLine(
             "  Dominant Component: " +
             (SurfaceIsDominant ? "Surface" : "Height")
+        );
+        builder.AppendLine();
+
+        builder.AppendLine("Legacy Surface Baseline:");
+        builder.AppendLine(
+            $"  Cache Grid: {LegacySurfaceCacheWidth} x {LegacySurfaceCacheHeight}"
+        );
+        AppendBytes(
+            builder,
+            "  Native Page Payload",
+            LegacySurfaceNativePageBytes
+        );
+        AppendBytes(
+            builder,
+            "  GPU Cache Payload",
+            LegacySurfaceGpuBytes
+        );
+        AppendBytes(
+            builder,
+            "  Steady Source",
+            LegacySurfaceSteadySourceBytes
+        );
+        AppendBytes(
+            builder,
+            "  Transition Source Upper Bound",
+            LegacySurfaceTransitionSourceUpperBoundBytes
+        );
+        AppendBytes(
+            builder,
+            "  Conservative Upper Bound",
+            LegacySurfaceConservativeUpperBoundBytes
+        );
+        builder.AppendLine(
+            $"  GPU Cache Reduction: {FormatSignedBytes(SurfaceGpuSavingsBytes)} ({SurfaceGpuSavingsPercent:N2}%)"
+        );
+        builder.AppendLine(
+            $"  Conservative Reduction: {FormatSignedBytes(SurfaceUpperBoundSavingsBytes)} ({SurfaceUpperBoundSavingsPercent:N2}%)"
         );
         builder.AppendLine();
 
@@ -549,6 +654,30 @@ public static class TerrainRuntimeCapacityUtility
                 snapshot.HeightConservativeUpperBoundBytes
             );
 
+        long surfaceGpuSavingsBytes =
+            snapshot.LegacySurface.EstimatedGpuCacheBytes -
+            snapshot.Surface.EstimatedGpuCacheBytes;
+
+        float surfaceGpuSavingsPercent =
+            CalculateSavingsPercent(
+                snapshot.LegacySurface.EstimatedGpuCacheBytes,
+                snapshot.Surface.EstimatedGpuCacheBytes
+            );
+
+        long surfaceUpperBoundSavingsBytes =
+            snapshot.LegacySurface
+                .EstimatedConservativeUpperBoundBytes -
+            snapshot.Surface
+                .EstimatedConservativeUpperBoundBytes;
+
+        float surfaceUpperBoundSavingsPercent =
+            CalculateSavingsPercent(
+                snapshot.LegacySurface
+                    .EstimatedConservativeUpperBoundBytes,
+                snapshot.Surface
+                    .EstimatedConservativeUpperBoundBytes
+            );
+
         float surfaceSharePercent =
             snapshot.ConservativeTerrainUpperBoundBytes > 0L
                 ? (float)(
@@ -576,6 +705,10 @@ public static class TerrainRuntimeCapacityUtility
                 heightGpuSavingsPercent,
                 heightUpperBoundSavingsBytes,
                 heightUpperBoundSavingsPercent,
+                surfaceGpuSavingsBytes,
+                surfaceGpuSavingsPercent,
+                surfaceUpperBoundSavingsBytes,
+                surfaceUpperBoundSavingsPercent,
                 surfaceSharePercent,
                 surfaceIsDominant
             );
