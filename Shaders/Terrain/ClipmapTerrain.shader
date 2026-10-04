@@ -236,6 +236,42 @@ Shader "Custom/ClipmapTerrain"
         ) = 1
 
         [HideInInspector]
+        _SurfaceMaskCoarseCache(
+            "Surface Mask Coarse Cache",
+            2DArray
+        ) = "" {}
+
+        [HideInInspector]
+        _SurfaceMaskCoarseCacheOriginTile(
+            "Surface Mask Coarse Cache Origin Tile",
+            Vector
+        ) = (0, 0, 0, 0)
+
+        [HideInInspector]
+        _SurfaceMaskCoarseCacheSize(
+            "Surface Mask Coarse Cache Size",
+            Vector
+        ) = (1, 1, 0, 0)
+
+        [HideInInspector]
+        _SurfaceMaskCoarseSamplesPerSide(
+            "Surface Mask Coarse Samples Per Side",
+            Float
+        ) = 257
+
+        [HideInInspector]
+        _SurfaceMaskCoarseSampleSpacing(
+            "Surface Mask Coarse Sample Spacing",
+            Float
+        ) = 1
+
+        [HideInInspector]
+        _SurfaceMaskDualResolutionEnabled(
+            "Surface Mask Dual Resolution Enabled",
+            Float
+        ) = 0
+
+        [HideInInspector]
         _SurfaceMaskCacheReady(
             "Surface Mask Cache Ready",
             Float
@@ -521,6 +557,9 @@ Shader "Custom/ClipmapTerrain"
 
                 half fogFactor :
                     TEXCOORD3;
+
+                float surfaceTransitionWeight :
+                    TEXCOORD4;
             };
 
             // =================================================
@@ -559,6 +598,9 @@ Shader "Custom/ClipmapTerrain"
              */
             Texture2DArray<float>
                 _SurfaceMaskCache;
+
+            Texture2DArray<float>
+                _SurfaceMaskCoarseCache;
 
             /*
              * Generic editor-only raw Terrain Analysis texture.
@@ -633,6 +675,13 @@ Shader "Custom/ClipmapTerrain"
                 float4 _SurfaceMaskCacheSize;
                 float _SurfaceMaskSamplesPerSide;
                 float _SurfaceMaskSampleSpacing;
+
+                float4 _SurfaceMaskCoarseCacheOriginTile;
+                float4 _SurfaceMaskCoarseCacheSize;
+                float _SurfaceMaskCoarseSamplesPerSide;
+                float _SurfaceMaskCoarseSampleSpacing;
+                float _SurfaceMaskDualResolutionEnabled;
+
                 float _SurfaceMaskCacheReady;
 
                 float4 _WorldSizeXZ;
@@ -955,6 +1004,16 @@ Shader "Custom/ClipmapTerrain"
                         OUT.positionHCS.z
                     );
 
+                /*
+                 * Stitch vertices already encode the coarse-to-fine
+                 * relationship in clipmapData.x. Interpolate that same
+                 * weight to fragments for Surface representation blending.
+                 */
+                OUT.surfaceTransitionWeight =
+                    saturate(
+                        IN.clipmapData.x
+                    );
+
                 return
                     OUT;
             }
@@ -1127,7 +1186,8 @@ Shader "Custom/ClipmapTerrain"
                 float screeSuitability =
                     GetScreeSuitability(
                         IN.positionWS,
-                        normalWS
+                        normalWS,
+                        IN.surfaceTransitionWeight
                     );
 
                 /*

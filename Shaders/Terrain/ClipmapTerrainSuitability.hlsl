@@ -508,19 +508,24 @@ float GetDirectScreeSuitability(
 
 float GetScreeSuitability(
     float3 positionWS,
-    float3 normalWS
+    float3 normalWS,
+    float surfaceTransitionWeight
 )
 {
     /*
-     * Baked runtime surface path: final suitability is baked once and streamed with
-     * the height cache. Editor authoring visualization still reaches the live
-     * analysis path because no runtime SurfaceMask cache is bound there.
+     * Baked runtime Surface path: each terrain renderer receives the Surface
+     * representation(s) required by its semantic clipmap role. Stitch
+     * renderers blend coarse-to-fine with the interpolated clipmap weight.
+     *
+     * Editor authoring visualization still reaches the live analysis path
+     * because no runtime Surface cache is bound there.
      */
     float bakedSuitability;
 
     if (
         WorldMeshesTrySampleBakedScreeSuitability(
             positionWS.xz,
+            surfaceTransitionWeight,
             bakedSuitability
         )
     )
@@ -552,13 +557,30 @@ float GetScreeSuitability(
 
     /*
      * Runtime currently has no raw Terrain Analysis streamer. The direct
-     * path remains authoritative whenever editor-only cached bindings are
-     * absent. A later baked-surface-mask stage can remove this fallback.
+     * path remains authoritative whenever baked/cached bindings are absent.
      */
     return
         GetDirectScreeSuitability(
             positionWS,
             normalWS
+        );
+}
+
+
+/*
+ * Authoring/debug callers do not participate in a runtime stitch transition.
+ * Preserve their existing call surface with a primary/fine-side weight.
+ */
+float GetScreeSuitability(
+    float3 positionWS,
+    float3 normalWS
+)
+{
+    return
+        GetScreeSuitability(
+            positionWS,
+            normalWS,
+            1.0
         );
 }
 

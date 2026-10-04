@@ -34,6 +34,36 @@ public static class TerrainSurfaceMaskBindingUtility
             "_SurfaceMaskSampleSpacing"
         );
 
+    private static readonly int SurfaceMaskCoarseCachePropertyId =
+        Shader.PropertyToID(
+            "_SurfaceMaskCoarseCache"
+        );
+
+    private static readonly int SurfaceMaskCoarseCacheOriginTilePropertyId =
+        Shader.PropertyToID(
+            "_SurfaceMaskCoarseCacheOriginTile"
+        );
+
+    private static readonly int SurfaceMaskCoarseCacheSizePropertyId =
+        Shader.PropertyToID(
+            "_SurfaceMaskCoarseCacheSize"
+        );
+
+    private static readonly int SurfaceMaskCoarseSamplesPerSidePropertyId =
+        Shader.PropertyToID(
+            "_SurfaceMaskCoarseSamplesPerSide"
+        );
+
+    private static readonly int SurfaceMaskCoarseSampleSpacingPropertyId =
+        Shader.PropertyToID(
+            "_SurfaceMaskCoarseSampleSpacing"
+        );
+
+    private static readonly int SurfaceMaskDualResolutionEnabledPropertyId =
+        Shader.PropertyToID(
+            "_SurfaceMaskDualResolutionEnabled"
+        );
+
     private static readonly int SurfaceMaskCacheReadyPropertyId =
         Shader.PropertyToID(
             "_SurfaceMaskCacheReady"
@@ -107,20 +137,29 @@ public static class TerrainSurfaceMaskBindingUtility
                 return false;
             }
 
-            int ownerLevel;
+            int primaryLevel;
+            int coarseLevel =
+                -1;
+
+            bool dualResolution =
+                binding.Role.Kind ==
+                TerrainClipmapRendererKind.Stitch;
 
             switch (binding.Role.Kind)
             {
                 case TerrainClipmapRendererKind.Center:
                 case TerrainClipmapRendererKind.Ring:
-                    ownerLevel =
+                    primaryLevel =
                         binding.Role.Level;
 
                     break;
 
                 case TerrainClipmapRendererKind.Stitch:
-                    ownerLevel =
+                    primaryLevel =
                         binding.Role.FineLevel;
+
+                    coarseLevel =
+                        binding.Role.CoarseLevel;
 
                     break;
 
@@ -132,34 +171,71 @@ public static class TerrainSurfaceMaskBindingUtility
             }
 
             if (
-                ownerLevel < 0
+                primaryLevel < 0
                 ||
-                ownerLevel >= lodStates.Count
+                primaryLevel >= lodStates.Count
             )
             {
                 errorMessage =
-                    $"Renderer '{binding.Renderer.name}' resolved an invalid Surface owner LOD {ownerLevel}.";
+                    $"Renderer '{binding.Renderer.name}' resolved an invalid primary Surface owner LOD {primaryLevel}.";
 
                 return false;
             }
 
-            TerrainSurfaceLodRuntimeState state =
+            TerrainSurfaceLodRuntimeState primaryState =
                 lodStates[
-                    ownerLevel
+                    primaryLevel
                 ];
 
             if (
-                state == null
+                primaryState == null
                 ||
-                !state.CacheReady
+                !primaryState.CacheReady
                 ||
-                state.ActiveCache == null
+                primaryState.ActiveCache == null
             )
             {
                 errorMessage =
-                    $"Renderer '{binding.Renderer.name}' has no ready Surface cache for LOD{ownerLevel}.";
+                    $"Renderer '{binding.Renderer.name}' has no ready primary Surface cache for LOD{primaryLevel}.";
 
                 return false;
+            }
+
+            TerrainSurfaceLodRuntimeState coarseState =
+                null;
+
+            if (dualResolution)
+            {
+                if (
+                    coarseLevel < 0
+                    ||
+                    coarseLevel >= lodStates.Count
+                )
+                {
+                    errorMessage =
+                        $"Renderer '{binding.Renderer.name}' resolved an invalid coarse Surface owner LOD {coarseLevel}.";
+
+                    return false;
+                }
+
+                coarseState =
+                    lodStates[
+                        coarseLevel
+                    ];
+
+                if (
+                    coarseState == null
+                    ||
+                    !coarseState.CacheReady
+                    ||
+                    coarseState.ActiveCache == null
+                )
+                {
+                    errorMessage =
+                        $"Renderer '{binding.Renderer.name}' has no ready coarse Surface cache for LOD{coarseLevel}.";
+
+                    return false;
+                }
             }
 
             Material material =
@@ -190,6 +266,30 @@ public static class TerrainSurfaceMaskBindingUtility
                 )
                 ||
                 !material.HasProperty(
+                    SurfaceMaskCoarseCachePropertyId
+                )
+                ||
+                !material.HasProperty(
+                    SurfaceMaskCoarseCacheOriginTilePropertyId
+                )
+                ||
+                !material.HasProperty(
+                    SurfaceMaskCoarseCacheSizePropertyId
+                )
+                ||
+                !material.HasProperty(
+                    SurfaceMaskCoarseSamplesPerSidePropertyId
+                )
+                ||
+                !material.HasProperty(
+                    SurfaceMaskCoarseSampleSpacingPropertyId
+                )
+                ||
+                !material.HasProperty(
+                    SurfaceMaskDualResolutionEnabledPropertyId
+                )
+                ||
+                !material.HasProperty(
                     SurfaceMaskCacheReadyPropertyId
                 )
             )
@@ -207,14 +307,14 @@ public static class TerrainSurfaceMaskBindingUtility
 
             block.SetTexture(
                 SurfaceMaskCachePropertyId,
-                state.ActiveCache
+                primaryState.ActiveCache
             );
 
             block.SetVector(
                 SurfaceMaskCacheOriginTilePropertyId,
                 new Vector4(
-                    state.ActiveCacheOrigin.x,
-                    state.ActiveCacheOrigin.y,
+                    primaryState.ActiveCacheOrigin.x,
+                    primaryState.ActiveCacheOrigin.y,
                     0f,
                     0f
                 )
@@ -223,8 +323,8 @@ public static class TerrainSurfaceMaskBindingUtility
             block.SetVector(
                 SurfaceMaskCacheSizePropertyId,
                 new Vector4(
-                    state.CacheWidth,
-                    state.CacheHeight,
+                    primaryState.CacheWidth,
+                    primaryState.CacheHeight,
                     0f,
                     0f
                 )
@@ -232,14 +332,65 @@ public static class TerrainSurfaceMaskBindingUtility
 
             block.SetFloat(
                 SurfaceMaskSamplesPerSidePropertyId,
-                state.Descriptor
+                primaryState.Descriptor
                     .SamplesPerSide
             );
 
             block.SetFloat(
                 SurfaceMaskSampleSpacingPropertyId,
-                state.Descriptor
+                primaryState.Descriptor
                     .SampleSpacing
+            );
+
+            if (dualResolution)
+            {
+                block.SetTexture(
+                    SurfaceMaskCoarseCachePropertyId,
+                    coarseState.ActiveCache
+                );
+
+                block.SetVector(
+                    SurfaceMaskCoarseCacheOriginTilePropertyId,
+                    new Vector4(
+                        coarseState.ActiveCacheOrigin.x,
+                        coarseState.ActiveCacheOrigin.y,
+                        0f,
+                        0f
+                    )
+                );
+
+                block.SetVector(
+                    SurfaceMaskCoarseCacheSizePropertyId,
+                    new Vector4(
+                        coarseState.CacheWidth,
+                        coarseState.CacheHeight,
+                        0f,
+                        0f
+                    )
+                );
+
+                block.SetFloat(
+                    SurfaceMaskCoarseSamplesPerSidePropertyId,
+                    coarseState.Descriptor
+                        .SamplesPerSide
+                );
+
+                block.SetFloat(
+                    SurfaceMaskCoarseSampleSpacingPropertyId,
+                    coarseState.Descriptor
+                        .SampleSpacing
+                );
+            }
+
+            /*
+             * Enable dual-resolution sampling only after both required
+             * representation bindings are complete.
+             */
+            block.SetFloat(
+                SurfaceMaskDualResolutionEnabledPropertyId,
+                dualResolution
+                    ? 1f
+                    : 0f
             );
 
             /*
@@ -305,6 +456,11 @@ public static class TerrainSurfaceMaskBindingUtility
             );
 
             block.SetFloat(
+                SurfaceMaskDualResolutionEnabledPropertyId,
+                0f
+            );
+
+            block.SetFloat(
                 SurfaceMaskCacheReadyPropertyId,
                 0f
             );
@@ -354,6 +510,30 @@ public static class TerrainSurfaceMaskBindingUtility
             &&
             material.HasProperty(
                 SurfaceMaskSampleSpacingPropertyId
+            )
+            &&
+            material.HasProperty(
+                SurfaceMaskCoarseCachePropertyId
+            )
+            &&
+            material.HasProperty(
+                SurfaceMaskCoarseCacheOriginTilePropertyId
+            )
+            &&
+            material.HasProperty(
+                SurfaceMaskCoarseCacheSizePropertyId
+            )
+            &&
+            material.HasProperty(
+                SurfaceMaskCoarseSamplesPerSidePropertyId
+            )
+            &&
+            material.HasProperty(
+                SurfaceMaskCoarseSampleSpacingPropertyId
+            )
+            &&
+            material.HasProperty(
+                SurfaceMaskDualResolutionEnabledPropertyId
             )
             &&
             material.HasProperty(

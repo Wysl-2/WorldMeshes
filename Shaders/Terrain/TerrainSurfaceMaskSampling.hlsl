@@ -4,12 +4,16 @@
 /*
  * Runtime surface-mask sampling.
  *
- * Surface tiles use the same absolute tile grid, native sample spacing, and
- * duplicated edge samples as the runtime height tiles.
+ * Every Surface representation preserves the same absolute tile grid and
+ * tile world footprint. Sample spacing and samples-per-side vary by stride.
  */
 
-bool WorldMeshesTryResolveSurfaceMaskAddress(
+bool WorldMeshesTryResolveSurfaceMaskAddressForRepresentation(
     float2 worldXZ,
+    float4 cacheOriginTileValue,
+    float4 cacheSizeValue,
+    float samplesPerSideValue,
+    float sampleSpacingValue,
     out int sliceIndex,
     out float2 continuousSample
 )
@@ -24,19 +28,16 @@ bool WorldMeshesTryResolveSurfaceMaskAddress(
         );
 
     if (
-        _SurfaceMaskCacheReady <
-            0.5
-        ||
-        _SurfaceMaskCacheSize.x <=
+        cacheSizeValue.x <=
             0.0
         ||
-        _SurfaceMaskCacheSize.y <=
+        cacheSizeValue.y <=
             0.0
         ||
-        _SurfaceMaskSamplesPerSide <=
+        samplesPerSideValue <=
             1.0
         ||
-        _SurfaceMaskSampleSpacing <=
+        sampleSpacingValue <=
             0.0
         ||
         _WorldBoundsReady <
@@ -52,7 +53,7 @@ bool WorldMeshesTryResolveSurfaceMaskAddress(
     float tolerance =
         max(
             abs(
-                _SurfaceMaskSampleSpacing
+                sampleSpacingValue
             )
             *
             0.001,
@@ -89,7 +90,7 @@ bool WorldMeshesTryResolveSurfaceMaskAddress(
         );
 
     int samplesPerSide =
-        (int)_SurfaceMaskSamplesPerSide;
+        (int)samplesPerSideValue;
 
     int tileIntervals =
         samplesPerSide -
@@ -97,7 +98,7 @@ bool WorldMeshesTryResolveSurfaceMaskAddress(
 
     float tileWorldSize =
         tileIntervals *
-        _SurfaceMaskSampleSpacing;
+        sampleSpacingValue;
 
     int2 logicalTileCount =
         max(
@@ -136,11 +137,11 @@ bool WorldMeshesTryResolveSurfaceMaskAddress(
 
     int2 cacheOrigin =
         (int2)
-        _SurfaceMaskCacheOriginTile.xy;
+        cacheOriginTileValue.xy;
 
     int2 cacheSize =
         (int2)
-        _SurfaceMaskCacheSize.xy;
+        cacheSizeValue.xy;
 
     int2 localTile =
         tileCoordinate -
@@ -176,7 +177,7 @@ bool WorldMeshesTryResolveSurfaceMaskAddress(
             tileOrigin
         )
         /
-        _SurfaceMaskSampleSpacing;
+        sampleSpacingValue;
 
     continuousSample =
         clamp(
@@ -195,28 +196,111 @@ bool WorldMeshesTryResolveSurfaceMaskAddress(
 }
 
 
-bool WorldMeshesTrySampleBakedScreeSuitability(
+bool WorldMeshesTryResolveSurfaceMaskAddress(
     float2 worldXZ,
-    out float suitability
+    out int sliceIndex,
+    out float2 continuousSample
 )
 {
-    suitability =
-        0.0;
-
-    int sliceIndex;
-    float2 sample;
-
     if (
-        !WorldMeshesTryResolveSurfaceMaskAddress(
-            worldXZ,
-            sliceIndex,
-            sample
-        )
+        _SurfaceMaskCacheReady <
+        0.5
     )
     {
+        sliceIndex =
+            -1;
+
+        continuousSample =
+            float2(
+                0.0,
+                0.0
+            );
+
         return false;
     }
 
+    return
+        WorldMeshesTryResolveSurfaceMaskAddressForRepresentation(
+            worldXZ,
+            _SurfaceMaskCacheOriginTile,
+            _SurfaceMaskCacheSize,
+            _SurfaceMaskSamplesPerSide,
+            _SurfaceMaskSampleSpacing,
+            sliceIndex,
+            continuousSample
+        );
+}
+
+
+bool WorldMeshesTryResolveCoarseSurfaceMaskAddress(
+    float2 worldXZ,
+    out int sliceIndex,
+    out float2 continuousSample
+)
+{
+    if (
+        _SurfaceMaskCacheReady <
+            0.5
+        ||
+        _SurfaceMaskDualResolutionEnabled <
+            0.5
+    )
+    {
+        sliceIndex =
+            -1;
+
+        continuousSample =
+            float2(
+                0.0,
+                0.0
+            );
+
+        return false;
+    }
+
+    return
+        WorldMeshesTryResolveSurfaceMaskAddressForRepresentation(
+            worldXZ,
+            _SurfaceMaskCoarseCacheOriginTile,
+            _SurfaceMaskCoarseCacheSize,
+            _SurfaceMaskCoarseSamplesPerSide,
+            _SurfaceMaskCoarseSampleSpacing,
+            sliceIndex,
+            continuousSample
+        );
+}
+
+
+float WorldMeshesBlendSurfaceMaskSamples(
+    float v00,
+    float v10,
+    float v01,
+    float v11,
+    float2 blend
+)
+{
+    return
+        lerp(
+            lerp(
+                v00,
+                v10,
+                blend.x
+            ),
+            lerp(
+                v01,
+                v11,
+                blend.x
+            ),
+            blend.y
+        );
+}
+
+
+float WorldMeshesSamplePrimarySurfaceMask(
+    int sliceIndex,
+    float2 sample
+)
+{
     int samplesPerSide =
         (int)_SurfaceMaskSamplesPerSide;
 
@@ -281,22 +365,181 @@ bool WorldMeshesTrySampleBakedScreeSuitability(
             )
         );
 
+    return
+        WorldMeshesBlendSurfaceMaskSamples(
+            v00,
+            v10,
+            v01,
+            v11,
+            blend
+        );
+}
+
+
+float WorldMeshesSampleCoarseSurfaceMask(
+    int sliceIndex,
+    float2 sample
+)
+{
+    int samplesPerSide =
+        (int)_SurfaceMaskCoarseSamplesPerSide;
+
+    int2 sample0 =
+        (int2)floor(
+            sample
+        );
+
+    int2 sample1 =
+        min(
+            sample0 +
+                1,
+            int2(
+                samplesPerSide - 1,
+                samplesPerSide - 1
+            )
+        );
+
+    float2 blend =
+        saturate(
+            sample -
+            (float2)sample0
+        );
+
+    float v00 =
+        _SurfaceMaskCoarseCache.Load(
+            int4(
+                sample0.x,
+                sample0.y,
+                sliceIndex,
+                0
+            )
+        );
+
+    float v10 =
+        _SurfaceMaskCoarseCache.Load(
+            int4(
+                sample1.x,
+                sample0.y,
+                sliceIndex,
+                0
+            )
+        );
+
+    float v01 =
+        _SurfaceMaskCoarseCache.Load(
+            int4(
+                sample0.x,
+                sample1.y,
+                sliceIndex,
+                0
+            )
+        );
+
+    float v11 =
+        _SurfaceMaskCoarseCache.Load(
+            int4(
+                sample1.x,
+                sample1.y,
+                sliceIndex,
+                0
+            )
+        );
+
+    return
+        WorldMeshesBlendSurfaceMaskSamples(
+            v00,
+            v10,
+            v01,
+            v11,
+            blend
+        );
+}
+
+
+bool WorldMeshesTrySampleBakedScreeSuitability(
+    float2 worldXZ,
+    float surfaceTransitionWeight,
+    out float suitability
+)
+{
+    suitability =
+        0.0;
+
+    int fineSliceIndex;
+    float2 fineSample;
+
+    if (
+        !WorldMeshesTryResolveSurfaceMaskAddress(
+            worldXZ,
+            fineSliceIndex,
+            fineSample
+        )
+    )
+    {
+        return false;
+    }
+
+    float fineSuitability =
+        WorldMeshesSamplePrimarySurfaceMask(
+            fineSliceIndex,
+            fineSample
+        );
+
+    if (
+        _SurfaceMaskDualResolutionEnabled <
+            0.5
+    )
+    {
+        suitability =
+            fineSuitability;
+
+        return true;
+    }
+
+    int coarseSliceIndex;
+    float2 coarseSample;
+
+    if (
+        !WorldMeshesTryResolveCoarseSurfaceMaskAddress(
+            worldXZ,
+            coarseSliceIndex,
+            coarseSample
+        )
+    )
+    {
+        return false;
+    }
+
+    float coarseSuitability =
+        WorldMeshesSampleCoarseSurfaceMask(
+            coarseSliceIndex,
+            coarseSample
+        );
+
     suitability =
         lerp(
-            lerp(
-                v00,
-                v10,
-                blend.x
-            ),
-            lerp(
-                v01,
-                v11,
-                blend.x
-            ),
-            blend.y
+            coarseSuitability,
+            fineSuitability,
+            saturate(
+                surfaceTransitionWeight
+            )
         );
 
     return true;
+}
+
+
+bool WorldMeshesTrySampleBakedScreeSuitability(
+    float2 worldXZ,
+    out float suitability
+)
+{
+    return
+        WorldMeshesTrySampleBakedScreeSuitability(
+            worldXZ,
+            1.0,
+            suitability
+        );
 }
 
 #endif
