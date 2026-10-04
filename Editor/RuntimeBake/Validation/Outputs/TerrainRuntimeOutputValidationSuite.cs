@@ -169,6 +169,12 @@ public static class TerrainRuntimeOutputValidationSuite
                 TerrainHeightStreamingPyramidValidator.Validate
             );
 
+        SynchronousValidationCase surfaceStreaming =
+            new SynchronousValidationCase(
+                "Surface Streaming Pyramid",
+                TerrainSurfaceStreamingPyramidValidator.Validate
+            );
+
         SynchronousValidationCase heightRange =
             new SynchronousValidationCase(
                 "Height Range Metadata",
@@ -209,6 +215,12 @@ public static class TerrainRuntimeOutputValidationSuite
                         heightStreaming.TryStart,
                         heightStreaming.IsRunning,
                         heightStreaming.GetSummary
+                    ),
+                    new TerrainValidationSuiteRunner.Case(
+                        "Surface Streaming Pyramid",
+                        surfaceStreaming.TryStart,
+                        surfaceStreaming.IsRunning,
+                        surfaceStreaming.GetSummary
                     ),
                     new TerrainValidationSuiteRunner.Case(
                         "Height Range Metadata",
@@ -281,6 +293,13 @@ public static class TerrainRuntimeOutputValidationSuite
         {
             blockedReason =
                 "Runtime Output Validation is unavailable while Surface generation is running.";
+            return false;
+        }
+
+        if (TerrainRuntimeSurfaceStreamingCompiler.IsGenerating)
+        {
+            blockedReason =
+                "Runtime Output Validation is unavailable while Surface Streaming generation is running.";
             return false;
         }
 

@@ -184,3 +184,37 @@ public readonly struct TerrainSurfaceSchedulerDiagnosticsSnapshot
         GraphicsFenceSupported = graphicsFenceSupported;
     }
 }
+
+internal readonly struct TerrainSurfaceLodInspectionSnapshot
+{
+    public int Level { get; }
+    public int SampleStride { get; }
+    public TerrainSurfaceStreamingLevelDescriptor Descriptor { get; }
+    public Texture2DArray ActiveCache { get; }
+    public Vector2Int ActiveCacheOrigin { get; }
+    public int CacheWidth { get; }
+    public int CacheHeight { get; }
+    public TerrainHeightPageRect ActiveRequiredPages { get; }
+    public TerrainHeightPageRect RequestedRequiredPages { get; }
+    public TerrainHeightPageRect RequestedPrefetchPages { get; }
+    public bool CacheReady { get; }
+    public TerrainSurfaceCacheTransitionState TransitionState { get; }
+
+    internal TerrainSurfaceLodInspectionSnapshot(
+        TerrainSurfaceLodRuntimeState state
+    )
+    {
+        Level = state.Level;
+        SampleStride = state.SampleStride;
+        Descriptor = state.Descriptor;
+        ActiveCache = state.ActiveCache;
+        ActiveCacheOrigin = state.ActiveCacheOrigin;
+        CacheWidth = state.CacheWidth;
+        CacheHeight = state.CacheHeight;
+        ActiveRequiredPages = state.ActiveRequiredPages;
+        RequestedRequiredPages = state.RequestedRequiredPages;
+        RequestedPrefetchPages = state.RequestedPrefetchPages;
+        CacheReady = state.CacheReady;
+        TransitionState = state.TransitionState;
+    }
+}

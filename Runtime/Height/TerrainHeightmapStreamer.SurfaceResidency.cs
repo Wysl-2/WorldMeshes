@@ -79,67 +79,6 @@ public partial class TerrainHeightmapStreamer
                 .QueuedLoadCount
             : 0;
 
-    /*
-     * Compatibility views for the current diagnostics UI. Production
-     * residency is per LOD; these values do not represent a separate
-     * singular Surface cache.
-     */
-    public Vector2Int SurfaceCacheOriginTile
-    {
-        get
-        {
-            TerrainSurfaceLodRuntimeState state =
-                GetSurfaceCompatibilityState();
-
-            return
-                state != null
-                    ? state.ActiveCacheOrigin
-                    : Vector2Int.zero;
-        }
-    }
-
-    public Vector2Int RequestedSurfaceOriginTile
-    {
-        get
-        {
-            TerrainSurfaceLodRuntimeState state =
-                GetSurfaceCompatibilityState();
-
-            return
-                state != null
-                    ? state.RequestedCacheOrigin
-                    : Vector2Int.zero;
-        }
-    }
-
-    public int SurfaceCacheWidth
-    {
-        get
-        {
-            TerrainSurfaceLodRuntimeState state =
-                GetSurfaceCompatibilityState();
-
-            return
-                state != null
-                    ? state.CacheWidth
-                    : 0;
-        }
-    }
-
-    public int SurfaceCacheHeight
-    {
-        get
-        {
-            TerrainSurfaceLodRuntimeState state =
-                GetSurfaceCompatibilityState();
-
-            return
-                state != null
-                    ? state.CacheHeight
-                    : 0;
-        }
-    }
-
     public bool SurfaceCacheReady =>
         AreAllActiveSurfaceLodCachesReady();
 
@@ -1455,22 +1394,6 @@ public partial class TerrainHeightmapStreamer
         }
 
         return total;
-    }
-
-    private TerrainSurfaceLodRuntimeState
-        GetSurfaceCompatibilityState()
-    {
-        if (
-            surfaceLodStates == null
-            ||
-            surfaceLodStates.Length == 0
-        )
-        {
-            return null;
-        }
-
-        return
-            surfaceLodStates[0];
     }
 
     // =====================================================

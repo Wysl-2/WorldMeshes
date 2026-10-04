@@ -58,7 +58,7 @@ public sealed class TerrainRuntimeStreamingValidationSession
         TerrainRuntimeValidationStatus.NotRun;
 
     public string MultiresolutionSummary { get; private set; } =
-        "Renderer / displacement / stitch validation has not been run.";
+        "Renderer / Height / Surface / stitch validation has not been run.";
 
     public TerrainRuntimeValidationStatus IndependentAnchorStatus { get; private set; } =
         TerrainRuntimeValidationStatus.NotRun;
@@ -70,7 +70,7 @@ public sealed class TerrainRuntimeStreamingValidationSession
         TerrainRuntimeValidationStatus.NotRun;
 
     public string SchedulerStressSummary { get; private set; } =
-        "Height scheduler stress validation has not been run.";
+        "Terrain streaming scheduler stress validation has not been run.";
 
     public TerrainRuntimeValidationStatus StressStatus { get; private set; } =
         TerrainRuntimeValidationStatus.NotRun;
@@ -395,7 +395,7 @@ public sealed class TerrainRuntimeStreamingValidationSession
                     TerrainRuntimeValidationStatus.Running;
 
                 MultiresolutionSummary =
-                    "Validating renderer bindings, displacement, and stitch semantics.";
+                    "Validating Height/Surface renderer bindings, displacement, and stitch semantics.";
 
                 displacementValidator.BeginMultiresolutionValidation();
 
@@ -409,7 +409,7 @@ public sealed class TerrainRuntimeStreamingValidationSession
                         TerrainRuntimeValidationStatus.Inconclusive;
 
                     MultiresolutionSummary =
-                        "Renderer / displacement / stitch validation could not start. See the Unity Console for its prerequisite error.";
+                        "Renderer / Height / Surface / stitch validation could not start. See the Unity Console for its prerequisite error.";
 
                     AdvanceFocusedPhase();
                 }
@@ -445,7 +445,7 @@ public sealed class TerrainRuntimeStreamingValidationSession
                     TerrainRuntimeValidationStatus.Running;
 
                 SchedulerStressSummary =
-                    "Running Height scheduler stress validation.";
+                    "Running Terrain Streaming scheduler stress validation.";
 
                 displacementValidator.BeginSchedulerStressValidation();
 
@@ -459,7 +459,7 @@ public sealed class TerrainRuntimeStreamingValidationSession
                         TerrainRuntimeValidationStatus.Inconclusive;
 
                     SchedulerStressSummary =
-                        "Height scheduler stress validation could not start. See the Unity Console for its prerequisite error.";
+                        "Terrain Streaming scheduler stress validation could not start. See the Unity Console for its prerequisite error.";
 
                     CompleteFocusedValidation();
                 }
@@ -797,11 +797,11 @@ public sealed class TerrainRuntimeStreamingValidationSession
         CrossResolutionStatus = TerrainRuntimeValidationStatus.NotRun;
         CrossResolutionSummary = "Cross-resolution validation has not been run.";
         MultiresolutionStatus = TerrainRuntimeValidationStatus.NotRun;
-        MultiresolutionSummary = "Renderer / displacement / stitch validation has not been run.";
+        MultiresolutionSummary = "Renderer / Height / Surface / stitch validation has not been run.";
         IndependentAnchorStatus = TerrainRuntimeValidationStatus.NotRun;
         IndependentAnchorSummary = "Independent-anchor stress validation has not been run.";
         SchedulerStressStatus = TerrainRuntimeValidationStatus.NotRun;
-        SchedulerStressSummary = "Height scheduler stress validation has not been run.";
+        SchedulerStressSummary = "Terrain streaming scheduler stress validation has not been run.";
     }
 
     private void SubscribeCallbacks()

@@ -310,6 +310,106 @@ public partial class TerrainHeightmapStreamer
         }
     }
 
+    internal bool TryGetSurfaceLodInspectionSnapshot(
+        int level,
+        out TerrainSurfaceLodInspectionSnapshot snapshot
+    )
+    {
+        snapshot = default;
+
+        if (
+            !cacheInspectionActive
+            ||
+            surfaceLodStates == null
+            ||
+            level < 0
+            ||
+            level >= surfaceLodStates.Length
+            ||
+            surfaceLodStates[level] == null
+        )
+        {
+            return false;
+        }
+
+        snapshot =
+            new TerrainSurfaceLodInspectionSnapshot(
+                surfaceLodStates[level]
+            );
+
+        return true;
+    }
+
+    internal bool TryGetSurfaceLodCacheSliceForInspection(
+        int level,
+        Vector2Int coordinate,
+        out int cacheSlice,
+        out bool activeValid,
+        out bool required
+    )
+    {
+        cacheSlice = -1;
+        activeValid = false;
+        required = false;
+
+        if (
+            !cacheInspectionActive
+            ||
+            surfaceLodStates == null
+            ||
+            level < 0
+            ||
+            level >= surfaceLodStates.Length
+        )
+        {
+            return false;
+        }
+
+        TerrainSurfaceLodRuntimeState state =
+            surfaceLodStates[level];
+
+        if (state == null)
+        {
+            return false;
+        }
+
+        activeValid =
+            state.ActiveValidPages.Contains(
+                coordinate
+            );
+
+        required =
+            state.ActiveRequiredPages.IsValid
+            &&
+            state.ActiveRequiredPages.Contains(
+                coordinate
+            );
+
+        Vector2Int local =
+            coordinate -
+            state.ActiveCacheOrigin;
+
+        if (
+            local.x < 0
+            ||
+            local.y < 0
+            ||
+            local.x >= state.CacheWidth
+            ||
+            local.y >= state.CacheHeight
+        )
+        {
+            return false;
+        }
+
+        cacheSlice =
+            local.x +
+            local.y *
+            state.CacheWidth;
+
+        return activeValid;
+    }
+
     internal bool TryGetRuntimeHeightConfigurationForInspection(
         out WorldSettings settings,
         out TerrainHeightmapManifest manifest

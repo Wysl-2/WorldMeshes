@@ -177,6 +177,7 @@ public partial class TerrainClipmapDisplacementValidator
         if (failure == null)
         {
             streamer.ResetHeightSchedulerValidationCounters();
+            streamer.ResetSurfaceSchedulerValidationCounters();
             streamer.ResetHeightDeferredReleaseValidationCounters();
             runtimeStressCurrentSchedulerCaptured = false;
             runtimeStreamingStressActive = true;
@@ -383,6 +384,7 @@ public partial class TerrainClipmapDisplacementValidator
             else
             {
                 streamer.ResetHeightSchedulerValidationCounters();
+                streamer.ResetSurfaceSchedulerValidationCounters();
                 runtimeStressCurrentSchedulerCaptured = false;
             }
         }
@@ -445,18 +447,30 @@ public partial class TerrainClipmapDisplacementValidator
 
         if (
             !runtimeStressCurrentSchedulerCaptured
-            && streamer != null
-            && streamer.TryGetHeightSchedulerDiagnostics(
-                out TerrainHeightSchedulerDiagnosticsSnapshot finalScheduler
+            &&
+            streamer != null
+            &&
+            streamer.TryGetHeightSchedulerDiagnostics(
+                out TerrainHeightSchedulerDiagnosticsSnapshot finalHeightScheduler
+            )
+            &&
+            streamer.TryGetSurfaceSchedulerDiagnostics(
+                out TerrainSurfaceSchedulerDiagnosticsSnapshot finalSurfaceScheduler
             )
         )
         {
             CaptureSchedulerLifetime(
                 result,
-                finalScheduler
+                finalHeightScheduler
             );
 
-            runtimeStressCurrentSchedulerCaptured = true;
+            CaptureSurfaceSchedulerLifetime(
+                result,
+                finalSurfaceScheduler
+            );
+
+            runtimeStressCurrentSchedulerCaptured =
+                true;
         }
 
         TerrainHeightDeferredReleaseDiagnosticsSnapshot finalDeferred =
@@ -496,11 +510,13 @@ public partial class TerrainClipmapDisplacementValidator
             && (
                 result.PriorityViolations != 0
                 || result.DuplicateStartViolations != 0
+                || result.SurfacePriorityViolations != 0
+                || result.SurfaceDuplicateStartViolations != 0
             )
         )
         {
             failure =
-                "A Height scheduler diagnostic invariant failed during stress test.";
+                "A terrain scheduler diagnostic invariant failed during stress test.";
         }
 
         result.FailureReason =
@@ -1062,6 +1078,19 @@ public partial class TerrainClipmapDisplacementValidator
                 yield break;
             }
 
+            if (
+                !streamer.TryGetSurfaceSchedulerDiagnostics(
+                    out TerrainSurfaceSchedulerDiagnosticsSnapshot surfaceBeforeShutdown
+                )
+            )
+            {
+                completed(
+                    "Surface scheduler diagnostics were unavailable before streamer shutdown."
+                );
+
+                yield break;
+            }
+
             ObserveSchedulerDiagnostics(
                 result,
                 beforeShutdown
@@ -1070,6 +1099,16 @@ public partial class TerrainClipmapDisplacementValidator
             CaptureSchedulerLifetime(
                 result,
                 beforeShutdown
+            );
+
+            ObserveSurfaceSchedulerDiagnostics(
+                result,
+                surfaceBeforeShutdown
+            );
+
+            CaptureSurfaceSchedulerLifetime(
+                result,
+                surfaceBeforeShutdown
             );
 
             runtimeStressCurrentSchedulerCaptured =
@@ -1090,6 +1129,7 @@ public partial class TerrainClipmapDisplacementValidator
             if (
                 streamer.RuntimeStreamingInitialized
                 || streamer.HeightLodRuntimeStateCount != 0
+                || streamer.SurfaceLodRuntimeStateCount != 0
                 || streamer.SurfaceCacheReady
                 || streamer.ResidentSurfaceTileCount != 0
             )
@@ -1166,7 +1206,10 @@ public partial class TerrainClipmapDisplacementValidator
                 yield break;
             }
 
-            bool reacquireObserved =
+            bool heightReacquireObserved =
+                false;
+
+            bool surfaceReacquireObserved =
                 false;
 
             if (
@@ -1175,13 +1218,32 @@ public partial class TerrainClipmapDisplacementValidator
                 )
             )
             {
-                reacquireObserved =
+                heightReacquireObserved =
                     initialScheduler.RequestsStarted > 0
-                    || initialScheduler.ActiveLoadCount > 0
-                    || (initialScheduler.QueuedRequiredCount + initialScheduler.QueuedPrefetchCount) > 0;
+                    ||
+                    initialScheduler.ActiveLoadCount > 0
+                    ||
+                    (
+                        initialScheduler.QueuedRequiredCount
+                        +
+                        initialScheduler.QueuedPrefetchCount
+                    ) > 0;
+            }
+
+            if (
+                streamer.TryGetSurfaceSchedulerDiagnostics(
+                    out TerrainSurfaceSchedulerDiagnosticsSnapshot initialSurfaceScheduler
+                )
+            )
+            {
+                surfaceReacquireObserved =
+                    SurfaceSchedulerShowsReacquisition(
+                        initialSurfaceScheduler
+                    );
             }
 
             streamer.ResetHeightSchedulerValidationCounters();
+            streamer.ResetSurfaceSchedulerValidationCounters();
             runtimeStressCurrentSchedulerCaptured = false;
 
             if (
@@ -1225,22 +1287,60 @@ public partial class TerrainClipmapDisplacementValidator
                     reacquireScheduler
                 );
 
-                reacquireObserved =
-                    reacquireObserved
-                    || reacquireScheduler.RequestsStarted > 0
-                    || reacquireScheduler.SourceUploadCount > 0;
+                heightReacquireObserved =
+                    heightReacquireObserved
+                    ||
+                    reacquireScheduler.RequestsStarted > 0
+                    ||
+                    reacquireScheduler.SourceUploadCount > 0
+                    ||
+                    reacquireScheduler.CacheToCacheReuseCount > 0;
             }
 
-            if (!reacquireObserved)
+            if (
+                streamer.TryGetSurfaceSchedulerDiagnostics(
+                    out TerrainSurfaceSchedulerDiagnosticsSnapshot reacquireSurfaceScheduler
+                )
+            )
+            {
+                ObserveSurfaceSchedulerDiagnostics(
+                    result,
+                    reacquireSurfaceScheduler
+                );
+
+                surfaceReacquireObserved =
+                    surfaceReacquireObserved
+                    ||
+                    SurfaceSchedulerShowsReacquisition(
+                        reacquireSurfaceScheduler
+                    );
+            }
+
+            if (!heightReacquireObserved)
             {
                 completed(
-                    "Streamer reinitialization did not observe Height Addressables reacquisition."
+                    "Streamer reinitialization did not observe Height source reacquisition."
                 );
 
                 yield break;
             }
 
-            if (streamer.ResidentSurfaceTileCount <= 0)
+            if (!surfaceReacquireObserved)
+            {
+                completed(
+                    "Streamer reinitialization did not observe Surface source reacquisition."
+                );
+
+                yield break;
+            }
+
+            if (
+                streamer.SurfaceLodRuntimeStateCount <= 0
+                ||
+                !streamer.SurfaceCacheReady
+                ||
+                streamer.ResidentSurfaceTileCount <= 0
+            )
             {
                 completed(
                     "Streamer reinitialization did not reacquire the active Surface source window."
@@ -1356,6 +1456,16 @@ public partial class TerrainClipmapDisplacementValidator
         }
 
         if (
+            !TryValidateSurfaceRuntimeStressBounds(
+                result,
+                out error
+            )
+        )
+        {
+            return false;
+        }
+
+        if (
             !streamer.TryGetRuntimeResidencyDiagnostics(
                 out TerrainRuntimeResidencyDiagnosticsSnapshot residency,
                 out string residencyReason
@@ -1369,18 +1479,6 @@ public partial class TerrainClipmapDisplacementValidator
 
             return false;
         }
-
-        result.MaximumSurfaceResidentSources =
-            Math.Max(
-                result.MaximumSurfaceResidentSources,
-                residency.Surface.TransientSourceCount
-            );
-
-        result.MaximumSurfaceSourceBytes =
-            Math.Max(
-                result.MaximumSurfaceSourceBytes,
-                residency.Surface.EstimatedCurrentSourceBytes
-            );
 
         if (
             residency.Surface.EstimatedCurrentSourceBytes >
@@ -1531,7 +1629,7 @@ public partial class TerrainClipmapDisplacementValidator
         {
             if (
                 !streamer.TryGetHeightSchedulerDiagnostics(
-                    out TerrainHeightSchedulerDiagnosticsSnapshot scheduler
+                    out TerrainHeightSchedulerDiagnosticsSnapshot heightScheduler
                 )
             )
             {
@@ -1542,16 +1640,44 @@ public partial class TerrainClipmapDisplacementValidator
                 yield break;
             }
 
+            if (
+                !streamer.TryGetSurfaceSchedulerDiagnostics(
+                    out TerrainSurfaceSchedulerDiagnosticsSnapshot surfaceScheduler
+                )
+            )
+            {
+                completed(
+                    "Surface scheduler diagnostics became unavailable while waiting for runtime source drain."
+                );
+
+                yield break;
+            }
+
             TerrainHeightDeferredReleaseDiagnosticsSnapshot deferred =
                 streamer.GetHeightDeferredReleaseDiagnostics();
 
             if (
-                scheduler.QueuedRequiredCount == 0
-                && scheduler.QueuedPrefetchCount == 0
-                && scheduler.ActiveLoadCount == 0
-                && scheduler.ReadySourceCount == 0
-                && scheduler.PendingGpuReleaseCount == 0
-                && deferred.PendingCount == 0
+                heightScheduler.QueuedRequiredCount == 0
+                &&
+                heightScheduler.QueuedPrefetchCount == 0
+                &&
+                heightScheduler.ActiveLoadCount == 0
+                &&
+                heightScheduler.ReadySourceCount == 0
+                &&
+                heightScheduler.PendingGpuReleaseCount == 0
+                &&
+                surfaceScheduler.QueuedRequiredCount == 0
+                &&
+                surfaceScheduler.QueuedPrefetchCount == 0
+                &&
+                surfaceScheduler.ActiveLoadCount == 0
+                &&
+                surfaceScheduler.ReadySourceCount == 0
+                &&
+                surfaceScheduler.PendingGpuReleaseCount == 0
+                &&
+                deferred.PendingCount == 0
             )
             {
                 completed(null);
@@ -1565,14 +1691,20 @@ public partial class TerrainClipmapDisplacementValidator
             {
                 completed(
                     "Timed out waiting for runtime source ownership to drain.\n" +
-                    $"Queued Required: {scheduler.QueuedRequiredCount}\n" +
-                    $"Queued Prefetch: {scheduler.QueuedPrefetchCount}\n" +
-                    $"Active Loads: {scheduler.ActiveLoadCount}\n" +
-                    $"Ready Sources: {scheduler.ReadySourceCount}\n" +
-                    $"Scheduler Pending Releases: {scheduler.PendingGpuReleaseCount}\n" +
-                    $"Deferred Pending Releases: {deferred.PendingCount}\n" +
-                    $"Scheduler Source Bytes: {scheduler.EstimatedLogicalSourceBytes:N0}\n" +
-                    $"Deferred Source Bytes: {deferred.EstimatedPendingSourceBytes:N0}"
+                    $"Height Queued Required: {heightScheduler.QueuedRequiredCount}\n" +
+                    $"Height Queued Prefetch: {heightScheduler.QueuedPrefetchCount}\n" +
+                    $"Height Active Loads: {heightScheduler.ActiveLoadCount}\n" +
+                    $"Height Ready Sources: {heightScheduler.ReadySourceCount}\n" +
+                    $"Height Pending Releases: {heightScheduler.PendingGpuReleaseCount}\n" +
+                    $"Height Source Bytes: {heightScheduler.EstimatedLogicalSourceBytes:N0}\n" +
+                    $"Surface Queued Required: {surfaceScheduler.QueuedRequiredCount}\n" +
+                    $"Surface Queued Prefetch: {surfaceScheduler.QueuedPrefetchCount}\n" +
+                    $"Surface Active Loads: {surfaceScheduler.ActiveLoadCount}\n" +
+                    $"Surface Ready Sources: {surfaceScheduler.ReadySourceCount}\n" +
+                    $"Surface Pending Releases: {surfaceScheduler.PendingGpuReleaseCount}\n" +
+                    $"Surface Source Bytes: {surfaceScheduler.EstimatedLogicalSourceBytes:N0}\n" +
+                    $"Deferred Height Pending Releases: {deferred.PendingCount}\n" +
+                    $"Deferred Height Source Bytes: {deferred.EstimatedPendingSourceBytes:N0}"
                 );
 
                 yield break;

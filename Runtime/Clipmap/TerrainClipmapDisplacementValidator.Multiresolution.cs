@@ -114,7 +114,7 @@ public partial class TerrainClipmapDisplacementValidator
             );
     }
 
-    [ContextMenu("Run Height Scheduler Stress Validation")]
+    [ContextMenu("Run Terrain Scheduler Stress Validation")]
     public void BeginSchedulerStressValidation()
     {
         if (!CanBeginRuntimeValidation())
@@ -126,7 +126,7 @@ public partial class TerrainClipmapDisplacementValidator
             TerrainRuntimeValidationStatus.Running;
 
         schedulerStressValidationSummary =
-            "Running deterministic normal/rapid/teleport Height scheduler stress...";
+            "Running deterministic normal/rapid/teleport terrain scheduler stress...";
 
         validationRoutine =
             StartCoroutine(
@@ -285,6 +285,8 @@ public partial class TerrainClipmapDisplacementValidator
         int stitches = 0;
         int transitionVertices = 0;
         int divergentAdjacentAnchors = 0;
+        int surfacePrimaryBindings = 0;
+        int surfaceDualResolutionStitches = 0;
 
         MaterialPropertyBlock block =
             new MaterialPropertyBlock();
@@ -448,6 +450,22 @@ public partial class TerrainClipmapDisplacementValidator
                 return false;
             }
 
+            if (
+                !TryValidateSurfaceRendererBinding(
+                    binding,
+                    block,
+                    ref surfacePrimaryBindings,
+                    ref surfaceDualResolutionStitches,
+                    out string surfaceBindingError
+                )
+            )
+            {
+                summary =
+                    surfaceBindingError;
+
+                return false;
+            }
+
             switch (role.Kind)
             {
                 case TerrainClipmapRendererKind.Center:
@@ -479,11 +497,27 @@ public partial class TerrainClipmapDisplacementValidator
             }
         }
 
+        if (
+            !TryValidateSurfaceRequiredCoverage(
+                out int requiredSurfacePages,
+                out string surfaceCoverageError
+            )
+        )
+        {
+            summary =
+                surfaceCoverageError;
+
+            return false;
+        }
+
         summary =
             $"Renderers Validated: {bindings.Count}\n" +
             $"Centers: {centers}\n" +
             $"Rings: {rings}\n" +
             $"Stitches: {stitches}\n" +
+            $"Surface Primary Bindings: {surfacePrimaryBindings}\n" +
+            $"Surface Dual-Resolution Stitches: {surfaceDualResolutionStitches}\n" +
+            $"Surface Required Pages: {requiredSurfacePages:N0}\n" +
             $"Stitch Transition Vertices: {transitionVertices:N0}\n" +
             $"Divergent Adjacent Anchors Observed: {divergentAdjacentAnchors}";
 
@@ -759,7 +793,7 @@ public partial class TerrainClipmapDisplacementValidator
                 ? TerrainRuntimeValidationStatus.Passed
                 : TerrainRuntimeValidationStatus.Failed,
             failure == null
-                ? "A deterministic independently snapped layout was streamed, applied, activated, and passed semantic renderer/stitch validation."
+                ? "A deterministic independently snapped layout was streamed, applied, activated, and passed semantic Height/Surface renderer and stitch validation."
                 : failure
         );
     }
@@ -790,6 +824,7 @@ public partial class TerrainClipmapDisplacementValidator
 
         TakeControllerOwnership();
         streamer.ResetHeightSchedulerValidationCounters();
+        streamer.ResetSurfaceSchedulerValidationCounters();
 
         TerrainClipmapLayoutApplier applier =
             new TerrainClipmapLayoutApplier();
@@ -870,29 +905,49 @@ public partial class TerrainClipmapDisplacementValidator
             }
         }
 
-        TerrainHeightSchedulerDiagnosticsSnapshot scheduler =
-            default;
+        TerrainHeightSchedulerDiagnosticsSnapshot
+            heightScheduler =
+                default;
 
-        bool haveScheduler =
+        TerrainSurfaceSchedulerDiagnosticsSnapshot
+            surfaceScheduler =
+                default;
+
+        bool haveHeightScheduler =
             streamer.TryGetHeightSchedulerDiagnostics(
-                out scheduler
+                out heightScheduler
+            );
+
+        bool haveSurfaceScheduler =
+            streamer.TryGetSurfaceSchedulerDiagnostics(
+                out surfaceScheduler
             );
 
         if (
             failure == null
-            && haveScheduler
-            && (
-                scheduler.PeakActiveLoadCount >
-                    scheduler.ConcurrencyLimit
-                || scheduler.PeakTransientSourceCount >
-                    scheduler.ConcurrencyLimit
-                || scheduler.PriorityViolationCount != 0
-                || scheduler.DuplicateStartViolationCount != 0
+            &&
+            (
+                !haveHeightScheduler
+                ||
+                !haveSurfaceScheduler
             )
         )
         {
             failure =
-                "Height scheduler diagnostic invariant failed.";
+                !haveHeightScheduler
+                    ? "Height scheduler diagnostics were unavailable."
+                    : "Surface scheduler diagnostics were unavailable.";
+        }
+
+        if (
+            failure == null
+            &&
+            !TryValidateFocusedTerrainSchedulerBounds(
+                out failure
+            )
+        )
+        {
+            // Failure populated by the helper.
         }
 
         yield return RestoreGameplayLayout(
@@ -903,30 +958,15 @@ public partial class TerrainClipmapDisplacementValidator
 
         RestoreControllerOwnership();
 
-        if (!haveScheduler)
-        {
-            FinishSchedulerStressValidation(
-                TerrainRuntimeValidationStatus.Failed,
-                "Height scheduler diagnostics were unavailable."
-            );
-
-            yield break;
-        }
-
         string summary =
-            $"Peak Active Loads: {scheduler.PeakActiveLoadCount}/{scheduler.ConcurrencyLimit}\n" +
-            $"Peak Transient Sources: {scheduler.PeakTransientSourceCount}/{scheduler.ConcurrencyLimit}\n" +
-            $"Peak Source Estimate: {scheduler.PeakEstimatedLogicalSourceBytes:N0} bytes\n" +
-            $"Requests Started: {scheduler.RequestsStarted}\n" +
-            $"Source Uploads: {scheduler.SourceUploadCount}\n" +
-            $"Cache-to-Cache Reuses: {scheduler.CacheToCacheReuseCount}\n" +
-            $"Repeated Plan Skips: {scheduler.RepeatedPlanSubmissionSkipCount}\n" +
-            $"Coalesced Requests: {scheduler.CoalescedRequestCount}\n" +
-            $"Prefetch Promotions: {scheduler.PrefetchPromotedToRequiredCount}\n" +
-            $"Stale Queued Discards: {scheduler.StaleQueuedRequestDiscardCount}\n" +
-            $"Stale Completed Discards: {scheduler.StaleCompletedSourceDiscardCount}\n" +
-            $"Priority Violations: {scheduler.PriorityViolationCount}\n" +
-            $"Duplicate Starts: {scheduler.DuplicateStartViolationCount}";
+            haveHeightScheduler
+            &&
+            haveSurfaceScheduler
+                ? BuildTerrainSchedulerStressSummary(
+                    heightScheduler,
+                    surfaceScheduler
+                )
+                : "Terrain scheduler diagnostics were unavailable.";
 
         TerrainRuntimeValidationStatus status;
 
@@ -939,13 +979,18 @@ public partial class TerrainClipmapDisplacementValidator
                 "\n\n" +
                 failure;
         }
-        else if (scheduler.RequestsStarted <= 0)
+        else if (
+            !TerrainSchedulersRecordedWork(
+                heightScheduler,
+                surfaceScheduler
+            )
+        )
         {
             status =
                 TerrainRuntimeValidationStatus.Inconclusive;
 
             summary +=
-                "\n\nNo new Height Addressables request was required by the deterministic stress layouts.";
+                "\n\nNo new Height or Surface source work was required by the deterministic stress layouts.";
         }
         else
         {
@@ -1280,31 +1325,10 @@ public partial class TerrainClipmapDisplacementValidator
         out string error
     )
     {
-        error = null;
-
-        if (
-            !streamer.TryGetHeightSchedulerDiagnostics(
-                out TerrainHeightSchedulerDiagnosticsSnapshot scheduler
-            )
-        )
-        {
-            return true;
-        }
-
-        if (
-            scheduler.ActiveLoadCount >
-                scheduler.ConcurrencyLimit
-            || scheduler.TransientSourceSlotCount >
-                scheduler.ConcurrencyLimit
-        )
-        {
-            error =
-                $"Height scheduler exceeded its concurrency limit: {scheduler.ActiveLoadCount}/{scheduler.ConcurrencyLimit}.";
-
-            return false;
-        }
-
-        return true;
+        return
+            TryValidateFocusedTerrainSchedulerBounds(
+                out error
+            );
     }
 
     private void TakeControllerOwnership()
@@ -1368,7 +1392,7 @@ public partial class TerrainClipmapDisplacementValidator
         validationRoutine = null;
 
         LogRuntimeValidationResult(
-            "Height scheduler stress validation",
+            "Terrain streaming scheduler stress validation",
             status,
             schedulerStressValidationSummary
         );

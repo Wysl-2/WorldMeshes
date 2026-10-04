@@ -19,31 +19,6 @@ public partial class TerrainHeightmapStreamer
         SurfaceMaskManifest =>
             surfaceMaskManifest;
 
-    /*
-     * Compatibility view for callers that still inspect the primary Surface
-     * cache. Production residency is per LOD.
-     */
-    public Texture2DArray SurfaceMaskCache
-    {
-        get
-        {
-            if (
-                surfaceLodStates == null
-                ||
-                surfaceLodStates.Length == 0
-                ||
-                surfaceLodStates[0] == null
-            )
-            {
-                return null;
-            }
-
-            return
-                surfaceLodStates[0]
-                    .ActiveCache;
-        }
-    }
-
     // =====================================================
     // HIERARCHY CONFIGURATION
     // =====================================================

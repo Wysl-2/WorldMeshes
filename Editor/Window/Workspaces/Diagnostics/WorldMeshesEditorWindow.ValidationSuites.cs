@@ -43,9 +43,6 @@ public partial class WorldMeshesEditorWindow :
     private TerrainRuntimeStreamingValidationSession
         runtimeStreamingValidationSession;
 
-    private TerrainValidationRunSummary surfaceStreamingPyramidSummary =
-        TerrainValidationRunSummary.CreateNotRun();
-
     private TerrainValidationRunSummary runtimeCollisionPhysicsSummary =
         TerrainValidationRunSummary.CreateNotRun();
 
@@ -108,7 +105,7 @@ public partial class WorldMeshesEditorWindow :
             "Runtime Output Validation",
             "Run Runtime Output Validation",
             GetRuntimeOutputValidationRunner(),
-            "Runs explicit deep generated-output checks for height content, the streaming pyramid, physical height-range metadata, composed runtime height, collision seams, and clipmap geometry. These checks can scan large generated datasets and only run when requested.",
+            "Runs explicit deep generated-output checks for Height content, Height and Surface streaming pyramids, physical height-range metadata, composed runtime Height, collision seams, and clipmap geometry. These checks can scan large generated datasets and only run when requested.",
             TerrainRuntimeBakePipeline.IsRunning
                 || TerrainSurfaceMaskCompiler.IsGenerating
                 || EditorApplication.isCompiling
@@ -116,95 +113,7 @@ public partial class WorldMeshesEditorWindow :
         );
 
         DrawWorkspaceSectionGap();
-        DrawSurfaceStreamingPyramidValidation();
-
-        DrawWorkspaceSectionGap();
         DrawRuntimeCollisionPhysicsValidation();
-    }
-
-    private void DrawSurfaceStreamingPyramidValidation()
-    {
-        GUILayout.BeginVertical(
-            EditorStyles.helpBox,
-            GUILayout.ExpandWidth(true)
-        );
-
-        GUILayout.Label(
-            "Surface Streaming Pyramid",
-            EditorStyles.boldLabel
-        );
-
-        DrawValidationRunSummary(
-            surfaceStreamingPyramidSummary
-        );
-
-        EditorGUILayout.HelpBox(
-            "Explicitly validates the generated Surface streaming representations against native R8 Surface masks, including descriptor compatibility, exact shared-lattice samples, and derived tile borders.",
-            MessageType.None
-        );
-
-        bool unavailable =
-            worldSettings == null
-            || Application.isPlaying
-            || EditorApplication.isPlayingOrWillChangePlaymode
-            || EditorApplication.isCompiling
-            || EditorApplication.isUpdating
-            || TerrainRuntimeBakePipeline.IsRunning
-            || TerrainSurfaceMaskCompiler.IsGenerating
-            || TerrainRuntimeSurfaceStreamingCompiler.IsGenerating
-            || IsValidationSuiteRunning();
-
-        EditorGUI.BeginDisabledGroup(
-            unavailable
-        );
-
-        if (
-            GUILayout.Button(
-                "Validate Surface Streaming Pyramid",
-                GUILayout.ExpandWidth(true)
-            )
-        )
-        {
-            surfaceStreamingPyramidSummary =
-                TerrainValidationRunSummary.CreateRunning(
-                    "Surface Streaming Pyramid is running."
-                );
-
-            try
-            {
-                bool passed =
-                    TerrainSurfaceStreamingPyramidValidator.Validate(
-                        worldSettings
-                    );
-
-                surfaceStreamingPyramidSummary =
-                    TerrainValidationRunSummary.CreateCompleted(
-                        passed ? 1 : 0,
-                        passed ? 0 : 1,
-                        0,
-                        passed
-                            ? "Surface Streaming Pyramid passed."
-                            : "Surface Streaming Pyramid failed. See the Unity Console for details."
-                    );
-            }
-            catch (System.Exception exception)
-            {
-                Debug.LogException(exception);
-
-                surfaceStreamingPyramidSummary =
-                    TerrainValidationRunSummary.CreateCompleted(
-                        0,
-                        1,
-                        0,
-                        "Surface Streaming Pyramid failed with an exception.\n\n" + exception
-                    );
-            }
-
-            Repaint();
-        }
-
-        EditorGUI.EndDisabledGroup();
-        GUILayout.EndVertical();
     }
 
     private void DrawRuntimeCollisionPhysicsValidation()
@@ -885,7 +794,7 @@ public partial class WorldMeshesEditorWindow :
         );
 
         DrawRuntimeValidationStatus(
-            "Renderer / Displacement / Stitch",
+            "Renderer / Height / Surface / Stitch",
             session.MultiresolutionStatus,
             session.MultiresolutionSummary
         );
@@ -897,7 +806,7 @@ public partial class WorldMeshesEditorWindow :
         );
 
         DrawRuntimeValidationStatus(
-            "Height Scheduler Stress",
+            "Terrain Scheduler Stress",
             session.SchedulerStressStatus,
             session.SchedulerStressSummary
         );
@@ -921,7 +830,7 @@ public partial class WorldMeshesEditorWindow :
         EditorGUI.EndDisabledGroup();
 
         EditorGUILayout.HelpBox(
-            "Runs the Height cache, cross-resolution, renderer/displacement/stitch, independent-anchor, and Height scheduler checks sequentially. Validation components are attached to the generated Clipmap only for the duration of this explicit Play Mode session.",
+            "Runs Height cache and cross-resolution checks, Height/Surface renderer and stitch validation, independent-anchor validation, and combined Height/Surface scheduler stress sequentially. Validation components are attached to the generated Clipmap only for the duration of this explicit Play Mode session.",
             MessageType.None
         );
 

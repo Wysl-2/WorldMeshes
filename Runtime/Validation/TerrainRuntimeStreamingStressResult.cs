@@ -45,10 +45,11 @@ public sealed class TerrainRuntimeStreamingStressResult
     public int PeakActiveHeightLoads { get; internal set; }
     public int PeakHeightTransientSources { get; internal set; }
     public long PeakHeightSourceBytes { get; internal set; }
+    public int PeakActiveSurfaceLoads { get; internal set; }
+    public int PeakSurfaceTransientSources { get; internal set; }
+    public long PeakSurfaceSourceBytes { get; internal set; }
     public int PeakDeferredReleaseCount { get; internal set; }
     public long PeakDeferredReleaseBytes { get; internal set; }
-    public int MaximumSurfaceResidentSources { get; internal set; }
-    public long MaximumSurfaceSourceBytes { get; internal set; }
 
     public long HeightRequestsStarted { get; internal set; }
     public long HeightSourceUploads { get; internal set; }
@@ -60,6 +61,16 @@ public sealed class TerrainRuntimeStreamingStressResult
     public long StaleCompletedDiscards { get; internal set; }
     public int PriorityViolations { get; internal set; }
     public int DuplicateStartViolations { get; internal set; }
+
+    public long SurfaceRequestsStarted { get; internal set; }
+    public long SurfaceSourceUploads { get; internal set; }
+    public long SurfaceCacheToCacheReuses { get; internal set; }
+    public long SurfaceCoalescedRequests { get; internal set; }
+    public long SurfacePrefetchPromotions { get; internal set; }
+    public long SurfaceStaleQueuedDiscards { get; internal set; }
+    public long SurfaceStaleCompletedDiscards { get; internal set; }
+    public int SurfacePriorityViolations { get; internal set; }
+    public int SurfaceDuplicateStartViolations { get; internal set; }
 
     public long DeferredSourcesEnqueued { get; internal set; }
     public long DeferredSourcesReleased { get; internal set; }
@@ -186,12 +197,42 @@ public sealed class TerrainRuntimeStreamingStressResult
         }
 
         builder.AppendLine();
-        builder.AppendLine("Surface:");
+        builder.AppendLine("Surface Scheduler:");
         builder.AppendLine(
-            $"  Maximum Transient Sources: {MaximumSurfaceResidentSources}"
+            $"  Peak Active Loads: {PeakActiveSurfaceLoads}"
         );
         builder.AppendLine(
-            $"  Maximum Source Payload: {FormatBytes(MaximumSurfaceSourceBytes)} / {FormatBytes(SurfaceSourceUpperBoundBytes)}"
+            $"  Peak Transient Sources: {PeakSurfaceTransientSources}"
+        );
+        builder.AppendLine(
+            $"  Peak Source Payload: {FormatBytes(PeakSurfaceSourceBytes)} / {FormatBytes(SurfaceSourceUpperBoundBytes)}"
+        );
+        builder.AppendLine(
+            $"  Requests Started: {SurfaceRequestsStarted}"
+        );
+        builder.AppendLine(
+            $"  Source Uploads: {SurfaceSourceUploads}"
+        );
+        builder.AppendLine(
+            $"  Cache-to-Cache Reuses: {SurfaceCacheToCacheReuses}"
+        );
+        builder.AppendLine(
+            $"  Coalesced Requests: {SurfaceCoalescedRequests}"
+        );
+        builder.AppendLine(
+            $"  Prefetch Promotions: {SurfacePrefetchPromotions}"
+        );
+        builder.AppendLine(
+            $"  Stale Queued Discards: {SurfaceStaleQueuedDiscards}"
+        );
+        builder.AppendLine(
+            $"  Stale Completed Discards: {SurfaceStaleCompletedDiscards}"
+        );
+        builder.AppendLine(
+            $"  Priority Violations: {SurfacePriorityViolations}"
+        );
+        builder.AppendLine(
+            $"  Duplicate Starts: {SurfaceDuplicateStartViolations}"
         );
 
         builder.AppendLine();
