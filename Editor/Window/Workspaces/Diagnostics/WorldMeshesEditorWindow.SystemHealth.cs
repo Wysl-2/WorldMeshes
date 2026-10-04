@@ -101,6 +101,18 @@ public partial class WorldMeshesEditorWindow :
         );
 
         DrawDiagnosticsStatusRow(
+            "Surface Streaming",
+            requiredInputsAvailable
+                ? GetGenerationStatusLabel(
+                    readiness != null
+                        ? readiness.SurfaceStreamingStatus
+                        : TerrainGenerationStateUtility
+                            .GenerationStatus.NotGenerated
+                )
+                : "Unavailable"
+        );
+
+        DrawDiagnosticsStatusRow(
             "Collision",
             requiredInputsAvailable
                 ? GetGenerationStatusLabel(

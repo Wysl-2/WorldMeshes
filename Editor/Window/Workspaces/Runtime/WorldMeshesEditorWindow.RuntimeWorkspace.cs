@@ -771,6 +771,10 @@ public partial class WorldMeshesEditorWindow :
                 generationState.SurfaceMaskStatus;
 
         TerrainGenerationStateUtility.GenerationStatus
+            surfaceStreamingStatus =
+                generationState.SurfaceStreamingStatus;
+
+        TerrainGenerationStateUtility.GenerationStatus
             collisionStatus =
                 generationState.CollisionMeshStatus;
 
@@ -799,6 +803,13 @@ public partial class WorldMeshesEditorWindow :
             "Surface Masks",
             GetGenerationReadinessLabel(
                 surfaceStatus
+            )
+        );
+
+        EditorGUILayout.LabelField(
+            "Surface Streaming",
+            GetGenerationReadinessLabel(
+                surfaceStreamingStatus
             )
         );
 
@@ -1486,6 +1497,10 @@ public partial class WorldMeshesEditorWindow :
                 TerrainGenerationStateUtility.GenerationStatus.Current
             &&
             surfaceStatus ==
+                TerrainGenerationStateUtility
+                    .GenerationStatus.Current
+            &&
+            generationState.SurfaceStreamingStatus ==
                 TerrainGenerationStateUtility
                     .GenerationStatus.Current
             &&

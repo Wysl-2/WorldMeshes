@@ -6,6 +6,7 @@ public sealed class TerrainRuntimeReadinessResult
     public TerrainGenerationStateUtility.GenerationStatus HeightStatus { get; internal set; }
     public TerrainGenerationStateUtility.GenerationStatus HeightStreamingStatus { get; internal set; }
     public TerrainGenerationStateUtility.GenerationStatus SurfaceStatus { get; internal set; }
+    public TerrainGenerationStateUtility.GenerationStatus SurfaceStreamingStatus { get; internal set; }
     public TerrainGenerationStateUtility.GenerationStatus CollisionStatus { get; internal set; }
 
     public TerrainRuntimeIntegrityAuditResult IntegrityAudit { get; internal set; }
@@ -141,6 +142,9 @@ public static class TerrainRuntimeReadinessUtility
         result.SurfaceStatus =
             generationState.SurfaceMaskStatus;
 
+        result.SurfaceStreamingStatus =
+            generationState.SurfaceStreamingStatus;
+
         result.CollisionStatus =
             generationState.CollisionMeshStatus;
 
@@ -204,6 +208,8 @@ public static class TerrainRuntimeReadinessUtility
             && result.HeightStreamingClipmapCompatible
             && result.SurfaceStatus ==
                 TerrainGenerationStateUtility.GenerationStatus.Current
+            && result.SurfaceStreamingStatus ==
+                TerrainGenerationStateUtility.GenerationStatus.Current
             && result.CollisionStatus ==
                 TerrainGenerationStateUtility.GenerationStatus.Current
             && integrityReady
@@ -231,6 +237,17 @@ public static class TerrainRuntimeReadinessUtility
                     )
                         ? "Height Streaming is incompatible with the current clipmap configuration."
                         : result.HeightStreamingClipmapCompatibilityError;
+            }
+            else if (
+                result.SurfaceStatus ==
+                    TerrainGenerationStateUtility.GenerationStatus.Current
+                &&
+                result.SurfaceStreamingStatus !=
+                    TerrainGenerationStateUtility.GenerationStatus.Current
+            )
+            {
+                result.ErrorMessage =
+                    "Surface Streaming is missing, stale, or incompatible and requires runtime bake repair.";
             }
             else if (
                 result.AddressablesValidation != null

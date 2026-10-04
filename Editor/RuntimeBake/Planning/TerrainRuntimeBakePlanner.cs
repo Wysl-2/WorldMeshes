@@ -1107,6 +1107,21 @@ public static class TerrainRuntimeBakePlanner
                         generationState
                     );
 
+        if (
+            TerrainRuntimeIntegrityAuditUtility
+                .TryGetCachedGeneratedDataAudit(
+                    worldSettings,
+                    out TerrainRuntimeIntegrityAuditResult cachedSurfaceIntegrity
+                )
+            && cachedSurfaceIntegrity != null
+            && cachedSurfaceIntegrity.SurfaceStreaming != null
+            && !cachedSurfaceIntegrity.SurfaceStreaming.IsValid
+        )
+        {
+            surfaceStreamingStatus =
+                TerrainGenerationStateUtility.GenerationStatus.OutOfDate;
+        }
+
         TerrainRuntimeBakeWorkMode surfaceStreamingMode =
             TerrainRuntimeBakeWorkMode.None;
 

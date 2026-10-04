@@ -463,6 +463,12 @@ internal readonly struct TerrainGenerationStateEvaluationResult
     }
 
     internal TerrainGenerationStateUtility.GenerationStatus
+        SurfaceStreamingStatus
+    {
+        get;
+    }
+
+    internal TerrainGenerationStateUtility.GenerationStatus
         CollisionMeshStatus
     {
         get;
@@ -478,6 +484,8 @@ internal readonly struct TerrainGenerationStateEvaluationResult
         TerrainGenerationStateUtility.GenerationStatus
             surfaceMaskStatus,
         TerrainGenerationStateUtility.GenerationStatus
+            surfaceStreamingStatus,
+        TerrainGenerationStateUtility.GenerationStatus
             collisionMeshStatus
     )
     {
@@ -492,6 +500,9 @@ internal readonly struct TerrainGenerationStateEvaluationResult
 
         SurfaceMaskStatus =
             surfaceMaskStatus;
+
+        SurfaceStreamingStatus =
+            surfaceStreamingStatus;
 
         CollisionMeshStatus =
             collisionMeshStatus;
@@ -557,6 +568,9 @@ public static partial class TerrainGenerationStateUtility
                     context
                 ),
                 GetSurfaceMaskStatus(
+                    context
+                ),
+                GetSurfaceStreamingStatus(
                     context
                 ),
                 GetCollisionMeshStatus(

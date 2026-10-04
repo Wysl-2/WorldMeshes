@@ -109,6 +109,7 @@ public sealed class TerrainRuntimeIntegrityAuditResult
     public TerrainRuntimeGeneratedDataIntegrityResult Height { get; internal set; }
     public TerrainRuntimeGeneratedDataIntegrityResult HeightStreaming { get; internal set; }
     public TerrainRuntimeGeneratedDataIntegrityResult Surface { get; internal set; }
+    public TerrainRuntimeGeneratedDataIntegrityResult SurfaceStreaming { get; internal set; }
     public TerrainRuntimeGeneratedDataIntegrityResult Collision { get; internal set; }
     public TerrainRuntimeAddressablesValidationResult Addressables { get; internal set; }
 
@@ -116,6 +117,7 @@ public sealed class TerrainRuntimeIntegrityAuditResult
         Height != null && Height.IsValid
         && HeightStreaming != null && HeightStreaming.IsValid
         && Surface != null && Surface.IsValid
+        && SurfaceStreaming != null && SurfaceStreaming.IsValid
         && Collision != null && Collision.IsValid;
 
     public bool AddressablesValid =>
@@ -165,6 +167,7 @@ public static class TerrainRuntimeIntegrityAuditUtility
                         Height = ValidateHeight(worldSettings),
                         HeightStreaming = TerrainRuntimeHeightStreamingIntegrityUtility.Validate(worldSettings),
                         Surface = ValidateSurface(worldSettings),
+                        SurfaceStreaming = TerrainRuntimeSurfaceStreamingIntegrityUtility.Validate(worldSettings),
                         Collision = ValidateCollision(worldSettings)
                     };
             }
@@ -578,6 +581,11 @@ public static class TerrainRuntimeIntegrityAuditUtility
                 TerrainRuntimeHeightAssetUtility.HeightmapManifestPath
             );
 
+        TerrainSurfaceMaskManifest surfaceManifest =
+            AssetDatabase.LoadAssetAtPath<TerrainSurfaceMaskManifest>(
+                TerrainRuntimeSurfaceMaskAssetUtility.SurfaceMaskManifestPath
+            );
+
         return
             worldSettings.GetInstanceID() + "|" +
             worldSettings.gridWidth + "|" +
@@ -597,6 +605,14 @@ public static class TerrainRuntimeIntegrityAuditUtility
             (heightManifest != null && heightManifest.streamingPyramidIsComplete) + "|" +
             worldSettings.surfaceMaskGenerationRevision + "|" +
             worldSettings.lastGeneratedSurfaceSignature + "|" +
+            (surfaceManifest != null ? surfaceManifest.streamingPyramidCompilerVersion : -1) + "|" +
+            (surfaceManifest != null ? surfaceManifest.streamingPyramidPolicyVersion : -1) + "|" +
+            (surfaceManifest != null ? surfaceManifest.streamingSourceSurfaceMaskGenerationRevision : -1) + "|" +
+            (surfaceManifest != null ? surfaceManifest.streamingSourceSurfaceGenerationSignature : "") + "|" +
+            (surfaceManifest != null ? surfaceManifest.streamingGenerationRevision : -1) + "|" +
+            (surfaceManifest != null ? surfaceManifest.streamingGenerationSignature : "") + "|" +
+            (surfaceManifest != null ? surfaceManifest.StreamingLevelCount : -1) + "|" +
+            (surfaceManifest != null && surfaceManifest.streamingPyramidIsComplete) + "|" +
             worldSettings.collisionMeshGenerationRevision + "|" +
             worldSettings.lastGeneratedCollisionSignature;
     }

@@ -61,7 +61,14 @@ public enum TerrainRuntimeFaultRecoveryScenario
     MissingTerrainCollisionStreamer,
     DuplicateTerrainCollisionStreamer,
     MissingTerrainCollisionColliderPool,
-    DuplicateTerrainCollisionColliderPool
+    DuplicateTerrainCollisionColliderPool,
+
+    MissingStreamingSurfaceTexture,
+    IncompleteSurfaceStreamingPyramid,
+    InvalidSurfaceStreamingMetadata,
+    MissingSurfaceStreamingAddressableEntry,
+    ObsoleteSurfaceStreamingStride,
+    SurfaceStreamingPolicySignatureMismatch
 }
 
 public enum TerrainRuntimeFaultRecoveryAuthority
@@ -89,6 +96,7 @@ public sealed class TerrainRuntimeFaultExpectation
     public TerrainRuntimeBakeWorkMode HeightMode { get; internal set; }
     public TerrainRuntimeBakeWorkMode HeightStreamingMode { get; internal set; }
     public TerrainRuntimeBakeWorkMode SurfaceMode { get; internal set; }
+    public TerrainRuntimeBakeWorkMode SurfaceStreamingMode { get; internal set; }
     public TerrainRuntimeBakeWorkMode CollisionMode { get; internal set; }
     public bool AddressablesConfigurationRequired { get; internal set; }
     public bool HierarchyReady { get; internal set; }
@@ -107,6 +115,7 @@ public sealed class TerrainRuntimeFaultExpectation
                 HeightMode = TerrainRuntimeBakeWorkMode.None,
                 HeightStreamingMode = TerrainRuntimeBakeWorkMode.None,
                 SurfaceMode = TerrainRuntimeBakeWorkMode.None,
+                SurfaceStreamingMode = TerrainRuntimeBakeWorkMode.None,
                 CollisionMode = TerrainRuntimeBakeWorkMode.None,
                 AddressablesConfigurationRequired = false,
                 HierarchyReady = true,
@@ -122,6 +131,7 @@ public sealed class TerrainRuntimeFaultExpectation
             case TerrainRuntimeFaultRecoveryScenario.InvalidHeightMetadata:
                 e.HeightMode = TerrainRuntimeBakeWorkMode.Full;
                 e.SurfaceMode = TerrainRuntimeBakeWorkMode.Full;
+                e.SurfaceStreamingMode = TerrainRuntimeBakeWorkMode.Full;
                 e.CollisionMode = TerrainRuntimeBakeWorkMode.Full;
                 e.RecoveryAuthority = TerrainRuntimeFaultRecoveryAuthority.UnifiedBake;
                 e.Description =
@@ -131,6 +141,7 @@ public sealed class TerrainRuntimeFaultExpectation
             case TerrainRuntimeFaultRecoveryScenario.MissingHeightManifest:
                 e.HeightMode = TerrainRuntimeBakeWorkMode.Full;
                 e.SurfaceMode = TerrainRuntimeBakeWorkMode.Full;
+                e.SurfaceStreamingMode = TerrainRuntimeBakeWorkMode.Full;
                 e.CollisionMode = TerrainRuntimeBakeWorkMode.Full;
                 e.AddressablesConfigurationRequired = true;
                 e.RecoveryAuthority = TerrainRuntimeFaultRecoveryAuthority.UnifiedBake;
@@ -157,21 +168,42 @@ public sealed class TerrainRuntimeFaultExpectation
                     "A missing derived Height Streaming Addressables entry requires structural Addressables reconciliation without regenerating terrain datasets.";
                 return e;
 
+            case TerrainRuntimeFaultRecoveryScenario.MissingStreamingSurfaceTexture:
+            case TerrainRuntimeFaultRecoveryScenario.IncompleteSurfaceStreamingPyramid:
+            case TerrainRuntimeFaultRecoveryScenario.InvalidSurfaceStreamingMetadata:
+            case TerrainRuntimeFaultRecoveryScenario.ObsoleteSurfaceStreamingStride:
+            case TerrainRuntimeFaultRecoveryScenario.SurfaceStreamingPolicySignatureMismatch:
+                e.SurfaceStreamingMode = TerrainRuntimeBakeWorkMode.Full;
+                e.RecoveryAuthority = TerrainRuntimeFaultRecoveryAuthority.UnifiedBake;
+                e.Description =
+                    "Derived Surface Streaming corruption must rebuild only the Surface streaming pyramid while authoritative Surface and unrelated runtime datasets remain current.";
+                return e;
+
+            case TerrainRuntimeFaultRecoveryScenario.MissingSurfaceStreamingAddressableEntry:
+                e.AddressablesConfigurationRequired = true;
+                e.RecoveryAuthority =
+                    TerrainRuntimeFaultRecoveryAuthority.AddressablesConfigureAndBuild;
+                e.Description =
+                    "A missing derived Surface Streaming Addressables entry requires structural Addressables reconciliation without regenerating terrain datasets.";
+                return e;
+
             case TerrainRuntimeFaultRecoveryScenario.MissingSurfaceTexture:
             case TerrainRuntimeFaultRecoveryScenario.IncompleteSurfaceManifest:
             case TerrainRuntimeFaultRecoveryScenario.InvalidSurfaceMetadata:
                 e.SurfaceMode = TerrainRuntimeBakeWorkMode.Full;
+                e.SurfaceStreamingMode = TerrainRuntimeBakeWorkMode.Full;
                 e.RecoveryAuthority = TerrainRuntimeFaultRecoveryAuthority.UnifiedBake;
                 e.Description =
-                    "Surface-only corruption must rebuild Surface without regenerating Height or Collision.";
+                    "Surface-only corruption must rebuild authoritative Surface and its derived Surface Streaming data without regenerating Height or Collision.";
                 return e;
 
             case TerrainRuntimeFaultRecoveryScenario.MissingSurfaceManifest:
                 e.SurfaceMode = TerrainRuntimeBakeWorkMode.Full;
+                e.SurfaceStreamingMode = TerrainRuntimeBakeWorkMode.Full;
                 e.AddressablesConfigurationRequired = true;
                 e.RecoveryAuthority = TerrainRuntimeFaultRecoveryAuthority.UnifiedBake;
                 e.Description =
-                    "Missing Surface topology requires Full Surface generation and Addressables reconciliation.";
+                    "Missing Surface topology requires Full Surface generation, derived Surface Streaming regeneration, and Addressables reconciliation.";
                 return e;
 
             case TerrainRuntimeFaultRecoveryScenario.MissingCollisionMesh:
@@ -385,6 +417,7 @@ public sealed class TerrainRuntimeFaultRecoveryValidationResult
         b.AppendLine("  Height: " + r.HeightStatus);
         b.AppendLine("  Height Streaming: " + r.HeightStreamingStatus);
         b.AppendLine("  Surface: " + r.SurfaceStatus);
+        b.AppendLine("  Surface Streaming: " + r.SurfaceStreamingStatus);
         b.AppendLine("  Collision: " + r.CollisionStatus);
         b.AppendLine(
             "  Height Integrity: " +
@@ -397,6 +430,10 @@ public sealed class TerrainRuntimeFaultRecoveryValidationResult
         b.AppendLine(
             "  Surface Integrity: " +
             IntegrityLabel(r.IntegrityAudit != null ? r.IntegrityAudit.Surface : null)
+        );
+        b.AppendLine(
+            "  Surface Streaming Integrity: " +
+            IntegrityLabel(r.IntegrityAudit != null ? r.IntegrityAudit.SurfaceStreaming : null)
         );
         b.AppendLine(
             "  Collision Integrity: " +
@@ -493,7 +530,7 @@ internal sealed class TerrainRuntimeFaultInjectionState
     public bool CreatedFaultAsset;
 }
 
-public static class TerrainRuntimeFaultInjectionUtility
+public static partial class TerrainRuntimeFaultInjectionUtility
 {
     public const string ValidationRoot =
         "Library/WorldMeshes/Validation/FaultRecovery";
@@ -557,7 +594,16 @@ public static class TerrainRuntimeFaultInjectionUtility
 
         try
         {
-            if (IsGeneratedFileFault(scenario))
+            if (IsSurfaceStreamingFaultScenario(scenario))
+            {
+                ok =
+                    InjectSurfaceStreamingFault(
+                        worldSettings,
+                        state,
+                        out error
+                    );
+            }
+            else if (IsGeneratedFileFault(scenario))
             {
                 ok = InjectGeneratedFileFault(state, out error);
             }
@@ -3148,6 +3194,7 @@ public static class TerrainRuntimeFaultRecoveryScenarioRunner
             damaged.Plan.HeightWorkMode == e.HeightMode
             && damaged.Plan.HeightStreamingWorkMode == e.HeightStreamingMode
             && damaged.Plan.SurfaceWorkMode == e.SurfaceMode
+            && damaged.Plan.SurfaceStreamingWorkMode == e.SurfaceStreamingMode
             && damaged.Plan.CollisionWorkMode == e.CollisionMode;
 
         bool config =
@@ -3179,6 +3226,8 @@ public static class TerrainRuntimeFaultRecoveryScenarioRunner
                     TerrainGenerationStateUtility.GenerationStatus.Current
                 && damaged.SurfaceStatus ==
                     TerrainGenerationStateUtility.GenerationStatus.Current
+                && damaged.SurfaceStreamingStatus ==
+                    TerrainGenerationStateUtility.GenerationStatus.Current
                 && damaged.CollisionStatus ==
                     TerrainGenerationStateUtility.GenerationStatus.Current;
         }
@@ -3198,6 +3247,8 @@ public static class TerrainRuntimeFaultRecoveryScenarioRunner
                 && damaged.HeightStreamingStatus ==
                     TerrainGenerationStateUtility.GenerationStatus.Current
                 && damaged.SurfaceStatus ==
+                    TerrainGenerationStateUtility.GenerationStatus.Current
+                && damaged.SurfaceStreamingStatus ==
                     TerrainGenerationStateUtility.GenerationStatus.Current
                 && damaged.CollisionStatus ==
                     TerrainGenerationStateUtility.GenerationStatus.Current
@@ -3229,6 +3280,13 @@ public static class TerrainRuntimeFaultRecoveryScenarioRunner
                     ? damaged.SurfaceStatus ==
                         TerrainGenerationStateUtility.GenerationStatus.Current
                     : damaged.SurfaceStatus !=
+                        TerrainGenerationStateUtility.GenerationStatus.Current
+            )
+            && (
+                e.SurfaceStreamingMode == TerrainRuntimeBakeWorkMode.None
+                    ? damaged.SurfaceStreamingStatus ==
+                        TerrainGenerationStateUtility.GenerationStatus.Current
+                    : damaged.SurfaceStreamingStatus !=
                         TerrainGenerationStateUtility.GenerationStatus.Current
             )
             && (
