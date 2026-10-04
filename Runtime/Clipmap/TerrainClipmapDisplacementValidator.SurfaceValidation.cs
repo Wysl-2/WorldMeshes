@@ -370,11 +370,14 @@ public partial class TerrainClipmapDisplacementValidator
         requiredPageCount = 0;
         error = null;
 
+        string inspectionReason =
+            null;
+
         if (
             streamer == null
             ||
             !streamer.TryBeginMultiresolutionCacheInspection(
-                out string inspectionReason
+                out inspectionReason
             )
         )
         {
