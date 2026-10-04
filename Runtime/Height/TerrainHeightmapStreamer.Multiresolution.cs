@@ -35,8 +35,6 @@ public partial class TerrainHeightmapStreamer
         public Vector2 MaximumXZ;
         public Vector3 CoverageCenter;
         public TerrainHeightLodCoveragePlan[] Levels;
-        public TerrainHeightPageRect SurfaceRequiredPages;
-        public Vector2Int SurfaceRequestedOrigin;
     }
 
     private TerrainHeightLodRuntimeState[] heightLodStates;
@@ -90,7 +88,16 @@ public partial class TerrainHeightmapStreamer
 
     public bool HasPreparedCacheActivation =>
         multiresolutionBindingPending
-        && preparedHeightPlan != null;
+        &&
+        preparedHeightPlan != null
+        &&
+        preparedSurfacePlan != null
+        &&
+        preparedHeightPlan.Generation ==
+            preparedSurfacePlan.Generation
+        &&
+        preparedHeightPlan.LevelCount ==
+            preparedSurfacePlan.LevelCount;
 
     public bool TryGetPreparedClipmapLayout(
         TerrainClipmapLayout output
@@ -436,14 +443,14 @@ public partial class TerrainHeightmapStreamer
             !TryBuildHeightLayoutCoveragePlan(
                 layout,
                 candidateGeneration,
-                out TerrainHeightLayoutCoveragePlan plan,
-                out string errorMessage
+                out TerrainHeightLayoutCoveragePlan heightPlan,
+                out string heightError
             )
         )
         {
             Debug.LogError(
                 "TerrainHeightmapStreamer could not plan multiresolution Height coverage.\n\n" +
-                errorMessage,
+                heightError,
                 this
             );
 
@@ -451,15 +458,48 @@ public partial class TerrainHeightmapStreamer
         }
 
         if (
-            latestRequestedHeightPlan != null
-            && AreCoveragePlansEquivalent(
-                latestRequestedHeightPlan,
-                plan
+            !TryBuildSurfaceLayoutCoveragePlan(
+                layout,
+                candidateGeneration,
+                out TerrainSurfaceLayoutCoveragePlan surfacePlan,
+                out string surfaceError
             )
         )
         {
-            plan.Generation =
+            Debug.LogError(
+                "TerrainHeightmapStreamer could not plan multiresolution Surface coverage.\n\n" +
+                surfaceError,
+                this
+            );
+
+            return;
+        }
+
+        bool equivalent =
+            latestRequestedHeightPlan != null
+            &&
+            latestRequestedSurfacePlan != null
+            &&
+            AreCoveragePlansEquivalent(
+                latestRequestedHeightPlan,
+                heightPlan
+            )
+            &&
+            AreSurfaceCoveragePlansEquivalent(
+                latestRequestedSurfacePlan,
+                surfacePlan
+            );
+
+        if (equivalent)
+        {
+            int existingGeneration =
                 latestRequestedHeightPlan.Generation;
+
+            heightPlan.Generation =
+                existingGeneration;
+
+            surfacePlan.Generation =
+                existingGeneration;
         }
         else
         {
@@ -467,14 +507,21 @@ public partial class TerrainHeightmapStreamer
         }
 
         latestRequestedHeightPlan =
-            plan;
+            heightPlan;
+
+        latestRequestedSurfacePlan =
+            surfacePlan;
 
         NotifyLatestHeightSourcePlan(
-            plan
+            heightPlan
+        );
+
+        NotifyLatestSurfaceSourcePlan(
+            surfacePlan
         );
 
         requestedClipmapCenter =
-            plan.CoverageCenter;
+            heightPlan.CoverageCenter;
 
         hasRequestedClipmapCenter =
             true;
@@ -517,37 +564,17 @@ public partial class TerrainHeightmapStreamer
         TerrainClipmapLayout layout
     )
     {
-        if (
-            layout == null
-            || !layout.IsValid
-        )
-        {
-            return false;
-        }
-
-        if (
-            !CanActiveHeightCachesCoverLayout(
+        return
+            layout != null
+            &&
+            layout.IsValid
+            &&
+            CanActiveHeightCachesCoverLayout(
                 layout
             )
-        )
-        {
-            return false;
-        }
-
-        if (
-            !TryCalculateSurfaceRequiredPages(
-                layout.MinimumXZ,
-                layout.MaximumXZ,
-                out TerrainHeightPageRect surfaceRequired
-            )
-        )
-        {
-            return false;
-        }
-
-        return
-            IsSurfacePageRectActive(
-                surfaceRequired
+            &&
+            CanActiveSurfaceCachesCoverLayout(
+                layout
             );
     }
 
@@ -584,7 +611,13 @@ public partial class TerrainHeightmapStreamer
             return false;
         }
 
+        preparedHeightLayoutGeneration =
+            0;
+
         preparedHeightPlan =
+            null;
+
+        preparedSurfacePlan =
             null;
 
         return true;
@@ -611,6 +644,12 @@ public partial class TerrainHeightmapStreamer
             heightPageLoadScheduler.Pump();
         }
 
+        if (surfacePageLoadScheduler != null)
+        {
+            ConfigureSurfaceSourceScheduler();
+            surfacePageLoadScheduler.Pump();
+        }
+
         if (multiresolutionBindingPending)
         {
             return;
@@ -618,10 +657,20 @@ public partial class TerrainHeightmapStreamer
 
         EnsureFallbackRequestedLayout();
 
-        TerrainHeightLayoutCoveragePlan plan =
+        TerrainHeightLayoutCoveragePlan heightPlan =
             latestRequestedHeightPlan;
 
-        if (plan == null)
+        TerrainSurfaceLayoutCoveragePlan surfacePlan =
+            latestRequestedSurfacePlan;
+
+        if (
+            heightPlan == null
+            ||
+            surfacePlan == null
+            ||
+            heightPlan.Generation !=
+                surfacePlan.Generation
+        )
         {
             return;
         }
@@ -636,12 +685,12 @@ public partial class TerrainHeightmapStreamer
 
         for (
             int level = 0;
-            level < plan.LevelCount;
+            level < heightPlan.LevelCount;
             level++
         )
         {
             TerrainHeightLodCoveragePlan levelPlan =
-                plan.Levels[level];
+                heightPlan.Levels[level];
 
             TerrainHeightLodRuntimeState state =
                 heightLodStates[level];
@@ -656,14 +705,35 @@ public partial class TerrainHeightmapStreamer
                 levelPlan.TransitionRequired;
         }
 
-        bool surfaceTransitionRequired =
-            !IsSurfacePageRectActive(
-                plan.SurfaceRequiredPages
-            );
+        bool anySurfaceTransition =
+            false;
+
+        for (
+            int level = 0;
+            level < surfacePlan.LevelCount;
+            level++
+        )
+        {
+            TerrainSurfaceLodCoveragePlan levelPlan =
+                surfacePlan.Levels[level];
+
+            TerrainSurfaceLodRuntimeState state =
+                surfaceLodStates[level];
+
+            levelPlan.TransitionRequired =
+                !IsRequiredSurfacePageRectActive(
+                    state,
+                    levelPlan.RequiredPages
+                );
+
+            anySurfaceTransition |=
+                levelPlan.TransitionRequired;
+        }
 
         if (
             !anyHeightTransition
-            && !surfaceTransitionRequired
+            &&
+            !anySurfaceTransition
         )
         {
             return;
@@ -672,15 +742,19 @@ public partial class TerrainHeightmapStreamer
         loadRoutine =
             StartCoroutine(
                 MultiresolutionTerrainTransitionRoutine(
-                    plan,
-                    surfaceTransitionRequired
+                    heightPlan,
+                    surfacePlan
                 )
             );
     }
 
     private void EnsureFallbackRequestedLayout()
     {
-        if (latestRequestedHeightPlan != null)
+        if (
+            latestRequestedHeightPlan != null
+            &&
+            latestRequestedSurfacePlan != null
+        )
         {
             return;
         }
@@ -717,18 +791,41 @@ public partial class TerrainHeightmapStreamer
             return;
         }
 
+        int generation =
+            nextHeightLayoutGeneration++;
+
         if (
-            TryBuildHeightLayoutCoveragePlan(
+            !TryBuildHeightLayoutCoveragePlan(
                 fallbackStreamingLayout,
-                nextHeightLayoutGeneration++,
-                out TerrainHeightLayoutCoveragePlan plan,
+                generation,
+                out TerrainHeightLayoutCoveragePlan heightPlan,
+                out _
+            )
+            ||
+            !TryBuildSurfaceLayoutCoveragePlan(
+                fallbackStreamingLayout,
+                generation,
+                out TerrainSurfaceLayoutCoveragePlan surfacePlan,
                 out _
             )
         )
         {
-            latestRequestedHeightPlan =
-                plan;
+            return;
         }
+
+        latestRequestedHeightPlan =
+            heightPlan;
+
+        latestRequestedSurfacePlan =
+            surfacePlan;
+
+        NotifyLatestHeightSourcePlan(
+            heightPlan
+        );
+
+        NotifyLatestSurfaceSourcePlan(
+            surfacePlan
+        );
     }
 
     // =====================================================
@@ -744,8 +841,6 @@ public partial class TerrainHeightmapStreamer
             left == null
             || right == null
             || left.LevelCount != right.LevelCount
-            || left.SurfaceRequiredPages.Minimum != right.SurfaceRequiredPages.Minimum
-            || left.SurfaceRequiredPages.Maximum != right.SurfaceRequiredPages.Maximum
         )
         {
             return false;
@@ -968,39 +1063,6 @@ public partial class TerrainHeightmapStreamer
                 };
         }
 
-        if (
-            !TryCalculateSurfaceRequiredPages(
-                result.MinimumXZ,
-                result.MaximumXZ,
-                out TerrainHeightPageRect surfaceRequiredPages
-            )
-        )
-        {
-            errorMessage =
-                "Could not calculate required Surface cache pages for the clipmap layout.";
-
-            return false;
-        }
-
-        if (
-            surfaceRequiredPages.Width > surfaceCacheWidth
-            || surfaceRequiredPages.Height > surfaceCacheHeight
-        )
-        {
-            errorMessage =
-                "The independently owned Surface cache is too small for the requested clipmap layout.";
-
-            return false;
-        }
-
-        result.SurfaceRequiredPages =
-            surfaceRequiredPages;
-
-        result.SurfaceRequestedOrigin =
-            ChooseSurfaceCacheOrigin(
-                surfaceRequiredPages
-            );
-
         plan = result;
 
         return true;
@@ -1202,237 +1264,40 @@ public partial class TerrainHeightmapStreamer
     }
 
     // =====================================================
-    // SURFACE LAYOUT COVERAGE
-    // =====================================================
-
-    private bool TryCalculateSurfaceRequiredPages(
-        Vector2 layoutMinimumXZ,
-        Vector2 layoutMaximumXZ,
-        out TerrainHeightPageRect pages
-    )
-    {
-        pages = default;
-
-        if (
-            surfaceMaskManifest == null
-            || surfaceMaskManifest.tileGridWidth <= 0
-            || surfaceMaskManifest.tileGridHeight <= 0
-        )
-        {
-            return false;
-        }
-
-        float margin =
-            Mathf.Max(
-                0f,
-                surfaceMaskManifest.sampleSpacing
-            );
-
-        float minimumX =
-            Mathf.Clamp(
-                layoutMinimumXZ.x - margin,
-                0f,
-                surfaceMaskManifest.worldSizeXZ.x
-            );
-
-        float minimumZ =
-            Mathf.Clamp(
-                layoutMinimumXZ.y - margin,
-                0f,
-                surfaceMaskManifest.worldSizeXZ.y
-            );
-
-        float maximumX =
-            Mathf.Clamp(
-                layoutMaximumXZ.x + margin,
-                0f,
-                surfaceMaskManifest.worldSizeXZ.x
-            );
-
-        float maximumZ =
-            Mathf.Clamp(
-                layoutMaximumXZ.y + margin,
-                0f,
-                surfaceMaskManifest.worldSizeXZ.y
-            );
-
-        float tileWorldSize =
-            Mathf.Max(
-                0.0001f,
-                surfaceMaskManifest.tileWorldSize
-            );
-
-        int maximumTileX =
-            Mathf.Max(
-                0,
-                surfaceMaskManifest.tileGridWidth - 1
-            );
-
-        int maximumTileZ =
-            Mathf.Max(
-                0,
-                surfaceMaskManifest.tileGridHeight - 1
-            );
-
-        pages =
-            new TerrainHeightPageRect(
-                new Vector2Int(
-                    Mathf.Clamp(
-                        Mathf.FloorToInt(
-                            minimumX /
-                            tileWorldSize
-                        ),
-                        0,
-                        maximumTileX
-                    ),
-                    Mathf.Clamp(
-                        Mathf.FloorToInt(
-                            minimumZ /
-                            tileWorldSize
-                        ),
-                        0,
-                        maximumTileZ
-                    )
-                ),
-                new Vector2Int(
-                    Mathf.Clamp(
-                        Mathf.FloorToInt(
-                            maximumX /
-                            tileWorldSize
-                        ),
-                        0,
-                        maximumTileX
-                    ),
-                    Mathf.Clamp(
-                        Mathf.FloorToInt(
-                            maximumZ /
-                            tileWorldSize
-                        ),
-                        0,
-                        maximumTileZ
-                    )
-                )
-            );
-
-        return pages.IsValid;
-    }
-
-    private bool IsSurfacePageRectActive(
-        TerrainHeightPageRect required
-    )
-    {
-        if (
-            !surfaceCacheReady
-            || surfaceMaskCache == null
-            || !required.IsValid
-        )
-        {
-            return false;
-        }
-
-        TerrainHeightPageRect active =
-            new TerrainHeightPageRect(
-                surfaceCacheOriginTile,
-                new Vector2Int(
-                    surfaceCacheOriginTile.x + surfaceCacheWidth - 1,
-                    surfaceCacheOriginTile.y + surfaceCacheHeight - 1
-                )
-            );
-
-        return active.Contains(required);
-    }
-
-    private Vector2Int ChooseSurfaceCacheOrigin(
-        TerrainHeightPageRect required
-    )
-    {
-        if (IsSurfacePageRectActive(required))
-        {
-            return surfaceCacheOriginTile;
-        }
-
-        int centerX =
-            (required.Minimum.x + required.Maximum.x) / 2;
-
-        int centerZ =
-            (required.Minimum.y + required.Maximum.y) / 2;
-
-        int originX =
-            centerX - surfaceCacheWidth / 2;
-
-        int originZ =
-            centerZ - surfaceCacheHeight / 2;
-
-        originX =
-            Mathf.Clamp(
-                originX,
-                required.Maximum.x - surfaceCacheWidth + 1,
-                required.Minimum.x
-            );
-
-        originZ =
-            Mathf.Clamp(
-                originZ,
-                required.Maximum.y - surfaceCacheHeight + 1,
-                required.Minimum.y
-            );
-
-        Vector2Int maximumOrigin =
-            GetMaximumSurfaceCacheOrigin();
-
-        return
-            new Vector2Int(
-                Mathf.Clamp(
-                    originX,
-                    0,
-                    maximumOrigin.x
-                ),
-                Mathf.Clamp(
-                    originZ,
-                    0,
-                    maximumOrigin.y
-                )
-            );
-    }
-
-    // =====================================================
     // MULTI-LOD TRANSITION
     // =====================================================
 
     private IEnumerator MultiresolutionTerrainTransitionRoutine(
-        TerrainHeightLayoutCoveragePlan plan,
-        bool surfaceTransitionRequired
+        TerrainHeightLayoutCoveragePlan heightPlan,
+        TerrainSurfaceLayoutCoveragePlan surfacePlan
     )
     {
-        if (plan == null)
+        if (
+            heightPlan == null
+            ||
+            surfacePlan == null
+            ||
+            heightPlan.Generation !=
+                surfacePlan.Generation
+        )
         {
-            loadRoutine = null;
+            loadRoutine =
+                null;
+
             yield break;
         }
 
         int generation =
-            plan.Generation;
-
-        bool surfaceAttemptStarted =
-            false;
-
-        HashSet<Vector2Int> requiredSurfaceTiles =
-            null;
-
-        List<Vector2Int> enteringSurfaceTiles =
-            null;
-
-        int retainedSurfaceTileCount =
-            0;
+            heightPlan.Generation;
 
         for (
             int level = 0;
-            level < plan.LevelCount;
+            level < heightPlan.LevelCount;
             level++
         )
         {
             TerrainHeightLodCoveragePlan levelPlan =
-                plan.Levels[level];
+                heightPlan.Levels[level];
 
             TerrainHeightLodRuntimeState state =
                 heightLodStates[level];
@@ -1446,13 +1311,40 @@ public partial class TerrainHeightmapStreamer
             if (levelPlan.TransitionRequired)
             {
                 state.TransitionState =
-                    TerrainHeightLodTransitionState.WaitingForRequiredPages;
+                    TerrainHeightLodTransitionState
+                        .WaitingForRequiredPages;
+            }
+        }
+
+        for (
+            int level = 0;
+            level < surfacePlan.LevelCount;
+            level++
+        )
+        {
+            TerrainSurfaceLodCoveragePlan levelPlan =
+                surfacePlan.Levels[level];
+
+            TerrainSurfaceLodRuntimeState state =
+                surfaceLodStates[level];
+
+            levelPlan.TransitionRequired =
+                !IsRequiredSurfacePageRectActive(
+                    state,
+                    levelPlan.RequiredPages
+                );
+
+            if (levelPlan.TransitionRequired)
+            {
+                state.TransitionState =
+                    TerrainSurfaceCacheTransitionState
+                        .LoadingSources;
             }
         }
 
         if (
             !BeginHeightSourceTransition(
-                plan,
+                heightPlan,
                 out string heightSourceError
             )
         )
@@ -1463,89 +1355,54 @@ public partial class TerrainHeightmapStreamer
             );
 
             FailMultiresolutionTransition(
-                plan,
-                surfaceAttemptStarted
+                heightPlan,
+                surfacePlan
             );
 
             yield break;
         }
 
-        if (surfaceTransitionRequired)
+        if (
+            !BeginSurfaceSourceTransition(
+                surfacePlan,
+                out string surfaceSourceError
+            )
+        )
         {
-            BeginSurfaceLoadAttempt();
-            surfaceAttemptStarted = true;
+            Debug.LogError(
+                surfaceSourceError,
+                this
+            );
 
-            surfaceTransitionState =
-                TerrainSurfaceCacheTransitionState.LoadingSources;
+            FailMultiresolutionTransition(
+                heightPlan,
+                surfacePlan
+            );
 
-            requiredSurfaceTiles =
-                new HashSet<Vector2Int>();
-
-            enteringSurfaceTiles =
-                new List<Vector2Int>();
-
-            if (
-                !TryBuildSurfaceTransitionPlan(
-                    plan.SurfaceRequestedOrigin,
-                    requiredSurfaceTiles,
-                    enteringSurfaceTiles,
-                    out retainedSurfaceTileCount,
-                    out string surfacePlanError
-                )
-            )
-            {
-                Debug.LogError(
-                    surfacePlanError,
-                    this
-                );
-
-                FailMultiresolutionTransition(
-                    plan,
-                    surfaceAttemptStarted
-                );
-
-                yield break;
-            }
-
-            for (
-                int index = 0;
-                index < enteringSurfaceTiles.Count;
-                index++
-            )
-            {
-                if (
-                    !TryBeginSurfaceTileLoad(
-                        enteringSurfaceTiles[index],
-                        out string surfaceLoadError
-                    )
-                )
-                {
-                    Debug.LogError(
-                        surfaceLoadError,
-                        this
-                    );
-
-                    FailMultiresolutionTransition(
-                        plan,
-                        surfaceAttemptStarted
-                    );
-
-                    yield break;
-                }
-            }
+            yield break;
         }
 
         while (
             !AreAllRequiredHeightPagesPrepared(
-                plan
+                heightPlan
+            )
+            ||
+            !AreAllRequiredSurfacePagesPrepared(
+                surfacePlan
             )
         )
         {
             PumpHeightSources(
-                plan
+                heightPlan
+            );
+
+            PumpSurfaceSources(
+                surfacePlan
             );
 
             if (
+                heightPageLoadScheduler != null
+                &&
                 heightPageLoadScheduler
                     .HasRequiredFailure(
                         generation
@@ -1558,125 +1415,77 @@ public partial class TerrainHeightmapStreamer
                 );
 
                 FailMultiresolutionTransition(
-                    plan,
-                    surfaceAttemptStarted
+                    heightPlan,
+                    surfacePlan
                 );
 
                 yield break;
             }
 
-            yield return null;
-        }
-
-        if (surfaceTransitionRequired)
-        {
-            for (
-                int index = 0;
-                index < enteringSurfaceTiles.Count;
-                index++
+            if (
+                surfacePageLoadScheduler != null
+                &&
+                surfacePageLoadScheduler
+                    .HasRequiredFailure(
+                        generation
+                    )
             )
             {
-                Vector2Int coordinate =
-                    enteringSurfaceTiles[index];
+                Debug.LogError(
+                    "A mandatory multiresolution Surface page failed to load. The previously active terrain layout remains in use.",
+                    this
+                );
 
-                if (
-                    !TryGetResidentSurfaceTile(
-                        coordinate,
-                        out ResidentSurfaceTile surfaceTile
-                    )
-                )
-                {
-                    Debug.LogError(
-                        $"A requested Surface page is missing from residency: ({coordinate.x}, {coordinate.y}).",
-                        this
-                    );
+                FailMultiresolutionTransition(
+                    heightPlan,
+                    surfacePlan
+                );
 
-                    FailMultiresolutionTransition(
-                        plan,
-                        surfaceAttemptStarted
-                    );
-
-                    yield break;
-                }
-
-                var handle =
-                    surfaceTile.handle;
-
-                if (!handle.IsDone)
-                {
-                    yield return handle;
-                }
-
-                if (
-                    !TryFinalizeResidentSurfaceTile(
-                        coordinate,
-                        out string surfaceFinalizeError
-                    )
-                )
-                {
-                    Debug.LogError(
-                        surfaceFinalizeError,
-                        this
-                    );
-
-                    FailMultiresolutionTransition(
-                        plan,
-                        surfaceAttemptStarted
-                    );
-
-                    yield break;
-                }
+                yield break;
             }
+
+            yield return
+                null;
         }
 
         for (
             int level = 0;
-            level < plan.LevelCount;
+            level < heightPlan.LevelCount;
             level++
         )
         {
             TerrainHeightLodCoveragePlan levelPlan =
-                plan.Levels[level];
+                heightPlan.Levels[level];
 
             if (!levelPlan.TransitionRequired)
             {
                 continue;
             }
 
-            TerrainHeightLodRuntimeState state =
-                heightLodStates[level];
-
-            state.TransitionState =
-                TerrainHeightLodTransitionState.CommitPending;
+            heightLodStates[level]
+                .TransitionState =
+                    TerrainHeightLodTransitionState
+                        .CommitPending;
         }
 
-        if (surfaceTransitionRequired)
+        for (
+            int level = 0;
+            level < surfacePlan.LevelCount;
+            level++
+        )
         {
-            surfaceTransitionState =
-                TerrainSurfaceCacheTransitionState.PopulatingStaging;
+            TerrainSurfaceLodCoveragePlan levelPlan =
+                surfacePlan.Levels[level];
 
-            if (
-                !TryPopulateSurfaceStagingCache(
-                    plan.SurfaceRequestedOrigin,
-                    out string surfaceStagingError
-                )
-            )
+            if (!levelPlan.TransitionRequired)
             {
-                Debug.LogError(
-                    surfaceStagingError,
-                    this
-                );
-
-                FailMultiresolutionTransition(
-                    plan,
-                    surfaceAttemptStarted
-                );
-
-                yield break;
+                continue;
             }
 
-            surfaceTransitionState =
-                TerrainSurfaceCacheTransitionState.CommitPending;
+            surfaceLodStates[level]
+                .TransitionState =
+                    TerrainSurfaceCacheTransitionState
+                        .CommitPending;
         }
 
         // -------------------------------------------------
@@ -1685,12 +1494,12 @@ public partial class TerrainHeightmapStreamer
 
         for (
             int level = 0;
-            level < plan.LevelCount;
+            level < heightPlan.LevelCount;
             level++
         )
         {
             TerrainHeightLodCoveragePlan levelPlan =
-                plan.Levels[level];
+                heightPlan.Levels[level];
 
             if (!levelPlan.TransitionRequired)
             {
@@ -1733,31 +1542,72 @@ public partial class TerrainHeightmapStreamer
                 true;
 
             state.TransitionState =
-                TerrainHeightLodTransitionState.Idle;
+                TerrainHeightLodTransitionState
+                    .Idle;
         }
 
-        if (surfaceTransitionRequired)
+        for (
+            int level = 0;
+            level < surfacePlan.LevelCount;
+            level++
+        )
         {
-            SwapSurfaceMaskCaches();
+            TerrainSurfaceLodCoveragePlan levelPlan =
+                surfacePlan.Levels[level];
 
-            surfaceCacheOriginTile =
-                plan.SurfaceRequestedOrigin;
+            if (!levelPlan.TransitionRequired)
+            {
+                continue;
+            }
 
-            requestedSurfaceOriginTile =
-                plan.SurfaceRequestedOrigin;
+            TerrainSurfaceLodRuntimeState state =
+                surfaceLodStates[level];
 
-            surfaceCacheReady =
+            Texture2DArray previousActive =
+                state.ActiveCache;
+
+            state.ActiveCache =
+                state.StagingCache;
+
+            state.StagingCache =
+                previousActive;
+
+            state.ActiveCacheOrigin =
+                levelPlan.RequestedCacheOrigin;
+
+            state.ActiveRequiredPages =
+                levelPlan.RequiredPages;
+
+            state.ActiveValidPages.Clear();
+
+            foreach (
+                Vector2Int coordinate
+                in state.StagingValidPages
+            )
+            {
+                state.ActiveValidPages.Add(
+                    coordinate
+                );
+            }
+
+            state.StagingValidPages.Clear();
+
+            state.CacheReady =
                 true;
 
-            surfaceTransitionState =
-                TerrainSurfaceCacheTransitionState.Idle;
+            state.TransitionState =
+                TerrainSurfaceCacheTransitionState
+                    .Idle;
         }
 
         preparedHeightLayoutGeneration =
             generation;
 
         preparedHeightPlan =
-            plan;
+            heightPlan;
+
+        preparedSurfacePlan =
+            surfacePlan;
 
         /*
          * Do not rebind renderers here. The controller may still have the
@@ -1769,35 +1619,61 @@ public partial class TerrainHeightmapStreamer
             true;
 
         NotifyActiveCacheCoverageIfChanged();
-
-        if (surfaceTransitionRequired)
-        {
-            NotifyActiveSurfaceCacheCoverageIfChanged();
-        }
+        NotifyActiveSurfaceCacheCoverageIfChanged();
 
         CompleteHeightSourceTransition(
-            plan
+            heightPlan
         );
 
-        if (surfaceTransitionRequired)
+        CompleteSurfaceSourceTransition(
+            surfacePlan
+        );
+
+        if (heightPageLoadScheduler != null)
         {
-            CompleteSurfaceLoadAttempt(
-                requiredSurfaceTiles
-            );
+            heightPageLoadScheduler
+                .ClearRequiredFailure(
+                    generation
+                );
         }
 
-        heightPageLoadScheduler.ClearRequiredFailure(
-            generation
-        );
+        if (surfacePageLoadScheduler != null)
+        {
+            surfacePageLoadScheduler
+                .ClearRequiredFailure(
+                    generation
+                );
+        }
 
         if (
             latestRequestedHeightPlan != null
-            && latestRequestedHeightPlan.Generation > generation
+            &&
+            latestRequestedHeightPlan.Generation >
+                generation
+            &&
+            heightPageLoadScheduler != null
         )
         {
             heightPageLoadScheduler
                 .DiscardQueuedOptionalOlderThan(
-                    latestRequestedHeightPlan.Generation
+                    latestRequestedHeightPlan
+                        .Generation
+                );
+        }
+
+        if (
+            latestRequestedSurfacePlan != null
+            &&
+            latestRequestedSurfacePlan.Generation >
+                generation
+            &&
+            surfacePageLoadScheduler != null
+        )
+        {
+            surfacePageLoadScheduler
+                .DiscardQueuedOptionalOlderThan(
+                    latestRequestedSurfacePlan
+                        .Generation
                 );
         }
 
@@ -1807,34 +1683,29 @@ public partial class TerrainHeightmapStreamer
         if (logCacheUpdates)
         {
             Debug.Log(
-                "Multiresolution terrain Height caches committed.\n\n" +
-                $"LOD States: {heightLodStates.Length}\n" +
+                "Multiresolution terrain Height + Surface caches committed.\n\n" +
+                $"Height LOD States: {heightLodStates.Length}\n" +
+                $"Surface LOD States: {surfaceLodStates.Length}\n" +
                 $"Active Height Loads: {ActiveHeightPageLoadCount}\n" +
                 $"Queued Height Loads: {QueuedHeightPageLoadCount}\n" +
-                $"Surface Transition: {(surfaceTransitionRequired ? "Committed" : "Retained")}",
+                $"Active Surface Loads: {ActiveSurfacePageLoadCount}\n" +
+                $"Queued Surface Loads: {QueuedSurfacePageLoadCount}",
                 this
             );
-
-            if (surfaceTransitionRequired)
-            {
-                LogSurfaceCacheReady(
-                    retainedSurfaceTileCount,
-                    enteringSurfaceTiles.Count,
-                    residentSurfaceTiles.Count
-                );
-            }
         }
     }
 
     private void FailMultiresolutionTransition(
-        TerrainHeightLayoutCoveragePlan plan,
-        bool surfaceAttemptStarted
+        TerrainHeightLayoutCoveragePlan heightPlan,
+        TerrainSurfaceLayoutCoveragePlan surfacePlan
     )
     {
         int generation =
-            plan != null
-                ? plan.Generation
-                : -1;
+            heightPlan != null
+                ? heightPlan.Generation
+                : surfacePlan != null
+                    ? surfacePlan.Generation
+                    : -1;
 
         if (heightLodStates != null)
         {
@@ -1853,29 +1724,59 @@ public partial class TerrainHeightmapStreamer
                 }
 
                 state.TransitionState =
-                    TerrainHeightLodTransitionState.Idle;
+                    TerrainHeightLodTransitionState
+                        .Idle;
+
+                state.StagingValidPages.Clear();
+            }
+        }
+
+        if (surfaceLodStates != null)
+        {
+            for (
+                int level = 0;
+                level < surfaceLodStates.Length;
+                level++
+            )
+            {
+                TerrainSurfaceLodRuntimeState state =
+                    surfaceLodStates[level];
+
+                if (state == null)
+                {
+                    continue;
+                }
+
+                state.TransitionState =
+                    TerrainSurfaceCacheTransitionState
+                        .Idle;
 
                 state.StagingValidPages.Clear();
             }
         }
 
         RollbackHeightSourceTransition(
-            plan
+            heightPlan
         );
 
-        if (surfaceAttemptStarted)
-        {
-            RollbackSurfaceLoadAttempt();
-
-            surfaceTransitionState =
-                TerrainSurfaceCacheTransitionState.Idle;
-        }
+        RollbackSurfaceSourceTransition(
+            surfacePlan
+        );
 
         if (heightPageLoadScheduler != null)
         {
-            heightPageLoadScheduler.ClearRequiredFailure(
-                generation
-            );
+            heightPageLoadScheduler
+                .ClearRequiredFailure(
+                    generation
+                );
+        }
+
+        if (surfacePageLoadScheduler != null)
+        {
+            surfacePageLoadScheduler
+                .ClearRequiredFailure(
+                    generation
+                );
         }
 
         loadRoutine =
@@ -2021,8 +1922,12 @@ public partial class TerrainHeightmapStreamer
 
         if (
             !AreAllActiveHeightLodCachesReady()
-            || !surfaceCacheReady
-            || heightmapManifest == null
+            ||
+            !AreAllActiveSurfaceLodCachesReady()
+            ||
+            heightmapManifest == null
+            ||
+            surfaceMaskManifest == null
         )
         {
             return;
@@ -2093,7 +1998,7 @@ public partial class TerrainHeightmapStreamer
             );
 
             Debug.LogError(
-                "TerrainHeightmapStreamer could not bind the Surface cache after multiresolution Height binding.\n\n" +
+                "TerrainHeightmapStreamer could not bind multiresolution Surface caches after Height binding.\n\n" +
                 surfaceError,
                 this
             );
@@ -2109,7 +2014,8 @@ public partial class TerrainHeightmapStreamer
             Debug.Log(
                 "Multiresolution Height + Surface caches bound to clipmap shader.\n\n" +
                 $"Renderers: {boundRendererCount}\n" +
-                $"Height LOD States: {heightLodStates.Length}",
+                $"Height LOD States: {heightLodStates.Length}\n" +
+                $"Surface LOD States: {surfaceLodStates.Length}",
                 this
             );
         }

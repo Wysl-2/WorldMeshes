@@ -1,13 +1,9 @@
-using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.AddressableAssets;
-using UnityEngine.ResourceManagement.AsyncOperations;
 
 /*
- * Surface-mask resource ownership for TerrainHeightmapStreamer.
- *
- * Surface cache geometry and transition state live in the SurfaceResidency
- * partial. This partial owns Surface Addressable handles and GPU resources.
+ * Surface-mask manifest validation and per-LOD GPU cache resource helpers for
+ * TerrainHeightmapStreamer. Addressable source handles are owned by the
+ * independent Surface page scheduler.
  */
 public partial class TerrainHeightmapStreamer
 {
@@ -16,33 +12,37 @@ public partial class TerrainHeightmapStreamer
     // =====================================================
 
     [SerializeField]
-    private TerrainSurfaceMaskManifest surfaceMaskManifest;
+    private TerrainSurfaceMaskManifest
+        surfaceMaskManifest;
 
-    // =====================================================
-    // GPU CACHE
-    // =====================================================
-
-    private Texture2DArray surfaceMaskCache;
-
-    private Texture2DArray stagingSurfaceMaskCache;
-
-    private readonly Dictionary<Vector2Int, ResidentSurfaceTile>
-        residentSurfaceTiles =
-            new Dictionary<Vector2Int, ResidentSurfaceTile>();
+    public TerrainSurfaceMaskManifest
+        SurfaceMaskManifest =>
+            surfaceMaskManifest;
 
     /*
-     * Surface assets acquired by the current cache-window transition.
-     * On failure these are rolled back without disturbing retained assets.
+     * Compatibility view for callers that still inspect the primary Surface
+     * cache. Production residency is per LOD.
      */
-    private readonly List<Vector2Int>
-        currentSurfaceLoadAcquisitions =
-            new List<Vector2Int>();
+    public Texture2DArray SurfaceMaskCache
+    {
+        get
+        {
+            if (
+                surfaceLodStates == null
+                ||
+                surfaceLodStates.Length == 0
+                ||
+                surfaceLodStates[0] == null
+            )
+            {
+                return null;
+            }
 
-    public Texture2DArray SurfaceMaskCache =>
-        surfaceMaskCache;
-
-    public TerrainSurfaceMaskManifest SurfaceMaskManifest =>
-        surfaceMaskManifest;
+            return
+                surfaceLodStates[0]
+                    .ActiveCache;
+        }
+    }
 
     // =====================================================
     // HIERARCHY CONFIGURATION
@@ -213,6 +213,160 @@ public partial class TerrainHeightmapStreamer
         }
 
         if (
+            !surfaceMaskManifest
+                .streamingPyramidIsComplete
+            ||
+            surfaceMaskManifest
+                .streamingPyramidCompilerVersion !=
+            TerrainSurfaceMaskManifest
+                .CurrentStreamingPyramidCompilerVersion
+            ||
+            surfaceMaskManifest
+                .streamingPyramidPolicyVersion !=
+            TerrainSurfaceStreamingPyramidPolicy
+                .CurrentPolicyVersion
+            ||
+            surfaceMaskManifest
+                .streamingSourceSurfaceMaskGenerationRevision !=
+            surfaceMaskManifest
+                .surfaceMaskGenerationRevision
+            ||
+            surfaceMaskManifest
+                .streamingSourceSurfaceGenerationSignature !=
+            surfaceMaskManifest
+                .surfaceGenerationSignature
+            ||
+            surfaceMaskManifest
+                .streamingGenerationRevision <=
+            0
+            ||
+            string.IsNullOrEmpty(
+                surfaceMaskManifest
+                    .streamingGenerationSignature
+            )
+        )
+        {
+            Debug.LogError(
+                "TerrainHeightmapStreamer cannot initialize.\n\n" +
+                "Surface Streaming is missing, stale, or incomplete.\n\n" +
+                "Open Runtime and run Bake Runtime Changes.",
+                this
+            );
+
+            return false;
+        }
+
+        if (
+            !TerrainSurfaceStreamingPyramidPolicy
+                .TryValidatePolicy(
+                    worldSettings,
+                    surfaceMaskManifest,
+                    out string policyError
+                )
+        )
+        {
+            Debug.LogError(
+                "TerrainHeightmapStreamer cannot initialize multiresolution Surface streaming.\n\n" +
+                policyError,
+                this
+            );
+
+            return false;
+        }
+
+        int levelCount =
+            TerrainClipmapLayoutUtility
+                .GetLevelCount(
+                    worldSettings
+                );
+
+        for (
+            int level = 0;
+            level < levelCount;
+            level++
+        )
+        {
+            if (
+                !TerrainSurfaceStreamingPyramidPolicy
+                    .TryGetRequiredStrideForClipmapLevel(
+                        worldSettings,
+                        level,
+                        out int sampleStride,
+                        out string strideError
+                    )
+            )
+            {
+                Debug.LogError(
+                    "TerrainHeightmapStreamer cannot initialize multiresolution Surface streaming.\n\n" +
+                    strideError,
+                    this
+                );
+
+                return false;
+            }
+
+            if (
+                !surfaceMaskManifest
+                    .TryGetSurfaceRepresentationDescriptor(
+                        sampleStride,
+                        out TerrainSurfaceStreamingLevelDescriptor
+                            descriptor
+                    )
+            )
+            {
+                Debug.LogError(
+                    "TerrainHeightmapStreamer cannot initialize multiresolution Surface streaming.\n\n" +
+                    $"Surface representation stride {sampleStride} required by LOD{level} is unavailable.",
+                    this
+                );
+
+                return false;
+            }
+
+            float expectedSpacing =
+                TerrainClipmapLayoutUtility
+                    .GetLODSpacing(
+                        worldSettings,
+                        level
+                    );
+
+            if (
+                !descriptor.IsStructurallyValid
+                ||
+                descriptor.TextureFormat !=
+                    TextureFormat.R8
+                ||
+                descriptor.TileGridWidth !=
+                    surfaceMaskManifest
+                        .tileGridWidth
+                ||
+                descriptor.TileGridHeight !=
+                    surfaceMaskManifest
+                        .tileGridHeight
+                ||
+                !Mathf.Approximately(
+                    descriptor.TileWorldSize,
+                    surfaceMaskManifest
+                        .tileWorldSize
+                )
+                ||
+                !Mathf.Approximately(
+                    descriptor.SampleSpacing,
+                    expectedSpacing
+                )
+            )
+            {
+                Debug.LogError(
+                    "TerrainHeightmapStreamer cannot initialize multiresolution Surface streaming.\n\n" +
+                    $"Surface representation stride {sampleStride} for LOD{level} is incompatible with the runtime clipmap.",
+                    this
+                );
+
+                return false;
+            }
+        }
+
+        if (
             !SystemInfo.SupportsTextureFormat(
                 TextureFormat.R8
             )
@@ -231,74 +385,15 @@ public partial class TerrainHeightmapStreamer
     }
 
     // =====================================================
-    // GPU CACHE BUFFERS
+    // GPU CACHE RESOURCE
     // =====================================================
 
-    private bool CreateSurfaceMaskCacheBuffers()
-    {
-        DestroySurfaceMaskCacheBuffers();
-
-        if (
-            surfaceMaskManifest == null
-            || surfaceCacheWidth <= 0
-            || surfaceCacheHeight <= 0
+    private static Texture2DArray
+        CreateSurfaceMaskCacheTexture(
+            string textureName,
+            int samplesPerSide,
+            int sliceCount
         )
-        {
-            Debug.LogError(
-                "TerrainHeightmapStreamer cannot create the Surface cache because its cache dimensions are invalid.",
-                this
-            );
-
-            return false;
-        }
-
-        int samplesPerSide =
-            surfaceMaskManifest
-                .samplesPerSide;
-
-        int sliceCount =
-            surfaceCacheWidth *
-            surfaceCacheHeight;
-
-        try
-        {
-            surfaceMaskCache =
-                CreateSurfaceMaskCacheTexture(
-                    "Terrain Surface Mask Cache A",
-                    samplesPerSide,
-                    sliceCount
-                );
-
-            stagingSurfaceMaskCache =
-                CreateSurfaceMaskCacheTexture(
-                    "Terrain Surface Mask Cache B",
-                    samplesPerSide,
-                    sliceCount
-                );
-        }
-        catch (
-            System.Exception exception
-        )
-        {
-            Debug.LogError(
-                "TerrainHeightmapStreamer could not create the independently sized double-buffered GPU Surface cache.\n\n" +
-                exception.Message,
-                this
-            );
-
-            DestroySurfaceMaskCacheBuffers();
-
-            return false;
-        }
-
-        return true;
-    }
-
-    private static Texture2DArray CreateSurfaceMaskCacheTexture(
-        string textureName,
-        int samplesPerSide,
-        int sliceCount
-    )
     {
         Texture2DArray cache =
             new Texture2DArray(
@@ -325,387 +420,6 @@ public partial class TerrainHeightmapStreamer
         return cache;
     }
 
-    private void DestroySurfaceMaskCacheBuffers()
-    {
-        if (surfaceMaskCache != null)
-        {
-            Destroy(
-                surfaceMaskCache
-            );
-
-            surfaceMaskCache =
-                null;
-        }
-
-        if (stagingSurfaceMaskCache != null)
-        {
-            Destroy(
-                stagingSurfaceMaskCache
-            );
-
-            stagingSurfaceMaskCache =
-                null;
-        }
-    }
-
-    // =====================================================
-    // LOAD ATTEMPT LIFETIME
-    // =====================================================
-
-    private void BeginSurfaceLoadAttempt()
-    {
-        currentSurfaceLoadAcquisitions
-            .Clear();
-    }
-
-    private void RollbackSurfaceLoadAttempt()
-    {
-        for (
-            int index =
-                currentSurfaceLoadAcquisitions.Count - 1;
-            index >= 0;
-            index--
-        )
-        {
-            ReleaseResidentSurfaceTile(
-                currentSurfaceLoadAcquisitions[
-                    index
-                ]
-            );
-        }
-
-        currentSurfaceLoadAcquisitions
-            .Clear();
-    }
-
-    private void CompleteSurfaceLoadAttempt(
-        HashSet<Vector2Int> requiredTiles
-    )
-    {
-        currentSurfaceLoadAcquisitions
-            .Clear();
-
-        ReleaseResidentSurfaceTilesNotRequired(
-            requiredTiles
-        );
-    }
-
-    // =====================================================
-    // RESIDENT SURFACE TILES
-    // =====================================================
-
-    private bool TryGetUsableResidentSurfaceTile(
-        Vector2Int coordinate,
-        out ResidentSurfaceTile residentTile
-    )
-    {
-        residentTile =
-            null;
-
-        if (
-            !residentSurfaceTiles.TryGetValue(
-                coordinate,
-                out ResidentSurfaceTile existing
-            )
-        )
-        {
-            return false;
-        }
-
-        bool usable =
-            existing != null
-            &&
-            existing.texture != null
-            &&
-            existing.handle.IsValid()
-            &&
-            existing.handle.Status ==
-                AsyncOperationStatus.Succeeded;
-
-        if (!usable)
-        {
-            ReleaseResidentSurfaceTile(
-                coordinate
-            );
-
-            return false;
-        }
-
-        residentTile =
-            existing;
-
-        return true;
-    }
-
-    private bool TryBeginSurfaceTileLoad(
-        Vector2Int coordinate,
-        out string errorMessage
-    )
-    {
-        errorMessage =
-            "";
-
-        if (
-            TryGetUsableResidentSurfaceTile(
-                coordinate,
-                out _
-            )
-        )
-        {
-            return true;
-        }
-
-        string address =
-            surfaceMaskManifest
-                .GetSurfaceTileAddress(
-                    coordinate.x,
-                    coordinate.y
-                );
-
-        AsyncOperationHandle<Texture2D> handle;
-
-        try
-        {
-            handle =
-                Addressables
-                    .LoadAssetAsync<Texture2D>(
-                        address
-                    );
-        }
-        catch (
-            System.Exception exception
-        )
-        {
-            errorMessage =
-                "Failed to begin loading Addressable surface-mask tile.\n\n" +
-                $"Tile: ({coordinate.x}, {coordinate.y})\n" +
-                $"Address: {address}\n\n" +
-                exception.Message;
-
-            return false;
-        }
-
-        ResidentSurfaceTile tile =
-            new ResidentSurfaceTile(
-                coordinate,
-                address,
-                handle
-            );
-
-        residentSurfaceTiles[
-            coordinate
-        ] =
-            tile;
-
-        currentSurfaceLoadAcquisitions
-            .Add(
-                coordinate
-            );
-
-        return true;
-    }
-
-    private bool TryGetResidentSurfaceTile(
-        Vector2Int coordinate,
-        out ResidentSurfaceTile tile
-    )
-    {
-        return
-            residentSurfaceTiles.TryGetValue(
-                coordinate,
-                out tile
-            )
-            &&
-            tile != null;
-    }
-
-    private bool TryFinalizeResidentSurfaceTile(
-        Vector2Int coordinate,
-        out string errorMessage
-    )
-    {
-        errorMessage =
-            "";
-
-        if (
-            !TryGetResidentSurfaceTile(
-                coordinate,
-                out ResidentSurfaceTile tile
-            )
-        )
-        {
-            errorMessage =
-                "A requested surface-mask tile was missing from the residency table.";
-
-            return false;
-        }
-
-        if (
-            !tile.handle.IsValid()
-            ||
-            tile.handle.Status !=
-                AsyncOperationStatus.Succeeded
-            ||
-            tile.handle.Result == null
-        )
-        {
-            errorMessage =
-                "Failed to load Addressable surface-mask tile.\n\n" +
-                $"Tile: ({coordinate.x}, {coordinate.y})\n" +
-                $"Address: {tile.address}";
-
-            return false;
-        }
-
-        Texture2D texture =
-            tile.handle.Result;
-
-        if (
-            texture.width !=
-                surfaceMaskManifest.samplesPerSide
-            ||
-            texture.height !=
-                surfaceMaskManifest.samplesPerSide
-        )
-        {
-            errorMessage =
-                "Loaded surface-mask tile has incorrect dimensions.\n\n" +
-                $"Tile: ({coordinate.x}, {coordinate.y})\n" +
-                $"Expected: {surfaceMaskManifest.samplesPerSide} x {surfaceMaskManifest.samplesPerSide}\n" +
-                $"Actual: {texture.width} x {texture.height}";
-
-            return false;
-        }
-
-        if (
-            texture.format !=
-                TextureFormat.R8
-        )
-        {
-            errorMessage =
-                "Loaded surface-mask tile has incorrect texture format.\n\n" +
-                $"Tile: ({coordinate.x}, {coordinate.y})\n" +
-                $"Expected: {TextureFormat.R8}\n" +
-                $"Actual: {texture.format}";
-
-            return false;
-        }
-
-        tile.texture =
-            texture;
-
-        return true;
-    }
-
-    // =====================================================
-    // STAGING CACHE
-    // =====================================================
-
-    private bool TryPopulateSurfaceStagingCache(
-        Vector2Int origin,
-        out string errorMessage
-    )
-    {
-        errorMessage =
-            "";
-
-        if (stagingSurfaceMaskCache == null)
-        {
-            errorMessage =
-                "The staging surface-mask cache is unavailable.";
-
-            return false;
-        }
-
-        for (
-            int localZ = 0;
-            localZ < surfaceCacheHeight;
-            localZ++
-        )
-        {
-            for (
-                int localX = 0;
-                localX < surfaceCacheWidth;
-                localX++
-            )
-            {
-                Vector2Int coordinate =
-                    new Vector2Int(
-                        origin.x + localX,
-                        origin.y + localZ
-                    );
-
-                if (
-                    !TryGetUsableResidentSurfaceTile(
-                        coordinate,
-                        out ResidentSurfaceTile tile
-                    )
-                )
-                {
-                    errorMessage =
-                        "A required resident surface-mask tile was missing while building the staging cache.\n\n" +
-                        $"Tile: ({coordinate.x}, {coordinate.y})";
-
-                    return false;
-                }
-
-                if (
-                    !TryResolveCacheSlice(
-                        coordinate,
-                        origin,
-                        surfaceCacheWidth,
-                        surfaceCacheHeight,
-                        out int slice
-                    )
-                )
-                {
-                    errorMessage =
-                        "Could not resolve a GPU cache slice for a required surface-mask tile.";
-
-                    return false;
-                }
-
-                try
-                {
-                    Graphics.CopyTexture(
-                        tile.texture,
-                        0,
-                        0,
-                        stagingSurfaceMaskCache,
-                        slice,
-                        0
-                    );
-                }
-                catch (
-                    System.Exception exception
-                )
-                {
-                    errorMessage =
-                        "Could not copy resident surface-mask tile into the staging GPU cache.\n\n" +
-                        $"Tile: ({coordinate.x}, {coordinate.y})\n" +
-                        $"Slice: {slice}\n\n" +
-                        exception.Message;
-
-                    return false;
-                }
-            }
-        }
-
-        return true;
-    }
-
-    private void SwapSurfaceMaskCaches()
-    {
-        Texture2DArray previous =
-            surfaceMaskCache;
-
-        surfaceMaskCache =
-            stagingSurfaceMaskCache;
-
-        stagingSurfaceMaskCache =
-            previous;
-    }
-
     // =====================================================
     // SHADER BINDING
     // =====================================================
@@ -718,16 +432,8 @@ public partial class TerrainHeightmapStreamer
             TerrainSurfaceMaskBindingUtility
                 .TryBind(
                     transform,
-                    surfaceMaskCache,
-                    surfaceCacheOriginTile,
-                    new Vector2Int(
-                        surfaceCacheWidth,
-                        surfaceCacheHeight
-                    ),
-                    surfaceMaskManifest
-                        .samplesPerSide,
-                    surfaceMaskManifest
-                        .sampleSpacing,
+                    multiresolutionRendererBindings,
+                    surfaceLodStates,
                     out _,
                     out errorMessage
                 );
@@ -739,136 +445,5 @@ public partial class TerrainHeightmapStreamer
             .Disable(
                 transform
             );
-    }
-
-    // =====================================================
-    // RELEASE RESIDENT SURFACE TILES
-    // =====================================================
-
-    private void ReleaseResidentSurfaceTile(
-        Vector2Int coordinate
-    )
-    {
-        if (
-            !residentSurfaceTiles.TryGetValue(
-                coordinate,
-                out ResidentSurfaceTile tile
-            )
-        )
-        {
-            return;
-        }
-
-        if (
-            tile != null
-            &&
-            tile.handle.IsValid()
-        )
-        {
-            Addressables.Release(
-                tile.handle
-            );
-        }
-
-        residentSurfaceTiles.Remove(
-            coordinate
-        );
-    }
-
-    private int ReleaseResidentSurfaceTilesNotRequired(
-        HashSet<Vector2Int> requiredTiles
-    )
-    {
-        List<Vector2Int> leaving =
-            new List<Vector2Int>();
-
-        foreach (
-            KeyValuePair<
-                Vector2Int,
-                ResidentSurfaceTile
-            > pair
-            in residentSurfaceTiles
-        )
-        {
-            if (
-                requiredTiles == null
-                ||
-                !requiredTiles.Contains(
-                    pair.Key
-                )
-            )
-            {
-                leaving.Add(
-                    pair.Key
-                );
-            }
-        }
-
-        foreach (
-            Vector2Int coordinate
-            in leaving
-        )
-        {
-            ReleaseResidentSurfaceTile(
-                coordinate
-            );
-        }
-
-        return leaving.Count;
-    }
-
-    private void ReleaseResidentSurfaceTiles()
-    {
-        List<Vector2Int> coordinates =
-            new List<Vector2Int>(
-                residentSurfaceTiles.Keys
-            );
-
-        foreach (
-            Vector2Int coordinate
-            in coordinates
-        )
-        {
-            ReleaseResidentSurfaceTile(
-                coordinate
-            );
-        }
-
-        currentSurfaceLoadAcquisitions
-            .Clear();
-    }
-
-    // =====================================================
-    // RESIDENT TILE
-    // =====================================================
-
-    private sealed class ResidentSurfaceTile
-    {
-        public readonly Vector2Int coordinate;
-        public readonly string address;
-
-        public readonly AsyncOperationHandle<Texture2D>
-            handle;
-
-        public Texture2D texture;
-
-        public ResidentSurfaceTile(
-            Vector2Int coordinate,
-            string address,
-            AsyncOperationHandle<Texture2D> handle
-        )
-        {
-            this.coordinate =
-                coordinate;
-
-            this.address =
-                address;
-
-            this.handle =
-                handle;
-
-            texture =
-                null;
-        }
     }
 }

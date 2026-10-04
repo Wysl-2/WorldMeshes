@@ -449,8 +449,8 @@ public partial class TerrainHeightmapStreamer :
 
         bool shouldBeBound =
             AreAllActiveHeightLodCachesReady()
-            && surfaceCacheReady
-            && surfaceMaskCache != null;
+            &&
+            AreAllActiveSurfaceLodCachesReady();
 
         if (shouldBeBound)
         {
@@ -499,12 +499,6 @@ public partial class TerrainHeightmapStreamer :
     {
         initialized =
             false;
-
-        surfaceCacheReady =
-            false;
-
-        surfaceTransitionState =
-            TerrainSurfaceCacheTransitionState.Idle;
 
         if (worldSettings == null)
         {
@@ -607,26 +601,9 @@ public partial class TerrainHeightmapStreamer :
             return false;
         }
 
-        CalculateSurfaceCacheDimensions();
-
-        if (
-            surfaceCacheWidth <= 0
-            || surfaceCacheHeight <= 0
-        )
+        if (!InitializeMultiresolutionSurfaceRuntime())
         {
-            Debug.LogError(
-                "TerrainHeightmapStreamer cannot initialize.\n\n" +
-                "Calculated surface-mask cache dimensions are invalid.",
-                this
-            );
-
-            ShutdownMultiresolutionHeightRuntime();
-
-            return false;
-        }
-
-        if (!CreateSurfaceMaskCacheBuffers())
-        {
+            ShutdownMultiresolutionSurfaceRuntime();
             ShutdownMultiresolutionHeightRuntime();
 
             return false;
@@ -760,24 +737,10 @@ public partial class TerrainHeightmapStreamer :
             false;
 
         ShutdownMultiresolutionHeightRuntime();
-
-        ReleaseResidentSurfaceTiles();
-        DestroySurfaceMaskCacheBuffers();
+        ShutdownMultiresolutionSurfaceRuntime();
 
         initialized =
             false;
-
-        surfaceCacheReady =
-            false;
-
-        surfaceCacheOriginTile =
-            Vector2Int.zero;
-
-        requestedSurfaceOriginTile =
-            Vector2Int.zero;
-
-        surfaceTransitionState =
-            TerrainSurfaceCacheTransitionState.Idle;
 
         NotifyActiveCacheCoverageIfChanged();
         NotifyActiveSurfaceCacheCoverageIfChanged();

@@ -179,13 +179,10 @@ public partial class TerrainHeightmapStreamer
             }
         }
 
-        if (
-            !surfaceCacheReady
-            || surfaceMaskCache == null
-        )
+        if (!AreAllActiveSurfaceLodCachesReady())
         {
             reason =
-                "The active Surface cache is not ready.";
+                "The active multiresolution Surface caches are not ready.";
 
             return false;
         }

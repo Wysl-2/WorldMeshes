@@ -1,8 +1,11 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 /*
- * Binds the synchronized runtime surface-mask Texture2DArray to clipmap
- * renderers without disturbing unrelated MaterialPropertyBlock state.
+ * Per-renderer multiresolution Surface cache binding.
+ *
+ * Center/ring renderers use their own LOD Surface cache. A stitch uses the
+ * fine adjacent LOD cache until dual-resolution stitch sampling is enabled.
  */
 public static class TerrainSurfaceMaskBindingUtility
 {
@@ -36,13 +39,12 @@ public static class TerrainSurfaceMaskBindingUtility
             "_SurfaceMaskCacheReady"
         );
 
-    public static bool TryBind(
+    internal static bool TryBind(
         Transform clipmapRoot,
-        Texture surfaceMaskCache,
-        Vector2Int cacheOriginTile,
-        Vector2Int cacheSize,
-        int samplesPerSide,
-        float sampleSpacing,
+        IReadOnlyList<TerrainClipmapRendererBinding>
+            rendererBindings,
+        IReadOnlyList<TerrainSurfaceLodRuntimeState>
+            lodStates,
         out int boundRendererCount,
         out string errorMessage
     )
@@ -61,66 +63,26 @@ public static class TerrainSurfaceMaskBindingUtility
             return false;
         }
 
-        if (surfaceMaskCache == null)
+        if (
+            rendererBindings == null
+            ||
+            rendererBindings.Count == 0
+        )
         {
             errorMessage =
-                "Surface-mask cache texture is null.";
+                "No clipmap renderer bindings are available.";
 
             return false;
         }
 
         if (
-            cacheSize.x <= 0
+            lodStates == null
             ||
-            cacheSize.y <= 0
+            lodStates.Count == 0
         )
         {
             errorMessage =
-                "Surface-mask cache dimensions are invalid.";
-
-            return false;
-        }
-
-        if (samplesPerSide <= 1)
-        {
-            errorMessage =
-                "Surface-mask sample count is invalid.";
-
-            return false;
-        }
-
-        if (
-            float.IsNaN(
-                sampleSpacing
-            )
-            ||
-            float.IsInfinity(
-                sampleSpacing
-            )
-            ||
-            sampleSpacing <= 0f
-        )
-        {
-            errorMessage =
-                "Surface-mask sample spacing is invalid.";
-
-            return false;
-        }
-
-        MeshRenderer[] renderers =
-            clipmapRoot
-                .GetComponentsInChildren<MeshRenderer>(
-                    true
-                );
-
-        if (
-            renderers == null
-            ||
-            renderers.Length == 0
-        )
-        {
-            errorMessage =
-                "No child MeshRenderer components were found under the clipmap root.";
+                "No multiresolution Surface LOD states are available.";
 
             return false;
         }
@@ -128,86 +90,178 @@ public static class TerrainSurfaceMaskBindingUtility
         MaterialPropertyBlock block =
             new MaterialPropertyBlock();
 
-        Vector4 origin =
-            new Vector4(
-                cacheOriginTile.x,
-                cacheOriginTile.y,
-                0f,
-                0f
-            );
-
-        Vector4 dimensions =
-            new Vector4(
-                cacheSize.x,
-                cacheSize.y,
-                0f,
-                0f
-            );
-
-        foreach (
-            MeshRenderer renderer
-            in renderers
+        for (
+            int index = 0;
+            index < rendererBindings.Count;
+            index++
         )
         {
-            if (!IsCompatibleTerrainRenderer(renderer))
+            TerrainClipmapRendererBinding binding =
+                rendererBindings[index];
+
+            if (!binding.IsValid)
             {
-                continue;
+                errorMessage =
+                    "A clipmap renderer binding is invalid.";
+
+                return false;
             }
 
-            renderer.GetPropertyBlock(
-                block
-            );
+            int ownerLevel;
+
+            switch (binding.Role.Kind)
+            {
+                case TerrainClipmapRendererKind.Center:
+                case TerrainClipmapRendererKind.Ring:
+                    ownerLevel =
+                        binding.Role.Level;
+
+                    break;
+
+                case TerrainClipmapRendererKind.Stitch:
+                    ownerLevel =
+                        binding.Role.FineLevel;
+
+                    break;
+
+                default:
+                    errorMessage =
+                        $"Renderer '{binding.Renderer.name}' has an unsupported Surface renderer role.";
+
+                    return false;
+            }
+
+            if (
+                ownerLevel < 0
+                ||
+                ownerLevel >= lodStates.Count
+            )
+            {
+                errorMessage =
+                    $"Renderer '{binding.Renderer.name}' resolved an invalid Surface owner LOD {ownerLevel}.";
+
+                return false;
+            }
+
+            TerrainSurfaceLodRuntimeState state =
+                lodStates[
+                    ownerLevel
+                ];
+
+            if (
+                state == null
+                ||
+                !state.CacheReady
+                ||
+                state.ActiveCache == null
+            )
+            {
+                errorMessage =
+                    $"Renderer '{binding.Renderer.name}' has no ready Surface cache for LOD{ownerLevel}.";
+
+                return false;
+            }
+
+            Material material =
+                binding.Renderer
+                    .sharedMaterial;
+
+            if (
+                material == null
+                ||
+                !material.HasProperty(
+                    SurfaceMaskCachePropertyId
+                )
+                ||
+                !material.HasProperty(
+                    SurfaceMaskCacheOriginTilePropertyId
+                )
+                ||
+                !material.HasProperty(
+                    SurfaceMaskCacheSizePropertyId
+                )
+                ||
+                !material.HasProperty(
+                    SurfaceMaskSamplesPerSidePropertyId
+                )
+                ||
+                !material.HasProperty(
+                    SurfaceMaskSampleSpacingPropertyId
+                )
+                ||
+                !material.HasProperty(
+                    SurfaceMaskCacheReadyPropertyId
+                )
+            )
+            {
+                errorMessage =
+                    $"Renderer '{binding.Renderer.name}' does not use a compatible terrain Surface material.";
+
+                return false;
+            }
+
+            binding.Renderer
+                .GetPropertyBlock(
+                    block
+                );
 
             block.SetTexture(
                 SurfaceMaskCachePropertyId,
-                surfaceMaskCache
+                state.ActiveCache
             );
 
             block.SetVector(
                 SurfaceMaskCacheOriginTilePropertyId,
-                origin
+                new Vector4(
+                    state.ActiveCacheOrigin.x,
+                    state.ActiveCacheOrigin.y,
+                    0f,
+                    0f
+                )
             );
 
             block.SetVector(
                 SurfaceMaskCacheSizePropertyId,
-                dimensions
+                new Vector4(
+                    state.CacheWidth,
+                    state.CacheHeight,
+                    0f,
+                    0f
+                )
             );
 
             block.SetFloat(
                 SurfaceMaskSamplesPerSidePropertyId,
-                samplesPerSide
+                state.Descriptor
+                    .SamplesPerSide
             );
 
             block.SetFloat(
                 SurfaceMaskSampleSpacingPropertyId,
-                sampleSpacing
+                state.Descriptor
+                    .SampleSpacing
             );
 
             /*
              * Set readiness last so the shader never observes an enabled
-             * surface cache with incomplete layout metadata.
+             * Surface cache with incomplete layout metadata.
              */
             block.SetFloat(
                 SurfaceMaskCacheReadyPropertyId,
                 1f
             );
 
-            renderer.SetPropertyBlock(
-                block
-            );
+            binding.Renderer
+                .SetPropertyBlock(
+                    block
+                );
 
             boundRendererCount++;
         }
 
-        if (boundRendererCount <= 0)
-        {
-            errorMessage =
-                "No clipmap terrain renderer exposes the surface-mask shader properties.";
-
-            return false;
-        }
-
-        return true;
+        return
+            boundRendererCount ==
+            rendererBindings.Count;
     }
 
     public static int Disable(
@@ -250,9 +304,6 @@ public static class TerrainSurfaceMaskBindingUtility
                 block
             );
 
-            /*
-             * Do not pass null to SetTexture. The ready flag is authoritative.
-             */
             block.SetFloat(
                 SurfaceMaskCacheReadyPropertyId,
                 0f

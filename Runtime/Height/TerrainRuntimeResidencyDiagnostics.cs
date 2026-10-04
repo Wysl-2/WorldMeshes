@@ -190,7 +190,8 @@ public partial class TerrainHeightmapStreamer
 
         if (
             heightLodStates == null
-            || heightLodStates.Length == 0
+            ||
+            heightLodStates.Length == 0
         )
         {
             reason =
@@ -200,10 +201,25 @@ public partial class TerrainHeightmapStreamer
         }
 
         if (
+            surfaceLodStates == null
+            ||
+            surfaceLodStates.Length == 0
+        )
+        {
+            reason =
+                "No multiresolution Surface LOD states are available.";
+
+            return false;
+        }
+
+        if (
             heightmapManifest.heightTileSamplesPerSide <= 0
-            || heightmapManifest.heightTileWorldSize <= 0f
-            || heightmapManifest.heightTileGridWidth <= 0
-            || heightmapManifest.heightTileGridHeight <= 0
+            ||
+            heightmapManifest.heightTileWorldSize <= 0f
+            ||
+            heightmapManifest.heightTileGridWidth <= 0
+            ||
+            heightmapManifest.heightTileGridHeight <= 0
         )
         {
             reason =
@@ -213,21 +229,24 @@ public partial class TerrainHeightmapStreamer
         }
 
         if (
-            surfaceMaskManifest.samplesPerSide <= 0
-            || surfaceMaskManifest.tileGridWidth <= 0
-            || surfaceMaskManifest.tileGridHeight <= 0
-            || surfaceCacheWidth <= 0
-            || surfaceCacheHeight <= 0
+            surfaceMaskManifest.tileGridWidth <= 0
+            ||
+            surfaceMaskManifest.tileGridHeight <= 0
+            ||
+            surfaceMaskManifest.tileWorldSize <= 0f
         )
         {
             reason =
-                "The runtime Surface manifest or cache has invalid residency geometry.";
+                "The runtime Surface manifest has invalid residency geometry.";
 
             return false;
         }
 
-        long heightActiveGpuBytes = 0L;
-        long heightStagingGpuBytes = 0L;
+        long heightActiveGpuBytes =
+            0L;
+
+        long heightStagingGpuBytes =
+            0L;
 
         for (
             int level = 0;
@@ -267,10 +286,19 @@ public partial class TerrainHeightmapStreamer
             return false;
         }
 
+        if (surfacePageLoadScheduler == null)
+        {
+            reason =
+                "Surface scheduler diagnostics are unavailable.";
+
+            return false;
+        }
+
         long nativeHeightSamplesPerSide =
             Mathf.Max(
                 0,
-                heightmapManifest.heightTileSamplesPerSide
+                heightmapManifest
+                    .heightTileSamplesPerSide
             );
 
         long nativeHeightPageBytes =
@@ -285,71 +313,80 @@ public partial class TerrainHeightmapStreamer
                 scheduler.ConcurrencyLimit
             );
 
-        long surfaceSamplesPerSide =
-            Mathf.Max(
-                0,
-                surfaceMaskManifest.samplesPerSide
-            );
+        long surfaceMaximumSourceBytes =
+            0L;
 
-        long surfacePageBytes =
-            surfaceSamplesPerSide *
-            surfaceSamplesPerSide;
+        for (
+            int level = 0;
+            level < surfaceLodStates.Length;
+            level++
+        )
+        {
+            TerrainSurfaceLodRuntimeState state =
+                surfaceLodStates[level];
 
-        long surfaceSliceCount =
-            (long)surfaceCacheWidth *
-            surfaceCacheHeight;
+            if (
+                state == null
+                ||
+                state.Descriptor
+                    .SamplesPerSide <= 0
+                ||
+                state.CacheWidth <= 0
+                ||
+                state.CacheHeight <= 0
+            )
+            {
+                reason =
+                    $"Surface LOD{level} has invalid residency geometry.";
 
-        long surfaceCacheBytes =
-            surfacePageBytes *
-            surfaceSliceCount;
+                return false;
+            }
+
+            long samples =
+                state.Descriptor
+                    .SamplesPerSide;
+
+            surfaceMaximumSourceBytes =
+                System.Math.Max(
+                    surfaceMaximumSourceBytes,
+                    samples *
+                        samples
+                );
+        }
 
         long surfaceActiveGpuBytes =
-            surfaceMaskCache != null
-                ? surfaceCacheBytes
-                : 0L;
+            EstimateSurfaceActiveGpuCacheBytes();
 
         long surfaceStagingGpuBytes =
-            stagingSurfaceMaskCache != null
-                ? surfaceCacheBytes
-                : 0L;
+            EstimateSurfaceStagingGpuCacheBytes();
 
         int residentSurfaceSourceCount =
-            residentSurfaceTiles.Count;
+            surfacePageLoadScheduler
+                .TransientSourceSlotCount;
 
         long surfaceCurrentSourceBytes =
-            surfacePageBytes *
-            Mathf.Max(
-                0,
-                residentSurfaceSourceCount
-            );
-
-        long totalSurfaceTileCount =
-            (long)Mathf.Max(
-                0,
-                surfaceMaskManifest.tileGridWidth
-            ) *
-            Mathf.Max(
-                0,
-                surfaceMaskManifest.tileGridHeight
-            );
-
-        long surfaceSourceUpperBoundCount =
-            System.Math.Min(
-                totalSurfaceTileCount,
-                surfaceSliceCount * 2L
-            );
+            surfacePageLoadScheduler
+                .EstimatedLogicalSourceBytes;
 
         long surfaceSourceUpperBoundBytes =
-            surfacePageBytes *
-            surfaceSourceUpperBoundCount;
+            surfaceMaximumSourceBytes *
+            Mathf.Max(
+                1,
+                MaxConcurrentSurfacePageLoads
+            );
+
+        TerrainSurfaceLodRuntimeState compatibilityState =
+            surfaceLodStates[0];
 
         TerrainSurfaceResidencyDiagnosticsSnapshot surface =
             new TerrainSurfaceResidencyDiagnosticsSnapshot(
-                surfaceCacheReady,
-                surfaceTransitionState,
-                surfaceCacheWidth,
-                surfaceCacheHeight,
-                surfaceMaskManifest.samplesPerSide,
+                SurfaceCacheReady,
+                SurfaceTransitionState,
+                compatibilityState.CacheWidth,
+                compatibilityState.CacheHeight,
+                compatibilityState
+                    .Descriptor
+                    .SamplesPerSide,
                 residentSurfaceSourceCount,
                 surfaceActiveGpuBytes,
                 surfaceStagingGpuBytes,
@@ -385,7 +422,8 @@ public partial class TerrainHeightmapStreamer
         float tileWorldSize =
             Mathf.Max(
                 0.0001f,
-                heightmapManifest.heightTileWorldSize
+                heightmapManifest
+                    .heightTileWorldSize
             );
 
         int clipmapTileSpan =
@@ -401,7 +439,8 @@ public partial class TerrainHeightmapStreamer
                 Mathf.Max(
                     0,
                     guardTileCount
-                ) *
+                )
+                *
                 2
             );
 
@@ -410,7 +449,8 @@ public partial class TerrainHeightmapStreamer
                 requestedCacheSize,
                 Mathf.Max(
                     1,
-                    heightmapManifest.heightTileGridWidth
+                    heightmapManifest
+                        .heightTileGridWidth
                 )
             );
 
@@ -419,7 +459,8 @@ public partial class TerrainHeightmapStreamer
                 requestedCacheSize,
                 Mathf.Max(
                     1,
-                    heightmapManifest.heightTileGridHeight
+                    heightmapManifest
+                        .heightTileGridHeight
                 )
             );
 
@@ -434,11 +475,14 @@ public partial class TerrainHeightmapStreamer
         long totalNativeTileCount =
             (long)Mathf.Max(
                 0,
-                heightmapManifest.heightTileGridWidth
-            ) *
+                heightmapManifest
+                    .heightTileGridWidth
+            )
+            *
             Mathf.Max(
                 0,
-                heightmapManifest.heightTileGridHeight
+                heightmapManifest
+                    .heightTileGridHeight
             );
 
         long transitionSourceCount =
