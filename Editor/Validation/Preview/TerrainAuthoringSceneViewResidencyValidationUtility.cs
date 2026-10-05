@@ -133,6 +133,8 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
             RunGuardAndWorldEdgeValidation();
             RunSmallWorldValidation();
             RunBoundedScalingValidation();
+            RunMultiresolutionResidencyPlanValidation();
+            RunMultiresolutionBoundedScalingValidation();
             RunLivePreviewValidation();
         }
         catch (Exception exception)
@@ -743,6 +745,622 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
     }
 
     // =====================================================
+    // MULTIRESOLUTION RESIDENCY PLAN
+    // =====================================================
+
+    private static void RunMultiresolutionResidencyPlanValidation()
+    {
+        WorldSettings settings =
+            CreateSyntheticSettings(
+                256,
+                256
+            );
+
+        try
+        {
+            TerrainClipmapLayout layout =
+                new TerrainClipmapLayout();
+
+            Vector3 center =
+                TerrainClipmapLayoutUtility
+                    .CalculateWorldCenterPosition(
+                        settings,
+                        0f
+                    );
+
+            bool layoutSucceeded =
+                TerrainClipmapLayoutUtility
+                    .TryCalculateLayout(
+                        settings,
+                        center,
+                        0f,
+                        layout,
+                        out string layoutError
+                    );
+
+            if (!layoutSucceeded)
+            {
+                AddResult(
+                    "Per-LOD Height residency plan",
+                    ValidationOutcome.Fail,
+                    layoutError
+                );
+
+                return;
+            }
+
+            bool planSucceeded =
+                TerrainAuthoringPreviewLodResidencyUtility
+                    .TryBuildPlan(
+                        settings,
+                        layout,
+                        17,
+                        out TerrainAuthoringPreviewResidencyPlan plan,
+                        out string planError
+                    );
+
+            if (!planSucceeded)
+            {
+                AddResult(
+                    "Per-LOD Height residency plan",
+                    ValidationOutcome.Fail,
+                    planError
+                );
+
+                return;
+            }
+
+            bool levelsValid =
+                plan.IsStructurallyValid
+                &&
+                plan.LevelCount ==
+                    layout.LevelCount;
+
+            Vector2Int worldGridSize =
+                new Vector2Int(
+                    settings.HeightTileGridWidth,
+                    settings.HeightTileGridHeight
+                );
+
+            StringBuilder details =
+                new StringBuilder();
+
+            for (
+                int level = 0;
+                level < plan.LevelCount;
+                level++
+            )
+            {
+                TerrainAuthoringPreviewLodResidencyPlan levelPlan =
+                    plan.Levels[level];
+
+                bool strideResolved =
+                    TerrainHeightResolutionUtility
+                        .TryGetRequiredStrideForClipmapLevel(
+                            settings,
+                            level,
+                            out int expectedStride,
+                            out _
+                        );
+
+                int expectedSamples =
+                    strideResolved
+                        ? TerrainHeightResolutionUtility
+                            .GetSamplesPerSide(
+                                settings,
+                                expectedStride
+                            )
+                        : 0;
+
+                float expectedSpacing =
+                    strideResolved
+                        ? TerrainHeightResolutionUtility
+                            .GetSampleSpacing(
+                                settings,
+                                expectedStride
+                            )
+                        : 0f;
+
+                float coarseSpacing =
+                    expectedSpacing;
+
+                if (
+                    strideResolved
+                    &&
+                    level < plan.LevelCount - 1
+                    &&
+                    TerrainHeightResolutionUtility
+                        .TryGetRequiredStrideForClipmapLevel(
+                            settings,
+                            level + 1,
+                            out int coarseStride,
+                            out _
+                        )
+                )
+                {
+                    coarseSpacing =
+                        TerrainHeightResolutionUtility
+                            .GetSampleSpacing(
+                                settings,
+                                coarseStride
+                            );
+                }
+
+                Vector2 expectedMinimum =
+                    Vector2.zero;
+
+                Vector2 expectedMaximum =
+                    Vector2.zero;
+
+                bool coverageResolved =
+                    strideResolved
+                    &&
+                    TerrainHeightClipmapCoverageUtility
+                        .TryCalculateRequiredWorldBounds(
+                            settings,
+                            layout,
+                            level,
+                            expectedSpacing,
+                            coarseSpacing,
+                            out expectedMinimum,
+                            out expectedMaximum,
+                            out _
+                        );
+
+                TerrainHeightCacheWindow expectedRequired =
+                    default;
+
+                bool expectedWindowResolved =
+                    coverageResolved
+                    &&
+                    TerrainAuthoringPreviewResidencyUtility
+                        .TryCalculateRequiredWindowForRepresentation(
+                            settings,
+                            expectedMinimum,
+                            expectedMaximum,
+                            expectedStride,
+                            out expectedRequired,
+                            out _
+                        );
+
+                bool windowInsideWorld =
+                    levelPlan.RequiredWindow.OriginTile.x >=
+                        0
+                    &&
+                    levelPlan.RequiredWindow.OriginTile.y >=
+                        0
+                    &&
+                    levelPlan.RequiredWindow.MaximumExclusive.x <=
+                        worldGridSize.x
+                    &&
+                    levelPlan.RequiredWindow.MaximumExclusive.y <=
+                        worldGridSize.y
+                    &&
+                    levelPlan.DesiredWindow.OriginTile.x >=
+                        0
+                    &&
+                    levelPlan.DesiredWindow.OriginTile.y >=
+                        0
+                    &&
+                    levelPlan.DesiredWindow.MaximumExclusive.x <=
+                        worldGridSize.x
+                    &&
+                    levelPlan.DesiredWindow.MaximumExclusive.y <=
+                        worldGridSize.y;
+
+                bool levelValid =
+                    strideResolved
+                    &&
+                    coverageResolved
+                    &&
+                    expectedWindowResolved
+                    &&
+                    levelPlan.SampleStride ==
+                        expectedStride
+                    &&
+                    levelPlan.SamplesPerSide ==
+                        expectedSamples
+                    &&
+                    Mathf.Approximately(
+                        levelPlan.SampleSpacing,
+                        expectedSpacing
+                    )
+                    &&
+                    levelPlan.RequiredWindow ==
+                        expectedRequired
+                    &&
+                    levelPlan.DesiredWindow.Contains(
+                        levelPlan.RequiredWindow
+                    )
+                    &&
+                    windowInsideWorld;
+
+                levelsValid &=
+                    levelValid;
+
+                details.AppendLine(
+                    $"LOD{level}: stride={levelPlan.SampleStride}, " +
+                    $"required={levelPlan.RequiredWindow}, " +
+                    $"desired={levelPlan.DesiredWindow}."
+                );
+            }
+
+            AddResult(
+                "Per-LOD Height residency plan",
+                levelsValid
+                    ? ValidationOutcome.Pass
+                    : ValidationOutcome.Fail,
+                details.ToString()
+            );
+
+            bool repeatedSucceeded =
+                TerrainAuthoringPreviewLodResidencyUtility
+                    .TryBuildPlan(
+                        settings,
+                        layout,
+                        99,
+                        out TerrainAuthoringPreviewResidencyPlan repeated,
+                        out string repeatedError
+                    );
+
+            bool equalityValid =
+                repeatedSucceeded
+                &&
+                TerrainAuthoringPreviewStreamingPolicy
+                    .AreMultiresolutionResidencyPlansEquivalent(
+                        plan,
+                        repeated
+                    );
+
+            AddResult(
+                "Multiresolution residency plan equality",
+                equalityValid
+                    ? ValidationOutcome.Pass
+                    : ValidationOutcome.Fail,
+                equalityValid
+                    ? "Equivalent layouts produce equivalent residency intent independent of plan generation."
+                    : repeatedError
+            );
+
+            TerrainClipmapLayout movedLayout =
+                new TerrainClipmapLayout();
+
+            Vector3 movedTarget =
+                center +
+                new Vector3(
+                    settings.HeightTileWorldSize *
+                        4f,
+                    0f,
+                    settings.HeightTileWorldSize *
+                        3f
+                );
+
+            movedTarget =
+                TerrainClipmapLayoutUtility
+                    .ClampTargetXZToWorld(
+                        settings,
+                        movedTarget
+                    );
+
+            bool movedLayoutSucceeded =
+                TerrainClipmapLayoutUtility
+                    .TryCalculateLayout(
+                        settings,
+                        movedTarget,
+                        0f,
+                        movedLayout,
+                        out string movedLayoutError
+                    );
+
+            string movedPlanError =
+                "";
+
+            TerrainAuthoringPreviewResidencyPlan movedPlan =
+                null;
+
+            bool movedPlanSucceeded =
+                movedLayoutSucceeded
+                &&
+                TerrainAuthoringPreviewLodResidencyUtility
+                    .TryBuildPlan(
+                        settings,
+                        movedLayout,
+                        100,
+                        out movedPlan,
+                        out movedPlanError
+                    );
+
+            bool movementChangesIntent =
+                movedPlanSucceeded
+                &&
+                !TerrainAuthoringPreviewStreamingPolicy
+                    .AreMultiresolutionResidencyPlansEquivalent(
+                        plan,
+                        movedPlan
+                    );
+
+            AddResult(
+                "Multiresolution residency movement intent",
+                movementChangesIntent
+                    ? ValidationOutcome.Pass
+                    : ValidationOutcome.Fail,
+                movementChangesIntent
+                    ? "A multi-tile Scene View movement changes the per-LOD residency intent."
+                    : movedLayoutSucceeded
+                        ? movedPlanError
+                        : movedLayoutError
+            );
+
+            Vector2 worldSize =
+                TerrainClipmapLayoutUtility
+                    .CalculateWorldSizeXZ(
+                        settings
+                    );
+
+            bool edgesValid =
+                ValidateMultiresolutionPlanAtTarget(
+                    settings,
+                    Vector3.zero
+                )
+                &&
+                ValidateMultiresolutionPlanAtTarget(
+                    settings,
+                    new Vector3(
+                        worldSize.x,
+                        0f,
+                        worldSize.y
+                    )
+                );
+
+            AddResult(
+                "Multiresolution residency world-edge fitting",
+                edgesValid
+                    ? ValidationOutcome.Pass
+                    : ValidationOutcome.Fail,
+                edgesValid
+                    ? "Per-LOD required and desired windows remain valid at opposite world corners."
+                    : "A per-LOD residency plan failed world-edge fitting."
+            );
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(
+                settings
+            );
+        }
+    }
+
+    private static void RunMultiresolutionBoundedScalingValidation()
+    {
+        WorldSettings small =
+            CreateSyntheticSettings(
+                128,
+                128
+            );
+
+        WorldSettings large =
+            CreateSyntheticSettings(
+                4096,
+                4096
+            );
+
+        try
+        {
+            bool smallSucceeded =
+                TryBuildCenteredMultiresolutionPlan(
+                    small,
+                    out TerrainAuthoringPreviewResidencyPlan smallPlan,
+                    out string smallError
+                );
+
+            bool largeSucceeded =
+                TryBuildCenteredMultiresolutionPlan(
+                    large,
+                    out TerrainAuthoringPreviewResidencyPlan largePlan,
+                    out string largeError
+                );
+
+            bool bounded =
+                smallSucceeded
+                &&
+                largeSucceeded
+                &&
+                smallPlan.LevelCount ==
+                    largePlan.LevelCount;
+
+            if (bounded)
+            {
+                for (
+                    int level = 0;
+                    level < smallPlan.LevelCount;
+                    level++
+                )
+                {
+                    bounded &=
+                        smallPlan.Levels[level]
+                            .RequiredWindow
+                            .Size
+                        ==
+                        largePlan.Levels[level]
+                            .RequiredWindow
+                            .Size
+                        &&
+                        smallPlan.Levels[level]
+                            .DesiredWindow
+                            .Size
+                        ==
+                        largePlan.Levels[level]
+                            .DesiredWindow
+                            .Size;
+                }
+            }
+
+            AddResult(
+                "Multiresolution residency remains locally bounded",
+                bounded
+                    ? ValidationOutcome.Pass
+                    : ValidationOutcome.Fail,
+                bounded
+                    ? $"Compared {smallPlan.LevelCount} LOD windows across " +
+                        $"{small.HeightTileCount:N0} and " +
+                        $"{large.HeightTileCount:N0} tile worlds."
+                    : $"Small={smallError}; Large={largeError}."
+            );
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(
+                small
+            );
+
+            UnityEngine.Object.DestroyImmediate(
+                large
+            );
+        }
+    }
+
+    private static bool ValidateMultiresolutionPlanAtTarget(
+        WorldSettings settings,
+        Vector3 target
+    )
+    {
+        TerrainClipmapLayout layout =
+            new TerrainClipmapLayout();
+
+        target =
+            TerrainClipmapLayoutUtility
+                .ClampTargetXZToWorld(
+                    settings,
+                    target
+                );
+
+        if (
+            !TerrainClipmapLayoutUtility
+                .TryCalculateLayout(
+                    settings,
+                    target,
+                    0f,
+                    layout,
+                    out _
+                )
+            ||
+            !TerrainAuthoringPreviewLodResidencyUtility
+                .TryBuildPlan(
+                    settings,
+                    layout,
+                    1,
+                    out TerrainAuthoringPreviewResidencyPlan plan,
+                    out _
+                )
+        )
+        {
+            return false;
+        }
+
+        Vector2Int worldGridSize =
+            new Vector2Int(
+                settings.HeightTileGridWidth,
+                settings.HeightTileGridHeight
+            );
+
+        for (
+            int level = 0;
+            level < plan.LevelCount;
+            level++
+        )
+        {
+            TerrainAuthoringPreviewLodResidencyPlan levelPlan =
+                plan.Levels[level];
+
+            if (
+                !levelPlan.RequiredWindow.IsValid
+                ||
+                !levelPlan.DesiredWindow.IsValid
+                ||
+                !levelPlan.DesiredWindow.Contains(
+                    levelPlan.RequiredWindow
+                )
+                ||
+                levelPlan.RequiredWindow.OriginTile.x <
+                    0
+                ||
+                levelPlan.RequiredWindow.OriginTile.y <
+                    0
+                ||
+                levelPlan.RequiredWindow.MaximumExclusive.x >
+                    worldGridSize.x
+                ||
+                levelPlan.RequiredWindow.MaximumExclusive.y >
+                    worldGridSize.y
+                ||
+                levelPlan.DesiredWindow.OriginTile.x <
+                    0
+                ||
+                levelPlan.DesiredWindow.OriginTile.y <
+                    0
+                ||
+                levelPlan.DesiredWindow.MaximumExclusive.x >
+                    worldGridSize.x
+                ||
+                levelPlan.DesiredWindow.MaximumExclusive.y >
+                    worldGridSize.y
+            )
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool TryBuildCenteredMultiresolutionPlan(
+        WorldSettings settings,
+        out TerrainAuthoringPreviewResidencyPlan plan,
+        out string errorMessage
+    )
+    {
+        plan =
+            null;
+
+        errorMessage =
+            "";
+
+        TerrainClipmapLayout layout =
+            new TerrainClipmapLayout();
+
+        Vector3 center =
+            TerrainClipmapLayoutUtility
+                .CalculateWorldCenterPosition(
+                    settings,
+                    0f
+                );
+
+        if (
+            !TerrainClipmapLayoutUtility
+                .TryCalculateLayout(
+                    settings,
+                    center,
+                    0f,
+                    layout,
+                    out errorMessage
+                )
+        )
+        {
+            return false;
+        }
+
+        return
+            TerrainAuthoringPreviewLodResidencyUtility
+                .TryBuildPlan(
+                    settings,
+                    layout,
+                    1,
+                    out plan,
+                    out errorMessage
+                );
+    }
+
+    // =====================================================
     // LIVE PREVIEW
     // =====================================================
 
@@ -1144,6 +1762,9 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
         settings.clipmapBaseSampleStep =
             1;
 
+        settings.heightStreamingMaximumStride =
+            64;
+
         settings.clipmapLODOuterResolutions =
             new int[]
             {
@@ -1528,3 +2149,4 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
         }
     }
 }
+

@@ -610,6 +610,8 @@ public static partial class TerrainAuthoringPreviewService
         latestRequiredResidencyWindow =
             default;
 
+        ClearMultiresolutionResidencyIntent();
+
         ClearDesiredResidency();
         ClearRequestedResidency();
         ClearTransitionFailureSuppression();

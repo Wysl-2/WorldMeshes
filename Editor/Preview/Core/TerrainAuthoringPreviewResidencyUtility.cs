@@ -229,6 +229,307 @@ public static class TerrainAuthoringPreviewResidencyUtility
     }
 
     // =====================================================
+    // REPRESENTATION-AWARE DISPLAY WINDOWS
+    // =====================================================
+
+    internal static bool TryCalculateRequiredWindowForRepresentation(
+        WorldSettings worldSettings,
+        Vector2 minimumXZ,
+        Vector2 maximumXZ,
+        int sampleStride,
+        out TerrainHeightCacheWindow requiredWindow,
+        out string errorMessage
+    )
+    {
+        requiredWindow =
+            default;
+
+        errorMessage =
+            "";
+
+        if (
+            !TryValidateSettings(
+                worldSettings,
+                out errorMessage
+            )
+        )
+        {
+            return false;
+        }
+
+        if (
+            !TerrainHeightResolutionUtility
+                .IsRepresentationStrideCompatible(
+                    worldSettings,
+                    sampleStride
+                )
+        )
+        {
+            errorMessage =
+                "The requested Height representation stride is incompatible " +
+                "with the current Height tile topology.";
+
+            return false;
+        }
+
+        if (
+            !IsFinite(
+                minimumXZ.x
+            )
+            ||
+            !IsFinite(
+                minimumXZ.y
+            )
+            ||
+            !IsFinite(
+                maximumXZ.x
+            )
+            ||
+            !IsFinite(
+                maximumXZ.y
+            )
+            ||
+            minimumXZ.x >
+                maximumXZ.x
+            ||
+            minimumXZ.y >
+                maximumXZ.y
+        )
+        {
+            errorMessage =
+                "The requested Height representation world bounds are invalid.";
+
+            return false;
+        }
+
+        Vector2 worldSizeXZ =
+            TerrainClipmapLayoutUtility
+                .CalculateWorldSizeXZ(
+                    worldSettings
+                );
+
+        float visibleMinimumX =
+            Mathf.Max(
+                0f,
+                minimumXZ.x
+            );
+
+        float visibleMaximumX =
+            Mathf.Min(
+                worldSizeXZ.x,
+                maximumXZ.x
+            );
+
+        float visibleMinimumZ =
+            Mathf.Max(
+                0f,
+                minimumXZ.y
+            );
+
+        float visibleMaximumZ =
+            Mathf.Min(
+                worldSizeXZ.y,
+                maximumXZ.y
+            );
+
+        if (
+            visibleMinimumX >
+                visibleMaximumX
+            ||
+            visibleMinimumZ >
+                visibleMaximumZ
+        )
+        {
+            errorMessage =
+                "The requested Height representation bounds do not " +
+                "intersect the logical terrain world.";
+
+            return false;
+        }
+
+        int samplesPerSide =
+            TerrainHeightResolutionUtility
+                .GetSamplesPerSide(
+                    worldSettings,
+                    sampleStride
+                );
+
+        float sampleSpacing =
+            TerrainHeightResolutionUtility
+                .GetSampleSpacing(
+                    worldSettings,
+                    sampleStride
+                );
+
+        int minimumTileX =
+            WorldPositionToTileCoordinate(
+                visibleMinimumX,
+                worldSizeXZ.x,
+                sampleSpacing,
+                samplesPerSide,
+                worldSettings
+                    .HeightTileGridWidth
+            );
+
+        int maximumTileX =
+            WorldPositionToTileCoordinate(
+                visibleMaximumX,
+                worldSizeXZ.x,
+                sampleSpacing,
+                samplesPerSide,
+                worldSettings
+                    .HeightTileGridWidth
+            );
+
+        int minimumTileZ =
+            WorldPositionToTileCoordinate(
+                visibleMinimumZ,
+                worldSizeXZ.y,
+                sampleSpacing,
+                samplesPerSide,
+                worldSettings
+                    .HeightTileGridHeight
+            );
+
+        int maximumTileZ =
+            WorldPositionToTileCoordinate(
+                visibleMaximumZ,
+                worldSizeXZ.y,
+                sampleSpacing,
+                samplesPerSide,
+                worldSettings
+                    .HeightTileGridHeight
+            );
+
+        requiredWindow =
+            new TerrainHeightCacheWindow(
+                new Vector2Int(
+                    minimumTileX,
+                    minimumTileZ
+                ),
+                new Vector2Int(
+                    maximumTileX -
+                        minimumTileX +
+                        1,
+                    maximumTileZ -
+                        minimumTileZ +
+                        1
+                )
+            );
+
+        if (!requiredWindow.IsValid)
+        {
+            errorMessage =
+                "The required Height representation window is invalid.";
+
+            requiredWindow =
+                default;
+
+            return false;
+        }
+
+        return true;
+    }
+
+    internal static bool TryCalculateDesiredWindowForRepresentation(
+        WorldSettings worldSettings,
+        TerrainHeightCacheWindow requiredWindow,
+        int guardTileCount,
+        out TerrainHeightCacheWindow desiredWindow,
+        out string errorMessage
+    )
+    {
+        desiredWindow =
+            default;
+
+        errorMessage =
+            "";
+
+        if (
+            !TryValidateSettings(
+                worldSettings,
+                out errorMessage
+            )
+        )
+        {
+            return false;
+        }
+
+        if (!requiredWindow.IsValid)
+        {
+            errorMessage =
+                "The required Height representation window is invalid.";
+
+            return false;
+        }
+
+        int safeGuard =
+            Mathf.Max(
+                0,
+                guardTileCount
+            );
+
+        Vector2Int preferredOrigin =
+            requiredWindow.OriginTile -
+            new Vector2Int(
+                safeGuard,
+                safeGuard
+            );
+
+        Vector2Int preferredSize =
+            requiredWindow.Size +
+            new Vector2Int(
+                safeGuard * 2,
+                safeGuard * 2
+            );
+
+        Vector2Int worldGridSize =
+            new Vector2Int(
+                worldSettings
+                    .HeightTileGridWidth,
+                worldSettings
+                    .HeightTileGridHeight
+            );
+
+        if (
+            !TerrainHeightCacheWindow
+                .TryFitToWorld(
+                    preferredOrigin,
+                    preferredSize,
+                    worldGridSize,
+                    out desiredWindow
+                )
+        )
+        {
+            errorMessage =
+                "The desired Height representation window could not be " +
+                "fit inside the logical Height tile grid.";
+
+            return false;
+        }
+
+        if (
+            !desiredWindow.IsValid
+            ||
+            !desiredWindow.Contains(
+                requiredWindow
+            )
+        )
+        {
+            errorMessage =
+                "The desired Height representation window does not contain " +
+                "the complete required window.";
+
+            desiredWindow =
+                default;
+
+            return false;
+        }
+
+        return true;
+    }
+
+    // =====================================================
     // GUARDED RESIDENT WINDOW
     // =====================================================
 

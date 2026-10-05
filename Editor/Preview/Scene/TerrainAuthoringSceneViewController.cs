@@ -100,6 +100,10 @@ public static partial class TerrainAuthoringSceneViewController
     private static TerrainClipmapLayout appliedLayout =
         new TerrainClipmapLayout();
 
+    private static readonly TerrainClipmapLayout
+        canonicalResidencyLayout =
+            new TerrainClipmapLayout();
+
     // =====================================================
     // FOLLOW / FREEZE STATE
     // =====================================================
@@ -886,6 +890,13 @@ public static partial class TerrainAuthoringSceneViewController
                     .CanRunEditorPreviewWork
             )
             {
+                TerrainAuthoringPreviewService
+                    .RecordMultiresolutionResidencyIntent(
+                        worldSettings,
+                        candidateLayout,
+                        out _
+                    );
+
                 bool requestSucceeded =
                     TerrainAuthoringPreviewService
                         .RequestResidencyForWorldBounds(
@@ -1198,6 +1209,45 @@ public static partial class TerrainAuthoringSceneViewController
         )
         {
             return false;
+        }
+
+        if (
+            TerrainAuthoringPreviewService
+                .CanRunEditorPreviewWork
+        )
+        {
+            Vector3 canonicalTarget =
+                TerrainClipmapLayoutUtility
+                    .CalculateWorldCenterPosition(
+                        worldSettings,
+                        0f
+                    );
+
+            canonicalTarget =
+                TerrainClipmapLayoutUtility
+                    .ClampTargetXZToWorld(
+                        worldSettings,
+                        canonicalTarget
+                    );
+
+            if (
+                TerrainClipmapLayoutUtility
+                    .TryCalculateLayout(
+                        worldSettings,
+                        canonicalTarget,
+                        0f,
+                        canonicalResidencyLayout,
+                        out _
+                    )
+            )
+            {
+                TerrainAuthoringPreviewService
+                    .RecordMultiresolutionResidencyIntent(
+                        worldSettings,
+                        canonicalResidencyLayout,
+                        out _
+                    );
+            }
         }
 
         bool hadActiveCache =

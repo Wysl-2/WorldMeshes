@@ -1797,6 +1797,8 @@ public static partial class TerrainAuthoringPreviewService
         latestRequiredResidencyWindow =
             default;
 
+        ClearMultiresolutionResidencyIntent();
+
         streamingState =
             TerrainAuthoringPreviewStreamingState.Idle;
 

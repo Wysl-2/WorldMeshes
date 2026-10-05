@@ -933,83 +933,57 @@ public partial class TerrainHeightmapStreamer
                     level
                 );
 
-            float halfExtent =
-                TerrainClipmapTopologyUtility
-                    .GetLODHalfExtent(
-                        worldSettings,
-                        level
-                    );
-
-            float minimumX =
-                anchor.x - halfExtent;
-
-            float maximumX =
-                anchor.x + halfExtent;
-
-            float minimumZ =
-                anchor.z - halfExtent;
-
-            float maximumZ =
-                anchor.z + halfExtent;
-
-            float normalMargin =
+            float coarseSampleSpacing =
                 state.Descriptor.SampleSpacing;
 
             if (level < layout.LevelCount - 1)
             {
-                Vector3 coarseAnchor =
-                    layout.GetAnchor(
+                TerrainHeightLodRuntimeState coarseState =
+                    heightLodStates[
                         level + 1
-                    );
+                    ];
 
-                float stitchHalfExtent =
-                    halfExtent +
-                    state.Descriptor.SampleSpacing * 2f;
+                if (coarseState == null)
+                {
+                    errorMessage =
+                        $"Height runtime state LOD{level + 1} is unavailable.";
 
-                minimumX =
-                    Mathf.Min(
-                        minimumX,
-                        coarseAnchor.x - stitchHalfExtent
-                    );
+                    return false;
+                }
 
-                maximumX =
-                    Mathf.Max(
-                        maximumX,
-                        coarseAnchor.x + stitchHalfExtent
-                    );
-
-                minimumZ =
-                    Mathf.Min(
-                        minimumZ,
-                        coarseAnchor.z - stitchHalfExtent
-                    );
-
-                maximumZ =
-                    Mathf.Max(
-                        maximumZ,
-                        coarseAnchor.z + stitchHalfExtent
-                    );
-
-                normalMargin =
-                    Mathf.Max(
-                        normalMargin,
-                        heightLodStates[level + 1]
-                            .Descriptor
-                            .SampleSpacing
-                    );
+                coarseSampleSpacing =
+                    coarseState
+                        .Descriptor
+                        .SampleSpacing;
             }
 
-            minimumX -= normalMargin;
-            maximumX += normalMargin;
-            minimumZ -= normalMargin;
-            maximumZ += normalMargin;
+            if (
+                !TerrainHeightClipmapCoverageUtility
+                    .TryCalculateRequiredWorldBounds(
+                        worldSettings,
+                        layout,
+                        level,
+                        state.Descriptor.SampleSpacing,
+                        coarseSampleSpacing,
+                        out Vector2 requiredMinimumXZ,
+                        out Vector2 requiredMaximumXZ,
+                        out string coverageError
+                    )
+            )
+            {
+                errorMessage =
+                    $"Could not calculate required Height coverage for LOD{level}.\n\n" +
+                    coverageError;
+
+                return false;
+            }
 
             if (
                 !TryWorldBoundsToHeightPages(
-                    minimumX,
-                    minimumZ,
-                    maximumX,
-                    maximumZ,
+                    requiredMinimumXZ.x,
+                    requiredMinimumXZ.y,
+                    requiredMaximumXZ.x,
+                    requiredMaximumXZ.y,
                     state.Descriptor,
                     out TerrainHeightPageRect requiredPages
                 )

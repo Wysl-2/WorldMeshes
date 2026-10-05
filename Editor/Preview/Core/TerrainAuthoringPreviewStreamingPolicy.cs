@@ -35,6 +35,79 @@ internal static class TerrainAuthoringPreviewStreamingPolicy
                 newDesired;
     }
 
+    internal static bool
+        AreMultiresolutionResidencyPlansEquivalent(
+            TerrainAuthoringPreviewResidencyPlan first,
+            TerrainAuthoringPreviewResidencyPlan second
+        )
+    {
+        if (
+            object.ReferenceEquals(
+                first,
+                second
+            )
+        )
+        {
+            return true;
+        }
+
+        if (
+            first == null
+            ||
+            second == null
+            ||
+            !first.IsStructurallyValid
+            ||
+            !second.IsStructurallyValid
+            ||
+            first.LevelCount !=
+                second.LevelCount
+        )
+        {
+            return false;
+        }
+
+        for (
+            int level = 0;
+            level < first.LevelCount;
+            level++
+        )
+        {
+            TerrainAuthoringPreviewLodResidencyPlan firstLevel =
+                first.Levels[level];
+
+            TerrainAuthoringPreviewLodResidencyPlan secondLevel =
+                second.Levels[level];
+
+            if (
+                firstLevel.Level !=
+                    secondLevel.Level
+                ||
+                firstLevel.SampleStride !=
+                    secondLevel.SampleStride
+                ||
+                firstLevel.SamplesPerSide !=
+                    secondLevel.SamplesPerSide
+                ||
+                !Mathf.Approximately(
+                    firstLevel.SampleSpacing,
+                    secondLevel.SampleSpacing
+                )
+                ||
+                firstLevel.RequiredWindow !=
+                    secondLevel.RequiredWindow
+                ||
+                firstLevel.DesiredWindow !=
+                    secondLevel.DesiredWindow
+            )
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     internal static bool IsStagingTargetUseful(
         TerrainHeightCacheWindow stagingTarget,
         TerrainHeightCacheWindow latestRequired,
