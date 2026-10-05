@@ -32,6 +32,24 @@ public sealed partial class TerrainAuthoringPreviewCache
         out string errorMessage
     )
     {
+        return
+            TryInitializeStagingWindow(
+                worldSettings,
+                authoringData,
+                targetWindow,
+                1,
+                out errorMessage
+            );
+    }
+
+    internal bool TryInitializeStagingWindow(
+        WorldSettings worldSettings,
+        TerrainAuthoringData authoringData,
+        TerrainHeightCacheWindow targetWindow,
+        int requestedSampleStride,
+        out string errorMessage
+    )
+    {
         errorMessage =
             "";
 
@@ -47,6 +65,24 @@ public sealed partial class TerrainAuthoringPreviewCache
         {
             errorMessage =
                 "TerrainAuthoringData is null.";
+
+            return false;
+        }
+
+        if (
+            !TerrainHeightResolutionUtility
+                .IsRepresentationStrideCompatible(
+                    worldSettings,
+                    requestedSampleStride
+                )
+        )
+        {
+            errorMessage =
+                "The requested Height representation stride is not " +
+                "compatible with the current Height tile topology.\n\n" +
+                $"Requested Stride: {requestedSampleStride}\n" +
+                $"Height Tile Intervals Per Side: " +
+                $"{worldSettings.HeightTileIntervalsPerSide}";
 
             return false;
         }
@@ -138,7 +174,11 @@ public sealed partial class TerrainAuthoringPreviewCache
             manifest.heightTileGridHeight;
 
         int stagingSamplesPerSide =
-            manifest.heightTileSamplesPerSide;
+            TerrainHeightResolutionUtility
+                .GetSamplesPerSide(
+                    worldSettings,
+                    requestedSampleStride
+                );
 
         if (
             manifestWidth <= 0
@@ -339,20 +379,18 @@ public sealed partial class TerrainAuthoringPreviewCache
         cacheHeight =
             targetWindow.Height;
 
+        sampleStride =
+            requestedSampleStride;
+
         samplesPerSide =
             stagingSamplesPerSide;
 
         sampleSpacing =
-            Mathf.Max(
-                0.000001f,
-                worldSettings.chunkSize
-                /
-                Mathf.Max(
-                    1,
-                    worldSettings
-                        .heightfieldResolutionPerChunk
-                )
-            );
+            TerrainHeightResolutionUtility
+                .GetSampleSpacing(
+                    worldSettings,
+                    sampleStride
+                );
 
         worldSizeXZ =
             TerrainClipmapLayoutUtility
@@ -418,6 +456,16 @@ public sealed partial class TerrainAuthoringPreviewCache
     {
         errorMessage =
             "";
+
+        if (sampleStride != 1)
+        {
+            errorMessage =
+                "Committed base materialization for non-native Height " +
+                "preview representations is not available through the " +
+                "native texture-copy path.";
+
+            return false;
+        }
 
         int slice =
             GetSliceIndex(

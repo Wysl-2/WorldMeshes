@@ -243,10 +243,6 @@ public static class TerrainHeightStreamingPyramidPolicy
             sampleStride <
                 MinimumDerivedStride
             ||
-            !IsPowerOfTwo(
-                sampleStride
-            )
-            ||
             sampleStride >
                 GetConfiguredMaximumStride(
                     worldSettings
@@ -257,10 +253,11 @@ public static class TerrainHeightStreamingPyramidPolicy
         }
 
         return
-            worldSettings
-                .HeightTileIntervalsPerSide %
-                sampleStride ==
-                0;
+            TerrainHeightResolutionUtility
+                .IsRepresentationStrideCompatible(
+                    worldSettings,
+                    sampleStride
+                );
     }
 
     public static bool IsHeightRepresentationStrideSupported(
@@ -271,11 +268,11 @@ public static class TerrainHeightStreamingPyramidPolicy
         if (sampleStride == 1)
         {
             return
-                worldSettings != null
-                &&
-                worldSettings
-                    .HeightTileIntervalsPerSide >
-                    0;
+                TerrainHeightResolutionUtility
+                    .IsRepresentationStrideCompatible(
+                        worldSettings,
+                        sampleStride
+                    );
         }
 
         return
@@ -309,10 +306,11 @@ public static class TerrainHeightStreamingPyramidPolicy
         }
 
         return
-            worldSettings
-                .HeightTileIntervalsPerSide /
-                sampleStride +
-            1;
+            TerrainHeightResolutionUtility
+                .GetSamplesPerSide(
+                    worldSettings,
+                    sampleStride
+                );
     }
 
     public static float GetSampleSpacing(
@@ -334,21 +332,12 @@ public static class TerrainHeightStreamingPyramidPolicy
             );
         }
 
-        float nativeSpacing =
-            Mathf.Max(
-                0.01f,
-                worldSettings.chunkSize
-            )
-            /
-            Mathf.Max(
-                1,
-                worldSettings
-                    .heightfieldResolutionPerChunk
-            );
-
         return
-            nativeSpacing *
-            sampleStride;
+            TerrainHeightResolutionUtility
+                .GetSampleSpacing(
+                    worldSettings,
+                    sampleStride
+                );
     }
 
     public static bool TryBuildLevelDescriptor(
@@ -424,40 +413,14 @@ public static class TerrainHeightStreamingPyramidPolicy
         out string errorMessage
     )
     {
-        sampleStride =
-            0;
-
-        errorMessage =
-            "";
-
-        if (worldSettings == null)
-        {
-            errorMessage =
-                "WorldSettings is null.";
-
-            return false;
-        }
-
-        if (
-            level < 0
-            ||
-            level >=
-                TerrainClipmapTopologyUtility
-                    .MaximumLevelCount
-        )
-        {
-            errorMessage =
-                "The requested clipmap level is outside the supported range.";
-
-            return false;
-        }
-
-        return TryGetRequiredStrideForClipmapLevel(
-            worldSettings.clipmapBaseSampleStep,
-            level,
-            out sampleStride,
-            out errorMessage
-        );
+        return
+            TerrainHeightResolutionUtility
+                .TryGetRequiredStrideForClipmapLevel(
+                    worldSettings,
+                    level,
+                    out sampleStride,
+                    out errorMessage
+                );
     }
 
     public static bool TryGetRequiredStrideForClipmapLevel(
@@ -467,47 +430,14 @@ public static class TerrainHeightStreamingPyramidPolicy
         out string errorMessage
     )
     {
-        sampleStride = 0;
-        errorMessage = "";
-
-        if (
-            level < 0
-            || level >= TerrainClipmapTopologyUtility.MaximumLevelCount
-        )
-        {
-            errorMessage =
-                "The requested clipmap level is outside the supported range.";
-            return false;
-        }
-
-        long stride =
-            Mathf.Max(
-                1,
-                baseSampleStep
-            );
-
-        for (
-            int index = 0;
-            index < level;
-            index++
-        )
-        {
-            stride *=
-                2L;
-
-            if (stride > int.MaxValue)
-            {
-                errorMessage =
-                    $"Clipmap LOD{level} requires a sample stride larger than Int32 can represent.";
-
-                return false;
-            }
-        }
-
-        sampleStride =
-            (int)stride;
-
-        return true;
+        return
+            TerrainHeightResolutionUtility
+                .TryGetRequiredStrideForClipmapLevel(
+                    baseSampleStep,
+                    level,
+                    out sampleStride,
+                    out errorMessage
+                );
     }
 
     public static bool TryValidateClipmapCompatibility(
@@ -592,11 +522,9 @@ public static class TerrainHeightStreamingPyramidPolicy
     )
     {
         return
-            value > 0
-            &&
-            (
-                value &
-                (value - 1)
-            ) == 0;
+            TerrainHeightResolutionUtility
+                .IsPowerOfTwo(
+                    value
+                );
     }
 }

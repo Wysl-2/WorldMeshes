@@ -52,6 +52,8 @@ public sealed partial class TerrainAuthoringPreviewCache :
 
     private int cacheHeight;
 
+    private int sampleStride;
+
     private int samplesPerSide;
 
     private float sampleSpacing;
@@ -217,6 +219,14 @@ public sealed partial class TerrainAuthoringPreviewCache :
         }
     }
 
+    public int SampleStride
+    {
+        get
+        {
+            return sampleStride;
+        }
+    }
+
     public int SamplesPerSide
     {
         get
@@ -356,6 +366,13 @@ public sealed partial class TerrainAuthoringPreviewCache :
                 cacheWidth > 0
                 &&
                 cacheHeight > 0
+                &&
+                sampleStride > 0
+                &&
+                TerrainHeightResolutionUtility
+                    .IsPowerOfTwo(
+                        sampleStride
+                    )
                 &&
                 samplesPerSide > 1
                 &&
@@ -971,20 +988,18 @@ public sealed partial class TerrainAuthoringPreviewCache :
         cacheHeight =
             newCacheHeight;
 
+        sampleStride =
+            1;
+
         samplesPerSide =
             newSamplesPerSide;
 
         sampleSpacing =
-            Mathf.Max(
-                0.000001f,
-                worldSettings.chunkSize
-                /
-                Mathf.Max(
-                    1,
-                    worldSettings
-                        .heightfieldResolutionPerChunk
-                )
-            );
+            TerrainHeightResolutionUtility
+                .GetSampleSpacing(
+                    worldSettings,
+                    sampleStride
+                );
 
         worldSizeXZ =
             TerrainClipmapLayoutUtility
@@ -2175,6 +2190,9 @@ public sealed partial class TerrainAuthoringPreviewCache :
             0;
 
         cacheHeight =
+            0;
+
+        sampleStride =
             0;
 
         samplesPerSide =

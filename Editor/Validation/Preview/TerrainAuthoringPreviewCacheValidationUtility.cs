@@ -130,6 +130,7 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
         {
             RunWindowValueValidation();
             RunWindowFittingValidation();
+            RunClipmapStrideValidation();
 
             if (
                 !TryValidateCachePrerequisites(
@@ -156,6 +157,16 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
                 ValidationOutcome.Pass,
                 "Current committed authoring data and required GPU " +
                 "features are available."
+            );
+
+            RunHeightRepresentationValidation(
+                worldSettings
+            );
+
+            RunCoarseStagingAllocationValidation(
+                worldSettings,
+                authoringData,
+                manifest
             );
 
             RunPartialCacheValidation(
@@ -672,6 +683,511 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
         return true;
     }
 
+
+    private static void RunClipmapStrideValidation()
+    {
+        bool valid =
+            true;
+
+        StringBuilder details =
+            new StringBuilder();
+
+        int levelCount =
+            Mathf.Min(
+                7,
+                TerrainClipmapTopologyUtility
+                    .MaximumLevelCount
+            );
+
+        for (
+            int level = 0;
+            level < levelCount;
+            level++
+        )
+        {
+            int expectedStride =
+                1 <<
+                level;
+
+            bool resolved =
+                TerrainHeightResolutionUtility
+                    .TryGetRequiredStrideForClipmapLevel(
+                        1,
+                        level,
+                        out int actualStride,
+                        out string errorMessage
+                    );
+
+            if (
+                !resolved
+                ||
+                actualStride !=
+                    expectedStride
+            )
+            {
+                valid =
+                    false;
+
+                details.AppendLine(
+                    resolved
+                        ? $"LOD{level}: expected {expectedStride}, " +
+                            $"actual {actualStride}."
+                        : $"LOD{level}: {errorMessage}"
+                );
+            }
+        }
+
+        AddResult(
+            "Clipmap Height stride progression",
+            valid
+                ? ValidationOutcome.Pass
+                : ValidationOutcome.Fail,
+            valid
+                ? $"Validated LOD0 through LOD{levelCount - 1} from " +
+                    "base sample step 1."
+                : details.ToString()
+        );
+    }
+
+    private static void RunHeightRepresentationValidation(
+        WorldSettings worldSettings
+    )
+    {
+        int intervals =
+            worldSettings
+                .HeightTileIntervalsPerSide;
+
+        float nativeSpacing =
+            TerrainHeightResolutionUtility
+                .GetNativeSampleSpacing(
+                    worldSettings
+                );
+
+        float tileWorldSize =
+            worldSettings
+                .HeightTileWorldSize;
+
+        bool valid =
+            true;
+
+        int testedCount =
+            0;
+
+        StringBuilder details =
+            new StringBuilder();
+
+        int stride =
+            1;
+
+        while (
+            stride > 0
+            &&
+            stride <= intervals
+        )
+        {
+            if (
+                TerrainHeightResolutionUtility
+                    .IsRepresentationStrideCompatible(
+                        worldSettings,
+                        stride
+                    )
+            )
+            {
+                int samplesPerSide =
+                    TerrainHeightResolutionUtility
+                        .GetSamplesPerSide(
+                            worldSettings,
+                            stride
+                        );
+
+                float sampleSpacing =
+                    TerrainHeightResolutionUtility
+                        .GetSampleSpacing(
+                            worldSettings,
+                            stride
+                        );
+
+                int expectedSamples =
+                    intervals /
+                    stride +
+                    1;
+
+                float expectedSpacing =
+                    nativeSpacing *
+                    stride;
+
+                float representedTileWorldSize =
+                    (
+                        samplesPerSide -
+                        1
+                    )
+                    *
+                    sampleSpacing;
+
+                bool representationValid =
+                    samplesPerSide ==
+                        expectedSamples
+                    &&
+                    Approximately(
+                        sampleSpacing,
+                        expectedSpacing
+                    )
+                    &&
+                    Approximately(
+                        representedTileWorldSize,
+                        tileWorldSize
+                    );
+
+                if (!representationValid)
+                {
+                    valid =
+                        false;
+
+                    details.AppendLine(
+                        $"Stride {stride}: samples={samplesPerSide} " +
+                        $"(expected {expectedSamples}), spacing=" +
+                        $"{sampleSpacing:R} (expected " +
+                        $"{expectedSpacing:R}), footprint=" +
+                        $"{representedTileWorldSize:R} (expected " +
+                        $"{tileWorldSize:R})."
+                    );
+                }
+
+                testedCount++;
+            }
+
+            if (stride > int.MaxValue / 2)
+            {
+                break;
+            }
+
+            stride *=
+                2;
+        }
+
+        AddResult(
+            "Height representation resolution",
+            valid
+                &&
+                testedCount > 0
+                    ? ValidationOutcome.Pass
+                    : ValidationOutcome.Fail,
+            valid
+                && testedCount > 0
+                    ? $"Validated {testedCount} compatible power-of-two " +
+                        "Height representations with invariant tile " +
+                        "footprint."
+                    : details.ToString()
+        );
+
+        bool runtimeDelegationValid =
+            TerrainHeightStreamingPyramidPolicy
+                .GetSamplesPerSide(
+                    worldSettings,
+                    1
+                )
+            ==
+            TerrainHeightResolutionUtility
+                .GetSamplesPerSide(
+                    worldSettings,
+                    1
+                )
+            &&
+            Approximately(
+                TerrainHeightStreamingPyramidPolicy
+                    .GetSampleSpacing(
+                        worldSettings,
+                        1
+                    ),
+                TerrainHeightResolutionUtility
+                    .GetSampleSpacing(
+                        worldSettings,
+                        1
+                    )
+            );
+
+        int derivedStride =
+            TerrainHeightStreamingPyramidPolicy
+                .GetMaximumSupportedDerivedStride(
+                    worldSettings
+                );
+
+        if (derivedStride >= 2)
+        {
+            runtimeDelegationValid =
+                runtimeDelegationValid
+                &&
+                TerrainHeightStreamingPyramidPolicy
+                    .GetSamplesPerSide(
+                        worldSettings,
+                        derivedStride
+                    )
+                ==
+                TerrainHeightResolutionUtility
+                    .GetSamplesPerSide(
+                        worldSettings,
+                        derivedStride
+                    )
+                &&
+                Approximately(
+                    TerrainHeightStreamingPyramidPolicy
+                        .GetSampleSpacing(
+                            worldSettings,
+                            derivedStride
+                        ),
+                    TerrainHeightResolutionUtility
+                        .GetSampleSpacing(
+                            worldSettings,
+                            derivedStride
+                        )
+                );
+        }
+
+        AddResult(
+            "Runtime Height policy representation delegation",
+            runtimeDelegationValid
+                ? ValidationOutcome.Pass
+                : ValidationOutcome.Fail,
+            runtimeDelegationValid
+                ? "Runtime streaming policy and shared Height resolution " +
+                    "mathematics agree for native and configured derived " +
+                    "representations."
+                : "Runtime streaming policy and shared Height resolution " +
+                    "mathematics disagree."
+        );
+    }
+
+    private static void RunCoarseStagingAllocationValidation(
+        WorldSettings worldSettings,
+        TerrainAuthoringData authoringData,
+        TerrainAuthoringHeightManifest manifest
+    )
+    {
+        int intervals =
+            worldSettings
+                .HeightTileIntervalsPerSide;
+
+        int sampleStride =
+            2;
+
+        while (
+            sampleStride > 0
+            &&
+            sampleStride <= intervals
+            &&
+            !TerrainHeightResolutionUtility
+                .IsRepresentationStrideCompatible(
+                    worldSettings,
+                    sampleStride
+                )
+        )
+        {
+            if (sampleStride > int.MaxValue / 2)
+            {
+                sampleStride =
+                    0;
+
+                break;
+            }
+
+            sampleStride *=
+                2;
+        }
+
+        if (
+            sampleStride < 2
+            ||
+            sampleStride > intervals
+        )
+        {
+            AddResult(
+                "Coarse staging cache allocation",
+                ValidationOutcome.Blocked,
+                "The current Height tile topology has no compatible " +
+                "derived power-of-two representation."
+            );
+
+            return;
+        }
+
+        TerrainHeightCacheWindow testWindow =
+            new TerrainHeightCacheWindow(
+                Vector2Int.zero,
+                new Vector2Int(
+                    Mathf.Min(
+                        2,
+                        manifest
+                            .heightTileGridWidth
+                    ),
+                    Mathf.Min(
+                        2,
+                        manifest
+                            .heightTileGridHeight
+                    )
+                )
+            );
+
+        if (!testWindow.IsValid)
+        {
+            AddResult(
+                "Coarse staging cache allocation",
+                ValidationOutcome.Blocked,
+                "The committed Height tile grid is empty."
+            );
+
+            return;
+        }
+
+        TerrainAuthoringPreviewCache validationCache =
+            new TerrainAuthoringPreviewCache();
+
+        try
+        {
+            if (
+                !validationCache
+                    .TryInitializeStagingWindow(
+                        worldSettings,
+                        authoringData,
+                        testWindow,
+                        sampleStride,
+                        out string stagingError
+                    )
+            )
+            {
+                AddResult(
+                    "Coarse staging cache allocation",
+                    ValidationOutcome.Fail,
+                    stagingError
+                );
+
+                return;
+            }
+
+            int expectedSamples =
+                TerrainHeightResolutionUtility
+                    .GetSamplesPerSide(
+                        worldSettings,
+                        sampleStride
+                    );
+
+            float expectedSpacing =
+                TerrainHeightResolutionUtility
+                    .GetSampleSpacing(
+                        worldSettings,
+                        sampleStride
+                    );
+
+            long expectedMemoryBytes =
+                (long)expectedSamples
+                *
+                expectedSamples
+                *
+                testWindow.TileCount
+                *
+                sizeof(float);
+
+            bool coverageAvailable =
+                validationCache
+                    .TryGetWorldCoverage(
+                        out Vector2 minimumXZ,
+                        out Vector2 maximumXZ
+                    );
+
+            float representedTileWorldSize =
+                (
+                    validationCache
+                        .SamplesPerSide -
+                    1
+                )
+                *
+                validationCache
+                    .SampleSpacing;
+
+            bool allocationValid =
+                validationCache.SampleStride ==
+                    sampleStride
+                &&
+                validationCache.SamplesPerSide ==
+                    expectedSamples
+                &&
+                Approximately(
+                    validationCache.SampleSpacing,
+                    expectedSpacing
+                )
+                &&
+                validationCache.CacheOriginTile ==
+                    testWindow.OriginTile
+                &&
+                validationCache.CacheSize ==
+                    testWindow.Size
+                &&
+                validationCache.HeightCache !=
+                    null
+                &&
+                validationCache.HeightCache.width ==
+                    expectedSamples
+                &&
+                validationCache.HeightCache.height ==
+                    expectedSamples
+                &&
+                validationCache.ApproximateGpuMemoryBytes ==
+                    expectedMemoryBytes
+                &&
+                coverageAvailable
+                &&
+                minimumXZ ==
+                    Vector2.zero
+                &&
+                Approximately(
+                    representedTileWorldSize,
+                    worldSettings
+                        .HeightTileWorldSize
+                )
+                &&
+                !validationCache
+                    .IsCompleteForActivation;
+
+            AddResult(
+                "Coarse staging cache allocation",
+                allocationValid
+                    ? ValidationOutcome.Pass
+                    : ValidationOutcome.Fail,
+                $"Stride={validationCache.SampleStride}, " +
+                $"Samples={validationCache.SamplesPerSide}, " +
+                $"Spacing={validationCache.SampleSpacing:R}, " +
+                $"Window={validationCache.CacheSize}, " +
+                $"Coverage={minimumXZ} -> {maximumXZ}, " +
+                $"Bytes={validationCache.ApproximateGpuMemoryBytes}."
+            );
+
+            bool copyRejected =
+                !validationCache
+                    .TryLoadCommittedBaseTile(
+                        testWindow.OriginTile,
+                        out string copyError
+                    )
+                &&
+                !string.IsNullOrEmpty(
+                    copyError
+                );
+
+            AddResult(
+                "Coarse native-copy materialization guard",
+                copyRejected
+                    ? ValidationOutcome.Pass
+                    : ValidationOutcome.Fail,
+                copyRejected
+                    ? copyError
+                    : "A coarse staging cache unexpectedly accepted the " +
+                        "native direct-copy materialization path."
+            );
+        }
+        finally
+        {
+            validationCache.Dispose();
+        }
+    }
+
     private static void RunPartialCacheValidation(
         WorldSettings worldSettings,
         TerrainAuthoringData authoringData,
@@ -742,6 +1258,9 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
             );
 
             bool layoutCorrect =
+                validationCache.SampleStride ==
+                    1
+                &&
                 validationCache.CacheOriginTile ==
                     testWindow.OriginTile
                 &&
