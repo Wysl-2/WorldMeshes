@@ -13,6 +13,66 @@ public static class TerrainAnalysisWindowUtility
     public const float MaximumInteractiveDependencyRadiusMeters =
         256f;
 
+    public const int InteractiveOutputRadiusTiles = 1;
+
+    public static bool TryCalculateNativeInteractiveWindows(WorldSettings settings, Vector3 focus,
+        out TerrainHeightCacheWindow output, out TerrainHeightCacheWindow source,
+        out int guardTileCount, out string error)
+    {
+        output = source = default;
+        guardTileCount = 0;
+        error = "";
+        if (settings == null)
+        {
+            error = "Native terrain analysis requires WorldSettings.";
+            return false;
+        }
+        return TryCalculateNativeInteractiveWindows(
+            new Vector2Int(settings.HeightTileGridWidth, settings.HeightTileGridHeight),
+            TerrainHeightResolutionUtility.GetSamplesPerSide(settings, 1),
+            TerrainHeightResolutionUtility.GetSampleSpacing(settings, 1), focus,
+            out output, out source, out guardTileCount, out error);
+    }
+
+    internal static bool TryCalculateNativeInteractiveWindows(Vector2Int grid, int samples,
+        float spacing, Vector3 focus, out TerrainHeightCacheWindow output,
+        out TerrainHeightCacheWindow source, out int guardTileCount, out string error)
+    {
+        output = source = default;
+        guardTileCount = 0;
+        error = "";
+        float tileSize = (samples - 1) * spacing;
+        if (grid.x <= 0 || grid.y <= 0 || samples <= 1 || spacing <= 0f
+            || float.IsNaN(tileSize) || float.IsInfinity(tileSize) || tileSize <= 0f
+            || float.IsNaN(focus.x) || float.IsInfinity(focus.x)
+            || float.IsNaN(focus.z) || float.IsInfinity(focus.z))
+        {
+            error = "The native analysis focus, tile grid, or sampling is invalid.";
+            return false;
+        }
+        int x = Mathf.FloorToInt(Mathf.Clamp(focus.x / tileSize, 0f, grid.x - 1f));
+        int z = Mathf.FloorToInt(Mathf.Clamp(focus.z / tileSize, 0f, grid.y - 1f));
+        var minimum = new Vector2Int(Mathf.Max(0, x - InteractiveOutputRadiusTiles),
+            Mathf.Max(0, z - InteractiveOutputRadiusTiles));
+        var maximum = new Vector2Int((int)System.Math.Min(grid.x, (long)x + InteractiveOutputRadiusTiles + 1),
+            (int)System.Math.Min(grid.y, (long)z + InteractiveOutputRadiusTiles + 1));
+        output = new TerrainHeightCacheWindow(minimum, maximum - minimum);
+        guardTileCount = CalculateRequiredInteractiveGuardTileCount(samples, spacing);
+        // Clamp arithmetic in long space: large logical grids cannot overflow
+        // the exclusive maximum while preserving the full dependency radius.
+        long minX = System.Math.Max(0L, (long)minimum.x - guardTileCount);
+        long minZ = System.Math.Max(0L, (long)minimum.y - guardTileCount);
+        long maxX = System.Math.Min(grid.x, (long)maximum.x + guardTileCount);
+        long maxZ = System.Math.Min(grid.y, (long)maximum.y + guardTileCount);
+        if ((maxX - minX) * (maxZ - minZ) > int.MaxValue)
+        {
+            error = "The native analysis dependency window exceeds supported tile counts.";
+            output = default;
+            return false;
+        }
+        return TryExpandOutputWindow(output, grid, guardTileCount, out source, out error);
+    }
+
     public static int CalculateRequiredGuardTileCount(
         int samplesPerSide,
         float sampleSpacing,
@@ -257,11 +317,11 @@ public static class TerrainAnalysisWindowUtility
             new Vector2Int(
                 Mathf.Min(
                     worldGridSize.x,
-                    outputWindow.MaximumExclusive.x + guard
+                    (int)System.Math.Min(int.MaxValue, (long)outputWindow.MaximumExclusive.x + guard)
                 ),
                 Mathf.Min(
                     worldGridSize.y,
-                    outputWindow.MaximumExclusive.y + guard
+                    (int)System.Math.Min(int.MaxValue, (long)outputWindow.MaximumExclusive.y + guard)
                 )
             );
 

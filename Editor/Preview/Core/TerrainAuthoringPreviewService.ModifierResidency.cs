@@ -93,6 +93,7 @@ public static partial class TerrainAuthoringPreviewService
 
         ClearTransitionFailureSuppression();
         InvalidatePreparedHeightCacheSet();
+        InvalidateTerrainAnalysisAuthoring();
 
         bool hasStreamingWork =
             hasPendingStreamingStart
@@ -616,6 +617,8 @@ public static partial class TerrainAuthoringPreviewService
 
         lastPublishedCompositeTileCount =
             publishedTiles.Count;
+
+        PublishNativeTerrainAnalysisCompositeUpdate(publishedTiles);
 
         if (publishedTiles.Count > 0)
         {

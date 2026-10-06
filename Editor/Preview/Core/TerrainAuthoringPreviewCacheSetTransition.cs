@@ -5,7 +5,8 @@ using UnityEngine;
 internal enum TerrainAuthoringPreviewCachePublication
 {
     NativePreview,
-    PreparedHeightSet
+    PreparedHeightSet,
+    NativeAnalysis
 }
 
 // Read-only borrowed result. Only the preview service owns/disposes its cache.

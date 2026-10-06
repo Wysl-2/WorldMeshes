@@ -890,6 +890,8 @@ public static partial class TerrainAuthoringSceneViewController
                     .CanRunEditorPreviewWork
             )
             {
+                TerrainAuthoringPreviewService.RecordTerrainAnalysisFocus(worldSettings, clampedTarget);
+
                 TerrainAuthoringPreviewService
                     .RecordMultiresolutionResidencyIntent(
                         worldSettings,
@@ -1241,6 +1243,8 @@ public static partial class TerrainAuthoringSceneViewController
                     )
             )
             {
+                TerrainAuthoringPreviewService.RecordTerrainAnalysisFocus(worldSettings, canonicalTarget);
+
                 TerrainAuthoringPreviewService
                     .RecordMultiresolutionResidencyIntent(
                         worldSettings,

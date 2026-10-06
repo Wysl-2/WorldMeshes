@@ -414,5 +414,23 @@ internal static class TerrainAuthoringPreviewStreamingPolicy
     }
 
 
+    internal static bool ShouldDeferForNativeAnalysis(TerrainAuthoringPreviewCachePublication purpose,
+        bool nativeRecovery, bool analysisRequired, TerrainAuthoringPreviewCachePublication? occupied)
+    {
+        if (purpose == TerrainAuthoringPreviewCachePublication.NativeAnalysis)
+            return occupied.HasValue && occupied != TerrainAuthoringPreviewCachePublication.NativeAnalysis;
+        if (purpose == TerrainAuthoringPreviewCachePublication.NativePreview)
+            return !nativeRecovery && (analysisRequired
+                || occupied == TerrainAuthoringPreviewCachePublication.NativeAnalysis);
+        return analysisRequired || occupied == TerrainAuthoringPreviewCachePublication.NativeAnalysis;
+    }
+
+    internal static bool ShouldDeferHeightRequestRestart(TerrainAuthoringPreviewCachePublication purpose,
+        bool interactiveEdit, bool requiresLiveAnalysis)
+    {
+        return interactiveEdit && (purpose != TerrainAuthoringPreviewCachePublication.NativeAnalysis
+            || !requiresLiveAnalysis);
+    }
+
 }
 

@@ -349,7 +349,9 @@ public static partial class TerrainAuthoringPreviewService
 
         fullCommittedBuildCount++;
 
-        ClearTransitionFailureSuppression();
+        ClearNativeTransitionFailureSuppression();
+
+        MarkActiveCacheAuthoringGeneration(transition.TargetAuthoringGeneration);
 
         SetStatus(
             TerrainAuthoringPreviewStatus.Ready,
@@ -372,6 +374,7 @@ public static partial class TerrainAuthoringPreviewService
                 activeCache
         )
         {
+            DetachTerrainAnalysisBorrowing(previousActive);
             previousActive.Dispose();
         }
 
@@ -629,13 +632,17 @@ public static partial class TerrainAuthoringPreviewService
         var preparedFailure = lastFailedCacheSetRequest != null
             && lastFailedCacheSetRequest.Publication == TerrainAuthoringPreviewCachePublication.PreparedHeightSet
                 ? lastFailedCacheSetRequest : null;
+        var analysisFailure = lastFailedAnalysisCacheSetRequest;
         ClearTransitionFailureSuppression();
         lastFailedCacheSetRequest = preparedFailure;
+        lastFailedAnalysisCacheSetRequest = analysisFailure;
     }
 
     private static void ClearTransitionFailureSuppression()
     {
         lastFailedCacheSetRequest = null;
+        lastFailedAnalysisCacheSetRequest = null;
+        analysisSourceError = "";
         hasTransitionFailure =
             false;
 
@@ -661,7 +668,8 @@ public static partial class TerrainAuthoringPreviewService
 
     private static bool IsCacheSetFailureSuppressed(TerrainAuthoringPreviewCacheSetTransition request)
     {
-        var failed = lastFailedCacheSetRequest;
+        var failed = request.Publication == TerrainAuthoringPreviewCachePublication.NativeAnalysis
+            ? lastFailedAnalysisCacheSetRequest : lastFailedCacheSetRequest;
         return failed != null && failed.Publication == request.Publication
             && failed.MatchesContent(request.CommittedSignature, request.OverallSignature,
                 request.AuthoringGeneration, request.OwnershipGeneration, request.RebuildRequested)
@@ -676,6 +684,13 @@ public static partial class TerrainAuthoringPreviewService
         t.Error = error;
         CaptureTransitionMemoryEstimate();
         lastFailedCacheSetRequest = t;
+        if (t.Publication == TerrainAuthoringPreviewCachePublication.NativeAnalysis)
+        {
+            lastFailedAnalysisCacheSetRequest = t;
+            analysisSourceError = "Native analysis output " + analysisOutputWindow
+                + "; dependency source " + analysisRequiredSourceWindow + ": " + error;
+            PublishTerrainAnalysisSourceState(true);
+        }
         lastStreamingFailureMessage = error;
         if (t.Publication == TerrainAuthoringPreviewCachePublication.NativePreview)
             FailStagedTransition(t.Entries[0].Transition, t.Entries[0].Target,
@@ -690,6 +705,8 @@ public static partial class TerrainAuthoringPreviewService
     )
     {
         ReleaseStagingCacheOnly();
+        ClearPendingStreamingStart();
+        ReleaseTerrainAnalysisSource(notifyObservers);
 
         if (activeCache != null)
         {

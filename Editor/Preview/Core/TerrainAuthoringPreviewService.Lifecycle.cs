@@ -550,7 +550,9 @@ public static partial class TerrainAuthoringPreviewService
             ||
             hasDesiredResidencyWindow
             ||
-            hasRequestedResidencyWindow;
+            hasRequestedResidencyWindow
+            || hasAnalysisSourceIntent
+            || hasAnalysisSourceDemand;
 
         bool hadStreamingWork =
             hasPendingStreamingStart
@@ -612,6 +614,7 @@ public static partial class TerrainAuthoringPreviewService
 
         ClearMultiresolutionResidencyIntent();
         ReleasePreparedHeightCacheSet();
+        ReleaseTerrainAnalysisSource(true);
 
         ClearDesiredResidency();
         ClearRequestedResidency();

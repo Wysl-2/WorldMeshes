@@ -1420,6 +1420,7 @@ public static partial class TerrainAuthoringPreviewService
     public static void ForceCommittedRebuildNow()
     {
         ClearTransitionFailureSuppression();
+        RegisterPreviewAuthoringInvalidation("An explicit committed preview rebuild was requested.");
 
         committedRebuildRequested =
             true;
@@ -1441,6 +1442,8 @@ public static partial class TerrainAuthoringPreviewService
      */
     public static void RequestRefresh()
     {
+        lastFailedAnalysisCacheSetRequest = null;
+        analysisSourceError = "";
         ScheduleRefresh();
     }
 
@@ -2324,6 +2327,8 @@ public static partial class TerrainAuthoringPreviewService
              * Analysis consumers need the exact successfully updated
              * source tiles before the broader preview-state event.
              */
+            MarkActiveCacheAuthoringGeneration(authoringGeneration);
+            PublishNativeTerrainAnalysisCompositeUpdate(dirtySnapshot);
             CompositeTilesUpdated?.Invoke(
                 dirtySnapshot
             );
@@ -2801,6 +2806,9 @@ public static partial class TerrainAuthoringPreviewService
 
     private static void NotifyPreviewStateChanged()
     {
+        if (hasAnalysisSourceIntent)
+            EvaluateTerrainAnalysisSource(analysisSettings, LoadAuthoringData(), false);
+        PublishTerrainAnalysisSourceState(true);
         PreviewStateChanged?.Invoke();
     }
 

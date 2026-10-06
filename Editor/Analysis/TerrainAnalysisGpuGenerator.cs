@@ -61,12 +61,6 @@ public sealed class TerrainAnalysisGpuGenerator :
         >();
 
     /*
-     * Used to distinguish ordinary in-place preview slice updates from a
-     * complete TerrainAuthoringPreviewCache RenderTexture replacement.
-     */
-    private static int lastObservedHeightCacheInstanceId;
-
-    /*
      * Interactive authoring may update the Height Preview many times during
      * one gesture. When the current visualization does not require live
      * Terrain Analysis, retain only the unique changed source tiles here and
@@ -89,11 +83,11 @@ public sealed class TerrainAnalysisGpuGenerator :
             Instance
         );
 
-        TerrainAuthoringPreviewService.CompositeTilesUpdated +=
-            OnCompositeTilesUpdated;
+        TerrainAuthoringPreviewService.TerrainAnalysisSourceTilesUpdated +=
+            OnTerrainAnalysisSourceTilesUpdated;
 
-        TerrainAuthoringPreviewService.PreviewStateChanged +=
-            OnPreviewStateChanged;
+        TerrainAuthoringPreviewService.TerrainAnalysisSourceStateChanged +=
+            OnTerrainAnalysisSourceStateChanged;
 
         TerrainAuthoringPreviewService.TerrainAnalysisSourceChanged +=
             OnTerrainAnalysisSourceChanged;
@@ -148,27 +142,9 @@ public sealed class TerrainAnalysisGpuGenerator :
             return false;
         }
 
-        if (
-            !TryGetSource(
-                out TerrainAnalysisGpuSource source,
-                out errorMessage
-            )
-        )
-        {
-            return false;
-        }
-
-        if (
-            !TerrainAnalysisWindowUtility
-                .TryCalculateInteractiveOutputWindow(
-                    source,
-                    out TerrainHeightCacheWindow outputWindow,
-                    out errorMessage
-                )
-        )
-        {
-            return false;
-        }
+        if (!TerrainAuthoringPreviewService.TryRequestTerrainAnalysisGpuSource(
+            out TerrainAnalysisGpuSource source, out TerrainHeightCacheWindow outputWindow,
+            out errorMessage)) return false;
 
         if (
             !TryGenerateFromPreparedSource(
@@ -182,9 +158,6 @@ public sealed class TerrainAnalysisGpuGenerator :
         {
             return false;
         }
-
-        lastObservedHeightCacheInstanceId =
-            source.SourceResourceIdentity;
 
         return true;
     }
@@ -475,6 +448,7 @@ public sealed class TerrainAnalysisGpuGenerator :
         if (
             !TryGetSource(
                 out TerrainAnalysisGpuSource source,
+                out TerrainHeightCacheWindow outputWindow,
                 out errorMessage
             )
         )
@@ -484,6 +458,12 @@ public sealed class TerrainAnalysisGpuGenerator :
 
         sourceSignature =
             source.SourceSignature;
+
+        if (layer.CacheOriginTile != outputWindow.OriginTile || layer.CacheSize != outputWindow.Size)
+        {
+            errorMessage = "The bounded native analysis output changed; complete generation is required.";
+            return false;
+        }
 
         if (
             source.SourceResourceIdentity !=
@@ -609,9 +589,6 @@ public sealed class TerrainAnalysisGpuGenerator :
 
         if (uniqueSlices.Count == 0)
         {
-            lastObservedHeightCacheInstanceId =
-                source.SourceResourceIdentity;
-
             return true;
         }
 
@@ -683,9 +660,6 @@ public sealed class TerrainAnalysisGpuGenerator :
 
             return false;
         }
-
-        lastObservedHeightCacheInstanceId =
-            source.SourceResourceIdentity;
 
         return true;
     }
@@ -949,30 +923,42 @@ public sealed class TerrainAnalysisGpuGenerator :
     // SOURCE / COMMON PARAMETERS
     // =====================================================
 
-    private static bool TryGetSource(
-        out TerrainAnalysisGpuSource source,
-        out string errorMessage
-    )
+    private static bool TryGetSource(out TerrainAnalysisGpuSource source,
+        out TerrainHeightCacheWindow output, out string errorMessage)
     {
-        source = default;
         errorMessage = "";
+        if (TerrainAuthoringPreviewService.TryGetTerrainAnalysisGpuSource(out source, out output)
+            && source.IsValid) return true;
+        errorMessage = TerrainAuthoringPreviewService.GetTerrainAnalysisSourceSnapshot().Message;
+        return false;
+    }
 
-        if (
-            !TerrainAuthoringPreviewService
-                .TryGetTerrainAnalysisGpuSource(
-                    out source
-                )
-            ||
-            !source.IsValid
-        )
-        {
-            errorMessage =
-                "Terrain analysis requires a ready bounded Terrain Authoring Height Preview source.";
+    internal static bool InteractiveAnalysisUpdatesDeferred => interactiveAnalysisDeferralPending;
 
+    internal static bool IsCurrentInteractiveLayer(TerrainAnalysisLayer layer)
+    {
+        if (layer == null || !layer.IsReady || layer.Texture == null || !layer.Texture.IsCreated()
+            || interactiveAnalysisDeferralPending
+            || !TerrainAuthoringPreviewService.TryGetTerrainAnalysisGpuSource(out var source, out var output))
             return false;
-        }
+        return layer.SourceHeightCacheInstanceId == source.SourceResourceIdentity
+            && layer.SourceResidencyGeneration == source.ResidencyGeneration
+            && layer.SourceCacheOriginTile == source.SourceWindow.OriginTile
+            && layer.SourceCacheSize == source.SourceWindow.Size
+            && layer.CacheOriginTile == output.OriginTile && layer.CacheSize == output.Size
+            && layer.SamplesPerSide == source.SamplesPerSide
+            && Mathf.Approximately(layer.SampleSpacing, source.SampleSpacing)
+            && VectorApproximately(layer.WorldSizeXZ, source.WorldSizeXZ)
+            && layer.Texture.width == source.SamplesPerSide && layer.Texture.height == source.SamplesPerSide
+            && layer.Texture.volumeDepth == output.TileCount;
+    }
 
-        return true;
+    internal static void FlushDeferredInteractiveAnalysisIfRequired()
+    {
+        if (interactiveAnalysisDeferralPending
+            && TerrainAuthoringVisualizationController.RequiresLiveTerrainAnalysisDuringInteractiveEdit
+            && TerrainAuthoringPreviewService.TryGetTerrainAnalysisGpuSource(out _))
+            FlushDeferredSourceTiles();
     }
 
     private void SetCommonKernelParameters(
@@ -1140,7 +1126,7 @@ public sealed class TerrainAnalysisGpuGenerator :
     // PREVIEW INVALIDATION / LIFETIME
     // =====================================================
 
-    private static void OnCompositeTilesUpdated(
+    private static void OnTerrainAnalysisSourceTilesUpdated(
         IReadOnlyList<Vector2Int> tileCoordinates
     )
     {
@@ -1163,7 +1149,7 @@ public sealed class TerrainAnalysisGpuGenerator :
 
         /*
          * Once a non-analysis interactive gesture starts deferring analysis,
-         * keep that deferral latched until an authoritative PreviewStateChanged
+         * keep that deferral latched until an authoritative analysis-source publication
          * boundary. This also covers a final height transaction that executes
          * just after MouseUp, when HasActiveInteractiveEdit is already false.
          */
@@ -1216,116 +1202,20 @@ public sealed class TerrainAnalysisGpuGenerator :
     private static void OnTerrainAnalysisSourceChanged()
     {
         ResetDeferredAnalysisState();
-
-        if (
-            TerrainAuthoringPreviewService
-                .TryGetTerrainAnalysisGpuSource(
-                    out TerrainAnalysisGpuSource source
-                )
-        )
-        {
-            lastObservedHeightCacheInstanceId =
-                source.SourceResourceIdentity;
-        }
-        else
-        {
-            lastObservedHeightCacheInstanceId =
-                0;
-        }
-
-        TerrainAnalysisService
-            .InvalidateAll();
+        if (TerrainAuthoringPreviewService.HasTerrainAnalysisSourceIntent)
+            TerrainAnalysisService.InvalidateAll();
+        else TerrainAnalysisService.Clear();
     }
 
-    private static void OnPreviewStateChanged()
+    private static void OnTerrainAnalysisSourceStateChanged()
     {
-        if (
-            !TerrainAuthoringPreviewService
-                .CacheReady
-        )
-        {
-            ResetDeferredAnalysisState();
-
-            lastObservedHeightCacheInstanceId =
-                0;
-
-            TerrainAnalysisService.Clear();
-
-            return;
-        }
-
-        int currentCacheInstanceId =
-            TerrainAuthoringPreviewService
-                .CacheTextureInstanceId;
-
-        if (currentCacheInstanceId == 0)
-        {
-            ResetDeferredAnalysisState();
-
-            lastObservedHeightCacheInstanceId =
-                0;
-
-            TerrainAnalysisService.Clear();
-
-            return;
-        }
-
-        if (
-            lastObservedHeightCacheInstanceId ==
-                0
-        )
-        {
-            ResetDeferredAnalysisState();
-
-            lastObservedHeightCacheInstanceId =
-                currentCacheInstanceId;
-
-            TerrainAnalysisService
-                .InvalidateAll();
-
-            return;
-        }
-
-        if (
-            currentCacheInstanceId !=
-                lastObservedHeightCacheInstanceId
-        )
-        {
-            ResetDeferredAnalysisState();
-
-            lastObservedHeightCacheInstanceId =
-                currentCacheInstanceId;
-
-            TerrainAnalysisService
-                .InvalidateAll();
-
-            return;
-        }
-
-        /*
-         * Same cache object means ordinary composite/metadata updates.
-         * While a gesture is still active, a deferred analysis set must remain
-         * stale even though the Height Preview itself has reached a valid
-         * intermediate state.
-         */
-        if (
-            TerrainAuthoringPreviewService
-                .HasActiveInteractiveTerrainAuthoringEdit
-        )
-        {
-            return;
-        }
-
-        /*
-         * PreviewStateChanged is emitted after the successful height
-         * recomposition/range transaction and after overall authoring identity
-         * acknowledgement. It is therefore the safe release boundary for a
-         * deferred interactive analysis update.
-         */
-        if (interactiveAnalysisDeferralPending)
-        {
+        // Content may be pending without a structural replacement. Keep
+        // deferred tiles until the selected native source has acknowledged it.
+        if (!TerrainAuthoringPreviewService.TryGetTerrainAnalysisGpuSource(out _)) return;
+        if (interactiveAnalysisDeferralPending
+            && (!TerrainAuthoringPreviewService.HasActiveInteractiveTerrainAuthoringEdit
+                || TerrainAuthoringVisualizationController.RequiresLiveTerrainAnalysisDuringInteractiveEdit))
             FlushDeferredSourceTiles();
-        }
     }
 
     private static void AccumulateDeferredSourceTiles(
@@ -1402,11 +1292,11 @@ public sealed class TerrainAnalysisGpuGenerator :
 
     private static void Shutdown()
     {
-        TerrainAuthoringPreviewService.CompositeTilesUpdated -=
-            OnCompositeTilesUpdated;
+        TerrainAuthoringPreviewService.TerrainAnalysisSourceTilesUpdated -=
+            OnTerrainAnalysisSourceTilesUpdated;
 
-        TerrainAuthoringPreviewService.PreviewStateChanged -=
-            OnPreviewStateChanged;
+        TerrainAuthoringPreviewService.TerrainAnalysisSourceStateChanged -=
+            OnTerrainAnalysisSourceStateChanged;
 
         TerrainAuthoringPreviewService.TerrainAnalysisSourceChanged -=
             OnTerrainAnalysisSourceChanged;
@@ -1436,8 +1326,6 @@ public sealed class TerrainAnalysisGpuGenerator :
 
         kernelStates.Clear();
 
-        lastObservedHeightCacheInstanceId =
-            0;
     }
 
     private static bool VectorApproximately(

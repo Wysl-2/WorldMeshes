@@ -245,15 +245,7 @@ public static partial class TerrainAuthoringVisualizationController
                     );
         }
 
-        if (
-            layer != null
-            &&
-            layer.IsReady
-            &&
-            layer.Texture != null
-            &&
-            layer.Texture.IsCreated()
-        )
+        if (TerrainAnalysisGpuGenerator.IsCurrentInteractiveLayer(layer))
         {
             return true;
         }
@@ -274,19 +266,11 @@ public static partial class TerrainAuthoringVisualizationController
     private static void ApplyAnalysisVisualizationProperties(
         MaterialPropertyBlock block,
         TerrainAnalysisLayer layer,
-        TerrainAnalysisDefinition definition
+        TerrainAnalysisDefinition definition,
+        bool sourceCurrent = false
     )
     {
-        bool ready =
-            layer != null
-            &&
-            definition != null
-            &&
-            layer.IsReady
-            &&
-            layer.Texture != null
-            &&
-            layer.Texture.IsCreated();
+        bool ready = definition != null && sourceCurrent;
 
         block.SetFloat(
             AnalysisVisualizationReadyPropertyId,

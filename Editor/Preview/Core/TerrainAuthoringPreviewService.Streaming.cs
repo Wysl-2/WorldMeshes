@@ -196,6 +196,14 @@ public static partial class TerrainAuthoringPreviewService
                 sources[i] = activeCache;
                 generations[i] = activeCacheAuthoringGeneration;
             }
+            else if (publication == TerrainAuthoringPreviewCachePublication.NativeAnalysis)
+            {
+                if (analysisOwnedOwnershipGeneration == TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration)
+                {
+                    sources[i] = analysisOwnedState?.ActiveCache;
+                    generations[i] = analysisOwnedState?.ActiveAuthoringGeneration ?? 0L;
+                }
+            }
             else if (preparedHeightStates != null && i < preparedHeightStates.Length
                 && preparedHeightStates[i].Level == i)
             {
@@ -213,6 +221,22 @@ public static partial class TerrainAuthoringPreviewService
     private static bool QueueCacheSetRequest(TerrainAuthoringPreviewCacheSetTransition request, out string error)
     {
         error = "";
+        bool nativeRecovery = request.Publication == TerrainAuthoringPreviewCachePublication.NativePreview
+            && (request.RebuildRequested || activeCache == null || !activeCache.IsCompleteForActivation
+                || activeCacheAuthoringGeneration != request.AuthoringGeneration
+                || activeCache.SourceCommittedHeightfieldSignature != request.CommittedSignature
+                || activeCache.SourceOverallAuthoringSignature != request.OverallSignature
+                || !ActiveCacheContains(request.AcceptedPlan.Levels[0].RequiredWindow));
+        var occupied = TransitionInProgress ? currentCacheSetTransition : pendingCacheSetTransition;
+        if (TerrainAuthoringPreviewStreamingPolicy.ShouldDeferForNativeAnalysis(
+            request.Publication, nativeRecovery, TerrainAnalysisHeightIsRequired, occupied?.Publication))
+        {
+            request.Dispose();
+            if (request.Publication == TerrainAuthoringPreviewCachePublication.NativePreview)
+                return true; // Required display coverage is current; optional guard work can wait.
+            error = "Current native analysis Height must finish before new optional Height preparation.";
+            return false;
+        }
         foreach (var existing in new[] { currentCacheSetTransition, pendingCacheSetTransition })
         {
             if (existing == null || !existing.InProgress || existing.Publication != request.Publication
@@ -240,7 +264,8 @@ public static partial class TerrainAuthoringPreviewService
         if (IsCacheSetFailureSuppressed(request))
         {
             request.Dispose();
-            error = lastStreamingFailureMessage;
+            error = request.Publication == TerrainAuthoringPreviewCachePublication.NativeAnalysis
+                ? lastFailedAnalysisCacheSetRequest.Error : lastStreamingFailureMessage;
             return false;
         }
         CancelCurrentStreamingTransition("A newer residency request superseded staging.", false);
@@ -259,9 +284,14 @@ public static partial class TerrainAuthoringPreviewService
         if (!CanRunEditorPreviewWork) return;
         using var scope = WorldMeshesProfiler.PreviewStreamingUpdate.Auto();
         var watch = Stopwatch.StartNew();
+        var settings = LoadWorldSettings();
+        var data = LoadAuthoringData();
+        AdmitPendingTerrainAnalysisSource(settings, data);
         if (!TransitionInProgress && hasPendingStreamingStart)
         {
-            if (ShouldDeferStreamingRestart(HasActiveInteractiveTerrainAuthoringEdit)) return;
+            if (TerrainAuthoringPreviewStreamingPolicy.ShouldDeferHeightRequestRestart(
+                pendingCacheSetTransition.Publication, HasActiveInteractiveTerrainAuthoringEdit,
+                TerrainAuthoringVisualizationController.RequiresLiveTerrainAnalysisDuringInteractiveEdit)) return;
             ReleaseStagingCacheOnly();
             currentCacheSetTransition = pendingCacheSetTransition;
             pendingCacheSetTransition = null;
@@ -269,8 +299,6 @@ public static partial class TerrainAuthoringPreviewService
         }
         if (!TransitionInProgress) return;
         var t = currentCacheSetTransition;
-        var settings = LoadWorldSettings();
-        var data = LoadAuthoringData();
         if (!ValidateCacheSetTransaction(t, settings, data, out string staleReason))
         {
             CancelCurrentStreamingTransition(staleReason, false);
@@ -321,6 +349,8 @@ public static partial class TerrainAuthoringPreviewService
                 t.CompletedWorkUnits++;
                 ScheduleRefresh();
             }
+            else if (t.Publication == TerrainAuthoringPreviewCachePublication.NativeAnalysis)
+                PublishTerrainAnalysisHeight(t);
             else PublishPreparedHeightCacheSet(t);
             t.Dispose();
             ScheduleRefresh();
@@ -518,7 +548,14 @@ public static partial class TerrainAuthoringPreviewService
                 || TerrainHeightResolutionUtility.GetSamplesPerSide(settings, e.Plan.SampleStride) != e.Plan.SamplesPerSide
                 || !Mathf.Approximately(TerrainHeightResolutionUtility.GetSampleSpacing(settings,
                     e.Plan.SampleStride), e.Plan.SampleSpacing)) return false;
-        if (t.Publication == TerrainAuthoringPreviewCachePublication.PreparedHeightSet)
+        if (t.Publication == TerrainAuthoringPreviewCachePublication.NativeAnalysis)
+        {
+            if (!hasAnalysisSourceDemand || !hasAnalysisSourceIntent || settings != analysisSettings
+                || analysisOwnershipGeneration != t.OwnershipGeneration
+                || !IsTerrainAnalysisTransactionCurrent(t, CreateTerrainAnalysisPlan(settings),
+                    analysisAcceptedRequestGeneration)) return false;
+        }
+        else if (t.Publication == TerrainAuthoringPreviewCachePublication.PreparedHeightSet)
         {
             if (!TerrainAuthoringPreviewStreamingPolicy.AreMultiresolutionResidencyPlansEquivalent(
                 t.AcceptedPlan, acceptedPreparedHeightIntent)

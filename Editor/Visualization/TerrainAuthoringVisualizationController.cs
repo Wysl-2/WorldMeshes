@@ -181,6 +181,8 @@ public static partial class TerrainAuthoringVisualizationController
 
     private static bool suspendedForPlayMode;
 
+    private static bool visualizationShuttingDown;
+
     private static bool isApplying;
 
     private static TerrainAuthoringVisualizationStatus status =
@@ -198,6 +200,9 @@ public static partial class TerrainAuthoringVisualizationController
     static TerrainAuthoringVisualizationController()
     {
         TerrainAuthoringPreviewService.PreviewStateChanged +=
+            OnPreviewStateChanged;
+
+        TerrainAuthoringPreviewService.TerrainAnalysisSourceStateChanged +=
             OnPreviewStateChanged;
 
         EditorApplication.hierarchyChanged +=
@@ -820,7 +825,7 @@ public static partial class TerrainAuthoringVisualizationController
 
     private static void ScheduleReapply()
     {
-        if (reapplyScheduled)
+        if (visualizationShuttingDown || reapplyScheduled)
         {
             return;
         }
@@ -836,6 +841,8 @@ public static partial class TerrainAuthoringVisualizationController
     {
         reapplyScheduled =
             false;
+
+        if (visualizationShuttingDown) return;
 
         if (
             EditorApplication.isCompiling
@@ -1009,6 +1016,8 @@ public static partial class TerrainAuthoringVisualizationController
                 TerrainAuthoringVisualizationMode.Lit;
         }
 
+        TerrainAnalysisGpuGenerator.FlushDeferredInteractiveAnalysisIfRequired();
+
         TerrainAnalysisLayer visualizationAnalysisLayer =
             null;
 
@@ -1089,6 +1098,13 @@ public static partial class TerrainAuthoringVisualizationController
         {
             ReleaseScreeSuitabilityAnalysis();
         }
+
+        // Eligibility is stable during this synchronous property-block pass.
+        // Resolve native source identity once per layer, rather than per renderer.
+        bool rawAnalysisCurrent = TerrainAnalysisGpuGenerator.IsCurrentInteractiveLayer(visualizationAnalysisLayer);
+        bool screeAnalysisCurrent = IsReadyAnalysisLayer(screeSlopeAnalysisLayer)
+            && IsReadyAnalysisLayer(screeCurvatureAnalysisLayer)
+            && AnalysisLayoutsMatch(screeSlopeAnalysisLayer, screeCurvatureAnalysisLayer);
 
         bool effectiveContours =
             ContoursEnabled
@@ -1190,13 +1206,15 @@ public static partial class TerrainAuthoringVisualizationController
                 ApplyAnalysisVisualizationProperties(
                     propertyBlock,
                     visualizationAnalysisLayer,
-                    visualizationAnalysisDefinition
+                    visualizationAnalysisDefinition,
+                    rawAnalysisCurrent
                 );
 
                 ApplyScreeAnalysisProperties(
                     propertyBlock,
                     screeSlopeAnalysisLayer,
-                    screeCurvatureAnalysisLayer
+                    screeCurvatureAnalysisLayer,
+                    screeAnalysisCurrent
                 );
 
                 propertyBlock.SetFloat(
@@ -1295,7 +1313,19 @@ public static partial class TerrainAuthoringVisualizationController
             &&
             !heightPreviewReady;
 
-        if (
+        var analysisState = TerrainAuthoringPreviewService.GetTerrainAnalysisSourceSnapshot();
+        bool analysisWaiting = (!string.IsNullOrEmpty(visualizationAnalysisError)
+            || !string.IsNullOrEmpty(screeAnalysisError))
+            && ((!analysisState.Ready && !analysisState.Failed)
+                || TerrainAnalysisGpuGenerator.InteractiveAnalysisUpdatesDeferred);
+        if (analysisWaiting)
+        {
+            SetStatus(TerrainAuthoringVisualizationStatus.HeightPreviewRequired,
+                TerrainAnalysisGpuGenerator.InteractiveAnalysisUpdatesDeferred
+                    ? "Cached Terrain Analysis is waiting for the current authoring gesture; direct Scree fallback remains available."
+                    : analysisState.Message);
+        }
+        else if (
             !string.IsNullOrEmpty(
                 visualizationAnalysisError
             )
@@ -1738,12 +1768,23 @@ public static partial class TerrainAuthoringVisualizationController
 
     private static void OnBeforeAssemblyReload()
     {
+        StopVisualizationCallbacks();
         DisableVisualization();
     }
 
     private static void OnEditorQuitting()
     {
+        StopVisualizationCallbacks();
         DisableVisualization();
+    }
+
+    private static void StopVisualizationCallbacks()
+    {
+        visualizationShuttingDown = true;
+        EditorApplication.delayCall -= ExecuteScheduledReapply;
+        reapplyScheduled = false;
+        TerrainAuthoringPreviewService.PreviewStateChanged -= OnPreviewStateChanged;
+        TerrainAuthoringPreviewService.TerrainAnalysisSourceStateChanged -= OnPreviewStateChanged;
     }
 
     // =====================================================

@@ -141,7 +141,8 @@ public static partial class TerrainAuthoringVisualizationController
     private static void ApplyScreeAnalysisProperties(
         MaterialPropertyBlock block,
         TerrainAnalysisLayer slopeLayer,
-        TerrainAnalysisLayer curvatureLayer
+        TerrainAnalysisLayer curvatureLayer,
+        bool sourceCurrent = false
     )
     {
         /*
@@ -165,19 +166,7 @@ public static partial class TerrainAuthoringVisualizationController
                 );
         }
 
-        bool ready =
-            IsReadyAnalysisLayer(
-                slopeLayer
-            )
-            &&
-            IsReadyAnalysisLayer(
-                curvatureLayer
-            )
-            &&
-            AnalysisLayoutsMatch(
-                slopeLayer,
-                curvatureLayer
-            );
+        bool ready = sourceCurrent;
 
         block.SetFloat(
             ScreeAnalysisReadyPropertyId,
@@ -264,14 +253,7 @@ public static partial class TerrainAuthoringVisualizationController
         TerrainAnalysisLayer layer
     )
     {
-        return
-            layer != null
-            &&
-            layer.IsReady
-            &&
-            layer.Texture != null
-            &&
-            layer.Texture.IsCreated();
+        return TerrainAnalysisGpuGenerator.IsCurrentInteractiveLayer(layer);
     }
 
     private static string GetAnalysisLayerError(
