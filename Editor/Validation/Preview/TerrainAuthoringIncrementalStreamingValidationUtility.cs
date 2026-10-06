@@ -79,6 +79,12 @@ public static class TerrainAuthoringIncrementalStreamingValidationUtility
 
         try
         {
+            bool setPassed = TerrainAuthoringStagedTransitionValidationUtility.RunCacheSetWorkerFixture(
+                true, out string setDetail, out bool setBlocked);
+            if (setBlocked) AddBlocked("Resumable Height cache set worker", setDetail);
+            else if (setPassed) AddPass("Resumable Height cache set worker", setDetail);
+            else AddFail("Resumable Height cache set worker", setDetail);
+            ValidateHeightSetPolicy();
             ValidateBoundedWorkBudgets();
             ValidateCursorResume();
             ValidateDuplicateIntentCoalescing();
@@ -963,6 +969,46 @@ public static class TerrainAuthoringIncrementalStreamingValidationUtility
                 Blocked = true
             }
         );
+    }
+
+    private static void ValidateHeightSetPolicy()
+    {
+        var required = new TerrainHeightCacheWindow(new Vector2Int(4, 4), Vector2Int.one);
+        var desired = new TerrainHeightCacheWindow(new Vector2Int(3, 3), new Vector2Int(3, 3));
+        var plan = new TerrainAuthoringPreviewResidencyPlan
+        {
+            LevelCount = 2, Generation = 1,
+            Levels = new TerrainAuthoringPreviewLodResidencyPlan[2]
+        };
+        for (int i = 0; i < 2; i++)
+            plan.Levels[i] = new TerrainAuthoringPreviewLodResidencyPlan
+            {
+                Level = i, SampleStride = 1 << i, SamplesPerSide = (8 >> i) + 1,
+                SampleSpacing = 1 << i, RequiredWindow = required, DesiredWindow = desired
+            };
+        var sources = new TerrainAuthoringPreviewCache[2];
+        var generations = new long[2];
+        using var first = new TerrainAuthoringPreviewCacheSetTransition(plan,
+            new[] { required, required }, new bool[2], sources, generations,
+            TerrainAuthoringPreviewCachePublication.PreparedHeightSet, "base", "content", 1, 1, 1, false);
+        using var duplicate = new TerrainAuthoringPreviewCacheSetTransition(plan.CreateSnapshot(),
+            new[] { required, required }, new bool[2], sources, generations,
+            TerrainAuthoringPreviewCachePublication.PreparedHeightSet, "base", "content", 1, 2, 1, false);
+        bool valid = TerrainAuthoringPreviewStreamingPolicy.AreCacheSetTargetsEquivalent(first, duplicate)
+            && TerrainAuthoringPreviewStreamingPolicy.IsCacheSetUseful(first, plan)
+            && TerrainAuthoringPreviewStreamingPolicy.TryCalculateHeightSetPrefetchTarget(required,
+                plan.Levels[0], new Vector2Int(10, 10), out var growth) && growth == desired;
+        var changed = plan.CreateSnapshot();
+        changed.Levels[1].SampleStride *= 2;
+        valid &= !TerrainAuthoringPreviewStreamingPolicy.IsCacheSetUseful(first, changed);
+        var incompatible = plan.CreateSnapshot();
+        incompatible.Levels[1].RequiredWindow = new TerrainHeightCacheWindow(
+            new Vector2Int(8, 8), Vector2Int.one);
+        incompatible.Levels[1].DesiredWindow = incompatible.Levels[1].RequiredWindow;
+        valid &= !TerrainAuthoringPreviewStreamingPolicy.IsCacheSetUseful(first, incompatible);
+        if (valid) AddPass("Complete Height set request policy",
+            "Identical effective targets coalesce; required-only work remains useful; guard growth and incompatible latest intent are classified.");
+        else AddFail("Complete Height set request policy", "A set-level usefulness, equality, or prefetch decision was incorrect.");
     }
 
     private static void FinishValidation()

@@ -79,7 +79,7 @@ public static partial class TerrainAuthoringPreviewService
         activeCache.IsReady;
 
     internal static bool HasLifecycleStagingCache =>
-        stagingCache != null;
+        currentCacheSetTransition != null && TransitionInProgress;
 
     /*
      * Scene View placement can still operate when Height Preview is disabled,
@@ -556,7 +556,7 @@ public static partial class TerrainAuthoringPreviewService
             hasPendingStreamingStart
             ||
             (
-                currentTransition != null
+                currentCacheSetTransition != null
                 &&
                 TransitionInProgress
             );
@@ -571,10 +571,10 @@ public static partial class TerrainAuthoringPreviewService
             )
             ||
             (
-                currentTransition != null
+                currentCacheSetTransition != null
                 &&
-                currentTransition
-                    .CommittedRebuildRequested
+                currentCacheSetTransition
+                    .RebuildRequested
             );
 
         if (hadStreamingWork)
@@ -595,12 +595,12 @@ public static partial class TerrainAuthoringPreviewService
          * destination and must not become authoritative after intent changes.
          */
         if (
-            currentTransition != null
+            currentCacheSetTransition != null
             &&
             !TransitionInProgress
         )
         {
-            currentTransition =
+            currentCacheSetTransition =
                 null;
         }
 
@@ -611,6 +611,7 @@ public static partial class TerrainAuthoringPreviewService
             default;
 
         ClearMultiresolutionResidencyIntent();
+        ReleasePreparedHeightCacheSet();
 
         ClearDesiredResidency();
         ClearRequestedResidency();
@@ -820,3 +821,4 @@ public static partial class TerrainAuthoringPreviewService
         );
     }
 }
+

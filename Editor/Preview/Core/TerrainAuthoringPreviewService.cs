@@ -73,7 +73,10 @@ public static partial class TerrainAuthoringPreviewService
 
     private static TerrainAuthoringPreviewCache activeCache;
 
-    private static TerrainAuthoringPreviewCache stagingCache;
+    private static TerrainAuthoringPreviewCache stagingCache =>
+        currentCacheSetTransition != null
+        && currentCacheSetTransition.Publication == TerrainAuthoringPreviewCachePublication.NativePreview
+            ? currentCacheSetTransition.Entries[0].Destination?.StagingCache : null;
 
     /*
      * Internal compatibility alias for the authoritative active cache.
@@ -641,7 +644,7 @@ public static partial class TerrainAuthoringPreviewService
         if (!hasTransitionTarget)
         {
             ClearRequestedResidency();
-            ClearTransitionFailureSuppression();
+            ClearNativeTransitionFailureSuppression();
 
             NotifyStreamingIntentNoLongerRequiresTarget();
 

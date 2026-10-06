@@ -42,9 +42,34 @@ internal sealed class TerrainAuthoringPreviewLodState :
     public TerrainAuthoringPreviewLodTransitionState TransitionState =
         TerrainAuthoringPreviewLodTransitionState.Idle;
 
-    public int RequestGeneration;
+    public long RequestGeneration;
 
-    public int StagingGeneration;
+    public long StagingGeneration;
+
+    public long ActiveAuthoringGeneration;
+
+    public long StagingAuthoringGeneration;
+
+    internal TerrainAuthoringPreviewCache DetachStagingCache()
+    {
+        var cache = StagingCache;
+        StagingCache = null;
+        return cache;
+    }
+
+    internal void PromoteStagingCache()
+    {
+        if (ActiveCache != null || StagingCache == null
+            || !StagingCache.IsCompleteForActivation)
+        {
+            throw new InvalidOperationException("The LOD staging cache cannot transfer ownership.");
+        }
+        ActiveCache = DetachStagingCache();
+        ActiveRequiredWindow = RequestedRequiredWindow;
+        ActiveAuthoringGeneration = StagingAuthoringGeneration;
+        CacheReady = true;
+        TransitionState = TerrainAuthoringPreviewLodTransitionState.Idle;
+    }
 
     public TerrainAuthoringPreviewLodState(
         int level,
@@ -159,6 +184,9 @@ internal sealed class TerrainAuthoringPreviewLodState :
         TransitionState =
             TerrainAuthoringPreviewLodTransitionState.Idle;
 
+        ActiveAuthoringGeneration = 0;
+        StagingAuthoringGeneration = 0;
+
         RequestGeneration =
             0;
 
@@ -180,3 +208,4 @@ internal sealed class TerrainAuthoringPreviewLodState :
             );
     }
 }
+

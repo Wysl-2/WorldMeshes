@@ -32,6 +32,16 @@ internal sealed class TerrainAuthoringPreviewHeightMaterializer
     private uint threadGroupSizeX;
     private uint threadGroupSizeY;
 
+    internal void ReleaseTextureBindings()
+    {
+        if (computeShader == null || kernel < 0)
+        {
+            return;
+        }
+        computeShader.SetTexture(kernel, NativeHeightSourceId, (Texture)null);
+        computeShader.SetTexture(kernel, HeightCacheId, (Texture)null);
+    }
+
     internal bool TryPrepare(out string errorMessage)
     {
         errorMessage = "";

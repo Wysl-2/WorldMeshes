@@ -103,45 +103,21 @@ public static partial class TerrainAuthoringPreviewService
                 ? activeWindow.TileCount
                 : 0;
 
-        int retainedTileCount =
-            currentTransition != null
-                ? currentTransition.RetainedTiles.Count
-                : 0;
+        int retainedTileCount = LastTransitionRetainedTileCount;
 
-        int reusableRetainedTileCount =
-            currentTransition != null
-                ? currentTransition.ReusableRetainedTiles.Count
-                : 0;
+        int reusableRetainedTileCount = StreamingRetainedTileCount;
 
-        int enteringTileCount =
-            currentTransition != null
-                ? currentTransition.EnteringTiles.Count
-                : 0;
+        int enteringTileCount = LastTransitionEnteringTileCount;
 
-        int leavingTileCount =
-            currentTransition != null
-                ? currentTransition.LeavingTiles.Count
-                : 0;
+        int leavingTileCount = LastTransitionLeavingTileCount;
 
-        int retainedCopiedCount =
-            currentTransition != null
-                ? currentTransition.RetainedGpuCopyCount
-                : 0;
+        int retainedCopiedCount = StreamingRetainedCopiedCount;
 
-        int sourceLoadedCount =
-            currentTransition != null
-                ? currentTransition.CommittedSourceLoadCount
-                : 0;
+        int sourceLoadedCount = StreamingSourceLoadedCount;
 
-        int sourceComposedCount =
-            currentTransition != null
-                ? currentTransition.FullyComposedTileCount
-                : 0;
+        int sourceComposedCount = StreamingSourceComposedCount;
 
-        int sourceTileCount =
-            currentTransition != null
-                ? currentTransition.SourceMaterializationTiles.Count
-                : 0;
+        int sourceTileCount = StreamingSourceTileCount;
 
         return
             new TerrainAuthoringPreviewDiagnosticsSnapshot(

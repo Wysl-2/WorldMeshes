@@ -343,4 +343,76 @@ internal static class TerrainAuthoringPreviewStreamingPolicy
                     safeBudget
             );
     }
+    internal static bool AreCacheSetTargetsEquivalent(
+        TerrainAuthoringPreviewCacheSetTransition first,
+        TerrainAuthoringPreviewCacheSetTransition second)
+    {
+        if (first.Entries.Length != second.Entries.Length) return false;
+        for (int i = 0; i < first.Entries.Length; i++)
+        {
+            var a = first.Entries[i];
+            var b = second.Entries[i];
+            if (!SameRepresentation(a.Plan, b.Plan) || a.Target != b.Target
+                || a.IsExpansion != b.IsExpansion) return false;
+        }
+        return true;
+    }
+
+    internal static bool SameRepresentation(TerrainAuthoringPreviewLodResidencyPlan a,
+        TerrainAuthoringPreviewLodResidencyPlan b)
+    {
+        return a.Level == b.Level && a.SampleStride == b.SampleStride
+            && a.SamplesPerSide == b.SamplesPerSide
+            && Mathf.Approximately(a.SampleSpacing, b.SampleSpacing);
+    }
+
+    internal static bool IsCacheSetUseful(TerrainAuthoringPreviewCacheSetTransition transaction,
+        TerrainAuthoringPreviewResidencyPlan latest)
+    {
+        if (latest == null || !latest.IsStructurallyValid
+            || transaction.Entries.Length != latest.LevelCount) return false;
+        for (int i = 0; i < latest.LevelCount; i++)
+        {
+            var e = transaction.Entries[i];
+            var p = latest.Levels[i];
+            if (!SameRepresentation(e.Plan, p) || !e.Target.Contains(p.RequiredWindow)) return false;
+            // A required-only cache is deliberately smaller than the desired guard window.
+            var sizeIntent = e.IsExpansion
+                || transaction.Publication == TerrainAuthoringPreviewCachePublication.NativePreview
+                ? p.DesiredWindow : p.RequiredWindow;
+            if (TerrainAuthoringPreviewResidencyPolicy.EvaluateSizeHealth(true, e.Target, sizeIntent)
+                != TerrainAuthoringPreviewResidencySizeHealth.Healthy) return false;
+        }
+        return true;
+    }
+
+    internal static bool TryCalculateHeightSetPrefetchTarget(TerrainHeightCacheWindow active,
+        TerrainAuthoringPreviewLodResidencyPlan plan, Vector2Int grid,
+        out TerrainHeightCacheWindow target)
+    {
+        target = active;
+        if (!active.IsValid || !active.Contains(plan.RequiredWindow)) return false;
+        if (TryCalculatePrefetchTarget(active, plan.RequiredWindow, plan.DesiredWindow, grid, out target))
+            return true;
+        // Initial required-only caches need guard growth before stable-size prefetch can apply.
+        target = active;
+        int headroom = Mathf.Min(
+            Mathf.Min(plan.RequiredWindow.OriginTile.x - active.OriginTile.x,
+                plan.RequiredWindow.OriginTile.y - active.OriginTile.y),
+            Mathf.Min(active.MaximumExclusive.x - plan.RequiredWindow.MaximumExclusive.x,
+                active.MaximumExclusive.y - plan.RequiredWindow.MaximumExclusive.y));
+        if (headroom <= DefaultPrefetchThresholdTiles && active != plan.DesiredWindow
+            && (active == plan.RequiredWindow
+                || TerrainAuthoringPreviewResidencyPolicy.EvaluateSizeHealth(true, active, plan.DesiredWindow)
+                    == TerrainAuthoringPreviewResidencySizeHealth.Undersized)
+            && TerrainAuthoringPreviewResidencyPolicy.IsWindowInsideWorldGrid(plan.DesiredWindow, grid))
+        {
+            target = plan.DesiredWindow;
+            return true;
+        }
+        return false;
+    }
+
+
 }
+

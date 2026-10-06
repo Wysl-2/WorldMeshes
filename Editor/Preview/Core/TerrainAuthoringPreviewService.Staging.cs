@@ -8,8 +8,12 @@ public static partial class TerrainAuthoringPreviewService
         string
     > HeightCacheTransitionFailed;
 
-    private static TerrainAuthoringPreviewCacheTransition
-        currentTransition;
+    private static TerrainAuthoringPreviewCacheTransition currentTransition =>
+        currentCacheSetTransition != null
+        && currentCacheSetTransition.Publication == TerrainAuthoringPreviewCachePublication.NativePreview
+            ? currentCacheSetTransition.Entries[0].Transition : null;
+
+    private static TerrainAuthoringPreviewCacheSetTransition lastFailedCacheSetRequest;
 
     private static bool hasTransitionFailure;
 
@@ -25,33 +29,15 @@ public static partial class TerrainAuthoringPreviewService
     private static string lastFailedOverallSignature =
         "";
 
-    public static bool TransitionInProgress
-    {
-        get
-        {
-            return
-                currentTransition != null
-                &&
-                currentTransition.State !=
-                    TerrainAuthoringPreviewTransitionState
-                        .Activated
-                &&
-                currentTransition.State !=
-                    TerrainAuthoringPreviewTransitionState
-                        .Failed
-                &&
-                currentTransition.State !=
-                    TerrainAuthoringPreviewTransitionState
-                        .Cancelled;
-        }
-    }
+    public static bool TransitionInProgress => currentCacheSetTransition != null
+        && currentCacheSetTransition.InProgress;
 
     public static bool HasTransitionDiagnostics
     {
         get
         {
             return
-                currentTransition != null
+                currentCacheSetTransition != null
                 ||
                 hasTransitionFailure;
         }
@@ -61,33 +47,14 @@ public static partial class TerrainAuthoringPreviewService
     {
         get
         {
-            if (currentTransition == null)
+            if (currentCacheSetTransition == null) return hasTransitionFailure ? "Failed" : "Idle";
+            switch (currentCacheSetTransition.State)
             {
-                return
-                    hasTransitionFailure
-                        ? "Failed"
-                        : "Idle";
-            }
-
-            switch (currentTransition.State)
-            {
-                case TerrainAuthoringPreviewTransitionState.CopyingRetained:
-                    return "Copying Retained";
-
-                case TerrainAuthoringPreviewTransitionState.LoadingSourceTiles:
-                    return "Loading Source Tiles";
-
-                case TerrainAuthoringPreviewTransitionState.ComposingSourceTiles:
-                    return "Composing Source Tiles";
-
-                case TerrainAuthoringPreviewTransitionState.ReadyToActivate:
-                    return "Ready To Activate";
-
-                default:
-                    return
-                        currentTransition
-                            .State
-                            .ToString();
+                case TerrainAuthoringPreviewTransitionState.CopyingRetained: return "Copying Retained";
+                case TerrainAuthoringPreviewTransitionState.LoadingSourceTiles: return "Loading Source Tiles";
+                case TerrainAuthoringPreviewTransitionState.ComposingSourceTiles: return "Composing Source Tiles";
+                case TerrainAuthoringPreviewTransitionState.ReadyToActivate: return "Ready To Activate";
+                default: return currentCacheSetTransition.State.ToString();
             }
         }
     }
@@ -101,56 +68,40 @@ public static partial class TerrainAuthoringPreviewService
     public static TerrainHeightCacheWindow LastFailedTransitionWindow =>
         lastFailedTransitionWindow;
 
-    public static int LastTransitionRetainedTileCount =>
-        currentTransition != null
-            ? currentTransition.RetainedTiles.Count
-            : 0;
+    public static int LastTransitionRetainedTileCount => SumSetTiles(2);
 
-    public static int LastTransitionEnteringTileCount =>
-        currentTransition != null
-            ? currentTransition.EnteringTiles.Count
-            : 0;
+    public static int LastTransitionEnteringTileCount => SumSetTiles(3);
 
-    public static int LastTransitionLeavingTileCount =>
-        currentTransition != null
-            ? currentTransition.LeavingTiles.Count
-            : 0;
+    public static int LastTransitionLeavingTileCount => SumSetTiles(4);
 
-    public static int LastTransitionReusableRetainedTileCount =>
-        currentTransition != null
-            ? currentTransition.ReusableRetainedTiles.Count
-            : 0;
+    public static int LastTransitionReusableRetainedTileCount => StreamingRetainedTileCount;
 
-    public static int LastTransitionRetainedGpuCopyCount =>
-        currentTransition != null
-            ? currentTransition.RetainedGpuCopyCount
-            : 0;
+    public static int LastTransitionRetainedGpuCopyCount => StreamingRetainedCopiedCount;
 
-    public static int LastTransitionCommittedSourceLoadCount =>
-        currentTransition != null
-            ? currentTransition.CommittedSourceLoadCount
-            : 0;
+    public static int LastTransitionCommittedSourceLoadCount => StreamingSourceLoadedCount;
 
-    public static int LastTransitionComposedTileCount =>
-        currentTransition != null
-            ? currentTransition.FullyComposedTileCount
-            : 0;
+    public static int LastTransitionComposedTileCount => StreamingSourceComposedCount;
 
-    public static long ApproximateStagingGpuMemoryBytes
+    public static long ApproximateStagingGpuMemoryBytes => EstimateOwnedHeightMemory(false);
+
+    public static long ApproximateTotalResidentGpuMemoryBytes => EstimateOwnedHeightMemory(true);
+
+    private static long EstimateOwnedHeightMemory(bool includeActive)
     {
-        get
-        {
-            return
-                stagingCache != null
-                    ? stagingCache.ApproximateGpuMemoryBytes
-                    : 0L;
-        }
+        var seen = new System.Collections.Generic.HashSet<TerrainAuthoringPreviewCache>();
+        long bytes = 0;
+        if (includeActive && activeCache != null && seen.Add(activeCache))
+            bytes += activeCache.ApproximateGpuMemoryBytes;
+        if (includeActive && preparedHeightStates != null)
+            foreach (var state in preparedHeightStates)
+                if (state.ActiveCache != null && seen.Add(state.ActiveCache))
+                    bytes += state.ActiveCache.ApproximateGpuMemoryBytes;
+        if (currentCacheSetTransition != null)
+            foreach (var e in currentCacheSetTransition.Entries)
+                if (e.Destination?.StagingCache != null && seen.Add(e.Destination.StagingCache))
+                    bytes += e.Destination.StagingCache.ApproximateGpuMemoryBytes;
+        return bytes;
     }
-
-    public static long ApproximateTotalResidentGpuMemoryBytes =>
-        ApproximateGpuMemoryBytes
-        +
-        ApproximateStagingGpuMemoryBytes;
 
     public static bool TryGetStagingResidentWindow(
         out TerrainHeightCacheWindow window
@@ -191,373 +142,6 @@ public static partial class TerrainAuthoringPreviewService
             cache.IsReady;
     }
 
-    private static bool TryExecuteSynchronousStagedTransition(
-        WorldSettings worldSettings,
-        TerrainAuthoringData authoringData,
-        TerrainHeightCacheWindow targetWindow,
-        string currentCommittedSignature,
-        string currentOverallSignature,
-        Transform clipmapRoot,
-        out string errorMessage
-    )
-    {
-        errorMessage =
-            "";
-
-        ReleaseStagingCacheOnly();
-
-        TerrainHeightCacheWindow sourceWindow =
-            default;
-
-        bool hasSourceWindow =
-            activeCache != null
-            &&
-            activeCache.IsReady
-            &&
-            TryGetActiveResidentWindow(
-                out sourceWindow
-            );
-
-        if (
-            !TerrainAuthoringPreviewCacheTransition
-                .TryCreate(
-                    hasSourceWindow,
-                    sourceWindow,
-                    targetWindow,
-                    currentCommittedSignature,
-                    currentOverallSignature,
-                    out TerrainAuthoringPreviewCacheTransition transition,
-                    out errorMessage
-                )
-        )
-        {
-            return
-                FailStagedTransition(
-                    transition,
-                    targetWindow,
-                    currentCommittedSignature,
-                    currentOverallSignature,
-                    errorMessage
-                );
-        }
-
-        currentTransition =
-            transition;
-
-        BeginTransitionMemoryTracking();
-
-        if (
-            activeCache != null
-            &&
-            activeCache.HeightCache != null
-        )
-        {
-            transition.SourceTextureInstanceId =
-                activeCache
-                    .HeightCache
-                    .GetInstanceID();
-        }
-
-        stagingCache =
-            new TerrainAuthoringPreviewCache();
-
-        if (
-            !stagingCache.TryInitializeStagingWindow(
-                worldSettings,
-                authoringData,
-                targetWindow,
-                out errorMessage
-            )
-        )
-        {
-            return
-                FailStagedTransition(
-                    transition,
-                    targetWindow,
-                    currentCommittedSignature,
-                    currentOverallSignature,
-                    errorMessage
-                );
-        }
-
-        CaptureTransitionMemoryEstimate();
-
-        transition.DestinationTextureInstanceId =
-            stagingCache.HeightCache != null
-                ? stagingCache
-                    .HeightCache
-                    .GetInstanceID()
-                : 0;
-
-        bool retainedReuseAllowed =
-            IsRetainedReuseGloballyEligible(
-                activeCache,
-                stagingCache,
-                currentCommittedSignature,
-                currentOverallSignature,
-                committedRebuildRequested
-            );
-
-        transition.SetState(
-            TerrainAuthoringPreviewTransitionState
-                .CopyingRetained
-        );
-
-        foreach (
-            Vector2Int retainedTile
-            in transition.RetainedTiles
-        )
-        {
-            if (
-                retainedReuseAllowed
-                &&
-                activeCache.IsSliceFinalCompositeReady(
-                    retainedTile
-                )
-            )
-            {
-                if (
-                    !stagingCache.TryCopyFinalCompositeTileFrom(
-                        activeCache,
-                        retainedTile,
-                        out errorMessage
-                    )
-                )
-                {
-                    return
-                        FailStagedTransition(
-                            transition,
-                            targetWindow,
-                            currentCommittedSignature,
-                            currentOverallSignature,
-                            errorMessage
-                        );
-                }
-
-                transition.AddReusableRetainedTile(
-                    retainedTile
-                );
-
-                transition.RetainedGpuCopyCount++;
-
-                continue;
-            }
-
-            transition.AddSourceMaterializationTile(
-                retainedTile
-            );
-        }
-
-        foreach (
-            Vector2Int enteringTile
-            in transition.EnteringTiles
-        )
-        {
-            transition.AddSourceMaterializationTile(
-                enteringTile
-            );
-        }
-
-        transition.SetState(
-            TerrainAuthoringPreviewTransitionState
-                .LoadingSourceTiles
-        );
-
-        heightCompositor
-            .BeginTransactionDiagnostics();
-
-        foreach (
-            Vector2Int materializationTile
-            in transition.SourceMaterializationTiles
-        )
-        {
-            if (
-                !stagingCache.TryLoadCommittedBaseTile(
-                    materializationTile,
-                    out errorMessage
-                )
-            )
-            {
-                return
-                    FailStagedTransition(
-                        transition,
-                        targetWindow,
-                        currentCommittedSignature,
-                        currentOverallSignature,
-                        errorMessage
-                    );
-            }
-
-            transition.CommittedSourceLoadCount++;
-
-            if (
-                !stagingCache.TryGetCommittedRange(
-                    materializationTile,
-                    out float baseMinimum,
-                    out float baseMaximum,
-                    out errorMessage
-                )
-            )
-            {
-                return
-                    FailStagedTransition(
-                        transition,
-                        targetWindow,
-                        currentCommittedSignature,
-                        currentOverallSignature,
-                        errorMessage
-                    );
-            }
-
-            int stagingSlice =
-                stagingCache.GetSliceIndex(
-                    materializationTile.x,
-                    materializationTile.y
-                );
-
-            if (stagingSlice < 0)
-            {
-                errorMessage =
-                    $"Staging tile ({materializationTile.x}, " +
-                    $"{materializationTile.y}) could not resolve a local slice.";
-
-                return
-                    FailStagedTransition(
-                        transition,
-                        targetWindow,
-                        currentCommittedSignature,
-                        currentOverallSignature,
-                        errorMessage
-                    );
-            }
-
-            if (
-                !heightCompositor.TryComposeTile(
-                    stagingCache.HeightCache,
-                    materializationTile,
-                    stagingSlice,
-                    stagingCache.SamplesPerSide,
-                    stagingCache.SampleSpacing,
-                    worldSettings.HeightTileWorldSize,
-                    stagingCache.WorldSizeXZ,
-                    authoringData,
-                    baseMinimum,
-                    baseMaximum,
-                    out float compositeMinimum,
-                    out float compositeMaximum,
-                    out errorMessage
-                )
-            )
-            {
-                return
-                    FailStagedTransition(
-                        transition,
-                        targetWindow,
-                        currentCommittedSignature,
-                        currentOverallSignature,
-                        errorMessage
-                    );
-            }
-
-            if (
-                !stagingCache.TryCommitFinalCompositeTile(
-                    materializationTile,
-                    compositeMinimum,
-                    compositeMaximum,
-                    out errorMessage
-                )
-            )
-            {
-                return
-                    FailStagedTransition(
-                        transition,
-                        targetWindow,
-                        currentCommittedSignature,
-                        currentOverallSignature,
-                        errorMessage
-                    );
-            }
-
-            transition.FullyComposedTileCount++;
-        }
-
-        transition.SetState(
-            TerrainAuthoringPreviewTransitionState
-                .Finalizing
-        );
-
-        string latestCommittedSignature =
-            TerrainAuthoringStateUtility
-                .GetCommittedHeightfieldSignature(
-                    worldSettings
-                );
-
-        string latestOverallSignature =
-            TerrainAuthoringStateUtility
-                .GetOverallAuthoringSignature(
-                    worldSettings,
-                    authoringData
-                );
-
-        if (
-            latestCommittedSignature !=
-                currentCommittedSignature
-            ||
-            latestOverallSignature !=
-                currentOverallSignature
-        )
-        {
-            errorMessage =
-                "Authoring state changed while the staging cache was being prepared.";
-
-            return
-                FailStagedTransition(
-                    transition,
-                    targetWindow,
-                    currentCommittedSignature,
-                    currentOverallSignature,
-                    errorMessage
-                );
-        }
-
-        if (
-            !stagingCache.TryFinalizeStagingForActivation(
-                currentOverallSignature,
-                out errorMessage
-            )
-        )
-        {
-            return
-                FailStagedTransition(
-                    transition,
-                    targetWindow,
-                    currentCommittedSignature,
-                    currentOverallSignature,
-                    errorMessage
-                );
-        }
-
-        transition.SetState(
-            TerrainAuthoringPreviewTransitionState
-                .ReadyToActivate
-        );
-
-        if (
-            !TryActivateStagingCache(
-                clipmapRoot,
-                transition,
-                currentCommittedSignature,
-                currentOverallSignature,
-                out errorMessage
-            )
-        )
-        {
-            return false;
-        }
-
-        return true;
-    }
-
     internal static bool IsRetainedReuseGloballyEligible(
         TerrainAuthoringPreviewCache sourceCache,
         TerrainAuthoringPreviewCache destinationCache,
@@ -584,6 +168,8 @@ public static partial class TerrainAuthoringPreviewService
                 .SourceOverallAuthoringSignature
             ==
             currentOverallSignature
+            &&
+            sourceCache.SampleStride == destinationCache.SampleStride
             &&
             sourceCache.SamplesPerSide ==
                 destinationCache.SamplesPerSide
@@ -730,8 +316,7 @@ public static partial class TerrainAuthoringPreviewService
          * Break the staging alias before completing memory tracking. The
          * previously captured coexistence value remains the transition peak.
          */
-        stagingCache =
-            null;
+        currentCacheSetTransition.Entries[0].Destination.DetachStagingCache();
 
         CompleteTransitionMemoryTracking();
 
@@ -739,6 +324,7 @@ public static partial class TerrainAuthoringPreviewService
             TerrainAuthoringPreviewTransitionState
                 .Activated
         );
+        currentCacheSetTransition.State = TerrainAuthoringPreviewTransitionState.Activated;
 
         if (
             hasRequestedResidencyWindow
@@ -894,10 +480,16 @@ public static partial class TerrainAuthoringPreviewService
                 message
             );
 
-            currentTransition =
-                transition;
+
         }
 
+        if (currentCacheSetTransition != null)
+        {
+            currentCacheSetTransition.State = TerrainAuthoringPreviewTransitionState.Failed;
+            lastFailedCacheSetRequest = currentCacheSetTransition;
+        }
+        lastStreamingFailureMessage = message;
+        SetStreamingState(TerrainAuthoringPreviewStreamingState.Failed, message);
         ReleaseStagingCacheOnly();
 
         hasTransitionFailure =
@@ -978,7 +570,7 @@ public static partial class TerrainAuthoringPreviewService
                 targetWindow
         )
         {
-            ClearTransitionFailureSuppression();
+            ClearNativeTransitionFailureSuppression();
 
             return false;
         }
@@ -995,7 +587,7 @@ public static partial class TerrainAuthoringPreviewService
             authoringData == null
         )
         {
-            ClearTransitionFailureSuppression();
+            ClearNativeTransitionFailureSuppression();
 
             return false;
         }
@@ -1021,7 +613,7 @@ public static partial class TerrainAuthoringPreviewService
                 lastFailedOverallSignature
         )
         {
-            ClearTransitionFailureSuppression();
+            ClearNativeTransitionFailureSuppression();
 
             return false;
         }
@@ -1032,8 +624,18 @@ public static partial class TerrainAuthoringPreviewService
         return true;
     }
 
+    private static void ClearNativeTransitionFailureSuppression()
+    {
+        var preparedFailure = lastFailedCacheSetRequest != null
+            && lastFailedCacheSetRequest.Publication == TerrainAuthoringPreviewCachePublication.PreparedHeightSet
+                ? lastFailedCacheSetRequest : null;
+        ClearTransitionFailureSuppression();
+        lastFailedCacheSetRequest = preparedFailure;
+    }
+
     private static void ClearTransitionFailureSuppression()
     {
+        lastFailedCacheSetRequest = null;
         hasTransitionFailure =
             false;
 
@@ -1052,22 +654,35 @@ public static partial class TerrainAuthoringPreviewService
 
     private static void ReleaseStagingCacheOnly()
     {
-        if (stagingCache == null)
-        {
-            return;
-        }
-
-        /*
-         * Failure, cancellation, lifecycle release, and replacement all pass
-         * through this common disposal path. Preserve the transition peak
-         * before the staging allocation disappears.
-         */
+        if (currentCacheSetTransition == null) return;
         CompleteTransitionMemoryTracking();
+        currentCacheSetTransition.Dispose();
+    }
 
-        stagingCache.Dispose();
+    private static bool IsCacheSetFailureSuppressed(TerrainAuthoringPreviewCacheSetTransition request)
+    {
+        var failed = lastFailedCacheSetRequest;
+        return failed != null && failed.Publication == request.Publication
+            && failed.MatchesContent(request.CommittedSignature, request.OverallSignature,
+                request.AuthoringGeneration, request.OwnershipGeneration, request.RebuildRequested)
+            && TerrainAuthoringPreviewStreamingPolicy.AreCacheSetTargetsEquivalent(failed, request)
+            && TerrainAuthoringPreviewStreamingPolicy.AreMultiresolutionResidencyPlansEquivalent(
+                failed.AcceptedPlan, request.AcceptedPlan);
+    }
 
-        stagingCache =
-            null;
+    private static void FailCacheSetTransaction(TerrainAuthoringPreviewCacheSetTransition t, string error)
+    {
+        t.State = TerrainAuthoringPreviewTransitionState.Failed;
+        t.Error = error;
+        CaptureTransitionMemoryEstimate();
+        lastFailedCacheSetRequest = t;
+        lastStreamingFailureMessage = error;
+        if (t.Publication == TerrainAuthoringPreviewCachePublication.NativePreview)
+            FailStagedTransition(t.Entries[0].Transition, t.Entries[0].Target,
+                t.CommittedSignature, t.OverallSignature, error);
+        else ReleaseStagingCacheOnly();
+        ClearPendingStreamingStart();
+        SetStreamingState(TerrainAuthoringPreviewStreamingState.Failed, error);
     }
 
     private static void ReleaseAllPreviewCaches(
@@ -1084,8 +699,8 @@ public static partial class TerrainAuthoringPreviewService
                 null;
         }
 
-        currentTransition =
-            null;
+        currentCacheSetTransition = null;
+        ReleasePreparedHeightCacheSet();
 
         ResetStreamingStateForResourceRelease(
             notifyObservers
@@ -1104,3 +719,4 @@ public static partial class TerrainAuthoringPreviewService
         }
     }
 }
+

@@ -69,7 +69,7 @@ public static partial class TerrainAuthoringPreviewService
             hasPendingStreamingStart
             ||
             (
-                currentTransition != null
+                currentCacheSetTransition != null
                 &&
                 TransitionInProgress
             )
@@ -92,12 +92,13 @@ public static partial class TerrainAuthoringPreviewService
                 : reason;
 
         ClearTransitionFailureSuppression();
+        InvalidatePreparedHeightCacheSet();
 
         bool hasStreamingWork =
             hasPendingStreamingStart
             ||
             (
-                currentTransition != null
+                currentCacheSetTransition != null
                 &&
                 TransitionInProgress
             );

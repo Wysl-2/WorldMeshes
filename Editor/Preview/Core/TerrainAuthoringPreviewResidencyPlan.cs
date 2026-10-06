@@ -74,6 +74,30 @@ internal sealed class TerrainAuthoringPreviewResidencyPlan
     public Vector3 CoverageCenter;
     public TerrainAuthoringPreviewLodResidencyPlan[] Levels;
 
+    internal TerrainAuthoringPreviewResidencyPlan CreateSnapshot()
+    {
+        var copy = new TerrainAuthoringPreviewResidencyPlan
+        {
+            Generation = Generation, LevelCount = LevelCount,
+            MinimumXZ = MinimumXZ, MaximumXZ = MaximumXZ,
+            CoverageCenter = CoverageCenter,
+            Levels = new TerrainAuthoringPreviewLodResidencyPlan[LevelCount]
+        };
+        for (int i = 0; i < LevelCount; i++)
+        {
+            var p = Levels[i];
+            copy.Levels[i] = new TerrainAuthoringPreviewLodResidencyPlan
+            {
+                Level = p.Level, SampleStride = p.SampleStride,
+                SamplesPerSide = p.SamplesPerSide, SampleSpacing = p.SampleSpacing,
+                Anchor = p.Anchor, RequiredMinimumXZ = p.RequiredMinimumXZ,
+                RequiredMaximumXZ = p.RequiredMaximumXZ,
+                RequiredWindow = p.RequiredWindow, DesiredWindow = p.DesiredWindow
+            };
+        }
+        return copy;
+    }
+
     public bool IsStructurallyValid
     {
         get

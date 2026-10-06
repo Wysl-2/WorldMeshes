@@ -83,6 +83,7 @@ public static class TerrainAuthoringStagedTransitionValidationUtility
             ValidateOneTileShift();
             ValidateNoSourceClassification();
             ValidateLiveStagingFoundation();
+            ValidateCacheSetStaging();
         }
         catch (Exception exception)
         {
@@ -1441,4 +1442,268 @@ public static class TerrainAuthoringStagedTransitionValidationUtility
             );
         }
     }
+    // Local ownership only: no live intent, binding, service cache, or assets are changed.
+    internal static bool RunCacheSetWorkerFixture(bool verifyBudgets, out string detail, out bool blocked)
+    {
+        detail = "";
+        blocked = false;
+        var settings = AssetDatabase.LoadAssetAtPath<WorldSettings>(WorldMeshesPaths.WorldSettingsAssetPath);
+        var data = AssetDatabase.LoadAssetAtPath<TerrainAuthoringData>(WorldMeshesPaths.TerrainAuthoringDataAssetPath);
+        if (settings == null || data == null || !SystemInfo.supportsComputeShaders
+            || !SystemInfo.supports2DArrayTextures || settings.HeightTileIntervalsPerSide < 4
+            || settings.HeightTileGridWidth < 4 || settings.HeightTileGridHeight < 1
+            || !SystemInfo.SupportsRandomWriteOnRenderTextureFormat(RenderTextureFormat.RFloat))
+        {
+            blocked = true;
+            detail = "A committed world at least four tiles wide and compute/RFloat support are required.";
+            return false;
+        }
+        if (!TerrainAuthoringStateUtility.TryValidateCommittedHeightfield(settings, data,
+            TerrainAuthoringHeightfieldValidationMode.Operational, out _, out _, out detail))
+        {
+            blocked = true;
+            return false;
+        }
+        TerrainAuthoringPreviewCacheSetTransition initial = null;
+        TerrainAuthoringPreviewCacheSetTransition replacement = null;
+        TerrainAuthoringPreviewCacheSetTransition failed = null;
+        TerrainAuthoringPreviewLodState[] published = null;
+        TerrainAuthoringPreviewLodState[] next = null;
+        var compositor = new TerrainHeightCompositor();
+        try
+        {
+            string committed = TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(settings);
+            string overall = TerrainAuthoringStateUtility.GetOverallAuthoringSignature(settings, data);
+            int finestStride = 1;
+            while (settings.HeightTileIntervalsPerSide / finestStride > 8
+                && TerrainHeightResolutionUtility.IsRepresentationStrideCompatible(settings, finestStride * 2))
+                finestStride *= 2;
+            var firstWindow = new TerrainHeightCacheWindow(UnityEngine.Vector2Int.zero,
+                new UnityEngine.Vector2Int(3, 1));
+            var plan = new TerrainAuthoringPreviewResidencyPlan
+            {
+                LevelCount = 3, Generation = 1,
+                Levels = new TerrainAuthoringPreviewLodResidencyPlan[3]
+            };
+            for (int i = 0; i < 3; i++)
+            {
+                int stride = finestStride << i;
+                if (!TerrainHeightResolutionUtility.IsRepresentationStrideCompatible(settings, stride))
+                {
+                    blocked = true;
+                    detail = "Three nested Height representations are not supported by this topology.";
+                    return false;
+                }
+                plan.Levels[i] = new TerrainAuthoringPreviewLodResidencyPlan
+                {
+                    Level = i, SampleStride = stride,
+                    SamplesPerSide = TerrainHeightResolutionUtility.GetSamplesPerSide(settings, stride),
+                    SampleSpacing = TerrainHeightResolutionUtility.GetSampleSpacing(settings, stride),
+                    RequiredWindow = firstWindow, DesiredWindow = new TerrainHeightCacheWindow(
+                        UnityEngine.Vector2Int.zero, new UnityEngine.Vector2Int(4, 1))
+                };
+            }
+            var targets = new[] { firstWindow, firstWindow, firstWindow };
+            var sources = new TerrainAuthoringPreviewCache[3];
+            var generations = new long[3];
+            initial = new TerrainAuthoringPreviewCacheSetTransition(plan, targets, new bool[3],
+                sources, generations, TerrainAuthoringPreviewCachePublication.PreparedHeightSet,
+                committed, overall, 7, 10, 3, false, settings.HeightTileWorldSize);
+            // Mutating caller-owned plans must not change the frozen work specification.
+            plan.Levels[0].Anchor = new UnityEngine.Vector3(999, 0, 999);
+            RequireSetFixture(initial.AcceptedPlan.Levels[0].Anchor != plan.Levels[0].Anchor,
+                "The request did not deep-copy its level plans.");
+            bool rejectedPartial = false;
+            try { initial.TransferPreparedStates(); }
+            catch (InvalidOperationException) { rejectedPartial = true; }
+            RequireSetFixture(rejectedPartial && initial.Entries[0].Destination != null,
+                "A partial set transferred ownership.");
+            int actualLoads = 0;
+            TerrainAuthoringPreviewService.NativeHeightSourceLoader loader =
+                (WorldSettings world, UnityEngine.Vector2Int tile, out Texture2D source, out string error) =>
+                {
+                    actualLoads++;
+                    return TerrainAuthoringPreviewHeightSourceUtility.TryLoadCommittedNativeTile(
+                        world, tile, out source, out error);
+                };
+            bool observedResume = false;
+            int calls = DriveSetFixture(initial, settings, data, compositor, loader,
+                verifyBudgets ? 1 : TerrainAuthoringPreviewService.DefaultMaterializationsPerUpdate,
+                ref observedResume);
+            RequireSetFixture(initial.Complete && initial.SourceLoads == 3 && actualLoads == 3
+                && initial.MaterializedSlices == 9 && initial.ComposedSlices == 9,
+                "Shared native sources were loaded more than once per geographic tile or pages were omitted.");
+            RequireSetFixture(!verifyBudgets || observedResume,
+                "The fixture did not resume a retained source reference across worker updates.");
+            RequireSetFixture(initial.CurrentSource == null
+                && initial.CompletedWorkUnits == initial.TotalWorkUnits - 1,
+                "Source ownership or operation accounting did not finish before publication.");
+            var useful = initial.AcceptedPlan.CreateSnapshot();
+            useful.Generation++;
+            initial.AcceptIntent(useful, 11);
+            RequireSetFixture(initial.RequestGeneration == 11
+                && initial.CompletedWorkUnits == initial.TotalWorkUnits - 1
+                && TerrainAuthoringPreviewStreamingPolicy.IsCacheSetUseful(initial, useful),
+                "Useful adoption reset progress or compared required-only work against desired size.");
+            var obsolete = useful.CreateSnapshot();
+            obsolete.Levels[2].RequiredWindow = new TerrainHeightCacheWindow(
+                new UnityEngine.Vector2Int(3, 0), UnityEngine.Vector2Int.one);
+            RequireSetFixture(!TerrainAuthoringPreviewStreamingPolicy.IsCacheSetUseful(initial, obsolete)
+                && !initial.MatchesContent(committed, overall, 8, 3, false)
+                && !initial.MatchesContent(committed, overall, 7, 4, false),
+                "Missing latest coverage or stale content/owner was accepted.");
+            published = initial.TransferPreparedStates();
+            initial.Dispose();
+            foreach (var state in published)
+                RequireSetFixture(state.CacheReady && state.ActiveCache.IsCompleteForActivation,
+                    "Transferred caches were disposed with their transaction.");
+
+            var movedWindow = new TerrainHeightCacheWindow(new UnityEngine.Vector2Int(1, 0),
+                new UnityEngine.Vector2Int(3, 1));
+            var moved = useful.CreateSnapshot();
+            for (int i = 0; i < 3; i++)
+            {
+                moved.Levels[i].RequiredWindow = movedWindow;
+                moved.Levels[i].DesiredWindow = movedWindow;
+                sources[i] = published[i].ActiveCache;
+                generations[i] = 7;
+            }
+            replacement = new TerrainAuthoringPreviewCacheSetTransition(moved,
+                new[] { movedWindow, movedWindow, movedWindow }, new bool[3], sources, generations,
+                TerrainAuthoringPreviewCachePublication.PreparedHeightSet, committed, overall,
+                7, 12, 3, false, settings.HeightTileWorldSize);
+            RequireSetFixture(!TerrainAuthoringPreviewService.IsRetainedReuseGloballyEligible(
+                sources[0], sources[1], committed, overall, false), "Cross-stride final reuse was accepted.");
+            calls += DriveSetFixture(replacement, settings, data, compositor, loader,
+                TerrainAuthoringPreviewService.DefaultMaterializationsPerUpdate, ref observedResume);
+            RequireSetFixture(replacement.RetainedCopies == 6 && replacement.SourceLoads == 1
+                && replacement.MaterializedSlices == 3 && replacement.ComposedSlices == 3,
+                "Shifted retained pages did not reuse their world-tile overlap.");
+            var retainedTile = new UnityEngine.Vector2Int(1, 0);
+            for (int i = 0; i < 3; i++)
+            {
+                var dest = replacement.Entries[i].Destination.StagingCache;
+                bool ranges = sources[i].TryGetCompositeSliceRange(1, 0, out float a, out float b)
+                    && dest.TryGetCompositeSliceRange(1, 0, out float c, out float d)
+                    && a == c && b == d;
+                RequireSetFixture(sources[i].GetSliceIndex(1, 0) == 1
+                    && dest.GetSliceIndex(1, 0) == 0 && dest.IsSliceFinalCompositeReady(retainedTile)
+                    && ranges, "Retained copy lost ranges/readiness after local slice remapping.");
+            }
+            next = replacement.TransferPreparedStates();
+            replacement.Dispose();
+            // Deliberately fail guard expansion after keeping a complete required set.
+            var expanded = moved.CreateSnapshot();
+            var guard = new TerrainHeightCacheWindow(UnityEngine.Vector2Int.zero,
+                new UnityEngine.Vector2Int(4, 1));
+            for (int i = 0; i < 3; i++)
+            {
+                expanded.Levels[i].DesiredWindow = guard;
+                sources[i] = next[i].ActiveCache;
+            }
+            failed = new TerrainAuthoringPreviewCacheSetTransition(expanded,
+                new[] { guard, guard, guard }, new[] { true, true, true }, sources, generations,
+                TerrainAuthoringPreviewCachePublication.PreparedHeightSet, committed, overall,
+                7, 13, 3, false, settings.HeightTileWorldSize);
+            RequireSetFixture(TerrainAuthoringPreviewStreamingPolicy.IsCacheSetUseful(failed, expanded),
+                "A guard candidate lost required coverage.");
+            var becomesMandatory = expanded.CreateSnapshot();
+            foreach (var level in becomesMandatory.Levels) level.RequiredWindow = guard;
+            RequireSetFixture(TerrainAuthoringPreviewStreamingPolicy.IsCacheSetUseful(failed, becomesMandatory),
+                "Guard expansion did not reevaluate coverage after navigation made it mandatory.");
+            TerrainAuthoringPreviewService.NativeHeightSourceLoader failLoader =
+                (WorldSettings world, UnityEngine.Vector2Int tile, out Texture2D source, out string error) =>
+                { source = null; error = "Intentional missing source in transient validation."; return false; };
+            bool failedAsExpected = false;
+            // Nine retained destinations across three LODs exercise the global eight-copy limit.
+            for (int i = 0; i < 32; i++)
+            {
+                bool advanced = TerrainAuthoringPreviewService.AdvanceHeightCacheSet(failed, settings, data,
+                    compositor, System.Diagnostics.Stopwatch.StartNew(), 4.0, 8, failLoader, out _);
+                RequireSetFixture(failed.LastUpdateCopies <= TerrainAuthoringPreviewService.DefaultRetainedCopiesPerUpdate,
+                    "Retained-copy limits were applied per LOD instead of across the set.");
+                if (!advanced) { failedAsExpected = true; break; }
+            }
+            RequireSetFixture(failedAsExpected && !failed.Complete, "A failed candidate claimed complete readiness.");
+            failed.Dispose();
+            foreach (var state in next)
+                RequireSetFixture(state.ActiveCache.IsCompleteForActivation,
+                    "Failed expansion disposed the previous complete required cache.");
+            detail = $"Three local representations; {calls} worker updates; grouped loads, global caps, " +
+                "required-first readiness, atomic transfer, retained remapping, stale intent and failure cleanup passed.";
+            return true;
+        }
+        catch (Exception exception)
+        {
+            detail = exception.Message;
+            return false;
+        }
+        finally
+        {
+            initial?.Dispose();
+            replacement?.Dispose();
+            failed?.Dispose();
+            if (published != null) foreach (var state in published) state.Dispose();
+            if (next != null) foreach (var state in next) state.Dispose();
+            compositor.Dispose();
+        }
+    }
+
+    private static int DriveSetFixture(TerrainAuthoringPreviewCacheSetTransition transaction,
+        WorldSettings settings, TerrainAuthoringData data, TerrainHeightCompositor compositor,
+        TerrainAuthoringPreviewService.NativeHeightSourceLoader loader, int materializationLimit,
+        ref bool observedResume)
+    {
+        int completed = 0;
+        for (int update = 0; update < 256; update++)
+        {
+            var held = transaction.CurrentSource;
+            int oldLoads = transaction.SourceLoads;
+            int oldGroup = transaction.GroupCursor;
+            if (!TerrainAuthoringPreviewService.AdvanceHeightCacheSet(transaction, settings, data,
+                compositor, System.Diagnostics.Stopwatch.StartNew(), 4.0, materializationLimit,
+                loader, out string error)) throw new InvalidOperationException(error);
+            RequireSetFixture(transaction.LastUpdateAllocations <= 1
+                && transaction.LastUpdateCopies <= TerrainAuthoringPreviewService.DefaultRetainedCopiesPerUpdate
+                && transaction.LastUpdateLoads <= TerrainAuthoringPreviewService.DefaultCommittedLoadsPerUpdate
+                && transaction.LastUpdateMaterializations <= materializationLimit
+                && transaction.LastUpdateCompositions <= TerrainAuthoringPreviewService.DefaultCompositionsPerUpdate,
+                "A global per-update operation cap was exceeded.");
+            RequireSetFixture(transaction.CompletedWorkUnits >= completed
+                && transaction.CompletedWorkUnits <= transaction.TotalWorkUnits,
+                "Operation progress regressed or exceeded planned work.");
+            completed = transaction.CompletedWorkUnits;
+            if (held != null && transaction.GroupCursor == oldGroup)
+            {
+                RequireSetFixture(transaction.SourceLoads == oldLoads
+                    && ReferenceEquals(held, transaction.CurrentSource), "A suspended source group reloaded its texture.");
+                observedResume = true;
+            }
+            if (transaction.State == TerrainAuthoringPreviewTransitionState.ReadyToActivate)
+            {
+                RequireSetFixture(transaction.Complete, "One finalized LOD published an incomplete set.");
+                return update + 1;
+            }
+            if (transaction.ComposedSlices > 0)
+                RequireSetFixture(transaction.Entries[0].Transition.FullyComposedTileCount > 0,
+                    "Coarse composition preceded available fine work.");
+        }
+        throw new InvalidOperationException("The bounded Height fixture did not finish.");
+    }
+
+    private static void RequireSetFixture(bool condition, string detail)
+    {
+        if (!condition) throw new InvalidOperationException(detail);
+    }
+
+    private static void ValidateCacheSetStaging()
+    {
+        bool passed = RunCacheSetWorkerFixture(false, out string detail, out bool blocked);
+        if (blocked) AddBlocked("Complete Height cache set staging", detail);
+        else if (passed) AddPass("Complete Height cache set staging", detail);
+        else AddFail("Complete Height cache set staging", detail);
+    }
+
+
 }
+
