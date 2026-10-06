@@ -1,0 +1,25 @@
+#pragma kernel MaterializeHeightRepresentation
+
+Texture2D<float> _NativeHeightSource;
+RWTexture2DArray<float> _HeightCache;
+
+int _DestinationSlice;
+int _DestinationSamplesPerSide;
+int _SampleStride;
+
+// Preserve exact shared native samples, including both geographic tile edges.
+[numthreads(8, 8, 1)]
+void MaterializeHeightRepresentation(uint3 dispatchId : SV_DispatchThreadID)
+{
+    if (
+        dispatchId.x >= (uint)_DestinationSamplesPerSide
+        || dispatchId.y >= (uint)_DestinationSamplesPerSide
+    )
+    {
+        return;
+    }
+
+    int2 sourceSample = int2(dispatchId.xy) * _SampleStride;
+    _HeightCache[int3(int2(dispatchId.xy), _DestinationSlice)] =
+        _NativeHeightSource.Load(int3(sourceSample, 0));
+}

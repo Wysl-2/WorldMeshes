@@ -110,6 +110,8 @@ public static class TerrainHeightCompositorValidationUtility
 
     private static Texture2D validationSeed1;
 
+    private static Texture2D validationNativeSeed;
+
     private static TerrainHeightCompositor validationCompositor;
 
     public static bool IsRunning =>
@@ -974,6 +976,59 @@ public static class TerrainHeightCompositorValidationUtility
             0
         );
 
+        // Reuse the transient array and async readback to exercise a coarse
+        // committed representation through the production composition entry.
+        const int coarseStride = 2;
+        int nativeSize = (GpuValidationTextureSize - 1) * coarseStride + 1;
+        validationNativeSeed = CreateConstantRFloatTexture(
+            nativeSize,
+            GpuValidationSlice1Value,
+            "Compositor Validation Native Height Source"
+        );
+        TerrainAuthoringPreviewHeightMaterializer materializer =
+            new TerrainAuthoringPreviewHeightMaterializer();
+        TerrainAuthoringData identityAuthoring =
+            ScriptableObject.CreateInstance<TerrainAuthoringData>();
+        identityAuthoring.hideFlags = HideFlags.HideAndDontSave;
+        bool coarsePassed;
+        string coarseError;
+
+        try
+        {
+            coarsePassed = materializer.TryMaterialize(
+                validationNativeSeed, validationTexture, 1,
+                nativeSize, GpuValidationTextureSize, coarseStride,
+                out coarseError
+            );
+            if (coarsePassed)
+            {
+                float tileWorldSize = nativeSize - 1;
+                coarsePassed = validationCompositor.TryComposeTile(
+                    validationTexture, Vector2Int.zero, 1,
+                    GpuValidationTextureSize, coarseStride,
+                    tileWorldSize, new Vector2(tileWorldSize, tileWorldSize),
+                    identityAuthoring, GpuValidationSlice1Value, GpuValidationSlice1Value,
+                    out float minimum, out float maximum, out coarseError
+                );
+                coarsePassed &= minimum == GpuValidationSlice1Value
+                    && maximum == GpuValidationSlice1Value;
+            }
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(identityAuthoring);
+        }
+
+        AddResult(
+            "Production composition at coarse Height resolution",
+            coarsePassed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+            coarsePassed
+                ? "Exact stride-2 materialization accepted non-native count/spacing " +
+                    "and preserved the conservative identity range. The existing " +
+                    "selected-slice readback also checks its resulting values."
+                : coarseError
+        );
+
         string previewSignatureBeforeFailureProbe =
             TerrainAuthoringPreviewService
                 .SourceOverallAuthoringSignature;
@@ -1796,6 +1851,12 @@ public static class TerrainHeightCompositorValidationUtility
 
             validationSeed1 =
                 null;
+        }
+
+        if (validationNativeSeed != null)
+        {
+            UnityEngine.Object.DestroyImmediate(validationNativeSeed);
+            validationNativeSeed = null;
         }
 
         validationCompositor =

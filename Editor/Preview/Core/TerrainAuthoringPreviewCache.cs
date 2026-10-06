@@ -52,7 +52,11 @@ public sealed partial class TerrainAuthoringPreviewCache :
 
     private int cacheHeight;
 
+    private int nativeSamplesPerSide;
+
     private int sampleStride;
+
+    private TerrainAuthoringPreviewHeightMaterializer heightMaterializer;
 
     private int samplesPerSide;
 
@@ -921,13 +925,13 @@ public sealed partial class TerrainAuthoringPreviewCache :
                         localTileX;
 
                     if (
-                        !TryLoadCommittedTileTexture(
-                            worldTileX,
-                            worldTileZ,
-                            newSamplesPerSide,
-                            out Texture2D sourceTexture,
-                            out string tileError
-                        )
+                        !TerrainAuthoringPreviewHeightSourceUtility
+                            .TryLoadCommittedNativeTile(
+                                worldSettings,
+                                new Vector2Int(worldTileX, worldTileZ),
+                                out Texture2D sourceTexture,
+                                out string tileError
+                            )
                     )
                     {
                         throw
@@ -987,6 +991,9 @@ public sealed partial class TerrainAuthoringPreviewCache :
 
         cacheHeight =
             newCacheHeight;
+
+        nativeSamplesPerSide =
+            worldSettings.HeightTileSamplesPerSide;
 
         sampleStride =
             1;
@@ -1720,101 +1727,19 @@ public sealed partial class TerrainAuthoringPreviewCache :
         out string errorMessage
     )
     {
-        errorMessage =
-            "";
-
-        int slice =
-            GetSliceIndex(
-                tileX,
-                tileZ
-            );
-
-        if (slice < 0)
-        {
-            errorMessage =
-                $"Tile ({tileX}, {tileZ}) is outside the preview cache.";
-
-            return false;
-        }
-
         if (
-            !TryLoadCommittedTileTexture(
-                tileX,
-                tileZ,
-                samplesPerSide,
-                out Texture2D sourceTexture,
+            !TryLoadCommittedBaseTile(
+                new Vector2Int(tileX, tileZ),
                 out errorMessage
             )
         )
         {
             return false;
         }
-
-        if (
-            !TryGetCommittedSliceRange(
-                slice,
-                out float tileMinimumHeight,
-                out float tileMaximumHeight,
-                out errorMessage
-            )
-        )
-        {
-            return false;
-        }
-
-        try
-        {
-            using (WorldMeshesProfiler.PreviewCopyTiles.Auto())
-            {
-                Graphics.CopyTexture(
-                    sourceTexture,
-                    0,
-                    0,
-                    heightCache,
-                    slice,
-                    0
-                );
-            }
-        }
-        catch (
-            Exception exception
-        )
-        {
-            errorMessage =
-                $"Committed tile ({tileX}, {tileZ}) could not be " +
-                "copied into the existing preview cache slice.\n\n" +
-                exception.Message;
-
-            return false;
-        }
-
-        sliceMinimumHeights[
-            slice
-        ] =
-            tileMinimumHeight;
-
-        sliceMaximumHeights[
-            slice
-        ] =
-            tileMaximumHeight;
-
-        sliceRangeValid[
-            slice
-        ] =
-            true;
-
-        SetSliceReadinessBySlice(
-            slice,
-            TerrainAuthoringPreviewSliceReadiness
-                .CommittedBaseReady
-        );
 
         if (
             recalculateGlobalRange
-            &&
-            !RecalculateGlobalHeightRange(
-                out errorMessage
-            )
+            && !RecalculateGlobalHeightRange(out errorMessage)
         )
         {
             return false;
@@ -1886,86 +1811,6 @@ public sealed partial class TerrainAuthoringPreviewCache :
             errorMessage =
                 "Committed preview range metadata is invalid for " +
                 $"cache slice {slice}.";
-
-            return false;
-        }
-
-        return true;
-    }
-
-    // =====================================================
-    // COMMITTED TILE LOAD
-    // =====================================================
-
-    private static bool TryLoadCommittedTileTexture(
-        int tileX,
-        int tileZ,
-        int expectedSamplesPerSide,
-        out Texture2D texture,
-        out string errorMessage
-    )
-    {
-        texture =
-            null;
-
-        errorMessage =
-            "";
-
-        string sourcePath =
-            TerrainAuthoringStateUtility
-                .GetAuthoringHeightTilePath(
-                    tileX,
-                    tileZ
-                );
-
-        using (WorldMeshesProfiler.PreviewLoadTiles.Auto())
-        {
-            texture =
-                AssetDatabase
-                    .LoadAssetAtPath<Texture2D>(
-                        sourcePath
-                    );
-        }
-
-        if (texture == null)
-        {
-            errorMessage =
-                $"Committed authoring tile ({tileX}, {tileZ}) " +
-                "could not be loaded.\n\n" +
-                sourcePath;
-
-            return false;
-        }
-
-        if (
-            texture.width !=
-                expectedSamplesPerSide
-            ||
-            texture.height !=
-                expectedSamplesPerSide
-        )
-        {
-            errorMessage =
-                $"Committed authoring tile ({tileX}, {tileZ}) has " +
-                "unexpected dimensions.\n\n" +
-                $"Expected: {expectedSamplesPerSide} x " +
-                $"{expectedSamplesPerSide}\n" +
-                $"Actual: {texture.width} x {texture.height}\n\n" +
-                sourcePath;
-
-            return false;
-        }
-
-        if (
-            texture.format !=
-            TextureFormat.RFloat
-        )
-        {
-            errorMessage =
-                $"Committed authoring tile ({tileX}, {tileZ}) does " +
-                "not use TextureFormat.RFloat.\n\n" +
-                $"Actual: {texture.format}\n\n" +
-                sourcePath;
 
             return false;
         }
@@ -2192,6 +2037,12 @@ public sealed partial class TerrainAuthoringPreviewCache :
         cacheHeight =
             0;
 
+        nativeSamplesPerSide =
+            0;
+
+        heightMaterializer =
+            null;
+
         sampleStride =
             0;
 
@@ -2286,3 +2137,4 @@ public sealed partial class TerrainAuthoringPreviewCache :
             0.0001f;
     }
 }
+

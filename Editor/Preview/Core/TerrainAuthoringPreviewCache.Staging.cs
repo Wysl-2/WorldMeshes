@@ -379,6 +379,9 @@ public sealed partial class TerrainAuthoringPreviewCache
         cacheHeight =
             targetWindow.Height;
 
+        nativeSamplesPerSide =
+            worldSettings.HeightTileSamplesPerSide;
+
         sampleStride =
             requestedSampleStride;
 
@@ -454,43 +457,77 @@ public sealed partial class TerrainAuthoringPreviewCache
         out string errorMessage
     )
     {
-        errorMessage =
-            "";
+        errorMessage = "";
 
-        if (sampleStride != 1)
+        if (GetSliceIndex(worldTile.x, worldTile.y) < 0)
         {
             errorMessage =
-                "Committed base materialization for non-native Height " +
-                "preview representations is not available through the " +
-                "native texture-copy path.";
-
-            return false;
-        }
-
-        int slice =
-            GetSliceIndex(
-                worldTile.x,
-                worldTile.y
-            );
-
-        if (slice < 0)
-        {
-            errorMessage =
-                $"Tile ({worldTile.x}, {worldTile.y}) is outside the staging cache.";
-
+                $"Tile ({worldTile.x}, {worldTile.y}) is outside the preview cache.";
             return false;
         }
 
         if (
-            !TryLoadCommittedTileTexture(
-                worldTile.x,
-                worldTile.y,
-                samplesPerSide,
-                out Texture2D sourceTexture,
+            !TerrainAuthoringPreviewHeightSourceUtility.TryLoadCommittedNativeTile(
+                nativeSamplesPerSide,
+                worldTile,
+                out Texture2D nativeSource,
                 out errorMessage
             )
         )
         {
+            return false;
+        }
+
+        if (heightMaterializer == null)
+        {
+            heightMaterializer =
+                new TerrainAuthoringPreviewHeightMaterializer();
+        }
+
+        return TryMaterializeCommittedBaseTile(
+            nativeSource,
+            heightMaterializer,
+            worldTile,
+            out errorMessage
+        );
+    }
+
+    // The loaded native source can feed several independent representations.
+    internal bool TryMaterializeCommittedBaseTile(
+        Texture2D nativeSource,
+        TerrainAuthoringPreviewHeightMaterializer materializer,
+        Vector2Int worldTile,
+        out string errorMessage
+    )
+    {
+        errorMessage = "";
+        int slice = GetSliceIndex(worldTile.x, worldTile.y);
+
+        if (slice < 0)
+        {
+            errorMessage =
+                $"Tile ({worldTile.x}, {worldTile.y}) is outside the preview cache.";
+            return false;
+        }
+
+        if (materializer == null)
+        {
+            errorMessage = "The Height representation materializer is null.";
+            return false;
+        }
+
+        if (
+            sliceReadiness == null
+            || slice >= sliceReadiness.Length
+            || sliceMinimumHeights == null
+            || slice >= sliceMinimumHeights.Length
+            || sliceMaximumHeights == null
+            || slice >= sliceMaximumHeights.Length
+            || sliceRangeValid == null
+            || slice >= sliceRangeValid.Length
+        )
+        {
+            errorMessage = "The Height cache slice state is incomplete.";
             return false;
         }
 
@@ -506,49 +543,28 @@ public sealed partial class TerrainAuthoringPreviewCache
             return false;
         }
 
-        try
+        if (
+            !materializer.TryMaterialize(
+                nativeSource,
+                heightCache,
+                slice,
+                nativeSamplesPerSide,
+                samplesPerSide,
+                sampleStride,
+                out errorMessage
+            )
+        )
         {
-            using (WorldMeshesProfiler.PreviewCopyTiles.Auto())
-            {
-                Graphics.CopyTexture(
-                    sourceTexture,
-                    0,
-                    0,
-                    heightCache,
-                    slice,
-                    0
-                );
-            }
-        }
-        catch (Exception exception)
-        {
-            errorMessage =
-                $"Committed tile ({worldTile.x}, {worldTile.y}) could not " +
-                "be copied into the staging cache.\n\n" +
-                exception.Message;
-
             return false;
         }
 
-        sliceMinimumHeights[
-            slice
-        ] =
-            committedMinimum;
-
-        sliceMaximumHeights[
-            slice
-        ] =
-            committedMaximum;
-
-        sliceRangeValid[
-            slice
-        ] =
-            true;
-
+        // Native manifest extrema remain conservative for every representation.
+        sliceMinimumHeights[slice] = committedMinimum;
+        sliceMaximumHeights[slice] = committedMaximum;
+        sliceRangeValid[slice] = true;
         SetSliceReadinessBySlice(
             slice,
-            TerrainAuthoringPreviewSliceReadiness
-                .CommittedBaseReady
+            TerrainAuthoringPreviewSliceReadiness.CommittedBaseReady
         );
 
         return true;
@@ -1068,3 +1084,4 @@ public sealed partial class TerrainAuthoringPreviewCache
             readiness;
     }
 }
+

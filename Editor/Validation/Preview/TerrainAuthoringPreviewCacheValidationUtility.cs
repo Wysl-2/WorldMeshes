@@ -131,6 +131,7 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
             RunWindowValueValidation();
             RunWindowFittingValidation();
             RunClipmapStrideValidation();
+            RunExactHeightMaterializationValidation();
 
             if (
                 !TryValidateCachePrerequisites(
@@ -1160,31 +1161,376 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
                 $"Bytes={validationCache.ApproximateGpuMemoryBytes}."
             );
 
-            bool copyRejected =
-                !validationCache
-                    .TryLoadCommittedBaseTile(
-                        testWindow.OriginTile,
-                        out string copyError
-                    )
-                &&
-                !string.IsNullOrEmpty(
-                    copyError
-                );
-
-            AddResult(
-                "Coarse native-copy materialization guard",
-                copyRejected
-                    ? ValidationOutcome.Pass
-                    : ValidationOutcome.Fail,
-                copyRejected
-                    ? copyError
-                    : "A coarse staging cache unexpectedly accepted the " +
-                        "native direct-copy materialization path."
+            RunCoarseStagingMaterializationValidation(
+                worldSettings,
+                manifest,
+                validationCache,
+                testWindow
             );
         }
         finally
         {
             validationCache.Dispose();
+        }
+    }
+
+    private static void RunExactHeightMaterializationValidation()
+    {
+        if (
+            !SystemInfo.supportsComputeShaders
+            || !SystemInfo.supportsAsyncGPUReadback
+            || !SystemInfo.SupportsRandomWriteOnRenderTextureFormat(
+                RenderTextureFormat.RFloat
+            )
+        )
+        {
+            AddResult(
+                "Exact Height representation lattice",
+                ValidationOutcome.Blocked,
+                "Compute shaders, RFloat random writes, and async GPU readback are required."
+            );
+            return;
+        }
+
+        const int nativeSize = 17;
+        const float untouchedValue = -12345f;
+        Texture2D source = null;
+        RenderTexture destination = null;
+        Texture2D seed = null;
+
+        try
+        {
+            float[] nativeSamples = new float[nativeSize * nativeSize];
+            for (int z = 0; z < nativeSize; z++)
+            {
+                for (int x = 0; x < nativeSize; x++)
+                {
+                    nativeSamples[x + z * nativeSize] = x + z * 100f;
+                }
+            }
+            nativeSamples[1 + nativeSize] = -10000f;
+
+            source = new Texture2D(
+                nativeSize, nativeSize, TextureFormat.RFloat, false, true
+            );
+            source.name = "Height Representation Validation Native Source";
+            source.hideFlags = HideFlags.HideAndDontSave;
+            source.SetPixelData(nativeSamples, 0);
+            source.Apply(false, true);
+
+            TerrainAuthoringPreviewHeightMaterializer materializer =
+                new TerrainAuthoringPreviewHeightMaterializer();
+            float[] strideTwoSamples = null;
+
+            foreach (int stride in new[] { 1, 2, 4, 8, 16 })
+            {
+                int size = (nativeSize - 1) / stride + 1;
+                destination = new RenderTexture(
+                    size, size, 0, RenderTextureFormat.RFloat,
+                    RenderTextureReadWrite.Linear
+                );
+                destination.name = "Height Representation Validation Array";
+                destination.dimension = TextureDimension.Tex2DArray;
+                destination.volumeDepth = 2;
+                destination.enableRandomWrite = true;
+                destination.useMipMap = false;
+                destination.autoGenerateMips = false;
+                destination.filterMode = FilterMode.Point;
+                destination.hideFlags = HideFlags.HideAndDontSave;
+                destination.Create();
+
+                seed = new Texture2D(size, size, TextureFormat.RFloat, false, true);
+                seed.hideFlags = HideFlags.HideAndDontSave;
+                float[] seedSamples = new float[size * size];
+                for (int index = 0; index < seedSamples.Length; index++)
+                {
+                    seedSamples[index] = untouchedValue;
+                }
+                seed.SetPixelData(seedSamples, 0);
+                seed.Apply(false, true);
+                Graphics.CopyTexture(seed, 0, 0, destination, 0, 0);
+                Graphics.CopyTexture(seed, 0, 0, destination, 1, 0);
+
+                bool invalidSliceRejected = !materializer.TryMaterialize(
+                    source, destination, -1, nativeSize, size, stride, out _
+                );
+                bool invalidStrideRejected = !materializer.TryMaterialize(
+                    source, destination, 1, nativeSize, size, 3, out _
+                );
+                bool invalidDimensionsRejected = !materializer.TryMaterialize(
+                    source, destination, 1, nativeSize, size + 1, stride, out _
+                );
+                if (
+                    !invalidSliceRejected
+                    || !invalidStrideRejected
+                    || !invalidDimensionsRejected
+                )
+                {
+                    throw new InvalidOperationException(
+                        "Height materialization accepted an invalid slice, stride, or dimension."
+                    );
+                }
+
+                if (
+                    !materializer.TryMaterialize(
+                        source, destination, 1, nativeSize, size, stride,
+                        out string materializationError
+                    )
+                )
+                {
+                    throw new InvalidOperationException(materializationError);
+                }
+
+                // This small readback runs only from explicit deferred validation.
+                AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(destination, 0);
+                request.WaitForCompletion();
+                if (request.hasError || request.layerCount != 2)
+                {
+                    throw new InvalidOperationException(
+                        "Height representation validation readback failed."
+                    );
+                }
+
+                var untouched = request.GetData<float>(0);
+                var materialized = request.GetData<float>(1);
+                bool passed =
+                    untouched.Length == size * size
+                    && materialized.Length == size * size;
+                if (passed)
+                {
+                    for (int z = 0; z < size; z++)
+                    {
+                        for (int x = 0; x < size; x++)
+                        {
+                            int index = x + z * size;
+                            passed &= untouched[index] == untouchedValue;
+                            passed &= materialized[index] ==
+                                nativeSamples[x * stride + z * stride * nativeSize];
+                        }
+                    }
+                }
+                AddResult(
+                    $"Exact Height lattice at stride {stride}",
+                    passed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+                    $"Checked all {size * size} exact samples, both tile edges, and untouched slice 0."
+                );
+
+                if (stride == 2 && passed)
+                {
+                    strideTwoSamples = materialized.ToArray();
+                }
+                else if (stride == 4)
+                {
+                    bool sharedPassed = passed && strideTwoSamples != null;
+                    if (sharedPassed)
+                    {
+                        for (int z = 0; z < size; z++)
+                        {
+                            for (int x = 0; x < size; x++)
+                            {
+                                sharedPassed &= materialized[x + z * size] ==
+                                    strideTwoSamples[x * 2 + z * 2 * 9];
+                            }
+                        }
+                    }
+                    AddResult(
+                        "Cross-resolution shared Height lattice",
+                        sharedPassed ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+                        "Stride-4 samples must match every second stride-2 sample."
+                    );
+                }
+
+                destination.Release();
+                UnityEngine.Object.DestroyImmediate(destination);
+                destination = null;
+                UnityEngine.Object.DestroyImmediate(seed);
+                seed = null;
+            }
+        }
+        catch (Exception exception)
+        {
+            AddResult(
+                "Exact Height representation lattice",
+                ValidationOutcome.Fail,
+                exception.Message
+            );
+        }
+        finally
+        {
+            if (destination != null)
+            {
+                destination.Release();
+                UnityEngine.Object.DestroyImmediate(destination);
+            }
+            if (seed != null)
+            {
+                UnityEngine.Object.DestroyImmediate(seed);
+            }
+            if (source != null)
+            {
+                UnityEngine.Object.DestroyImmediate(source);
+            }
+        }
+    }
+
+    private static void RunCoarseStagingMaterializationValidation(
+        WorldSettings worldSettings,
+        TerrainAuthoringHeightManifest manifest,
+        TerrainAuthoringPreviewCache validationCache,
+        TerrainHeightCacheWindow testWindow
+    )
+    {
+        if (
+            !SystemInfo.supportsComputeShaders
+            || !SystemInfo.SupportsRandomWriteOnRenderTextureFormat(
+                RenderTextureFormat.RFloat
+            )
+        )
+        {
+            AddResult(
+                "Coarse staging materialization and composition",
+                ValidationOutcome.Blocked,
+                "Compute shaders and RFloat random writes are required."
+            );
+            return;
+        }
+
+        TerrainAuthoringPreviewHeightMaterializer materializer =
+            new TerrainAuthoringPreviewHeightMaterializer();
+        TerrainAuthoringData identityAuthoring = null;
+        TerrainHeightCompositor compositor = new TerrainHeightCompositor();
+
+        try
+        {
+            Vector2Int firstTile = testWindow.OriginTile;
+            bool rejected = !validationCache.TryMaterializeCommittedBaseTile(
+                null, materializer, firstTile, out _
+            );
+            bool failureSafe = rejected
+                && validationCache.GetSliceReadiness(firstTile) ==
+                    TerrainAuthoringPreviewSliceReadiness.Uninitialized
+                && !validationCache.TryGetCompositeSliceRange(
+                    firstTile.x, firstTile.y, out _, out _
+                )
+                && !validationCache.IsCompleteForActivation;
+            AddResult(
+                "Failed materialization preserves uninitialized slice",
+                failureSafe ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+                "A missing source must not acknowledge readiness or composite range."
+            );
+
+            identityAuthoring = ScriptableObject.CreateInstance<TerrainAuthoringData>();
+            identityAuthoring.hideFlags = HideFlags.HideAndDontSave;
+
+            for (int localZ = 0; localZ < testWindow.Height; localZ++)
+            {
+                for (int localX = 0; localX < testWindow.Width; localX++)
+                {
+                    Vector2Int tile = testWindow.OriginTile + new Vector2Int(localX, localZ);
+                    if (
+                        !TerrainAuthoringPreviewHeightSourceUtility.TryLoadCommittedNativeTile(
+                            worldSettings, tile, out Texture2D source, out string loadError
+                        )
+                    )
+                    {
+                        throw new InvalidOperationException(loadError);
+                    }
+                    if (
+                        !validationCache.TryMaterializeCommittedBaseTile(
+                            source, materializer, tile, out string materializationError
+                        )
+                    )
+                    {
+                        throw new InvalidOperationException(materializationError);
+                    }
+                    if (
+                        !manifest.TryGetTileHeightRange(tile.x, tile.y, out float nativeMin, out float nativeMax)
+                        || !validationCache.TryGetCommittedRange(tile, out float baseMin, out float baseMax, out _)
+                        || !validationCache.TryGetCompositeSliceRange(tile.x, tile.y, out float sliceMin, out float sliceMax)
+                        || baseMin != nativeMin || baseMax != nativeMax
+                        || sliceMin != nativeMin || sliceMax != nativeMax
+                        || validationCache.GetSliceReadiness(tile) !=
+                            TerrainAuthoringPreviewSliceReadiness.CommittedBaseReady
+                        || validationCache.IsSliceFinalCompositeReady(tile)
+                        || validationCache.IsCompleteForActivation
+                    )
+                    {
+                        throw new InvalidOperationException(
+                            "Coarse committed-base readiness or authoritative native ranges are invalid."
+                        );
+                    }
+
+                    int slice = validationCache.GetSliceIndex(tile.x, tile.y);
+                    if (tile == firstTile)
+                    {
+                        bool compositionRejected = !compositor.TryComposeTile(
+                            validationCache.HeightCache, tile, slice,
+                            validationCache.SamplesPerSide, validationCache.SampleSpacing,
+                            worldSettings.HeightTileWorldSize * 2f, validationCache.WorldSizeXZ,
+                            identityAuthoring, baseMin, baseMax, out _, out _, out _
+                        );
+                        bool readinessPreserved = compositionRejected
+                            && validationCache.GetSliceReadiness(tile) ==
+                                TerrainAuthoringPreviewSliceReadiness.CommittedBaseReady;
+                        AddResult(
+                            "Failed composition preserves committed-base readiness",
+                            readinessPreserved ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+                            "An invalid tile span must fail before final-composite acknowledgment."
+                        );
+                    }
+                    if (
+                        !compositor.TryComposeTile(
+                            validationCache.HeightCache, tile, slice,
+                            validationCache.SamplesPerSide, validationCache.SampleSpacing,
+                            worldSettings.HeightTileWorldSize, validationCache.WorldSizeXZ,
+                            identityAuthoring, baseMin, baseMax,
+                            out float finalMin, out float finalMax, out string compositionError
+                        )
+                    )
+                    {
+                        throw new InvalidOperationException(compositionError);
+                    }
+                    if (
+                        finalMin != nativeMin || finalMax != nativeMax
+                        || !validationCache.TryCommitFinalCompositeTile(tile, finalMin, finalMax, out _)
+                        || !validationCache.IsSliceFinalCompositeReady(tile)
+                    )
+                    {
+                        throw new InvalidOperationException(
+                            "Coarse identity composition did not preserve ranges or final readiness."
+                        );
+                    }
+                }
+            }
+
+            if (!validationCache.TryFinalizeStagingForActivation(
+                "Transient identity composition validation", out string finalizeError
+            ))
+            {
+                throw new InvalidOperationException(finalizeError);
+            }
+            AddResult(
+                "Coarse staging materialization and composition",
+                validationCache.IsCompleteForActivation ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+                "Native sources materialized into coarse slices with authoritative ranges; " +
+                "the production range-aware compositor accepted coarse count/spacing and finalization."
+            );
+        }
+        catch (Exception exception)
+        {
+            AddResult(
+                "Coarse staging materialization and composition",
+                ValidationOutcome.Fail,
+                exception.Message
+            );
+        }
+        finally
+        {
+            compositor.Dispose();
+            if (identityAuthoring != null)
+            {
+                UnityEngine.Object.DestroyImmediate(identityAuthoring);
+            }
         }
     }
 
@@ -1942,3 +2288,4 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
             tolerance;
     }
 }
+
