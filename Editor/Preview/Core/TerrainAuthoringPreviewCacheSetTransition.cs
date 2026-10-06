@@ -4,30 +4,29 @@ using UnityEngine;
 
 internal enum TerrainAuthoringPreviewCachePublication
 {
-    NativePreview,
-    PreparedHeightSet,
+    DisplayHeightSet,
     NativeAnalysis
 }
 
-// Read-only borrowed result. Only the preview service owns/disposes its cache.
-internal sealed class TerrainAuthoringPreviewPreparedHeightCache
+// Borrowed live metadata. Only the service owns the referenced state/cache.
+internal sealed class TerrainAuthoringPreviewHeightCacheView
 {
-    public int Level { get; }
-    public int SampleStride { get; }
-    public RenderTexture HeightCache { get; }
-    public TerrainHeightCacheWindow ResidentWindow { get; }
-    public int SamplesPerSide { get; }
-    public float SampleSpacing { get; }
-    internal TerrainAuthoringPreviewPreparedHeightCache(TerrainAuthoringPreviewLodState state)
-    {
-        Level = state.Level;
-        SampleStride = state.SampleStride;
-        HeightCache = state.ActiveCache.HeightCache;
-        ResidentWindow = new TerrainHeightCacheWindow(
-            state.ActiveCache.CacheOriginTile, state.ActiveCache.CacheSize);
-        SamplesPerSide = state.SamplesPerSide;
-        SampleSpacing = state.SampleSpacing;
-    }
+    private readonly TerrainAuthoringPreviewLodState state;
+    private TerrainAuthoringPreviewCache Cache => state.ActiveCache ?? state.StagingCache;
+    public int Level => state.Level;
+    public int SampleStride => state.SampleStride;
+    public int SamplesPerSide => state.SamplesPerSide;
+    public float SampleSpacing => state.SampleSpacing;
+    public RenderTexture HeightCache => Cache?.HeightCache;
+    public Vector2 WorldSizeXZ => Cache?.WorldSizeXZ ?? Vector2.zero;
+    public TerrainHeightCacheWindow ResidentWindow => Cache == null ? default
+        : new TerrainHeightCacheWindow(Cache.CacheOriginTile, Cache.CacheSize);
+    public TerrainHeightCacheWindow RequiredWindow => state.ActiveCache != null
+        ? state.ActiveRequiredWindow : state.RequestedRequiredWindow;
+    public bool IsComplete => Cache != null && Cache.IsCompleteForActivation;
+    public bool IsCurrent => state.CacheReady && state.PendingDirtyTiles.Count == 0 && IsComplete;
+    public long AuthoringGeneration => state.ActiveAuthoringGeneration;
+    internal TerrainAuthoringPreviewHeightCacheView(TerrainAuthoringPreviewLodState state) { this.state = state; }
 }
 
 // Resource owner and resumable work data; scheduling remains in the service.
@@ -65,6 +64,14 @@ internal sealed class TerrainAuthoringPreviewCacheSetTransition : IDisposable
     internal readonly bool RebuildRequested;
     internal TerrainAuthoringPreviewResidencyPlan AcceptedPlan { get; private set; }
     internal long RequestGeneration { get; private set; }
+    internal TerrainAuthoringPreviewDisplayIntent DisplayIntent { get; private set; }
+    internal bool DisplayCritical;
+
+    internal void AcceptDisplayIntent(TerrainAuthoringPreviewDisplayIntent intent, long generation)
+    {
+        DisplayIntent = intent;
+        AcceptIntent(intent.Plan, generation);
+    }
     internal TerrainAuthoringPreviewTransitionState State = TerrainAuthoringPreviewTransitionState.Preparing;
     internal int PreparationCursor;
     internal int GroupCursor;

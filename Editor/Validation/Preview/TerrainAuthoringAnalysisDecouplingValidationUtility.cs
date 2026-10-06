@@ -355,17 +355,16 @@ public static class TerrainAuthoringAnalysisDecouplingValidationUtility
 
     private static void ValidateAnalysisWorkPolicy()
     {
-        var native = TerrainAuthoringPreviewCachePublication.NativePreview;
+        var display = TerrainAuthoringPreviewCachePublication.DisplayHeightSet;
         var analysis = TerrainAuthoringPreviewCachePublication.NativeAnalysis;
-        var prepared = TerrainAuthoringPreviewCachePublication.PreparedHeightSet;
-        bool correct = !TerrainAuthoringPreviewStreamingPolicy.ShouldDeferForNativeAnalysis(native, true, true, analysis)
-            && TerrainAuthoringPreviewStreamingPolicy.ShouldDeferForNativeAnalysis(native, false, true, analysis)
-            && TerrainAuthoringPreviewStreamingPolicy.ShouldDeferForNativeAnalysis(prepared, false, true, analysis)
-            && TerrainAuthoringPreviewStreamingPolicy.ShouldDeferForNativeAnalysis(analysis, false, true, prepared)
+        
+        bool correct = !TerrainAuthoringPreviewStreamingPolicy.ShouldDeferForNativeAnalysis(display, true, true, analysis)
+            && TerrainAuthoringPreviewStreamingPolicy.ShouldDeferForNativeAnalysis(display, false, true, analysis)
+            && TerrainAuthoringPreviewStreamingPolicy.ShouldDeferForNativeAnalysis(analysis, false, true, display)
             && !TerrainAuthoringPreviewStreamingPolicy.ShouldDeferForNativeAnalysis(analysis, false, true, null)
             && !TerrainAuthoringPreviewStreamingPolicy.ShouldDeferHeightRequestRestart(analysis, true, true)
             && TerrainAuthoringPreviewStreamingPolicy.ShouldDeferHeightRequestRestart(analysis, true, false)
-            && TerrainAuthoringPreviewStreamingPolicy.ShouldDeferHeightRequestRestart(native, true, true);
+            && TerrainAuthoringPreviewStreamingPolicy.ShouldDeferHeightRequestRestart(display, true, true);
         Add("Native analysis uses shared priority and interactive restart policy",
             correct ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             "Mandatory display recovery wins; current analysis cannot be repeatedly cancelled by optional work.");

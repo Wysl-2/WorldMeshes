@@ -133,7 +133,7 @@ public static class TerrainAuthoringModifierSceneUtility
             modifier == null
             ||
             !TerrainAuthoringPreviewService
-                .CacheReady
+                .HasDrawableHeightPreview
         )
         {
             return false;
@@ -307,7 +307,7 @@ public static class TerrainAuthoringModifierSceneUtility
 
             usableLocalRange =
                 TerrainAuthoringPreviewService
-                    .CacheReady
+                    .HasDrawableHeightPreview
                 &&
                 IsFinite(
                     previewMinimumHeight

@@ -731,7 +731,7 @@ public static partial class TerrainAuthoringVisualizationController
         {
             return
                 TerrainAuthoringPreviewService
-                    .CacheReady;
+                    .HasDrawableHeightPreview;
         }
     }
 
@@ -977,7 +977,7 @@ public static partial class TerrainAuthoringVisualizationController
 
         bool heightPreviewReady =
             TerrainAuthoringPreviewService
-                .CacheReady;
+                .HasDrawableHeightPreview;
 
         TerrainAuthoringVisualizationMode
             requestedMode =

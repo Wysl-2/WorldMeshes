@@ -1464,6 +1464,8 @@ public static class TerrainAuthoringStagedTransitionValidationUtility
             blocked = true;
             return false;
         }
+        if (Shader.Find("Custom/ClipmapTerrain") == null)
+        { blocked = true; detail = "The clipmap terrain shader is required for semantic binding validation."; return false; }
         TerrainAuthoringPreviewCacheSetTransition initial = null;
         TerrainAuthoringPreviewCacheSetTransition replacement = null;
         TerrainAuthoringPreviewCacheSetTransition failed = null;
@@ -1507,7 +1509,7 @@ public static class TerrainAuthoringStagedTransitionValidationUtility
             var sources = new TerrainAuthoringPreviewCache[3];
             var generations = new long[3];
             initial = new TerrainAuthoringPreviewCacheSetTransition(plan, targets, new bool[3],
-                sources, generations, TerrainAuthoringPreviewCachePublication.PreparedHeightSet,
+                sources, generations, TerrainAuthoringPreviewCachePublication.DisplayHeightSet,
                 committed, overall, 7, 10, 3, false, settings.HeightTileWorldSize);
             // Mutating caller-owned plans must not change the frozen work specification.
             plan.Levels[0].Anchor = new UnityEngine.Vector3(999, 0, 999);
@@ -1558,6 +1560,11 @@ public static class TerrainAuthoringStagedTransitionValidationUtility
                 RequireSetFixture(state.CacheReady && state.ActiveCache.IsCompleteForActivation,
                     "Transferred caches were disposed with their transaction.");
 
+            ValidateSemanticHeightBinding(settings, initial.AcceptedPlan, published);
+            RequireSetFixture(!TerrainAuthoringPreviewService.IsNativeAnalysisCacheEligible(published[2].ActiveCache,
+                settings, 7, 7, committed, overall, firstWindow, firstWindow),
+                "A complete coarse representation passed native analysis eligibility.");
+
             var movedWindow = new TerrainHeightCacheWindow(new UnityEngine.Vector2Int(1, 0),
                 new UnityEngine.Vector2Int(3, 1));
             var moved = useful.CreateSnapshot();
@@ -1570,7 +1577,7 @@ public static class TerrainAuthoringStagedTransitionValidationUtility
             }
             replacement = new TerrainAuthoringPreviewCacheSetTransition(moved,
                 new[] { movedWindow, movedWindow, movedWindow }, new bool[3], sources, generations,
-                TerrainAuthoringPreviewCachePublication.PreparedHeightSet, committed, overall,
+                TerrainAuthoringPreviewCachePublication.DisplayHeightSet, committed, overall,
                 7, 12, 3, false, settings.HeightTileWorldSize);
             RequireSetFixture(!TerrainAuthoringPreviewService.IsRetainedReuseGloballyEligible(
                 sources[0], sources[1], committed, overall, false), "Cross-stride final reuse was accepted.");
@@ -1603,7 +1610,7 @@ public static class TerrainAuthoringStagedTransitionValidationUtility
             }
             failed = new TerrainAuthoringPreviewCacheSetTransition(expanded,
                 new[] { guard, guard, guard }, new[] { true, true, true }, sources, generations,
-                TerrainAuthoringPreviewCachePublication.PreparedHeightSet, committed, overall,
+                TerrainAuthoringPreviewCachePublication.DisplayHeightSet, committed, overall,
                 7, 13, 3, false, settings.HeightTileWorldSize);
             RequireSetFixture(TerrainAuthoringPreviewStreamingPolicy.IsCacheSetUseful(failed, expanded),
                 "A guard candidate lost required coverage.");
@@ -1704,6 +1711,82 @@ public static class TerrainAuthoringStagedTransitionValidationUtility
         else AddFail("Complete Height cache set staging", detail);
     }
 
+
+    private static void ValidateSemanticHeightBinding(WorldSettings settings,
+        TerrainAuthoringPreviewResidencyPlan plan, TerrainAuthoringPreviewLodState[] states)
+    {
+        Shader shader = Shader.Find("Custom/ClipmapTerrain");
+        if (shader == null) throw new InvalidOperationException("The generated terrain shader is unavailable.");
+        Material material = null; var objects = new List<GameObject>();
+        var bindings = new List<TerrainClipmapRendererBinding>();
+        var views = new TerrainAuthoringPreviewHeightCacheView[states.Length];
+        try
+        {
+            material = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
+            for (int level = 0; level < states.Length; level++)
+            {
+                views[level] = new TerrainAuthoringPreviewHeightCacheView(states[level]);
+                var obj = new GameObject("Transient Height role validation") { hideFlags = HideFlags.HideAndDontSave };
+                objects.Add(obj); var renderer = obj.AddComponent<MeshRenderer>(); renderer.sharedMaterial = material;
+                TerrainClipmapRendererRole role;
+                if (level == 0) role = TerrainClipmapRendererRole.CreateCenter();
+                else TerrainClipmapRendererRole.TryCreateRing(level, out role);
+                bindings.Add(new TerrainClipmapRendererBinding(renderer, role));
+                if (level > 0)
+                {
+                    obj = new GameObject("Transient Height stitch validation") { hideFlags = HideFlags.HideAndDontSave };
+                    objects.Add(obj); renderer = obj.AddComponent<MeshRenderer>(); renderer.sharedMaterial = material;
+                    TerrainClipmapRendererRole.TryCreateStitch(level - 1, level, out role);
+                    bindings.Add(new TerrainClipmapRendererBinding(renderer, role));
+                }
+            }
+            int protectedId = Shader.PropertyToID("_ClipmapTransitionOffset");
+            foreach (var binding in bindings)
+            {
+                var block = new MaterialPropertyBlock(); block.SetVector(protectedId, new Vector4(11, 0, 13, 0));
+                binding.Renderer.SetPropertyBlock(block);
+            }
+            var malformed = plan.CreateSnapshot();
+            malformed.Levels[states.Length - 1].RequiredWindow = new TerrainHeightCacheWindow(new Vector2Int(999, 999), Vector2Int.one);
+            RequireSetFixture(!TerrainAuthoringPreviewHeightBindingUtility.TryPreflight(settings, malformed, bindings, views, out _),
+                "A missing coarse coverage page passed binding preflight.");
+            foreach (var binding in bindings)
+            {
+                var block = new MaterialPropertyBlock(); binding.Renderer.GetPropertyBlock(block);
+                RequireSetFixture(block.GetTexture(Shader.PropertyToID("_HeightCache")) == null
+                    && block.GetVector(protectedId) == new Vector4(11, 0, 13, 0), "Failed binding preflight changed an earlier renderer.");
+            }
+            RequireSetFixture(TerrainAuthoringPreviewHeightBindingUtility.TryPreflight(settings, plan, bindings, views, out string error), error);
+            TerrainAuthoringPreviewHeightBindingUtility.Bind(bindings, views);
+            foreach (var binding in bindings)
+            {
+                var block = new MaterialPropertyBlock(); binding.Renderer.GetPropertyBlock(block);
+                int owner = binding.Role.HeightOwnerLevel;
+                float coarse = binding.Role.Kind == TerrainClipmapRendererKind.Stitch
+                    ? states[binding.Role.CoarseLevel].SampleSpacing : states[owner].SampleSpacing;
+                RequireSetFixture(block.GetTexture(Shader.PropertyToID("_HeightCache")) == states[owner].ActiveCache.HeightCache
+                    && block.GetFloat(Shader.PropertyToID("_HeightNormalSampleSpacingCoarse")) == coarse
+                    && block.GetVector(protectedId) == new Vector4(11, 0, 13, 0), "Semantic Height binding lost ownership, normal spacing or placement state.");
+            }
+            states[0].CacheReady = false;
+            RequireSetFixture(!views[0].IsCurrent, "A borrowed Height view captured stale readiness.");
+            states[0].CacheReady = true;
+            TerrainAuthoringPreviewHeightBindingUtility.Disable(bindings);
+            foreach (var binding in bindings)
+            {
+                var block = new MaterialPropertyBlock(); binding.Renderer.GetPropertyBlock(block);
+                RequireSetFixture(block.GetTexture(Shader.PropertyToID("_HeightCache")) == null
+                    && block.GetFloat(Shader.PropertyToID("_HeightCacheReady")) == 0
+                    && block.GetVector(protectedId) == new Vector4(11, 0, 13, 0), "Height disable retained a texture or changed unrelated state.");
+            }
+        }
+        finally
+        {
+            TerrainAuthoringPreviewHeightBindingUtility.Disable(bindings);
+            foreach (var obj in objects) UnityEngine.Object.DestroyImmediate(obj);
+            if (material != null) UnityEngine.Object.DestroyImmediate(material);
+        }
+    }
 
 }
 

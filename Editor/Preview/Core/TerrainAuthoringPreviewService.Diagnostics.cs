@@ -63,45 +63,12 @@ public static partial class TerrainAuthoringPreviewService
                     ? requestedWindow
                     : default;
 
-        bool activeCoversRequired =
-            hasActiveWindow
-            &&
-            hasRequiredWindow
-            &&
-            activeWindow.Contains(
-                requiredWindow
-            );
-
-        bool failedTargetRelevant =
-            hasTransitionFailure
-            &&
-            hasRequiredWindow
-            &&
-            lastFailedTransitionWindow.IsValid
-            &&
-            (
-                lastFailedTransitionWindow.Contains(
-                    requiredWindow
-                )
-                ||
-                lastFailedTransitionWindow.Overlaps(
-                    requiredWindow
-                )
-            );
-
-        bool failureAffectsRequiredCoverage =
-            hasTransitionFailure
-            &&
-            hasRequiredWindow
-            &&
-            !activeCoversRequired
-            &&
-            failedTargetRelevant;
-
-        int activeTileCount =
-            hasActiveWindow
-                ? activeWindow.TileCount
-                : 0;
+        bool activeCoversRequired = latestDisplayIntent != null && CanActiveHeightCacheSetCover(latestDisplayIntent.Plan);
+        bool failureAffectsRequiredCoverage = hasTransitionFailure && latestDisplayIntent != null
+            && lastFailedCacheSetRequest != null && !activeCoversRequired
+            && lastFailedCacheSetRequest.DisplayIntent?.PlacementGeneration == latestDisplayIntent.PlacementGeneration;
+        int activeTileCount = 0;
+        if (activeHeightStates != null) foreach (var state in activeHeightStates) activeTileCount += state.ActiveCache?.SliceCount ?? 0;
 
         int retainedTileCount = LastTransitionRetainedTileCount;
 

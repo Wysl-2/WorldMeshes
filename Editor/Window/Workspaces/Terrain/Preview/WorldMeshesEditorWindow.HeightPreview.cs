@@ -69,7 +69,7 @@ public partial class WorldMeshesEditorWindow :
         if (
             previewEnabled
             &&
-            TerrainAuthoringPreviewService.CacheReady
+            TerrainAuthoringPreviewService.HasDrawableHeightPreview
         )
         {
             GUILayout.Space(
@@ -77,25 +77,32 @@ public partial class WorldMeshesEditorWindow :
             );
 
             EditorGUILayout.LabelField(
+                "Height Content Current", TerrainAuthoringPreviewService.CacheReady ? "Yes" : "Updating"
+            );
+            int totalPages = 0;
+            if (TerrainAuthoringPreviewService.TryGetActiveHeightCacheSet(out var heightSet))
+                foreach (var cache in heightSet) totalPages += cache.ResidentWindow.TileCount;
+            EditorGUILayout.LabelField("Total Display Pages", totalPages.ToString("N0"));
+            EditorGUILayout.LabelField(
                 "Cache Model",
-                "Active + Staging Resident Composite"
+                "Per-LOD Composite + Staging Set"
             );
 
             EditorGUILayout.LabelField(
-                "Active Tile Grid",
+                "LOD0 Tile Grid",
                 $"{TerrainAuthoringPreviewService.CacheWidth} x " +
                 $"{TerrainAuthoringPreviewService.CacheHeight}"
             );
 
             EditorGUILayout.LabelField(
-                "Active Slices",
+                "LOD0 Slices",
                 TerrainAuthoringPreviewService
                     .CacheSliceCount
                     .ToString("N0")
             );
 
             EditorGUILayout.LabelField(
-                "Samples / Slice",
+                "LOD0 Samples / Slice",
                 $"{TerrainAuthoringPreviewService.SamplesPerSide} x " +
                 $"{TerrainAuthoringPreviewService.SamplesPerSide}"
             );
@@ -105,7 +112,7 @@ public partial class WorldMeshesEditorWindow :
                     .CacheOriginTile;
 
             EditorGUILayout.LabelField(
-                "Active Cache Origin",
+                "LOD0 Cache Origin",
                 $"{cacheOrigin.x}, {cacheOrigin.y}"
             );
 
@@ -117,13 +124,13 @@ public partial class WorldMeshesEditorWindow :
             )
             {
                 EditorGUILayout.LabelField(
-                    "Desired Resident Window",
+                    "LOD0 Desired Window",
                     desiredWindow.ToString()
                 );
             }
 
             EditorGUILayout.LabelField(
-                "Active Size Health",
+                "LOD0 Size Health",
                 TerrainAuthoringPreviewService
                     .ActiveResidencySizeHealthLabel
             );
@@ -141,7 +148,7 @@ public partial class WorldMeshesEditorWindow :
             )
             {
                 EditorGUILayout.LabelField(
-                    "Requested Resident Window",
+                    "LOD0 Requested Window",
                     requestedWindow.ToString()
                 );
             }
@@ -169,7 +176,7 @@ public partial class WorldMeshesEditorWindow :
                 )
                 {
                     EditorGUILayout.LabelField(
-                        "Staging Window",
+                        "LOD0 Staging Window",
                         stagingWindow.ToString()
                     );
                 }
@@ -217,7 +224,7 @@ public partial class WorldMeshesEditorWindow :
                 );
 
                 EditorGUILayout.LabelField(
-                    "Composed Tiles",
+                    "Composed Representation Slices",
                     TerrainAuthoringPreviewService
                         .LastTransitionComposedTileCount
                         .ToString("N0")
@@ -359,7 +366,7 @@ public partial class WorldMeshesEditorWindow :
             )
             {
                 EditorGUILayout.LabelField(
-                    "Latest Desired Window",
+                    "LOD0 Latest Desired Window",
                     latestDesired.ToString()
                 );
             }
@@ -373,11 +380,11 @@ public partial class WorldMeshesEditorWindow :
             EditorGUILayout.LabelField(
                 "Committed Loads",
                 $"{TerrainAuthoringPreviewService.StreamingSourceLoadedCount:N0} / " +
-                $"{TerrainAuthoringPreviewService.StreamingSourceTileCount:N0}"
+                $"{TerrainAuthoringPreviewService.StreamingSourceGroupCount:N0}"
             );
 
             EditorGUILayout.LabelField(
-                "Composed Tiles",
+                "Composed Representation Slices",
                 $"{TerrainAuthoringPreviewService.StreamingSourceComposedCount:N0} / " +
                 $"{TerrainAuthoringPreviewService.StreamingSourceTileCount:N0}"
             );

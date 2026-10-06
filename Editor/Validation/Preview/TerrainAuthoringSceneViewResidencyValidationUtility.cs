@@ -993,6 +993,19 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
                 details.ToString()
             );
 
+            var snapshot = layout.CreateSnapshot();
+            var capturedAnchor = snapshot.GetAnchor(0);
+            var paired = new TerrainAuthoringPreviewDisplayIntent(settings, null, plan, layout, 5, 3);
+            bool copied = TerrainClipmapLayoutUtility.TryCalculateLayout(settings,
+                center + new Vector3(layout.GetSpacing(0) * 4, 0, 0), 0, layout, out _)
+                && snapshot.GetAnchor(0) == capturedAnchor && paired.Layout.GetAnchor(0) == capturedAnchor
+                && !TerrainAuthoringPreviewDisplayIntent.PlacementMatches(snapshot, layout);
+            // Restore the calculation used by the remaining residency checks.
+            copied &= TerrainClipmapLayoutUtility.TryCalculateLayout(settings, center, 0, layout, out _);
+            AddResult("Paired layout snapshot preserves all independent anchors",
+                copied ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+                "Recalculating the caller's reusable layout cannot mutate a recorded placement.");
+
             bool repeatedSucceeded =
                 TerrainAuthoringPreviewLodResidencyUtility
                     .TryBuildPlan(
@@ -1515,29 +1528,19 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
             $"Active={activeWindow}, slices={TerrainAuthoringPreviewService.CacheSliceCount:N0}."
         );
 
-        long expectedMemory =
-            (long)TerrainAuthoringPreviewService
-                .SamplesPerSide
-            *
-            TerrainAuthoringPreviewService
-                .SamplesPerSide
-            *
-            activeWindow.TileCount
-            *
-            sizeof(float);
-
-        bool memoryCorrect =
-            TerrainAuthoringPreviewService
-                .ApproximateGpuMemoryBytes ==
-            expectedMemory;
+        long expectedMemory = 0;
+        bool setAvailable = TerrainAuthoringPreviewService.TryGetActiveHeightCacheSet(out var heightSet);
+        if (setAvailable) foreach (var cache in heightSet)
+            expectedMemory += (long)cache.SamplesPerSide * cache.SamplesPerSide * cache.ResidentWindow.TileCount * sizeof(float);
+        bool memoryCorrect = setAvailable && TerrainAuthoringPreviewService.ApproximateDisplayGpuMemoryBytes == expectedMemory;
 
         AddResult(
-            "Resident GPU memory uses local slice count",
+            "Display GPU memory sums every LOD representation",
             memoryCorrect
                 ? ValidationOutcome.Pass
                 : ValidationOutcome.Fail,
             $"Expected/actual bytes: {expectedMemory} / " +
-            $"{TerrainAuthoringPreviewService.ApproximateGpuMemoryBytes}."
+            $"{TerrainAuthoringPreviewService.ApproximateDisplayGpuMemoryBytes}."
         );
 
         float tileWorldSize =

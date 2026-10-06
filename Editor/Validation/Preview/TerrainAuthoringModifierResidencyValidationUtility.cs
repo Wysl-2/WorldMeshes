@@ -77,6 +77,7 @@ public static class TerrainAuthoringModifierResidencyValidationUtility
         try
         {
             ValidateDirtyPartition();
+            ValidateLodDirtyFanout();
             ValidateNonresidentDirtyPolicy();
             ValidateResidentPublicationPolicy();
             ValidateGenerationMonotonicity();
@@ -1042,4 +1043,24 @@ public static class TerrainAuthoringModifierResidencyValidationUtility
             );
         }
     }
+    private static void ValidateLodDirtyFanout()
+    {
+        var states = new[] { new TerrainAuthoringPreviewLodState(0, 1, 9, 1),
+            new TerrainAuthoringPreviewLodState(1, 2, 5, 2), new TerrainAuthoringPreviewLodState(2, 4, 3, 4) };
+        try
+        {
+            var windows = new[] { Window(5, 5, 1, 1), Window(4, 4, 3, 3), Window(3, 3, 5, 5) };
+            var all = new HashSet<Vector2Int>();
+            var tiles = new[] { new Vector2Int(5, 5), new Vector2Int(5, 5), new Vector2Int(3, 3), new Vector2Int(99, 99) };
+            for (int i = 0; i < states.Length; i++) TerrainAuthoringPreviewService.QueueDirtyTilesForLod(states[i], windows[i], tiles, all);
+            states[0].SuccessfulDirtyTiles.Add(new Vector2Int(5, 5));
+            TerrainAuthoringPreviewService.QueueDirtyTilesForLod(states[0], windows[0], tiles, all);
+            bool valid = states[0].PendingDirtyTiles.Count == 1 && states[1].PendingDirtyTiles.Count == 1
+                && states[2].PendingDirtyTiles.Count == 2 && all.Count == 2 && states[0].SuccessfulDirtyTiles.Count == 0;
+            if (valid) AddPass("Dirty fan-out retains every affected display LOD", "Duplicates coalesce, coarse-only tiles remain queued and later edits invalidate prior success.");
+            else AddFail("Dirty fan-out retains every affected display LOD", "A resident obligation was lost or assigned outside a physical window.");
+        }
+        finally { foreach (var state in states) state.Dispose(); }
+    }
+
 }

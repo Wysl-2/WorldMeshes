@@ -1,739 +1,280 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 public static partial class TerrainAuthoringPreviewService
 {
-    public static event Action<
-        TerrainHeightCacheWindow,
-        string
-    > HeightCacheTransitionFailed;
-
-    private static TerrainAuthoringPreviewCacheTransition currentTransition =>
-        currentCacheSetTransition != null
-        && currentCacheSetTransition.Publication == TerrainAuthoringPreviewCachePublication.NativePreview
+    public static event Action<TerrainHeightCacheWindow, string> HeightCacheTransitionFailed;
+    private static TerrainAuthoringPreviewCacheTransition currentTransition => currentCacheSetTransition != null
+        && currentCacheSetTransition.Publication == TerrainAuthoringPreviewCachePublication.DisplayHeightSet
             ? currentCacheSetTransition.Entries[0].Transition : null;
-
     private static TerrainAuthoringPreviewCacheSetTransition lastFailedCacheSetRequest;
-
+    private static TerrainAuthoringPreviewLodState retiringAnalysisState;
     private static bool hasTransitionFailure;
-
-    private static TerrainHeightCacheWindow
-        lastFailedTransitionWindow;
-
-    private static string lastTransitionFailureMessage =
-        "";
-
-    private static string lastFailedCommittedSignature =
-        "";
-
-    private static string lastFailedOverallSignature =
-        "";
-
-    public static bool TransitionInProgress => currentCacheSetTransition != null
-        && currentCacheSetTransition.InProgress;
-
-    public static bool HasTransitionDiagnostics
-    {
-        get
-        {
-            return
-                currentCacheSetTransition != null
-                ||
-                hasTransitionFailure;
-        }
-    }
-
-    public static string TransitionStateLabel
-    {
-        get
-        {
-            if (currentCacheSetTransition == null) return hasTransitionFailure ? "Failed" : "Idle";
-            switch (currentCacheSetTransition.State)
-            {
-                case TerrainAuthoringPreviewTransitionState.CopyingRetained: return "Copying Retained";
-                case TerrainAuthoringPreviewTransitionState.LoadingSourceTiles: return "Loading Source Tiles";
-                case TerrainAuthoringPreviewTransitionState.ComposingSourceTiles: return "Composing Source Tiles";
-                case TerrainAuthoringPreviewTransitionState.ReadyToActivate: return "Ready To Activate";
-                default: return currentCacheSetTransition.State.ToString();
-            }
-        }
-    }
-
-    public static bool HasTransitionFailure =>
-        hasTransitionFailure;
-
-    public static string LastTransitionFailureMessage =>
-        lastTransitionFailureMessage;
-
-    public static TerrainHeightCacheWindow LastFailedTransitionWindow =>
-        lastFailedTransitionWindow;
-
+    private static TerrainHeightCacheWindow lastFailedTransitionWindow;
+    private static string lastTransitionFailureMessage = "";
+    private static string lastFailedCommittedSignature = "";
+    private static string lastFailedOverallSignature = "";
+    public static bool TransitionInProgress => currentCacheSetTransition != null && currentCacheSetTransition.InProgress;
+    public static bool HasTransitionDiagnostics => currentCacheSetTransition != null || hasTransitionFailure;
+    public static string TransitionStateLabel => currentCacheSetTransition != null
+        ? currentCacheSetTransition.State.ToString() : hasTransitionFailure ? "Failed" : "Idle";
+    public static bool HasTransitionFailure => hasTransitionFailure;
+    public static string LastTransitionFailureMessage => lastTransitionFailureMessage;
+    public static TerrainHeightCacheWindow LastFailedTransitionWindow => lastFailedTransitionWindow;
     public static int LastTransitionRetainedTileCount => SumSetTiles(2);
-
     public static int LastTransitionEnteringTileCount => SumSetTiles(3);
-
     public static int LastTransitionLeavingTileCount => SumSetTiles(4);
-
     public static int LastTransitionReusableRetainedTileCount => StreamingRetainedTileCount;
-
     public static int LastTransitionRetainedGpuCopyCount => StreamingRetainedCopiedCount;
-
     public static int LastTransitionCommittedSourceLoadCount => StreamingSourceLoadedCount;
-
     public static int LastTransitionComposedTileCount => StreamingSourceComposedCount;
-
     public static long ApproximateStagingGpuMemoryBytes => EstimateOwnedHeightMemory(false);
-
     public static long ApproximateTotalResidentGpuMemoryBytes => EstimateOwnedHeightMemory(true);
+    internal static long ApproximateDisplayGpuMemoryBytes => EstimateStatesMemory(activeHeightStates);
+    internal static long ApproximateAnalysisGpuMemoryBytes => analysisOwnedState?.ActiveCache?.ApproximateGpuMemoryBytes ?? 0L;
 
-    private static long EstimateOwnedHeightMemory(bool includeActive)
+    private static long EstimateStatesMemory(TerrainAuthoringPreviewLodState[] states)
     {
-        var seen = new System.Collections.Generic.HashSet<TerrainAuthoringPreviewCache>();
-        long bytes = 0;
-        if (includeActive && activeCache != null && seen.Add(activeCache))
-            bytes += activeCache.ApproximateGpuMemoryBytes;
-        if (includeActive && preparedHeightStates != null)
-            foreach (var state in preparedHeightStates)
-                if (state.ActiveCache != null && seen.Add(state.ActiveCache))
-                    bytes += state.ActiveCache.ApproximateGpuMemoryBytes;
-        if (currentCacheSetTransition != null)
-            foreach (var e in currentCacheSetTransition.Entries)
-                if (e.Destination?.StagingCache != null && seen.Add(e.Destination.StagingCache))
-                    bytes += e.Destination.StagingCache.ApproximateGpuMemoryBytes;
+        long bytes = 0; var seen = new HashSet<TerrainAuthoringPreviewCache>();
+        if (states != null) foreach (var s in states)
+            if (s.ActiveCache != null && seen.Add(s.ActiveCache)) bytes += s.ActiveCache.ApproximateGpuMemoryBytes;
         return bytes;
     }
 
-    public static bool TryGetStagingResidentWindow(
-        out TerrainHeightCacheWindow window
-    )
+    private static long EstimateOwnedHeightMemory(bool includeActive)
     {
-        window =
-            default;
-
-        if (
-            stagingCache == null
-            ||
-            !stagingCache.IsReady
-        )
+        var seen = new HashSet<TerrainAuthoringPreviewCache>(); long bytes = 0;
+        if (includeActive)
         {
+            if (activeHeightStates != null) foreach (var s in activeHeightStates)
+                AddOwnedMemory(s.ActiveCache, seen, ref bytes);
+            AddOwnedMemory(analysisOwnedState?.ActiveCache, seen, ref bytes);
+            AddOwnedMemory(retiringAnalysisState?.ActiveCache, seen, ref bytes);
+            if (retiringHeightStates != null) foreach (var s in retiringHeightStates)
+                AddOwnedMemory(s.ActiveCache, seen, ref bytes);
+        }
+        if (currentCacheSetTransition != null) foreach (var e in currentCacheSetTransition.Entries)
+            AddOwnedMemory(e.Destination?.StagingCache, seen, ref bytes);
+        return bytes;
+    }
+
+    private static void AddOwnedMemory(TerrainAuthoringPreviewCache cache,
+        HashSet<TerrainAuthoringPreviewCache> seen, ref long bytes)
+    {
+        if (cache != null && seen.Add(cache)) bytes += cache.ApproximateGpuMemoryBytes;
+    }
+
+    public static bool TryGetStagingResidentWindow(out TerrainHeightCacheWindow window)
+    {
+        var c = stagingCache; window = c == null ? default : new TerrainHeightCacheWindow(c.CacheOriginTile, c.CacheSize);
+        return c != null && c.IsReady && window.IsValid;
+    }
+
+    internal static bool TryGetActiveCacheForValidation(out TerrainAuthoringPreviewCache cache)
+    {
+        cache = activeCache; return cache != null && cache.IsReady;
+    }
+
+    internal static bool IsRetainedReuseGloballyEligible(TerrainAuthoringPreviewCache source,
+        TerrainAuthoringPreviewCache destination, string committed, string overall, bool rebuild)
+    {
+        return source != null && destination != null && source.IsCompleteForActivation && !rebuild
+            && source.SourceCommittedHeightfieldSignature == committed && source.SourceOverallAuthoringSignature == overall
+            && source.SampleStride == destination.SampleStride && source.SamplesPerSide == destination.SamplesPerSide
+            && Mathf.Approximately(source.SampleSpacing, destination.SampleSpacing) && source.WorldSizeXZ == destination.WorldSizeXZ;
+    }
+
+    // Placement, MPBs, bounds and resource ownership publish synchronously.
+    // No callbacks observe a partially bound set or an uncounted retiring owner.
+    private static bool TryCommitDisplayHeight(TerrainAuthoringPreviewCacheSetTransition transaction,
+        TerrainAuthoringPreviewDisplayIntent intent, TerrainAuthoringPreviewLodState[] candidate, out string error)
+    {
+        error = "";
+        if (displayCommitInProgress || retiringHeightStates != null || intent == null
+            || !ReferenceEquals(intent, latestDisplayIntent) || !intent.ConfigurationMatches(LoadWorldSettings()) || !CanRunEditorPreviewWork
+            || intent.OwnershipGeneration != TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration)
+        { error = "The paired display intent became stale before publication."; return false; }
+        if (transaction != null)
+        {
+            if (!ValidateCacheSetTransaction(transaction, intent.Settings, LoadAuthoringData(), out error)
+                || !transaction.Complete || transaction.State != TerrainAuthoringPreviewTransitionState.ReadyToActivate) return false;
+            candidate = new TerrainAuthoringPreviewLodState[transaction.Entries.Length];
+            for (int i = 0; i < candidate.Length; i++) candidate[i] = transaction.Entries[i].Destination;
+        }
+        else if (!CanActiveHeightCacheSetCover(intent.Plan))
+        { error = "The retained complete Height set is not current for this layout."; return false; }
+        var renderers = new List<TerrainClipmapRendererBinding>();
+        if (!TerrainAuthoringSceneViewController.TryPreflightDisplayPlacement(intent, renderers, out error)) return false;
+        var view = CreateHeightView(candidate);
+        if (!TerrainAuthoringPreviewHeightBindingUtility.TryPreflight(intent.Settings, intent.Plan, renderers, view, out error)) return false;
+        var boundsController = intent.Root.GetComponent<TerrainClipmapBoundsController>();
+        float low = float.PositiveInfinity, high = float.NegativeInfinity;
+        foreach (var s in candidate)
+        {
+            var c = s.ActiveCache ?? s.StagingCache;
+            low = Mathf.Min(low, c.MinimumHeight); high = Mathf.Max(high, c.MaximumHeight);
+        }
+        if (boundsController == null || float.IsNaN(low) || float.IsNaN(high)
+            || float.IsInfinity(low) || float.IsInfinity(high) || low > high)
+        { error = "The clipmap transient displacement bounds cannot be applied."; return false; }
+        var previous = activeHeightStates;
+        var allRenderers = new HashSet<MeshRenderer>();
+        foreach (var b in boundHeightRenderers) if (b.Renderer != null) allRenderers.Add(b.Renderer);
+        foreach (var b in renderers) allRenderers.Add(b.Renderer);
+        var blocks = new Dictionary<MeshRenderer, MaterialPropertyBlock>();
+        var bounds = new Dictionary<MeshRenderer, Bounds>();
+        foreach (var r in allRenderers)
+        {
+            var block = new MaterialPropertyBlock(); r.GetPropertyBlock(block); blocks.Add(r, block); bounds.Add(r, r.localBounds);
+        }
+        TerrainAuthoringSceneViewController.DisplayPlacementSnapshot placement = null;
+        TerrainAuthoringPreviewLodState[] transferred = null;
+        displayCommitInProgress = true;
+        try
+        {
+            placement = TerrainAuthoringSceneViewController.BeginDisplayPlacement();
+            if (!TerrainAuthoringSceneViewController.TryApplyDisplayPlacement(intent, out error)) throw new InvalidOperationException(error);
+            TerrainAuthoringPreviewHeightBindingUtility.Bind(renderers, view);
+            if (!boundsController.ApplyBoundsForRange(low, high)) throw new InvalidOperationException("Transient Height bounds failed.");
+            // Recheck after every renderer write, before any ownership transfer.
+            if (!ReferenceEquals(intent, latestDisplayIntent)
+                || !intent.ConfigurationMatches(LoadWorldSettings())
+                || intent.OwnershipGeneration != TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration
+                || (transaction != null && !ValidateCacheSetTransaction(transaction, intent.Settings, LoadAuthoringData(), out error)))
+                throw new InvalidOperationException("Height ownership or authoring changed during publication. " + error);
+            // Complete fallible renderer and placement work before transferring resources.
+            var removed = new List<TerrainClipmapRendererBinding>();
+            foreach (var b in boundHeightRenderers)
+                if (!renderers.Exists(n => n.Renderer == b.Renderer)) removed.Add(b);
+            TerrainAuthoringPreviewHeightBindingUtility.Disable(removed);
+            TerrainAuthoringSceneViewController.CommitDisplayPlacement(intent);
+            transferred = transaction == null ? candidate : transaction.TransferPreparedStates();
+            if (transaction != null) retiringHeightStates = previous;
+            activeHeightStates = transferred; activeHeightView = view; activeDisplayIntent = intent;
+            for (int i = 0; i < transferred.Length; i++) transferred[i].ActiveRequiredWindow = intent.Plan.Levels[i].RequiredWindow;
+            boundHeightRenderers.Clear(); boundHeightRenderers.AddRange(renderers); boundClipmapRoot = intent.Root;
+            aggregateMinimumHeight = low; aggregateMaximumHeight = high;
+            activeCacheAuthoringGeneration = authoringGeneration;
+            committedRebuildRequested = false; clipmapRebindRequested = false;
+            diagnosticBindingApplyCount++;
+        }
+        catch (Exception exception)
+        {
+            error = "The complete Height display could not be published: " + exception.Message;
+            bool restored = TerrainAuthoringSceneViewController.RestoreDisplayPlacement(placement);
+            foreach (var pair in blocks)
+            {
+                if (pair.Key == null) { restored = false; continue; }
+                pair.Key.SetPropertyBlock(pair.Value); pair.Key.localBounds = bounds[pair.Key];
+            }
+            if (!restored)
+            {
+                TerrainAuthoringPreviewHeightBindingUtility.Disable(renderers);
+                TerrainAuthoringPreviewHeightBindingUtility.Disable(boundHeightRenderers);
+                if (previous != null) foreach (var s in previous) s.WriteFailed = true;
+                error += " The previous hierarchy could not be restored; invalid Height bindings were disabled.";
+            }
             return false;
         }
-
-        window =
-            new TerrainHeightCacheWindow(
-                stagingCache.CacheOriginTile,
-                stagingCache.CacheSize
-            );
-
-        return
-            window.IsValid;
-    }
-
-    internal static bool TryGetActiveCacheForValidation(
-        out TerrainAuthoringPreviewCache cache
-    )
-    {
-        cache =
-            activeCache;
-
-        return
-            cache != null
-            &&
-            cache.IsReady;
-    }
-
-    internal static bool IsRetainedReuseGloballyEligible(
-        TerrainAuthoringPreviewCache sourceCache,
-        TerrainAuthoringPreviewCache destinationCache,
-        string currentCommittedSignature,
-        string currentOverallSignature,
-        bool rebuildRequested
-    )
-    {
-        return
-            sourceCache != null
-            &&
-            destinationCache != null
-            &&
-            sourceCache.IsCompleteForActivation
-            &&
-            !rebuildRequested
-            &&
-            sourceCache
-                .SourceCommittedHeightfieldSignature
-            ==
-            currentCommittedSignature
-            &&
-            sourceCache
-                .SourceOverallAuthoringSignature
-            ==
-            currentOverallSignature
-            &&
-            sourceCache.SampleStride == destinationCache.SampleStride
-            &&
-            sourceCache.SamplesPerSide ==
-                destinationCache.SamplesPerSide
-            &&
-            Mathf.Approximately(
-                sourceCache.SampleSpacing,
-                destinationCache.SampleSpacing
-            )
-            &&
-            sourceCache.WorldSizeXZ ==
-                destinationCache.WorldSizeXZ;
-    }
-
-    private static bool TryActivateStagingCache(
-        Transform clipmapRoot,
-        TerrainAuthoringPreviewCacheTransition transition,
-        string currentCommittedSignature,
-        string currentOverallSignature,
-        out string errorMessage
-    )
-    {
-        errorMessage =
-            "";
-
-        if (
-            stagingCache == null
-            ||
-            transition == null
-            ||
-            transition.State !=
-                TerrainAuthoringPreviewTransitionState
-                    .ReadyToActivate
-        )
+        finally
         {
-            errorMessage =
-                "The staging cache is not ready for activation.";
-
-            return
-                FailStagedTransition(
-                    transition,
-                    transition != null
-                        ? transition.TargetWindow
-                        : default,
-                    currentCommittedSignature,
-                    currentOverallSignature,
-                    errorMessage
-                );
+            TerrainAuthoringSceneViewController.EndDisplayPlacement(); displayCommitInProgress = false;
         }
-
-        if (
-            !stagingCache.TryValidateCompleteForActivation(
-                out errorMessage
-            )
-            ||
-            stagingCache.CacheOriginTile !=
-                transition.TargetWindow.OriginTile
-            ||
-            stagingCache.CacheSize !=
-                transition.TargetWindow.Size
-            ||
-            stagingCache
-                .SourceCommittedHeightfieldSignature
-            !=
-            transition.TargetCommittedHeightfieldSignature
-            ||
-            stagingCache
-                .SourceOverallAuthoringSignature
-            !=
-            transition.TargetOverallAuthoringSignature
-        )
-        {
-            if (string.IsNullOrEmpty(errorMessage))
-            {
-                errorMessage =
-                    "The completed staging cache does not match its transition target metadata.";
-            }
-
-            return
-                FailStagedTransition(
-                    transition,
-                    transition.TargetWindow,
-                    currentCommittedSignature,
-                    currentOverallSignature,
-                    errorMessage
-                );
-        }
-
-        TerrainAuthoringPreviewCache previousActive =
-            activeCache;
-
-        transition.SetState(
-            TerrainAuthoringPreviewTransitionState
-                .Activating
-        );
-
-        if (
-            !TryBindSpecificPreviewCache(
-                stagingCache,
-                clipmapRoot,
-                out errorMessage
-            )
-        )
-        {
-            if (
-                previousActive != null
-                &&
-                previousActive.IsReady
-            )
-            {
-                TryBindSpecificPreviewCache(
-                    previousActive,
-                    clipmapRoot,
-                    out _
-                );
-            }
-            else
-            {
-                TerrainHeightCacheBindingUtility
-                    .Disable(
-                        clipmapRoot
-                    );
-            }
-
-            return
-                FailStagedTransition(
-                    transition,
-                    transition.TargetWindow,
-                    currentCommittedSignature,
-                    currentOverallSignature,
-                    errorMessage
-                );
-        }
-
-        /*
-         * Capture the active + staging coexistence peak before staging
-         * becomes the new authoritative active cache.
-         */
         CaptureTransitionMemoryEstimate();
-
-        activeCache =
-            stagingCache;
-
-        /*
-         * Break the staging alias before completing memory tracking. The
-         * previously captured coexistence value remains the transition peak.
-         */
-        currentCacheSetTransition.Entries[0].Destination.DetachStagingCache();
-
-        CompleteTransitionMemoryTracking();
-
-        transition.SetState(
-            TerrainAuthoringPreviewTransitionState
-                .Activated
-        );
-        currentCacheSetTransition.State = TerrainAuthoringPreviewTransitionState.Activated;
-
-        if (
-            hasRequestedResidencyWindow
-            &&
-            requestedResidencyWindow ==
-                transition.TargetWindow
-        )
+        try
         {
-            ClearRequestedResidency();
+            if (transaction != null)
+            {
+                ReleaseActiveDirtySource(); dirtyCompositeTiles.Clear();
+                pendingCompositePublication.Clear(); pendingNativePublication.Clear();
+                AcknowledgePendingRegionalElevationAfterActivation(transaction.AuthoringGeneration);
+                if (retiringHeightStates != null) foreach (var s in retiringHeightStates) DetachTerrainAnalysisBorrowing(s.ActiveCache);
+                ClearDisplayTransitionFailureSuppression(); fullCommittedBuildCount++;
+            }
+            SetStatus(TerrainAuthoringPreviewStatus.Ready, "The complete multiresolution Height preview is active.");
+            NotifyHeightCacheCoverageIfChanged(); NotifyPreviewStateChanged(); RepaintEditorViews();
         }
-
-        committedRebuildRequested =
-            false;
-
-        clipmapRebindRequested =
-            false;
-
-        dirtyCompositeTiles.Clear();
-
-        overallSignatureAcknowledgementRequested =
-            false;
-
-        fullCommittedBuildCount++;
-
-        ClearNativeTransitionFailureSuppression();
-
-        MarkActiveCacheAuthoringGeneration(transition.TargetAuthoringGeneration);
-
-        SetStatus(
-            TerrainAuthoringPreviewStatus.Ready,
-            "The staged resident height cache was activated."
-        );
-
-        NotifyPreviewStateChanged();
-
-        /*
-         * Active ownership and binding are already coherent before this
-         * event. SceneViewController can therefore apply its latest desired
-         * layout immediately against the new active coverage.
-         */
-        NotifyHeightCacheCoverageIfChanged();
-
-        if (
-            previousActive != null
-            &&
-            previousActive !=
-                activeCache
-        )
+        finally
         {
-            DetachTerrainAnalysisBorrowing(previousActive);
-            previousActive.Dispose();
+            if (retiringHeightStates != null) foreach (var s in retiringHeightStates) s.Dispose();
+            retiringHeightStates = null;
+            if (transaction != null) CompleteTransitionMemoryTracking();
         }
-
         return true;
     }
 
-    private static bool TryBindSpecificPreviewCache(
-        TerrainAuthoringPreviewCache cache,
-        Transform clipmapRoot,
-        out string errorMessage
-    )
+    private static void ClearDisplayTransitionFailureSuppression()
     {
-        errorMessage =
-            "";
-
-        if (
-            cache == null
-            ||
-            !cache.IsReady
-            ||
-            clipmapRoot == null
-        )
-        {
-            errorMessage =
-                "The requested preview cache cannot be bound because the cache or clipmap is unavailable.";
-
-            return false;
-        }
-
-        TerrainClipmapBoundsController boundsController =
-            clipmapRoot
-                .GetComponent<TerrainClipmapBoundsController>();
-
-        if (boundsController == null)
-        {
-            errorMessage =
-                "TerrainClipmapBoundsController is missing from WorldRoot/Clipmap.";
-
-            return false;
-        }
-
-        using var bindingProfilerScope =
-            WorldMeshesProfiler.PreviewBindCache.Auto();
-
-        if (
-            !TerrainHeightCacheBindingUtility
-                .TryBind(
-                    clipmapRoot,
-                    cache.HeightCache,
-                    cache.CacheOriginTile,
-                    cache.CacheSize,
-                    cache.SamplesPerSide,
-                    cache.SampleSpacing,
-                    cache.WorldSizeXZ,
-                    out _,
-                    out string bindingError
-                )
-        )
-        {
-            errorMessage =
-                "The staged preview height cache could not be bound to the clipmap.\n\n" +
-                bindingError;
-
-            return false;
-        }
-
-        if (
-            !boundsController.ApplyBoundsForRange(
-                cache.MinimumHeight,
-                cache.MaximumHeight
-            )
-        )
-        {
-            errorMessage =
-                "The staged preview cache was bound, but its displacement bounds could not be applied.";
-
-            return false;
-        }
-
-        boundClipmapRoot =
-            clipmapRoot;
-
-        diagnosticBindingApplyCount++;
-
-        return true;
-    }
-
-    private static bool FailStagedTransition(
-        TerrainAuthoringPreviewCacheTransition transition,
-        TerrainHeightCacheWindow targetWindow,
-        string targetCommittedSignature,
-        string targetOverallSignature,
-        string failureMessage
-    )
-    {
-        string message =
-            string.IsNullOrEmpty(
-                failureMessage
-            )
-                ? "The staged height-cache transition failed."
-                : failureMessage;
-
-        if (transition != null)
-        {
-            transition.MarkFailed(
-                message
-            );
-
-
-        }
-
-        if (currentCacheSetTransition != null)
-        {
-            currentCacheSetTransition.State = TerrainAuthoringPreviewTransitionState.Failed;
-            lastFailedCacheSetRequest = currentCacheSetTransition;
-        }
-        lastStreamingFailureMessage = message;
-        SetStreamingState(TerrainAuthoringPreviewStreamingState.Failed, message);
-        ReleaseStagingCacheOnly();
-
-        hasTransitionFailure =
-            true;
-
-        lastFailedTransitionWindow =
-            targetWindow;
-
-        lastTransitionFailureMessage =
-            message;
-
-        lastFailedCommittedSignature =
-            targetCommittedSignature ?? "";
-
-        lastFailedOverallSignature =
-            targetOverallSignature ?? "";
-
-        bool activeStillCurrent =
-            activeCache != null
-            &&
-            activeCache.IsCompleteForActivation
-            &&
-            activeCache
-                .SourceCommittedHeightfieldSignature
-            ==
-            targetCommittedSignature
-            &&
-            activeCache
-                .SourceOverallAuthoringSignature
-            ==
-            targetOverallSignature;
-
-        if (activeStillCurrent)
-        {
-            SetStatus(
-                TerrainAuthoringPreviewStatus.Ready,
-                "The requested staged height-cache transition failed. " +
-                "The previous resident terrain preview remains active.\n\n" +
-                message
-            );
-        }
-        else
-        {
-            SetStatus(
-                TerrainAuthoringPreviewStatus.Error,
-                "The requested staged height-cache transition failed. " +
-                "The previous GPU cache was preserved, but it does not " +
-                "represent the current authoritative authoring state.\n\n" +
-                message
-            );
-        }
-
-        HeightCacheTransitionFailed?.Invoke(
-            targetWindow,
-            message
-        );
-
-        RepaintEditorViews();
-
-        return false;
-    }
-
-    private static bool IsTransitionFailureSuppressed(
-        TerrainHeightCacheWindow targetWindow,
-        out string failureMessage
-    )
-    {
-        failureMessage =
-            "";
-
-        if (!hasTransitionFailure)
-        {
-            return false;
-        }
-
-        if (
-            lastFailedTransitionWindow !=
-                targetWindow
-        )
-        {
-            ClearNativeTransitionFailureSuppression();
-
-            return false;
-        }
-
-        WorldSettings worldSettings =
-            LoadWorldSettings();
-
-        TerrainAuthoringData authoringData =
-            LoadAuthoringData();
-
-        if (
-            worldSettings == null
-            ||
-            authoringData == null
-        )
-        {
-            ClearNativeTransitionFailureSuppression();
-
-            return false;
-        }
-
-        string committedSignature =
-            TerrainAuthoringStateUtility
-                .GetCommittedHeightfieldSignature(
-                    worldSettings
-                );
-
-        string overallSignature =
-            TerrainAuthoringStateUtility
-                .GetOverallAuthoringSignature(
-                    worldSettings,
-                    authoringData
-                );
-
-        if (
-            committedSignature !=
-                lastFailedCommittedSignature
-            ||
-            overallSignature !=
-                lastFailedOverallSignature
-        )
-        {
-            ClearNativeTransitionFailureSuppression();
-
-            return false;
-        }
-
-        failureMessage =
-            lastTransitionFailureMessage;
-
-        return true;
-    }
-
-    private static void ClearNativeTransitionFailureSuppression()
-    {
-        var preparedFailure = lastFailedCacheSetRequest != null
-            && lastFailedCacheSetRequest.Publication == TerrainAuthoringPreviewCachePublication.PreparedHeightSet
-                ? lastFailedCacheSetRequest : null;
-        var analysisFailure = lastFailedAnalysisCacheSetRequest;
-        ClearTransitionFailureSuppression();
-        lastFailedCacheSetRequest = preparedFailure;
-        lastFailedAnalysisCacheSetRequest = analysisFailure;
+        lastFailedCacheSetRequest = null; hasTransitionFailure = false;
+        lastFailedTransitionWindow = default; lastTransitionFailureMessage = "";
+        lastFailedCommittedSignature = lastFailedOverallSignature = "";
     }
 
     private static void ClearTransitionFailureSuppression()
     {
-        lastFailedCacheSetRequest = null;
-        lastFailedAnalysisCacheSetRequest = null;
-        analysisSourceError = "";
-        hasTransitionFailure =
-            false;
-
-        lastFailedTransitionWindow =
-            default;
-
-        lastTransitionFailureMessage =
-            "";
-
-        lastFailedCommittedSignature =
-            "";
-
-        lastFailedOverallSignature =
-            "";
+        ClearDisplayTransitionFailureSuppression(); lastFailedAnalysisCacheSetRequest = null; analysisSourceError = "";
+        activeDirtyFailureGeneration = -1L;
     }
 
     private static void ReleaseStagingCacheOnly()
     {
         if (currentCacheSetTransition == null) return;
-        CompleteTransitionMemoryTracking();
-        currentCacheSetTransition.Dispose();
+        CompleteTransitionMemoryTracking(); currentCacheSetTransition.Dispose();
     }
 
     private static bool IsCacheSetFailureSuppressed(TerrainAuthoringPreviewCacheSetTransition request)
     {
-        var failed = request.Publication == TerrainAuthoringPreviewCachePublication.NativeAnalysis
-            ? lastFailedAnalysisCacheSetRequest : lastFailedCacheSetRequest;
+        var failed = request.Publication == TerrainAuthoringPreviewCachePublication.NativeAnalysis ? lastFailedAnalysisCacheSetRequest : lastFailedCacheSetRequest;
         return failed != null && failed.Publication == request.Publication
-            && failed.MatchesContent(request.CommittedSignature, request.OverallSignature,
-                request.AuthoringGeneration, request.OwnershipGeneration, request.RebuildRequested)
+            && failed.MatchesContent(request.CommittedSignature, request.OverallSignature, request.AuthoringGeneration,
+                request.OwnershipGeneration, request.RebuildRequested)
             && TerrainAuthoringPreviewStreamingPolicy.AreCacheSetTargetsEquivalent(failed, request)
-            && TerrainAuthoringPreviewStreamingPolicy.AreMultiresolutionResidencyPlansEquivalent(
-                failed.AcceptedPlan, request.AcceptedPlan);
+            && TerrainAuthoringPreviewStreamingPolicy.AreMultiresolutionResidencyPlansEquivalent(failed.AcceptedPlan, request.AcceptedPlan)
+            && (request.Publication != TerrainAuthoringPreviewCachePublication.DisplayHeightSet
+                || (failed.DisplayIntent?.PlacementGeneration == request.DisplayIntent?.PlacementGeneration
+                    && failed.DisplayIntent?.Root == request.DisplayIntent?.Root));
     }
 
     private static void FailCacheSetTransaction(TerrainAuthoringPreviewCacheSetTransition t, string error)
     {
-        t.State = TerrainAuthoringPreviewTransitionState.Failed;
-        t.Error = error;
-        CaptureTransitionMemoryEstimate();
-        lastFailedCacheSetRequest = t;
+        t.State = TerrainAuthoringPreviewTransitionState.Failed; t.Error = error; CaptureTransitionMemoryEstimate();
         if (t.Publication == TerrainAuthoringPreviewCachePublication.NativeAnalysis)
         {
-            lastFailedAnalysisCacheSetRequest = t;
-            analysisSourceError = "Native analysis output " + analysisOutputWindow
-                + "; dependency source " + analysisRequiredSourceWindow + ": " + error;
-            PublishTerrainAnalysisSourceState(true);
+            lastFailedAnalysisCacheSetRequest = t; analysisSourceError = "Native analysis source: " + error;
         }
-        lastStreamingFailureMessage = error;
-        if (t.Publication == TerrainAuthoringPreviewCachePublication.NativePreview)
-            FailStagedTransition(t.Entries[0].Transition, t.Entries[0].Target,
-                t.CommittedSignature, t.OverallSignature, error);
-        else ReleaseStagingCacheOnly();
-        ClearPendingStreamingStart();
+        else
+        {
+            lastFailedCacheSetRequest = t; hasTransitionFailure = true;
+            lastFailedTransitionWindow = t.Entries[0].Target;
+            lastTransitionFailureMessage = error; lastFailedCommittedSignature = t.CommittedSignature; lastFailedOverallSignature = t.OverallSignature;
+        }
+        ReleaseStagingCacheOnly(); ClearPendingStreamingStart(); lastStreamingFailureMessage = error;
         SetStreamingState(TerrainAuthoringPreviewStreamingState.Failed, error);
+        if (t.Publication == TerrainAuthoringPreviewCachePublication.NativeAnalysis) PublishTerrainAnalysisSourceState(true);
+        else
+        {
+            SetStatus(HasDrawableHeightPreview ? TerrainAuthoringPreviewStatus.Ready : TerrainAuthoringPreviewStatus.Error,
+                "Height display streaming failed. " + error);
+            HeightCacheTransitionFailed?.Invoke(lastFailedTransitionWindow, error);
+        }
     }
 
-    private static void ReleaseAllPreviewCaches(
-        bool notifyObservers = true
-    )
+    private static void ReleaseAllPreviewCaches(bool notifyObservers = true)
     {
-        ReleaseStagingCacheOnly();
-        ClearPendingStreamingStart();
-        ReleaseTerrainAnalysisSource(notifyObservers);
-
-        if (activeCache != null)
-        {
-            activeCache.Dispose();
-
-            activeCache =
-                null;
-        }
-
-        currentCacheSetTransition = null;
-        ReleasePreparedHeightCacheSet();
-
-        ResetStreamingStateForResourceRelease(
-            notifyObservers
-        );
-
-        ClearRegionalElevationResidencyForResourceRelease();
-
-        ClearDesiredResidency();
-        ClearTransitionFailureSuppression();
-
-        if (notifyObservers)
-        {
-            NotifyHeightCacheCoverageIfChanged();
-
-            NotifyPreviewStateChanged();
-        }
+        ReleaseBinding(); ReleaseActiveDirtySource(); ReleaseStagingCacheOnly(); ClearPendingStreamingStart();
+        ReleaseTerrainAnalysisSource(notifyObservers); retiringAnalysisState?.Dispose(); retiringAnalysisState = null;
+        ReleaseActiveHeightCacheSet(); currentCacheSetTransition = null;
+        ClearMultiresolutionResidencyIntent(); ResetStreamingStateForResourceRelease(notifyObservers);
+        ClearRegionalElevationResidencyForResourceRelease(); ClearDesiredResidency(); ClearTransitionFailureSuppression();
+        if (notifyObservers) { NotifyHeightCacheCoverageIfChanged(); NotifyPreviewStateChanged(); }
     }
-}
+    private static long EstimatePublishedHeightMemory()
+    {
+        var seen = new HashSet<TerrainAuthoringPreviewCache>(); long bytes = 0;
+        if (activeHeightStates != null) foreach (var s in activeHeightStates) AddOwnedMemory(s.ActiveCache, seen, ref bytes);
+        AddOwnedMemory(analysisOwnedState?.ActiveCache, seen, ref bytes);
+        return bytes;
+    }
 
+}

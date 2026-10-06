@@ -6,7 +6,8 @@ using UnityEngine.Rendering;
 /*
  * GPU-only exact native-lattice extraction into one Height cache slice.
  * Sources remain native and may be reused across destination representations.
- * Shader assets are borrowed; no temporary textures or source tiles are owned.
+ * Dispatches use a temporary shader instance so borrowed texture bindings do not
+ * remain on the project asset. No temporary textures or source tiles are owned.
  */
 internal sealed class TerrainAuthoringPreviewHeightMaterializer
 {
@@ -34,12 +35,18 @@ internal sealed class TerrainAuthoringPreviewHeightMaterializer
 
     internal void ReleaseTextureBindings()
     {
-        if (computeShader == null || kernel < 0)
+        ComputeShader instance = computeShader;
+        computeShader = null;
+        kernel = -1;
+        threadGroupSizeX = 0;
+        threadGroupSizeY = 0;
+
+        // SetTexture requires a non-null texture. Destroy only the owned shader
+        // instance to release its bindings without retaining source/cache assets.
+        if (instance != null)
         {
-            return;
+            UnityEngine.Object.DestroyImmediate(instance);
         }
-        computeShader.SetTexture(kernel, NativeHeightSourceId, (Texture)null);
-        computeShader.SetTexture(kernel, HeightCacheId, (Texture)null);
     }
 
     internal bool TryPrepare(out string errorMessage)
@@ -65,17 +72,20 @@ internal sealed class TerrainAuthoringPreviewHeightMaterializer
 
         try
         {
-            computeShader = AssetDatabase.LoadAssetAtPath<ComputeShader>(
+            ComputeShader shaderAsset = AssetDatabase.LoadAssetAtPath<ComputeShader>(
                 ComputeShaderAssetPath
             );
 
-            if (computeShader == null)
+            if (shaderAsset == null)
             {
                 throw new InvalidOperationException(
                     "The Height materialization compute shader could not be loaded:\n\n" +
                     ComputeShaderAssetPath
                 );
             }
+
+            computeShader = UnityEngine.Object.Instantiate(shaderAsset);
+            computeShader.hideFlags = HideFlags.HideAndDontSave;
 
             if (!computeShader.HasKernel(KernelName))
             {
@@ -105,10 +115,7 @@ internal sealed class TerrainAuthoringPreviewHeightMaterializer
         }
         catch (Exception exception)
         {
-            computeShader = null;
-            kernel = -1;
-            threadGroupSizeX = 0;
-            threadGroupSizeY = 0;
+            ReleaseTextureBindings();
             errorMessage = exception.Message;
             return false;
         }
@@ -230,6 +237,10 @@ internal sealed class TerrainAuthoringPreviewHeightMaterializer
                 "The Height representation could not be materialized.\n\n" +
                 exception.Message;
             return false;
+        }
+        finally
+        {
+            ReleaseTextureBindings();
         }
 
         return true;

@@ -377,9 +377,7 @@ internal static class TerrainAuthoringPreviewStreamingPolicy
             var p = latest.Levels[i];
             if (!SameRepresentation(e.Plan, p) || !e.Target.Contains(p.RequiredWindow)) return false;
             // A required-only cache is deliberately smaller than the desired guard window.
-            var sizeIntent = e.IsExpansion
-                || transaction.Publication == TerrainAuthoringPreviewCachePublication.NativePreview
-                ? p.DesiredWindow : p.RequiredWindow;
+            var sizeIntent = e.IsExpansion ? p.DesiredWindow : p.RequiredWindow;
             if (TerrainAuthoringPreviewResidencyPolicy.EvaluateSizeHealth(true, e.Target, sizeIntent)
                 != TerrainAuthoringPreviewResidencySizeHealth.Healthy) return false;
         }
@@ -415,14 +413,12 @@ internal static class TerrainAuthoringPreviewStreamingPolicy
 
 
     internal static bool ShouldDeferForNativeAnalysis(TerrainAuthoringPreviewCachePublication purpose,
-        bool nativeRecovery, bool analysisRequired, TerrainAuthoringPreviewCachePublication? occupied)
+        bool displayCritical, bool analysisRequired, TerrainAuthoringPreviewCachePublication? occupied)
     {
         if (purpose == TerrainAuthoringPreviewCachePublication.NativeAnalysis)
             return occupied.HasValue && occupied != TerrainAuthoringPreviewCachePublication.NativeAnalysis;
-        if (purpose == TerrainAuthoringPreviewCachePublication.NativePreview)
-            return !nativeRecovery && (analysisRequired
-                || occupied == TerrainAuthoringPreviewCachePublication.NativeAnalysis);
-        return analysisRequired || occupied == TerrainAuthoringPreviewCachePublication.NativeAnalysis;
+        return !displayCritical && (analysisRequired
+            || occupied == TerrainAuthoringPreviewCachePublication.NativeAnalysis);
     }
 
     internal static bool ShouldDeferHeightRequestRestart(TerrainAuthoringPreviewCachePublication purpose,

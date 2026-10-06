@@ -165,6 +165,13 @@ public sealed partial class TerrainClipmapLayoutApplier
     // APPLY
     // =====================================================
 
+    // Validate the complete layout/hierarchy without writing transforms or MPBs.
+    public bool TryPreflight(TerrainClipmapLayout layout, out string errorMessage)
+    {
+        return TryValidateConfiguration(layout, out errorMessage)
+            && TryEnsureHierarchyReferences(out errorMessage);
+    }
+
     public bool TryApply(
         TerrainClipmapLayout layout,
         out string errorMessage

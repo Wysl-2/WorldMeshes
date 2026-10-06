@@ -870,63 +870,17 @@ public static partial class TerrainAuthoringSceneViewController
                 FollowTargetApplyResult.Failed;
         }
 
-        /*
-         * The residency policy lets PreviewService evaluate residency before
-         * placement. Lifecycle coordination enforces an ownership rule: temporary editor
-         * suspension may use already-safe active coverage, but it must not
-         * publish new streaming intent until lifecycle stability returns.
-         */
         if (TerrainAuthoringPreviewService.Enabled)
         {
-            bool activeCoverageSafe =
-                TerrainAuthoringPreviewService
-                    .CanActiveCacheCoverWorldBounds(
-                        candidateLayout.MinimumXZ,
-                        candidateLayout.MaximumXZ
-                    );
-
-            if (
-                TerrainAuthoringPreviewService
-                    .CanRunEditorPreviewWork
-            )
+            if (TerrainAuthoringPreviewService.CanRunEditorPreviewWork)
             {
                 TerrainAuthoringPreviewService.RecordTerrainAnalysisFocus(worldSettings, clampedTarget);
-
-                TerrainAuthoringPreviewService
-                    .RecordMultiresolutionResidencyIntent(
-                        worldSettings,
-                        candidateLayout,
-                        out _
-                    );
-
-                bool requestSucceeded =
-                    TerrainAuthoringPreviewService
-                        .RequestResidencyForWorldBounds(
-                            candidateLayout.MinimumXZ,
-                            candidateLayout.MaximumXZ,
-                            out string residencyError
-                        );
-
-                if (
-                    !requestSucceeded
-                    &&
-                    !activeCoverageSafe
-                )
-                {
-                    errorMessage =
-                        "The editor height-cache residency request failed.\n\n" +
-                        residencyError;
-
-                    return
-                        FollowTargetApplyResult.Failed;
-                }
+                if (!TerrainAuthoringPreviewService.RecordMultiresolutionResidencyIntent(
+                    worldSettings, candidateLayout, out errorMessage)) return FollowTargetApplyResult.Failed;
             }
-
-            if (!activeCoverageSafe)
-            {
-                return
-                    FollowTargetApplyResult.WaitingForResidency;
-            }
+            // Placement belongs to the service's synchronous publication handoff.
+            return TerrainAuthoringPreviewService.IsDisplayLayoutPublished(candidateLayout)
+                ? FollowTargetApplyResult.Applied : FollowTargetApplyResult.WaitingForResidency;
         }
 
         /*
@@ -1175,135 +1129,22 @@ public static partial class TerrainAuthoringSceneViewController
     // CANONICAL RESIDENCY
     // =====================================================
 
-    private static bool TryEnsureCanonicalResidency(
-        out bool waitingForResidency,
-        out string errorMessage
-    )
+    private static bool TryEnsureCanonicalResidency(out bool waitingForResidency, out string errorMessage)
     {
-        waitingForResidency =
-            false;
-
-        errorMessage =
-            "";
-
-        if (!TerrainAuthoringPreviewService.Enabled)
+        waitingForResidency = false; errorMessage = "";
+        if (!TerrainAuthoringPreviewService.Enabled) return true;
+        if (!TryEnsureConfiguration(out errorMessage)) return false;
+        Vector3 target = TerrainClipmapLayoutUtility.ClampTargetXZToWorld(worldSettings,
+            TerrainClipmapLayoutUtility.CalculateWorldCenterPosition(worldSettings, 0f));
+        if (!TerrainClipmapLayoutUtility.TryCalculateLayout(worldSettings, target, 0f,
+            canonicalResidencyLayout, out errorMessage)) return false;
+        if (TerrainAuthoringPreviewService.CanRunEditorPreviewWork)
         {
-            return true;
+            TerrainAuthoringPreviewService.RecordTerrainAnalysisFocus(worldSettings, target);
+            if (!TerrainAuthoringPreviewService.RecordMultiresolutionResidencyIntent(worldSettings,
+                canonicalResidencyLayout, out errorMessage)) return false;
         }
-
-        if (
-            !TryEnsureWorldSettings(
-                out errorMessage
-            )
-        )
-        {
-            return false;
-        }
-
-        if (
-            !TerrainAuthoringPreviewResidencyUtility
-                .TryCalculateCanonicalClipmapBounds(
-                    worldSettings,
-                    out Vector2 minimumXZ,
-                    out Vector2 maximumXZ,
-                    out errorMessage
-                )
-        )
-        {
-            return false;
-        }
-
-        if (
-            TerrainAuthoringPreviewService
-                .CanRunEditorPreviewWork
-        )
-        {
-            Vector3 canonicalTarget =
-                TerrainClipmapLayoutUtility
-                    .CalculateWorldCenterPosition(
-                        worldSettings,
-                        0f
-                    );
-
-            canonicalTarget =
-                TerrainClipmapLayoutUtility
-                    .ClampTargetXZToWorld(
-                        worldSettings,
-                        canonicalTarget
-                    );
-
-            if (
-                TerrainClipmapLayoutUtility
-                    .TryCalculateLayout(
-                        worldSettings,
-                        canonicalTarget,
-                        0f,
-                        canonicalResidencyLayout,
-                        out _
-                    )
-            )
-            {
-                TerrainAuthoringPreviewService.RecordTerrainAnalysisFocus(worldSettings, canonicalTarget);
-
-                TerrainAuthoringPreviewService
-                    .RecordMultiresolutionResidencyIntent(
-                        worldSettings,
-                        canonicalResidencyLayout,
-                        out _
-                    );
-            }
-        }
-
-        bool hadActiveCache =
-            TerrainAuthoringPreviewService
-                .TryGetActiveResidentWindow(
-                    out _
-                );
-
-        bool requestSucceeded =
-            TerrainAuthoringPreviewService
-                .RequestResidencyForWorldBounds(
-                    minimumXZ,
-                    maximumXZ,
-                    out errorMessage
-                );
-
-        bool activeCoverageSafe =
-            TerrainAuthoringPreviewService
-                .CanActiveCacheCoverWorldBounds(
-                    minimumXZ,
-                    maximumXZ
-                );
-
-        if (
-            !requestSucceeded
-            &&
-            !activeCoverageSafe
-        )
-        {
-            return false;
-        }
-
-        if (activeCoverageSafe)
-        {
-            errorMessage =
-                "";
-
-            waitingForResidency =
-                false;
-
-            return true;
-        }
-
-        /*
-         * With no active cache there is no old cache/layout mismatch to
-         * preserve, so canonical hierarchy restoration may proceed while the
-         * first local cache is being prepared. If a cache is already active,
-         * retain the last safe hierarchy until canonical residency arrives.
-         */
-        waitingForResidency =
-            hadActiveCache;
-
+        waitingForResidency = !TerrainAuthoringPreviewService.IsDisplayLayoutPublished(canonicalResidencyLayout);
         return true;
     }
 
@@ -1326,6 +1167,19 @@ public static partial class TerrainAuthoringSceneViewController
         bool updateStatus
     )
     {
+        if (TerrainAuthoringPreviewService.Enabled && !Application.isPlaying
+            && !EditorApplication.isPlayingOrWillChangePlaymode && !suspendedForPlayMode)
+        {
+            bool success = TryEnsureCanonicalResidency(out bool waiting, out string error);
+            if (updateStatus)
+            {
+                if (!success) SetStatus(TerrainAuthoringSceneViewStatus.Error, error);
+                else if (waiting) SetWaitingForHeightCacheStatus();
+                else SetStatus(TerrainAuthoringSceneViewStatus.Disabled, "Scene View following is disabled. The canonical preview layout is active.");
+            }
+            return success && !waiting;
+        }
+
         if (
             Application.isPlaying
             ||
@@ -1849,9 +1703,9 @@ public static partial class TerrainAuthoringSceneViewController
         )
         {
             /*
-             * The desired target changed before the completed synchronous
-             * cache refresh. RequestResidencyForWorldBounds schedules the
-             * latest target rather than recursing into another build here.
+             * A newer paired layout/residency intent was recorded while the
+             * completed cache set was publishing. Its scheduled handoff keeps
+             * the last safe placement until the newer complete set is ready.
              */
             SetWaitingForHeightCacheStatus();
         }

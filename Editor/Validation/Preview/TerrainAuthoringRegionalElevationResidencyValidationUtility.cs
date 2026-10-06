@@ -85,6 +85,7 @@ public static class TerrainAuthoringRegionalElevationResidencyValidationUtility
         {
             ValidateWholeWorldCompactScope();
             ValidateWholeWorldResidentIntersection();
+            ValidateWholeWorldLodFanout();
             ValidateNoActiveWindow();
             ValidateBoundedIntersection();
             ValidateScopeMerging();
@@ -884,4 +885,27 @@ public static class TerrainAuthoringRegionalElevationResidencyValidationUtility
             );
         }
     }
+    private static void ValidateWholeWorldLodFanout()
+    {
+        var world = CreateSyntheticWorld(256, 256);
+        var states = new[] { new TerrainAuthoringPreviewLodState(0, 1, 9, 1), new TerrainAuthoringPreviewLodState(1, 2, 5, 2) };
+        try
+        {
+            var windows = new[] { new TerrainHeightCacheWindow(new Vector2Int(10, 10), Vector2Int.one),
+                new TerrainHeightCacheWindow(new Vector2Int(9, 9), new Vector2Int(3, 3)) };
+            var unique = new HashSet<Vector2Int>(); bool valid = true;
+            for (int i = 0; i < states.Length; i++)
+            {
+                var tiles = new List<Vector2Int>();
+                valid &= TerrainRegionalElevationResidencyPolicy.TryCollectResidentTiles(world,
+                    TerrainRegionalElevationInvalidationScope.WholeWorld, true, windows[i], tiles, out _);
+                TerrainAuthoringPreviewService.QueueDirtyTilesForLod(states[i], windows[i], tiles, unique);
+            }
+            valid &= states[0].PendingDirtyTiles.Count == 1 && states[1].PendingDirtyTiles.Count == 9 && unique.Count == 9;
+            AddResult("Compact regional scope projects to every LOD window", valid ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+                "A whole-world scope produces ten representation jobs for nine resident geographic tiles without expanding residency.");
+        }
+        finally { foreach (var s in states) s.Dispose(); UnityEngine.Object.DestroyImmediate(world); }
+    }
+
 }

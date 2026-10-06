@@ -107,13 +107,16 @@ public static partial class TerrainAuthoringPreviewService
             || analysisOwnershipGeneration != TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration)
             return false;
         long generation = analysisSelectedKind == TerrainAuthoringAnalysisSourceKind.BorrowedNative
-            && ReferenceEquals(analysisSelectedCache, activeCache) ? activeCacheAuthoringGeneration
+            && ReferenceEquals(analysisSelectedCache, activeCache) ? CurrentNativeDisplayAuthoringGeneration
             : analysisSelectedKind == TerrainAuthoringAnalysisSourceKind.OwnedNative
                 && ReferenceEquals(analysisSelectedCache, analysisOwnedState?.ActiveCache)
                 && analysisOwnedOwnershipGeneration == analysisOwnershipGeneration
                     ? analysisOwnedState.ActiveAuthoringGeneration : -1L;
         string committed = TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(settings);
         string overall = TerrainAuthoringStateUtility.GetOverallAuthoringSignature(settings, data);
+        if (analysisSelectedKind == TerrainAuthoringAnalysisSourceKind.BorrowedNative
+            && (!TryGetCurrentNativeDisplayHeight(settings, data, out var native)
+                || !ReferenceEquals(native, analysisSelectedCache))) return false;
         if (!IsNativeAnalysisCacheEligible(analysisSelectedCache, settings, generation, authoringGeneration,
             committed, overall, analysisRequiredSourceWindow, analysisOutputWindow)) return false;
         if (analysisSelectedOwnershipGeneration != analysisOwnershipGeneration
@@ -229,10 +232,11 @@ public static partial class TerrainAuthoringPreviewService
         if (!hasAnalysisSourceIntent || settings == null || data == null) return;
         string committed = TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(settings);
         string overall = TerrainAuthoringStateUtility.GetOverallAuthoringSignature(settings, data);
-        if (IsNativeAnalysisCacheEligible(activeCache, settings, activeCacheAuthoringGeneration,
-            authoringGeneration, committed, overall, analysisRequiredSourceWindow, analysisOutputWindow))
+        if (TryGetCurrentNativeDisplayHeight(settings, data, out var nativeDisplay)
+            && IsNativeAnalysisCacheEligible(nativeDisplay, settings, CurrentNativeDisplayAuthoringGeneration,
+                authoringGeneration, committed, overall, analysisRequiredSourceWindow, analysisOutputWindow))
         {
-            SelectTerrainAnalysisCache(activeCache, TerrainAuthoringAnalysisSourceKind.BorrowedNative);
+            SelectTerrainAnalysisCache(nativeDisplay, TerrainAuthoringAnalysisSourceKind.BorrowedNative);
         }
         else if (analysisOwnedOwnershipGeneration == analysisOwnershipGeneration
             && IsNativeAnalysisCacheEligible(analysisOwnedState?.ActiveCache, settings,
@@ -381,12 +385,18 @@ public static partial class TerrainAuthoringPreviewService
     {
         var previous = analysisOwnedState;
         var states = t.TransferPreparedStates();
-        analysisOwnedState = states[0];
-        analysisOwnedOwnershipGeneration = t.OwnershipGeneration;
-        analysisSourceError = "";
-        EvaluateTerrainAnalysisSource(analysisSettings, LoadAuthoringData(), false);
-        PublishTerrainAnalysisSourceState(true);
-        previous?.Dispose();
+        retiringAnalysisState = previous; analysisOwnedState = states[0];
+        analysisOwnedOwnershipGeneration = t.OwnershipGeneration; analysisSourceError = "";
+        CaptureTransitionMemoryEstimate();
+        try
+        {
+            EvaluateTerrainAnalysisSource(analysisSettings, LoadAuthoringData(), false);
+            PublishTerrainAnalysisSourceState(true);
+        }
+        finally
+        {
+            previous?.Dispose(); retiringAnalysisState = null; CompleteTransitionMemoryTracking();
+        }
     }
 
     private static void CancelTerrainAnalysisPreparation(string reason)
@@ -463,4 +473,23 @@ public static partial class TerrainAuthoringPreviewService
     {
         return current < long.MaxValue ? current + 1 : long.MaxValue;
     }
+    private static long CurrentNativeDisplayAuthoringGeneration => activeHeightStates != null
+        && activeHeightStates.Length > 0 && activeHeightStates[0].SampleStride == 1
+            ? activeHeightStates[0].ActiveAuthoringGeneration : -1L;
+
+    private static bool TryGetCurrentNativeDisplayHeight(WorldSettings settings, TerrainAuthoringData data,
+        out TerrainAuthoringPreviewCache cache)
+    {
+        cache = null;
+        if (activeHeightStates == null || activeHeightStates.Length == 0 || activeDisplayIntent == null
+            || activeDisplayIntent.Root == null || activeDisplayIntent.Root != boundClipmapRoot
+            || !activeDisplayIntent.ConfigurationMatches(settings) || data == null
+            || activeDisplayIntent.OwnershipGeneration != TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration) return false;
+        var state = activeHeightStates[0];
+        if (state.SampleStride != 1 || !StateContentIsCurrent(state,
+            TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(settings),
+            TerrainAuthoringStateUtility.GetOverallAuthoringSignature(settings, data))) return false;
+        cache = state.ActiveCache; return true;
+    }
+
 }

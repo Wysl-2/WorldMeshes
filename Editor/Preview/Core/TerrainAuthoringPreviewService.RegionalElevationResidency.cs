@@ -21,13 +21,6 @@ public static partial class TerrainAuthoringPreviewService
 
     private static int lastRegionalPublishedCompositeTileCount;
 
-    private static readonly List<Vector2Int>
-        regionalResidencyResidentDirtyScratch =
-            new List<Vector2Int>();
-
-    private static readonly List<Vector2Int>
-        regionalResidencyCompositeUnionScratch =
-            new List<Vector2Int>();
 
     public static bool HasPendingRegionalElevationInvalidation =>
         hasPendingRegionalElevationInvalidation;
@@ -313,12 +306,15 @@ public static partial class TerrainAuthoringPreviewService
          * authoring generation. Its entire resident target therefore already
          * contains the current regional state.
          */
-        lastRegionalResidentAffectedTileCount =
-            activeCache != null
-            &&
-            activeCache.IsReady
-                ? activeCache.SliceCount
-                : 0;
+        var unique = new HashSet<Vector2Int>();
+        if (activeHeightStates != null) foreach (var state in activeHeightStates)
+        {
+            var window = new TerrainHeightCacheWindow(state.ActiveCache.CacheOriginTile, state.ActiveCache.CacheSize);
+            var tiles = new List<Vector2Int>();
+            if (TerrainRegionalElevationResidencyPolicy.TryCollectResidentTiles(LoadWorldSettings(),
+                pendingRegionalElevationInvalidation, true, window, tiles, out _)) foreach (var tile in tiles) unique.Add(tile);
+        }
+        lastRegionalResidentAffectedTileCount = unique.Count;
 
         /*
          * Activation publishes cache/coverage state rather than the

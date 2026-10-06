@@ -154,6 +154,18 @@ public sealed class TerrainClipmapLayout
             spacing;
     }
 
+    public TerrainClipmapLayout CreateSnapshot()
+    {
+        return new TerrainClipmapLayout
+        {
+            lodAnchors = (Vector3[])lodAnchors.Clone(),
+            lodSpacings = (float[])lodSpacings.Clone(),
+            IsValid = IsValid, LevelCount = LevelCount,
+            MinimumXZ = MinimumXZ, MaximumXZ = MaximumXZ,
+            CoverageCenter = CoverageCenter, Diameter = Diameter
+        };
+    }
+
     public void Invalidate()
     {
         IsValid =

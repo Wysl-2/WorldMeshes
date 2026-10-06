@@ -990,14 +990,19 @@ public static class TerrainAuthoringIncrementalStreamingValidationUtility
         var generations = new long[2];
         using var first = new TerrainAuthoringPreviewCacheSetTransition(plan,
             new[] { required, required }, new bool[2], sources, generations,
-            TerrainAuthoringPreviewCachePublication.PreparedHeightSet, "base", "content", 1, 1, 1, false);
+            TerrainAuthoringPreviewCachePublication.DisplayHeightSet, "base", "content", 1, 1, 1, false);
         using var duplicate = new TerrainAuthoringPreviewCacheSetTransition(plan.CreateSnapshot(),
             new[] { required, required }, new bool[2], sources, generations,
-            TerrainAuthoringPreviewCachePublication.PreparedHeightSet, "base", "content", 1, 2, 1, false);
+            TerrainAuthoringPreviewCachePublication.DisplayHeightSet, "base", "content", 1, 2, 1, false);
         bool valid = TerrainAuthoringPreviewStreamingPolicy.AreCacheSetTargetsEquivalent(first, duplicate)
             && TerrainAuthoringPreviewStreamingPolicy.IsCacheSetUseful(first, plan)
             && TerrainAuthoringPreviewStreamingPolicy.TryCalculateHeightSetPrefetchTarget(required,
                 plan.Levels[0], new Vector2Int(10, 10), out var growth) && growth == desired;
+        var movedPlacement = plan.CreateSnapshot(); movedPlacement.Levels[0].Anchor = new Vector3(2, 0, 2);
+        first.AcceptIntent(movedPlacement, 3);
+        valid &= first.AcceptedPlan.Levels[0].Anchor == movedPlacement.Levels[0].Anchor
+            && first.SourceGroups.Count == 1 && first.TotalWorkUnits > first.SourceGroups.Count
+            && first.Entries[0].Target == required;
         var changed = plan.CreateSnapshot();
         changed.Levels[1].SampleStride *= 2;
         valid &= !TerrainAuthoringPreviewStreamingPolicy.IsCacheSetUseful(first, changed);

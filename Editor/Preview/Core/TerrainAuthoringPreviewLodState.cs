@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 internal enum TerrainAuthoringPreviewLodTransitionState
@@ -38,6 +39,11 @@ internal sealed class TerrainAuthoringPreviewLodState :
     public TerrainAuthoringPreviewCache StagingCache;
 
     public bool CacheReady;
+    internal readonly HashSet<Vector2Int> PendingDirtyTiles = new HashSet<Vector2Int>();
+    internal readonly HashSet<Vector2Int> SuccessfulDirtyTiles = new HashSet<Vector2Int>();
+    internal readonly HashSet<Vector2Int> PendingRegionalTiles = new HashSet<Vector2Int>();
+    internal bool WriteFailed;
+    internal long DirtyTargetGeneration;
 
     public TerrainAuthoringPreviewLodTransitionState TransitionState =
         TerrainAuthoringPreviewLodTransitionState.Idle;
@@ -184,6 +190,11 @@ internal sealed class TerrainAuthoringPreviewLodState :
         TransitionState =
             TerrainAuthoringPreviewLodTransitionState.Idle;
 
+        PendingDirtyTiles.Clear();
+        SuccessfulDirtyTiles.Clear();
+        PendingRegionalTiles.Clear();
+        WriteFailed = false;
+        DirtyTargetGeneration = 0;
         ActiveAuthoringGeneration = 0;
         StagingAuthoringGeneration = 0;
 

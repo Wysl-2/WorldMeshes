@@ -18,9 +18,9 @@ public enum TerrainAuthoringPreviewStatus
  * Final edit-mode streamed height-preview ownership model.
  *
  * Persistent/global authoring state is authoritative independently of GPU
- * residency. activeCache is the complete current local GPU source;
- * stagingCache is an optional disposable replacement under construction and
- * never becomes authoritative until atomic activation.
+ * residency. activeHeightStates own the published per-LOD GPU sources;
+ * one disposable cache-set transaction owns any replacement under construction
+ * until the complete layout and renderer bindings publish synchronously.
  *
  * Scene View/canonical placement publishes residency intent. PreviewService
  * owns cache loading, composition, binding, transition lifetime, and resource
@@ -71,33 +71,13 @@ public static partial class TerrainAuthoringPreviewService
     // STATE
     // =====================================================
 
-    private static TerrainAuthoringPreviewCache activeCache;
-
-    private static TerrainAuthoringPreviewCache stagingCache =>
-        currentCacheSetTransition != null
-        && currentCacheSetTransition.Publication == TerrainAuthoringPreviewCachePublication.NativePreview
-            ? currentCacheSetTransition.Entries[0].Destination?.StagingCache : null;
-
-    /*
-     * Internal compatibility alias for the authoritative active cache.
-     * Staging code never uses this alias, so active and staging ownership
-     * remain unambiguous even while older PreviewService code references
-     * previewCache.
-     */
-    private static TerrainAuthoringPreviewCache previewCache
-    {
-        get
-        {
-            return
-                activeCache;
-        }
-
-        set
-        {
-            activeCache =
-                value;
-        }
-    }
+    // LOD0 compatibility projection for diagnostics and native analysis only.
+    private static TerrainAuthoringPreviewCache activeCache => activeHeightStates != null && activeHeightStates.Length > 0
+        ? activeHeightStates[0].ActiveCache : null;
+    private static TerrainAuthoringPreviewCache previewCache => activeCache;
+    private static TerrainAuthoringPreviewCache stagingCache => currentCacheSetTransition != null
+        && currentCacheSetTransition.Publication == TerrainAuthoringPreviewCachePublication.DisplayHeightSet
+        ? currentCacheSetTransition.Entries[0].Destination?.StagingCache : null;
 
     /*
      * PreviewService owns when and which resident tiles are recomposed.
@@ -269,45 +249,17 @@ public static partial class TerrainAuthoringPreviewService
         }
     }
 
-    public static bool CacheReady
+    public static bool CacheReady => HasDrawableHeightPreview && activeDisplayIntent != null
+        && activeDisplayIntent.OwnershipGeneration == TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration
+        && activeDisplayIntent.ConfigurationMatches(LoadWorldSettings())
+        && ActiveHeightContentIsCurrent(LoadWorldSettings(), LoadAuthoringData());
+
+    public static bool TryGetHeightCacheWorldCoverage(out Vector2 minimumXZ, out Vector2 maximumXZ)
     {
-        get
-        {
-            return
-                previewCache != null
-                &&
-                previewCache.IsReady;
-        }
-    }
-
-    public static bool TryGetHeightCacheWorldCoverage(
-        out Vector2 minimumXZ,
-        out Vector2 maximumXZ
-    )
-    {
-        minimumXZ =
-            Vector2.zero;
-
-        maximumXZ =
-            Vector2.zero;
-
-        if (
-            !Enabled
-            ||
-            status !=
-                TerrainAuthoringPreviewStatus.Ready
-            ||
-            previewCache == null
-        )
-        {
-            return false;
-        }
-
-        return
-            previewCache.TryGetWorldCoverage(
-                out minimumXZ,
-                out maximumXZ
-            );
+        minimumXZ = maximumXZ = Vector2.zero;
+        if (!HasDrawableHeightPreview) return false;
+        minimumXZ = activeDisplayIntent.Layout.MinimumXZ; maximumXZ = activeDisplayIntent.Layout.MaximumXZ;
+        return true;
     }
 
     public static bool TryGetActiveResidentWindow(
@@ -519,172 +471,14 @@ public static partial class TerrainAuthoringPreviewService
             );
     }
 
-    public static bool RequestResidencyForWorldBounds(
-        Vector2 minimumXZ,
-        Vector2 maximumXZ,
-        out string errorMessage
-    )
+    public static bool RequestResidencyForWorldBounds(Vector2 minimumXZ, Vector2 maximumXZ, out string errorMessage)
     {
-        errorMessage =
-            "";
-
-        if (!Enabled)
-        {
-            errorMessage =
-                "Terrain authoring Height Preview is disabled.";
-
-            return false;
-        }
-
-        WorldSettings worldSettings =
-            LoadWorldSettings();
-
-        if (worldSettings == null)
-        {
-            errorMessage =
-                "WorldSettings could not be loaded for the editor " +
-                "height-cache residency request.";
-
-            return false;
-        }
-
-        if (
-            !TerrainAuthoringPreviewResidencyUtility
-                .TryCalculateRequiredWindow(
-                    worldSettings,
-                    minimumXZ,
-                    maximumXZ,
-                    TerrainAuthoringPreviewResidencyUtility
-                        .DefaultSamplePadding,
-                    out TerrainHeightCacheWindow requiredWindow,
-                    out errorMessage
-                )
-        )
-        {
-            return false;
-        }
-
-        if (
-            !TerrainAuthoringPreviewResidencyUtility
-                .TryCalculateResidentWindow(
-                    worldSettings,
-                    minimumXZ,
-                    maximumXZ,
-                    TerrainAuthoringPreviewResidencyUtility
-                        .DefaultSamplePadding,
-                    TerrainAuthoringPreviewResidencyUtility
-                        .DefaultGuardTileCount,
-                    out TerrainHeightCacheWindow desiredWindow,
-                    out errorMessage
-                )
-        )
-        {
-            return false;
-        }
-
-        RecordStreamingResidencyIntent(
-            requiredWindow,
-            desiredWindow
-        );
-
-        bool hasActiveWindow =
-            TryGetActiveResidentWindow(
-                out TerrainHeightCacheWindow activeWindow
-            );
-
-        if (
-            !TerrainAuthoringPreviewResidencyPolicy
-                .TryEvaluate(
-                    requiredWindow,
-                    desiredWindow,
-                    hasActiveWindow,
-                    activeWindow,
-                    out TerrainAuthoringPreviewResidencyDecision decision,
-                    out errorMessage
-                )
-        )
-        {
-            return false;
-        }
-
-        TerrainHeightCacheWindow targetWindow =
-            default;
-
-        bool hasTransitionTarget =
-            decision.TransitionRequired;
-
-        if (hasTransitionTarget)
-        {
-            targetWindow =
-                decision.TargetWindow;
-        }
-        else if (
-            hasActiveWindow
-            &&
-            TerrainAuthoringPreviewStreamingPolicy
-                .TryCalculatePrefetchTarget(
-                    activeWindow,
-                    requiredWindow,
-                    desiredWindow,
-                    new Vector2Int(
-                        worldSettings.HeightTileGridWidth,
-                        worldSettings.HeightTileGridHeight
-                    ),
-                    out TerrainHeightCacheWindow prefetchTarget
-                )
-        )
-        {
-            hasTransitionTarget =
-                true;
-
-            targetWindow =
-                prefetchTarget;
-        }
-
-        if (!hasTransitionTarget)
-        {
-            ClearRequestedResidency();
-            ClearNativeTransitionFailureSuppression();
-
-            NotifyStreamingIntentNoLongerRequiresTarget();
-
-            return true;
-        }
-
-        if (
-            IsTransitionFailureSuppressed(
-                targetWindow,
-                out string suppressedFailure
-            )
-        )
-        {
-            errorMessage =
-                "The requested resident window previously failed to stage " +
-                "against the current authoring state.\n\n" +
-                suppressedFailure;
-
-            return false;
-        }
-
-        if (
-            hasRequestedResidencyWindow
-            &&
-            requestedResidencyWindow ==
-                targetWindow
-        )
-        {
-            return true;
-        }
-
-        requestedResidencyWindow =
-            targetWindow;
-
-        hasRequestedResidencyWindow =
-            true;
-
-        ScheduleRefresh();
-
-        return true;
+        // Scalar compatibility metadata only. The live display always requires a paired LOD plan/layout.
+        errorMessage = "";
+        if (!TerrainAuthoringPreviewResidencyUtility.TryCalculateRequiredWindow(LoadWorldSettings(),
+            minimumXZ, maximumXZ, TerrainAuthoringPreviewResidencyUtility.DefaultSamplePadding,
+            out TerrainHeightCacheWindow required, out errorMessage)) return false;
+        return ActiveCacheContains(required);
     }
 
     public static int CacheWidth
@@ -742,38 +536,11 @@ public static partial class TerrainAuthoringPreviewService
         }
     }
 
-    public static long ApproximateGpuMemoryBytes
-    {
-        get
-        {
-            return
-                previewCache != null
-                    ? previewCache.ApproximateGpuMemoryBytes
-                    : 0L;
-        }
-    }
+    public static long ApproximateGpuMemoryBytes => EstimatePublishedHeightMemory();
 
-    public static float MinimumPreviewHeight
-    {
-        get
-        {
-            return
-                previewCache != null
-                    ? previewCache.MinimumHeight
-                    : 0f;
-        }
-    }
+    public static float MinimumPreviewHeight => aggregateMinimumHeight;
 
-    public static float MaximumPreviewHeight
-    {
-        get
-        {
-            return
-                previewCache != null
-                    ? previewCache.MaximumHeight
-                    : 0f;
-        }
-    }
+    public static float MaximumPreviewHeight => aggregateMaximumHeight;
 
     public static string SourceCommittedHeightfieldSignature
     {
@@ -803,33 +570,20 @@ public static partial class TerrainAuthoringPreviewService
     {
         get
         {
-            return
-                dirtyCompositeTiles.Count;
+            int count = dirtyCompositeTiles.Count;
+            if (activeHeightStates != null) foreach (var s in activeHeightStates) count += s.PendingDirtyTiles.Count;
+            return count;
         }
     }
 
     public static int LastIncrementalSliceCount
     {
-        get
-        {
-            return
-                previewCache != null
-                    ? previewCache
-                        .LastIncrementalSliceCount
-                    : 0;
-        }
+        get { int count = 0; if (activeHeightStates != null) foreach (var s in activeHeightStates) count += s.ActiveCache?.LastIncrementalSliceCount ?? 0; return count; }
     }
 
     public static long TotalIncrementalSliceUpdates
     {
-        get
-        {
-            return
-                previewCache != null
-                    ? previewCache
-                        .TotalIncrementalSliceUpdates
-                    : 0L;
-        }
+        get { long count = 0; if (activeHeightStates != null) foreach (var s in activeHeightStates) count += s.ActiveCache?.TotalIncrementalSliceUpdates ?? 0L; return count; }
     }
 
     public static long FullCommittedBuildCount
@@ -1007,35 +761,15 @@ public static partial class TerrainAuthoringPreviewService
             );
     }
 
-    internal static bool TryGetCompositeSliceRange(
-        int tileX,
-        int tileZ,
-        out float minimumHeight,
-        out float maximumHeight
-    )
+    internal static bool TryGetCompositeSliceRange(int tileX, int tileZ, out float minimumHeight, out float maximumHeight)
     {
-        minimumHeight =
-            0f;
-
-        maximumHeight =
-            0f;
-
-        if (
-            previewCache == null
-            ||
-            !previewCache.IsReady
-        )
-        {
-            return false;
-        }
-
-        return
-            previewCache.TryGetCompositeSliceRange(
-                tileX,
-                tileZ,
-                out minimumHeight,
-                out maximumHeight
-            );
+        minimumHeight = maximumHeight = 0;
+        var tile = new Vector2Int(tileX, tileZ);
+        var state = FindFinestResidentDisplayState(tile);
+        if (state == null || state.WriteFailed || state.PendingDirtyTiles.Contains(tile)
+            || dirtyCompositeTiles.Contains(tile) || IsWorldTilePendingRegionalElevationRecomposition(LoadWorldSettings(), tile)
+            || !state.ActiveCache.IsSliceFinalCompositeReady(tile)) return false;
+        return state.ActiveCache.TryGetCompositeSliceRange(tileX, tileZ, out minimumHeight, out maximumHeight);
     }
 
     /*
@@ -1070,24 +804,12 @@ public static partial class TerrainAuthoringPreviewService
      * Copies the current pending dirty set without exposing ownership of
      * the internal HashSet.
      */
-    internal static void CopyPendingDirtyTiles(
-        ICollection<Vector2Int> output
-    )
+    internal static void CopyPendingDirtyTiles(ICollection<Vector2Int> output)
     {
-        if (output == null)
-        {
-            return;
-        }
-
-        foreach (
-            Vector2Int tile
-            in dirtyCompositeTiles
-        )
-        {
-            output.Add(
-                tile
-            );
-        }
+        if (output == null) return;
+        var unique = new HashSet<Vector2Int>(dirtyCompositeTiles);
+        if (activeHeightStates != null) foreach (var s in activeHeightStates) unique.UnionWith(s.PendingDirtyTiles);
+        foreach (var tile in unique) output.Add(tile);
     }
 
     /*
@@ -1519,97 +1241,7 @@ public static partial class TerrainAuthoringPreviewService
             default;
     }
 
-    private static bool TryResolveBuildWindow(
-        WorldSettings worldSettings,
-        out TerrainHeightCacheWindow buildWindow,
-        out string errorMessage
-    )
-    {
-        buildWindow =
-            default;
 
-        errorMessage =
-            "";
-
-        if (worldSettings == null)
-        {
-            errorMessage =
-                "WorldSettings is null while resolving editor height-cache residency.";
-
-            return false;
-        }
-
-        Vector2Int worldGridSize =
-            new Vector2Int(
-                worldSettings.HeightTileGridWidth,
-                worldSettings.HeightTileGridHeight
-            );
-
-        if (
-            hasRequestedResidencyWindow
-            &&
-            !IsWindowInsideWorldGrid(
-                requestedResidencyWindow,
-                worldGridSize
-            )
-        )
-        {
-            ClearRequestedResidency();
-        }
-
-        if (
-            hasDesiredResidencyWindow
-            &&
-            !IsWindowInsideWorldGrid(
-                desiredResidencyWindow,
-                worldGridSize
-            )
-        )
-        {
-            ClearDesiredResidency();
-        }
-
-        bool hasActiveWindow =
-            TryGetActiveResidentWindow(
-                out TerrainHeightCacheWindow activeWindow
-            )
-            &&
-            IsWindowInsideWorldGrid(
-                activeWindow,
-                worldGridSize
-            );
-
-        if (
-            TerrainAuthoringPreviewResidencyPolicy
-                .TrySelectPreferredBuildWindow(
-                    worldGridSize,
-                    hasRequestedResidencyWindow,
-                    requestedResidencyWindow,
-                    hasActiveWindow,
-                    activeWindow,
-                    hasDesiredResidencyWindow,
-                    desiredResidencyWindow,
-                    out buildWindow
-                )
-        )
-        {
-            return true;
-        }
-
-        if (
-            !TerrainAuthoringPreviewResidencyUtility
-                .TryCalculateCanonicalResidentWindow(
-                    worldSettings,
-                    out buildWindow,
-                    out errorMessage
-                )
-        )
-        {
-            return false;
-        }
-
-        return true;
-    }
 
     private static bool IsWindowInsideWorldGrid(
         TerrainHeightCacheWindow window,
@@ -1686,948 +1318,75 @@ public static partial class TerrainAuthoringPreviewService
 
     private static void ExecuteRefresh()
     {
-        using var profilerScope =
-            WorldMeshesProfiler.PreviewUpdate.Auto();
-
-        if (!Enabled)
+        using var scope = WorldMeshesProfiler.PreviewUpdate.Auto();
+        if (displayCommitInProgress) return;
+        if (!Enabled || Application.isPlaying || EditorApplication.isPlayingOrWillChangePlaymode)
         {
-            ReleaseBinding();
-            ReleaseCache();
-
-            dirtyCompositeTiles.Clear();
-
-            SetStatus(
-                TerrainAuthoringPreviewStatus.Disabled,
-                "Terrain authoring preview is disabled."
-            );
-
-            RepaintEditorViews();
-
+            ReleaseBinding(); ReleaseAllPreviewCaches(); dirtyCompositeTiles.Clear();
+            SetStatus(Enabled ? TerrainAuthoringPreviewStatus.PlayMode : TerrainAuthoringPreviewStatus.Disabled,
+                Enabled ? "Runtime streaming owns Height in Play Mode." : "Terrain authoring preview is disabled.");
             return;
         }
-
-        if (
-            Application.isPlaying
-            ||
-            EditorApplication.isPlayingOrWillChangePlaymode
-        )
+        if (!CanRunEditorPreviewWork) return;
+        var settings = LoadWorldSettings(); var data = LoadAuthoringData();
+        if (settings == null || data == null || TerrainGenerationStateUtility.GetAuthoringHeightfieldStatus(settings, data)
+            != TerrainGenerationStateUtility.GenerationStatus.Current)
         {
-            ReleaseBinding();
-            ReleaseCache();
-
-            dirtyCompositeTiles.Clear();
-
-            SetStatus(
-                TerrainAuthoringPreviewStatus.PlayMode,
-                "The editor preview is inactive in Play Mode. " +
-                "TerrainHeightmapStreamer owns the clipmap " +
-                "height cache while the game is running."
-            );
-
-            RepaintEditorViews();
-
+            ReleaseAllPreviewCaches(); dirtyCompositeTiles.Clear();
+            SetStatus(TerrainAuthoringPreviewStatus.AuthoringUnavailable, "Initialize or reinitialize the committed authoring heightfield.");
             return;
         }
-
-        WorldSettings worldSettings =
-            LoadWorldSettings();
-
-        TerrainAuthoringData authoringData =
-            LoadAuthoringData();
-
-        TerrainGenerationStateUtility.GenerationStatus
-            authoringStatus =
-                TerrainGenerationStateUtility
-                    .GetAuthoringHeightfieldStatus(
-                        worldSettings,
-                        authoringData
-                    );
-
-        if (
-            authoringStatus !=
-            TerrainGenerationStateUtility
-                .GenerationStatus.Current
-        )
+        if (!TerrainWorldSceneUtility.TryFindActiveClipmapRoot(out Transform root, out string error) || root == null)
         {
-            ReleaseBinding();
-            ReleaseCache();
-
-            dirtyCompositeTiles.Clear();
-
-            SetStatus(
-                TerrainAuthoringPreviewStatus.AuthoringUnavailable,
-                "The committed authoring heightfield is not " +
-                "current. Initialize or reinitialize the " +
-                "authoring heightfield before building the " +
-                "edit-mode preview."
-            );
-
-            RepaintEditorViews();
-
-            return;
+            ReleaseBinding(); SetStatus(TerrainAuthoringPreviewStatus.ClipmapUnavailable,
+                "WorldRoot/Clipmap is unavailable. " + error); return;
         }
-
-        // =================================================
-        // SCENE HIERARCHY
-        // =================================================
-
-        if (
-            !TerrainWorldSceneUtility
-                .TryFindActiveClipmapRoot(
-                    out Transform clipmapRoot,
-                    out string sceneLookupError
-                )
-        )
+        string committed = TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(settings);
+        string overall = TerrainAuthoringStateUtility.GetOverallAuthoringSignature(settings, data);
+        if (string.IsNullOrEmpty(committed) || string.IsNullOrEmpty(overall))
         {
-            ReleaseBinding();
-
-            SetStatus(
-                TerrainAuthoringPreviewStatus.Error,
-                sceneLookupError
-            );
-
-            RepaintEditorViews();
-
-            return;
+            ReleaseAllPreviewCaches(); SetStatus(TerrainAuthoringPreviewStatus.AuthoringUnavailable,
+                "The current authoring signatures are unavailable."); return;
         }
-
-        if (clipmapRoot == null)
+        if (!TryProjectPendingDisplayAuthoring(settings, committed, overall, out error))
+        { SetStatus(TerrainAuthoringPreviewStatus.Error, error); return; }
+        if (activeDirtyFailureGeneration == authoringGeneration && HasPendingActiveDirtyWork) return;
+        if (latestDisplayIntent == null || latestDisplayIntent.Root != root || !latestDisplayIntent.ConfigurationMatches(settings)
+            || latestDisplayIntent.OwnershipGeneration != TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration)
         {
-            ReleaseBinding();
-
-            SetStatus(
-                TerrainAuthoringPreviewStatus.ClipmapUnavailable,
-                "WorldRoot/Clipmap was not found in the active " +
-                "scene. Generate clipmap meshes and run " +
-                "Setup / Repair World Hierarchy."
-            );
-
-            RepaintEditorViews();
-
-            return;
+            TerrainAuthoringSceneViewController.RequestReapply();
+            SetStatus(HasDrawableHeightPreview ? TerrainAuthoringPreviewStatus.Ready : TerrainAuthoringPreviewStatus.Preparing,
+                "Waiting for the current Scene View's paired display layout and residency intent."); return;
         }
-
-        // =================================================
-        // SIGNATURES
-        // =================================================
-
-        string currentCommittedSignature =
-            TerrainAuthoringStateUtility
-                .GetCommittedHeightfieldSignature(
-                    worldSettings
-                );
-
-        string currentOverallSignature =
-            TerrainAuthoringStateUtility
-                .GetOverallAuthoringSignature(
-                    worldSettings,
-                    authoringData
-                );
-
-        if (
-            string.IsNullOrEmpty(
-                currentCommittedSignature
-            )
-            ||
-            string.IsNullOrEmpty(
-                currentOverallSignature
-            )
-        )
+        if (!RequestPreparedHeightCacheSet(settings, data, latestDisplayIntent.Plan, committedRebuildRequested, out error))
         {
-            ReleaseBinding();
-            ReleaseCache();
-
-            SetStatus(
-                TerrainAuthoringPreviewStatus.AuthoringUnavailable,
-                "The authoring signatures could not be calculated."
-            );
-
-            RepaintEditorViews();
-
-            return;
+            SetStatus(HasDrawableHeightPreview ? TerrainAuthoringPreviewStatus.Ready : TerrainAuthoringPreviewStatus.Error,
+                "The requested multiresolution Height display is unavailable. " + error); return;
         }
-
-        // =================================================
-        // ACTIVE RESIDENT AUTHORING UPDATE
-        // =================================================
-
-        int earlyUpdatedCompositeSliceCount =
-            0;
-
-        bool earlyCompositeRangeChanged =
-            false;
-
-        if (
-            previewCache != null
-            &&
-            previewCache.IsReady
-            &&
-            previewCache.SourceCommittedHeightfieldSignature ==
-                currentCommittedSignature
-            &&
-            (
-                dirtyCompositeTiles.Count > 0
-                ||
-                hasPendingRegionalElevationInvalidation
-                ||
-                overallSignatureAcknowledgementRequested
-            )
-        )
-        {
-            if (
-                !TryProcessResidentModifierAuthoring(
-                    worldSettings,
-                    authoringData,
-                    currentCommittedSignature,
-                    currentOverallSignature,
-                    out earlyUpdatedCompositeSliceCount,
-                    out earlyCompositeRangeChanged,
-                    out string modifierResidencyError
-                )
-            )
-            {
-                SetStatus(
-                    TerrainAuthoringPreviewStatus.Error,
-                    "The active resident authoring update failed. Logical " +
-                    "modifier/regional invalidation has been retained for retry.\n\n" +
-                    modifierResidencyError
-                );
-
-                RepaintEditorViews();
-
-                return;
-            }
-
-            if (
-                earlyCompositeRangeChanged
-                &&
-                !ApplyCurrentPreviewBounds(
-                    clipmapRoot,
-                    out string modifierBoundsError
-                )
-            )
-            {
-                SetStatus(
-                    TerrainAuthoringPreviewStatus.Error,
-                    modifierBoundsError
-                );
-
-                RepaintEditorViews();
-
-                return;
-            }
-        }
-
-        // =================================================
-        // RESIDENT COMMITTED BUILD DECISION
-        // =================================================
-
-        if (
-            !TryResolveBuildWindow(
-                worldSettings,
-                out TerrainHeightCacheWindow buildWindow,
-                out string residencyError
-            )
-        )
-        {
-            ReleaseBinding();
-            ReleaseCache();
-
-            SetStatus(
-                TerrainAuthoringPreviewStatus.Error,
-                "The editor preview could not resolve a valid local " +
-                "height-cache residency window.\n\n" +
-                residencyError
-            );
-
-            RepaintEditorViews();
-
-            return;
-        }
-
-        bool hasActiveWindow =
-            TryGetActiveResidentWindow(
-                out TerrainHeightCacheWindow activeWindow
-            );
-
-        bool residencyChanged =
-            !hasActiveWindow
-            ||
-            activeWindow !=
-                buildWindow;
-
-        bool cacheNeedsBuild =
-            previewCache == null
-            ||
-            !previewCache.IsReady
-            ||
-            committedRebuildRequested
-            ||
-            previewCache
-                .SourceCommittedHeightfieldSignature
-            !=
-            currentCommittedSignature
-            ||
-            residencyChanged;
-
-        if (
-            !cacheNeedsBuild
-            &&
-            hasRequestedResidencyWindow
-            &&
-            requestedResidencyWindow ==
-                buildWindow
-        )
-        {
-            ClearRequestedResidency();
-        }
-
-        if (cacheNeedsBuild)
-        {
-            using var rebuildProfilerScope =
-                WorldMeshesProfiler.PreviewRebuild.Auto();
-
-            /*
-             * Incremental streaming leaves the active cache bound and queues the target
-             * for bounded EditorApplication.update work. No retained copy,
-             * committed tile load, or composition loop executes here.
-             */
-            if (
-                previewCache != null
-                &&
-                previewCache.IsReady
-                &&
-                clipmapRebindRequested
-            )
-            {
-                if (
-                    boundClipmapRoot != null
-                    &&
-                    boundClipmapRoot !=
-                        clipmapRoot
-                )
-                {
-                    ReleaseBinding();
-                }
-
-                if (
-                    !BindPreviewToClipmap(
-                        clipmapRoot,
-                        out string activeBindError
-                    )
-                )
-                {
-                    SetStatus(
-                        TerrainAuthoringPreviewStatus.Error,
-                        activeBindError
-                    );
-
-                    RepaintEditorViews();
-
-                    return;
-                }
-
-                clipmapRebindRequested =
-                    false;
-            }
-
-            if (
-                !RequestIncrementalStagedTransition(
-                    worldSettings,
-                    authoringData,
-                    buildWindow,
-                    currentCommittedSignature,
-                    currentOverallSignature,
-                    clipmapRoot,
-                    out string streamingError
-                )
-            )
-            {
-                SetStatus(
-                    TerrainAuthoringPreviewStatus.Error,
-                    "The editor preview could not queue incremental " +
-                    "height-cache streaming.\n\n" +
-                    streamingError
-                );
-
-                RepaintEditorViews();
-            }
-
-            return;
-        }
-
-        // =================================================
-        // DIRTY COMPOSITE SLICE UPDATE
-        // =================================================
-
-        bool compositeRangeChanged =
-            false;
-
-        int updatedCompositeSliceCount =
-            earlyUpdatedCompositeSliceCount;
-
-        if (
-            previewCache != null
-            &&
-            previewCache.IsReady
-            &&
-            dirtyCompositeTiles.Count > 0
-        )
-        {
-            /*
-             * Do not update slices on top of a stale committed base.
-             * A committed signature mismatch should already have
-             * triggered the full-build path above.
-             */
-            if (
-                previewCache
-                    .SourceCommittedHeightfieldSignature
-                !=
-                currentCommittedSignature
-            )
-            {
-                committedRebuildRequested =
-                    true;
-
-                ScheduleRefresh();
-
-                return;
-            }
-
-            List<Vector2Int> dirtySnapshot =
-                new List<Vector2Int>(
-                    dirtyCompositeTiles
-                );
-
-            using var compositionProfilerScope =
-                WorldMeshesProfiler.PreviewComposeTiles.Auto();
-
-            /*
-             * Compare the final transaction range against the range that
-             * was authoritative before any dirty slice was reset.
-             *
-             * ResetCompositeTilesForRecomposition temporarily restores
-             * committed ranges;
-             * those intermediate values must not decide whether clipmap
-             * bounds need to expand or shrink.
-             */
-            float globalMinimumBefore =
-                previewCache.MinimumHeight;
-
-            float globalMaximumBefore =
-                previewCache.MaximumHeight;
-
-            /*
-             * Recomposition transaction:
-             *
-             * 1. reset every valid dirty slice from committed base
-             * 2. obtain that committed/base slice range
-             * 3. compose the CURRENT complete modifier stack
-             * 4. calculate one conservative final range for the tile
-             * 5. store that range once for the completed tile
-             * 6. only after every tile succeeds clear dirty state and
-             *    acknowledge the overall signature
-             */
-            heightCompositor
-                .BeginTransactionDiagnostics();
-
-            if (
-                !previewCache
-                    .ResetCompositeTilesForRecomposition(
-                        dirtySnapshot,
-                        out updatedCompositeSliceCount,
-                        out string compositeError
-                    )
-            )
-            {
-                SetStatus(
-                    TerrainAuthoringPreviewStatus.Error,
-                    "The preview cache could not reset its dirty " +
-                    "composite slices from committed base data.\n\n" +
-                    compositeError
-                );
-
-                RepaintEditorViews();
-
-                return;
-            }
-
-            List<TerrainAuthoringPreviewCache.CompositeSliceRangeUpdate>
-                finalCompositeRanges =
-                    new List<TerrainAuthoringPreviewCache.CompositeSliceRangeUpdate>(
-                        updatedCompositeSliceCount
-                    );
-
-            foreach (
-                Vector2Int dirtyTile
-                in dirtySnapshot
-            )
-            {
-                int sliceIndex =
-                    previewCache.GetSliceIndex(
-                        dirtyTile.x,
-                        dirtyTile.y
-                    );
-
-                if (sliceIndex < 0)
-                {
-                    continue;
-                }
-
-                /*
-                 * ResetCompositeTilesForRecomposition has just restored the
-                 * slice from committed data, so its current range is the base
-                 * absolute range supplied to the mode-aware compositor.
-                 */
-                if (
-                    !previewCache
-                        .TryGetCompositeSliceRange(
-                            dirtyTile.x,
-                            dirtyTile.y,
-                            out float baseMinimumHeight,
-                            out float baseMaximumHeight
-                        )
-                )
-                {
-                    SetStatus(
-                        TerrainAuthoringPreviewStatus.Error,
-                        "The preview cache could not provide the " +
-                        $"committed/base range for dirty tile " +
-                        $"({dirtyTile.x}, {dirtyTile.y}). The dirty " +
-                        "set has been retained for retry."
-                    );
-
-                    RepaintEditorViews();
-
-                    return;
-                }
-
-                if (
-                    !heightCompositor
-                        .TryComposeTile(
-                            previewCache.HeightCache,
-                            dirtyTile,
-                            sliceIndex,
-                            previewCache.SamplesPerSide,
-                            previewCache.SampleSpacing,
-                            worldSettings.HeightTileWorldSize,
-                            previewCache.WorldSizeXZ,
-                            authoringData,
-                            baseMinimumHeight,
-                            baseMaximumHeight,
-                            out float compositeMinimumHeight,
-                            out float compositeMaximumHeight,
-                            out string compositorError
-                        )
-                )
-                {
-                    SetStatus(
-                        TerrainAuthoringPreviewStatus.Error,
-                        "The preview GPU compositor could not process " +
-                        "all dirty slices. The dirty set has been " +
-                        "retained for retry.\n\n" +
-                        compositorError
-                    );
-
-                    RepaintEditorViews();
-
-                    return;
-                }
-
-                finalCompositeRanges.Add(
-                    new TerrainAuthoringPreviewCache.CompositeSliceRangeUpdate(
-                        dirtyTile,
-                        compositeMinimumHeight,
-                        compositeMaximumHeight
-                    )
-                );
-            }
-
-            if (
-                heightCompositor
-                    .LastDispatchTileCount
-                !=
-                updatedCompositeSliceCount
-            )
-            {
-                SetStatus(
-                    TerrainAuthoringPreviewStatus.Error,
-                    "The reset/composition transaction produced " +
-                    "different valid-slice counts. Dirty state has " +
-                    "been retained.\n\n" +
-                    $"Committed resets: {updatedCompositeSliceCount}\n" +
-                    $"Composited tiles: " +
-                    $"{heightCompositor.LastDispatchTileCount}"
-                );
-
-                RepaintEditorViews();
-
-                return;
-            }
-
-            /*
-             * All dirty slices are now fully composed. Commit their final
-             * range metadata as one validated batch so the full-world range
-             * is recalculated exactly once for this transaction.
-             */
-            if (
-                !previewCache
-                    .ApplyCompositeSliceRangeBatch(
-                        finalCompositeRanges,
-                        out _,
-                        out string rangeBatchError
-                    )
-            )
-            {
-                SetStatus(
-                    TerrainAuthoringPreviewStatus.Error,
-                    "The preview GPU composition succeeded, but the final " +
-                    "composite range batch could not be committed. The dirty " +
-                    "set has been retained for retry.\n\n" +
-                    rangeBatchError
-                );
-
-                RepaintEditorViews();
-
-                return;
-            }
-
-            /*
-             * This comparison observes the FINAL composite range after
-             * every dirty tile has been fully recomposed. It therefore
-             * detects expansion and shrinkage in both directions:
-             *
-             * - maximum increased
-             * - maximum decreased
-             * - minimum decreased
-             * - minimum increased
-             */
-            compositeRangeChanged =
-                !Mathf.Approximately(
-                    globalMinimumBefore,
-                    previewCache.MinimumHeight
-                )
-                ||
-                !Mathf.Approximately(
-                    globalMaximumBefore,
-                    previewCache.MaximumHeight
-                );
-
-            dirtyCompositeTiles.Clear();
-
-            previewCache
-                .MarkOverallAuthoringSignature(
-                    currentOverallSignature
-                );
-
-            overallSignatureAcknowledgementRequested =
-                false;
-
-            /*
-             * Analysis consumers need the exact successfully updated
-             * source tiles before the broader preview-state event.
-             */
-            MarkActiveCacheAuthoringGeneration(authoringGeneration);
-            PublishNativeTerrainAnalysisCompositeUpdate(dirtySnapshot);
-            CompositeTilesUpdated?.Invoke(
-                dirtySnapshot
-            );
-
-            /*
-             * The same RenderTexture object remains bound. Notify
-             * consumers so Height-mode range metadata can refresh,
-             * but do not rebind/rebuild the terrain cache.
-             */
-            NotifyPreviewStateChanged();
-        }
-
-
-        // =================================================
-        // OVERALL AUTHORING SIGNATURE ACKNOWLEDGEMENT
-        // =================================================
-
-        if (
-            overallSignatureAcknowledgementRequested
-            &&
-            previewCache != null
-            &&
-            previewCache.IsReady
-            &&
-            dirtyCompositeTiles.Count == 0
-            &&
-            previewCache
-                .SourceCommittedHeightfieldSignature
-            ==
-            currentCommittedSignature
-        )
-        {
-            previewCache
-                .MarkOverallAuthoringSignature(
-                    currentOverallSignature
-                );
-
-            overallSignatureAcknowledgementRequested =
-                false;
-
-            NotifyPreviewStateChanged();
-        }
-
-        // =================================================
-        // CLIPMAP BINDING
-        // =================================================
-
-        bool rootChanged =
-            boundClipmapRoot !=
-            clipmapRoot;
-
-        if (
-            rootChanged
-            ||
-            clipmapRebindRequested
-        )
-        {
-            if (
-                boundClipmapRoot != null
-                &&
-                boundClipmapRoot !=
-                    clipmapRoot
-            )
-            {
-                ReleaseBinding();
-            }
-
-            if (
-                !BindPreviewToClipmap(
-                    clipmapRoot,
-                    out string bindError
-                )
-            )
-            {
-                SetStatus(
-                    TerrainAuthoringPreviewStatus.Error,
-                    bindError
-                );
-
-                RepaintEditorViews();
-
-                return;
-            }
-
-            clipmapRebindRequested =
-                false;
-        }
-        else if (
-            compositeRangeChanged
-            &&
-            !ApplyCurrentPreviewBounds(
-                clipmapRoot,
-                out string boundsError
-            )
-        )
-        {
-            SetStatus(
-                TerrainAuthoringPreviewStatus.Error,
-                boundsError
-            );
-
-            RepaintEditorViews();
-
-            return;
-        }
-
-        // =================================================
-        // STATUS
-        // =================================================
-
-        bool overallSignatureMatches =
-            previewCache != null
-            &&
-            previewCache
-                .SourceOverallAuthoringSignature
-            ==
-            currentOverallSignature;
-
-        string readyMessage;
-
-        if (!overallSignatureMatches)
-        {
-            readyMessage =
-                "The committed preview cache is current, but the " +
-                "overall authoring signature differs from the last " +
-                "composited state. Future modifier tools must call " +
-                "NotifyCompositeTilesChanged(...) for their affected " +
-                "tiles.";
-        }
-        else if (updatedCompositeSliceCount > 0)
-        {
-            readyMessage =
-                $"Updated {updatedCompositeSliceCount:N0} dirty " +
-                "preview slice(s) in place. The existing GPU cache " +
-                "remained bound to the clipmap.";
-        }
-        else
-        {
-            readyMessage =
-                "The resident committed-base heightfield window is " +
-                "cached and ready for incremental composite slice " +
-                "updates.";
-        }
-
-        SetStatus(
-            TerrainAuthoringPreviewStatus.Ready,
-            readyMessage
-        );
-
-        NotifyHeightCacheCoverageIfChanged();
-
-        RepaintEditorViews();
+        SetStatus(HasDrawableHeightPreview ? TerrainAuthoringPreviewStatus.Ready : TerrainAuthoringPreviewStatus.Preparing,
+            HasPendingActiveDirtyWork ? "Updating resident Height representations incrementally."
+                : IsWaitingForStreamingCoverage ? "Waiting for complete multiresolution Height coverage."
+                : "The complete multiresolution Height preview is active.");
+        NotifyHeightCacheCoverageIfChanged(); NotifyPreviewStateChanged(); RepaintEditorViews();
     }
 
     // =====================================================
     // BIND PREVIEW
     // =====================================================
 
-    private static bool BindPreviewToClipmap(
-        Transform clipmapRoot,
-        out string errorMessage
-    )
+    private static bool BindPreviewToClipmap(Transform root, out string errorMessage)
     {
-        errorMessage =
-            "";
-
-        using var bindingProfilerScope =
-            WorldMeshesProfiler.PreviewBindCache.Auto();
-
-        if (
-            clipmapRoot == null
-            ||
-            previewCache == null
-            ||
-            !previewCache.IsReady
-        )
-        {
-            errorMessage =
-                "The editor preview cannot bind because the " +
-                "clipmap or preview cache is unavailable.";
-
-            return false;
-        }
-
-        TerrainClipmapBoundsController boundsController =
-            clipmapRoot
-                .GetComponent<TerrainClipmapBoundsController>();
-
-        if (boundsController == null)
-        {
-            errorMessage =
-                "TerrainClipmapBoundsController is missing from " +
-                "WorldRoot/Clipmap. Run Setup / Repair World Hierarchy.";
-
-            return false;
-        }
-
-        if (
-            !TerrainHeightCacheBindingUtility
-                .TryBind(
-                    clipmapRoot,
-                    previewCache.HeightCache,
-                    previewCache.CacheOriginTile,
-                    previewCache.CacheSize,
-                    previewCache.SamplesPerSide,
-                    previewCache.SampleSpacing,
-                    previewCache.WorldSizeXZ,
-                    out _,
-                    out string bindingError
-                )
-        )
-        {
-            errorMessage =
-                "The editor preview height cache could not be " +
-                "bound to the clipmap.\n\n" +
-                bindingError;
-
-            return false;
-        }
-
-        if (
-            !boundsController
-                .ApplyBoundsForRange(
-                    previewCache.MinimumHeight,
-                    previewCache.MaximumHeight
-                )
-        )
-        {
-            TerrainHeightCacheBindingUtility
-                .Disable(
-                    clipmapRoot
-                );
-
-            errorMessage =
-                "The editor preview cache was created, but the " +
-                "clipmap displacement bounds could not be applied.";
-
-            return false;
-        }
-
-        boundClipmapRoot =
-            clipmapRoot;
-
-        diagnosticBindingApplyCount++;
-
-        return true;
+        errorMessage = "";
+        return latestDisplayIntent != null && root == latestDisplayIntent.Root
+            && TryCommitDisplayHeight(null, latestDisplayIntent, activeHeightStates, out errorMessage);
     }
 
-    private static bool ApplyCurrentPreviewBounds(
-        Transform clipmapRoot,
-        out string errorMessage
-    )
+    private static bool ApplyCurrentPreviewBounds(Transform root, out string errorMessage)
     {
-        errorMessage =
-            "";
-
-        if (
-            clipmapRoot == null
-            ||
-            previewCache == null
-            ||
-            !previewCache.IsReady
-        )
-        {
-            errorMessage =
-                "The preview bounds cannot be updated because the " +
-                "clipmap or preview cache is unavailable.";
-
-            return false;
-        }
-
-        TerrainClipmapBoundsController boundsController =
-            clipmapRoot
-                .GetComponent<TerrainClipmapBoundsController>();
-
-        if (boundsController == null)
-        {
-            errorMessage =
-                "TerrainClipmapBoundsController is missing from " +
-                "WorldRoot/Clipmap.";
-
-            return false;
-        }
-
-        if (
-            !boundsController
-                .ApplyBoundsForRange(
-                    previewCache.MinimumHeight,
-                    previewCache.MaximumHeight
-                )
-        )
-        {
-            errorMessage =
-                "The incremental preview update succeeded, but the " +
-                "clipmap displacement bounds could not be refreshed.";
-
-            return false;
-        }
-
+        errorMessage = "";
+        var controller = root != null ? root.GetComponent<TerrainClipmapBoundsController>() : null;
+        if (controller == null || !controller.ApplyBoundsForRange(aggregateMinimumHeight, aggregateMaximumHeight))
+        { errorMessage = "The transient multiresolution Height range could not be applied."; return false; }
         return true;
     }
 
@@ -2637,31 +1396,10 @@ public static partial class TerrainAuthoringPreviewService
 
     private static void ReleaseBinding()
     {
-        if (boundClipmapRoot == null)
-        {
-            boundClipmapRoot =
-                null;
-
-            return;
-        }
-
-        TerrainHeightCacheBindingUtility
-            .Disable(
-                boundClipmapRoot
-            );
-
-        TerrainClipmapBoundsController boundsController =
-            boundClipmapRoot
-                .GetComponent<TerrainClipmapBoundsController>();
-
-        if (boundsController != null)
-        {
-            boundsController
-                .RestoreConfiguredBounds();
-        }
-
-        boundClipmapRoot =
-            null;
+        TerrainAuthoringPreviewHeightBindingUtility.Disable(boundHeightRenderers); boundHeightRenderers.Clear();
+        var controller = boundClipmapRoot != null ? boundClipmapRoot.GetComponent<TerrainClipmapBoundsController>() : null;
+        if (controller != null) controller.RestoreConfiguredBounds();
+        boundClipmapRoot = null;
     }
 
     private static void ReleaseCache()
@@ -2675,10 +1413,9 @@ public static partial class TerrainAuthoringPreviewService
 
     private static void OnHierarchyChanged()
     {
-        /*
-         * Hierarchy changes never imply committed height data changed.
-         */
-        NotifyClipmapHierarchyChanged();
+        if (displayCommitInProgress) return;
+        clipmapRebindRequested = true;
+        ScheduleRefresh();
     }
 
     private static void OnProjectChanged()
@@ -2757,46 +1494,22 @@ public static partial class TerrainAuthoringPreviewService
 
     private static void NotifyHeightCacheCoverageIfChanged()
     {
-        bool hasCoverage =
-            TryGetHeightCacheWorldCoverage(
-                out Vector2 minimumXZ,
-                out Vector2 maximumXZ
-            );
-
-        bool unchanged =
-            hasPublishedHeightCacheCoverage ==
-                hasCoverage
-            &&
-            (
-                !hasCoverage
-                ||
-                (
-                    publishedHeightCacheMinimumXZ ==
-                        minimumXZ
-                    &&
-                    publishedHeightCacheMaximumXZ ==
-                        maximumXZ
-                )
-            );
-
-        if (unchanged)
+        bool hasCoverage = TryGetHeightCacheWorldCoverage(out Vector2 low, out Vector2 high);
+        var stamp = new System.Text.StringBuilder();
+        if (hasCoverage)
         {
-            return;
+            stamp.Append(activeDisplayIntent.PlacementGeneration).Append(':').Append(activeDisplayIntent.OwnershipGeneration)
+                .Append(':').Append(activeDisplayIntent.Root.GetInstanceID());
+            foreach (var s in activeHeightStates)
+                stamp.Append('|').Append(s.Level).Append(':').Append(s.SampleStride).Append(':')
+                    .Append(new TerrainHeightCacheWindow(s.ActiveCache.CacheOriginTile, s.ActiveCache.CacheSize))
+                    .Append(':').Append(s.ActiveRequiredWindow);
         }
-
-        hasPublishedHeightCacheCoverage =
-            hasCoverage;
-
-        publishedHeightCacheMinimumXZ =
-            hasCoverage
-                ? minimumXZ
-                : Vector2.zero;
-
-        publishedHeightCacheMaximumXZ =
-            hasCoverage
-                ? maximumXZ
-                : Vector2.zero;
-
+        string next = stamp.ToString();
+        if (hasPublishedHeightCacheCoverage == hasCoverage && publishedHeightCoverageStamp == next) return;
+        hasPublishedHeightCacheCoverage = hasCoverage; publishedHeightCoverageStamp = next;
+        publishedHeightCacheMinimumXZ = hasCoverage ? low : Vector2.zero;
+        publishedHeightCacheMaximumXZ = hasCoverage ? high : Vector2.zero;
         HeightCacheCoverageChanged?.Invoke();
     }
 

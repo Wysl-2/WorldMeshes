@@ -613,7 +613,7 @@ public static partial class TerrainAuthoringPreviewService
             default;
 
         ClearMultiresolutionResidencyIntent();
-        ReleasePreparedHeightCacheSet();
+        ReleaseActiveDirtySource(); // Ownership changes preserve the last drawable display set.
         ReleaseTerrainAnalysisSource(true);
 
         ClearDesiredResidency();
