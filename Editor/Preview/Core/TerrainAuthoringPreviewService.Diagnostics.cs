@@ -85,24 +85,11 @@ public static partial class TerrainAuthoringPreviewService
             allocated && complete, allocated && current, generation, allocated ? cache.ApproximateGpuMemoryBytes : 0L);
     }
 
-    private static bool PublishedDisplayDrawableForDiagnostics()
-    {
-        if (!Enabled || activeDisplayIntent == null || boundClipmapRoot == null
-            || activeDisplayIntent.Root != boundClipmapRoot || activeHeightStates == null
-            || activeHeightStates.Length != activeDisplayIntent.Plan.LevelCount
-            || boundHeightRenderers.Count != activeHeightStates.Length * 2 - 1) return false;
-        foreach (var binding in boundHeightRenderers) if (!binding.IsValid) return false;
-        // Published states passed complete validation at handoff. No per-slice scan here.
-        foreach (var state in activeHeightStates)
-            if (state.WriteFailed || state.ActiveCache == null || !state.ActiveCache.IsReady) return false;
-        return true;
-    }
-
     private static bool StateCurrentForDiagnostics(TerrainAuthoringPreviewLodState state, bool configurationCurrent)
     {
-        return configurationCurrent && state != null && state.CacheReady && !state.WriteFailed
-            && state.PendingDirtyTiles.Count == 0 && state.ActiveAuthoringGeneration == authoringGeneration
-            && state.ActiveCache != null && state.ActiveCache.IsReady;
+        return configurationCurrent && state != null && state.CacheReady
+            && state.HasUsableActiveAllocation && state.PendingDirtyTiles.Count == 0
+            && state.PendingRegionalTiles.Count == 0 && state.ActiveAuthoringGeneration == authoringGeneration;
     }
 
     internal static TerrainAuthoringPreviewWorkerSnapshot CaptureWorkerMetadata(TerrainAuthoringPreviewCacheSetTransition transaction)
@@ -141,7 +128,7 @@ public static partial class TerrainAuthoringPreviewService
         bool configurationCurrent)
     {
         bool current = StateCurrentForDiagnostics(state, configurationCurrent);
-        var active = CaptureCacheMetadata(state?.ActiveCache, state != null && !state.WriteFailed, current,
+        var active = CaptureCacheMetadata(state?.ActiveCache, state != null && state.HasUsableActiveAllocation, current,
             state?.ActiveAuthoringGeneration ?? 0L);
         var staging = CaptureCacheMetadata(entry?.Destination?.StagingCache, entry?.Finalized ?? false,
             (entry?.Finalized ?? false) && entry.Destination?.StagingAuthoringGeneration == authoringGeneration,
@@ -190,11 +177,13 @@ public static partial class TerrainAuthoringPreviewService
 
     internal static TerrainAuthoringPreviewDiagnosticsSnapshot GetDiagnosticsSnapshot()
     {
+        var settings = LoadWorldSettings();
+        string committed = TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(settings);
         long owner = TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration;
         bool configurationCurrent = activeDisplayIntent != null && activeDisplayIntent.Root == boundClipmapRoot
-            && activeDisplayIntent.OwnershipGeneration == owner && activeDisplayIntent.ConfigurationMatches(activeDisplayIntent.Settings);
-        bool drawable = PublishedDisplayDrawableForDiagnostics();
-        bool current = drawable && configurationCurrent;
+            && activeDisplayIntent.OwnershipGeneration == owner && activeDisplayIntent.ConfigurationMatches(settings);
+        bool drawable = PublishedDisplayIsDrawable(settings, committed);
+        bool current = drawable && configurationCurrent && !committedRebuildRequested;
         int levelCount = Math.Max(activeHeightStates?.Length ?? 0, latestDisplayIntent?.Plan.LevelCount ?? 0);
         if (currentCacheSetTransition != null && currentCacheSetTransition.InProgress
             && currentCacheSetTransition.Publication == TerrainAuthoringPreviewCachePublication.DisplayHeightSet)
@@ -203,9 +192,7 @@ public static partial class TerrainAuthoringPreviewService
             && pendingCacheSetTransition.Publication == TerrainAuthoringPreviewCachePublication.DisplayHeightSet)
             levelCount = Math.Max(levelCount, pendingCacheSetTransition.Entries.Length);
         var rows = new TerrainAuthoringPreviewLodDiagnosticsSnapshot[levelCount];
-        bool coverage = current && latestDisplayIntent != null && latestDisplayIntent.OwnershipGeneration == owner
-            && latestDisplayIntent.Root == boundClipmapRoot && latestDisplayIntent.ConfigurationMatches(latestDisplayIntent.Settings)
-            && activeHeightStates.Length == latestDisplayIntent.Plan.LevelCount;
+        bool coverage = LatestDisplayCoverageIsCurrent(settings, committed);
         for (int level = 0; level < levelCount; level++)
         {
             var state = activeHeightStates != null && level < activeHeightStates.Length ? activeHeightStates[level] : null;
@@ -214,16 +201,13 @@ public static partial class TerrainAuthoringPreviewService
                 DisplayEntry(currentCacheSetTransition, level), DisplayEntry(pendingCacheSetTransition, level), configurationCurrent);
             var row = rows[level];
             if (state != null) current &= row.Active.Current;
-            coverage &= row.Active.Current && latest != null && row.Active.Window.Contains(latest.RequiredWindow)
-                && row.Active.Representation.Stride == latest.SampleStride
-                && row.Active.Representation.SamplesPerSide == latest.SamplesPerSide
-                && UnityEngine.Mathf.Approximately(row.Active.Representation.SampleSpacing, latest.SampleSpacing);
         }
         bool placement = drawable && latestDisplayIntent != null && activeDisplayIntent != null
             && activeDisplayIntent.OwnershipGeneration == owner && latestDisplayIntent.Root == activeDisplayIntent.Root
             && latestDisplayIntent.OwnershipGeneration == owner
+            && latestDisplayIntent.ConfigurationMatches(settings)
             && TerrainAuthoringPreviewDisplayIntent.PlacementMatches(activeDisplayIntent.Layout, latestDisplayIntent.Layout);
-        bool latestReady = coverage && placement;
+        bool latestReady = drawable && coverage && placement;
         bool waiting = Enabled && latestDisplayIntent != null && !latestReady;
         var failure = CaptureFailure(lastFailedCacheSetRequest);
         var analysisFailure = CaptureFailure(lastFailedAnalysisCacheSetRequest);
@@ -261,3 +245,4 @@ public static partial class TerrainAuthoringPreviewService
     }
 
 }
+

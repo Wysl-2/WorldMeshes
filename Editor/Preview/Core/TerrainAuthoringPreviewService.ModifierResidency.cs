@@ -60,7 +60,8 @@ public static partial class TerrainAuthoringPreviewService
         );
 
     private static void RegisterPreviewAuthoringInvalidation(
-        string reason
+        string reason,
+        bool contentOnly = true
     )
     {
         authoringGeneration =
@@ -76,7 +77,7 @@ public static partial class TerrainAuthoringPreviewService
                 : reason;
 
         ClearTransitionFailureSuppression();
-        InvalidateActiveHeightContent();
+        InvalidateActiveHeightContent(contentOnly);
         InvalidateTerrainAnalysisAuthoring();
 
         bool hasStreamingWork =
@@ -320,7 +321,7 @@ public static partial class TerrainAuthoringPreviewService
         if (
             worldSettings == null
             ||
-            !Enabled
+            !CanRunEditorPreviewWork
             ||
             Application.isPlaying
             ||
@@ -346,6 +347,16 @@ public static partial class TerrainAuthoringPreviewService
             return false;
         }
 
+        if (activeDisplayIntent != null)
+        {
+            if (!activeDisplayIntent.ConfigurationMatches(worldSettings)
+                || activeDisplayIntent.OwnershipGeneration != TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration
+                || activeDisplayIntent.Root == null || activeDisplayIntent.Root != boundClipmapRoot
+                || !TerrainWorldSceneUtility.TryFindActiveClipmapRoot(out Transform root, out _) || root != boundClipmapRoot
+                || boundHeightRenderers.Count != activeDisplayIntent.Plan.LevelCount * 2 - 1) return false;
+            foreach (var binding in boundHeightRenderers) if (!binding.IsValid) return false;
+        }
+
         currentCommittedSignature =
             TerrainAuthoringStateUtility
                 .GetCommittedHeightfieldSignature(
@@ -365,12 +376,98 @@ public static partial class TerrainAuthoringPreviewService
             return TerrainAuthoringPreviewReadiness.OutsideWorld;
         var state = FindFinestResidentDisplayState(tile);
         var cache = state?.ActiveCache;
-        bool pending = state != null && (state.WriteFailed || !state.CacheReady || state.PendingDirtyTiles.Contains(tile)
-            || state.ActiveAuthoringGeneration != authoringGeneration || dirtyCompositeTiles.Contains(tile)
-            || IsWorldTilePendingRegionalElevationRecomposition(settings, tile));
+        bool usable = IsStateTileDrawable(state, settings, committed, tile);
+        bool pending = !IsStateTileContentCurrent(state, settings, committed, tile);
         return TerrainAuthoringPreviewReadinessPolicy.EvaluateTile(previewAvailable, true, cache != null,
             cache != null && cache.SourceCommittedHeightfieldSignature == committed, cache != null,
-            cache != null && cache.IsSliceFinalCompositeReady(tile), pending);
+            usable, pending);
+    }
+
+    private static bool IsStateTileDrawable(TerrainAuthoringPreviewLodState state,
+        WorldSettings settings, string committed, Vector2Int tile)
+    {
+        if (committedRebuildRequested || activeDisplayIntent == null || state == null
+            || state.Level < 0 || state.Level >= activeDisplayIntent.Plan.LevelCount
+            || !PublishedDisplayIsDrawable(settings, committed)
+            || !StateHasResidentCoverage(state, activeDisplayIntent.Plan.Levels[state.Level], settings, committed)) return false;
+        var cache = state.ActiveCache;
+        return cache.IsSliceFinalCompositeReady(tile)
+            && cache.TryGetCompositeSliceRange(tile.x, tile.y, out float low, out float high)
+            && !float.IsNaN(low) && !float.IsNaN(high) && !float.IsInfinity(low) && !float.IsInfinity(high) && low <= high;
+    }
+
+    private static bool IsStateTileContentCurrent(TerrainAuthoringPreviewLodState state,
+        WorldSettings settings, string committed, Vector2Int tile)
+    {
+        return IsStateTileDrawable(state, settings, committed, tile)
+            && (state.CacheReady && state.ActiveAuthoringGeneration == authoringGeneration
+                || state.DirtyTargetGeneration > 0 && state.DirtyTargetGeneration == authoringGeneration)
+            && !HasTileContentObligation(state, tile, dirtyCompositeTiles,
+                IsWorldTilePendingRegionalElevationRecomposition(settings, tile));
+    }
+
+    internal static bool HasTileContentObligation(TerrainAuthoringPreviewLodState state,
+        Vector2Int tile, ISet<Vector2Int> unprojectedTiles, bool pendingRegionalScope)
+    {
+        return state != null && state.HasPendingContent(tile)
+            || unprojectedTiles != null && unprojectedTiles.Contains(tile) || pendingRegionalScope;
+    }
+
+    internal static bool IsDisplayLodWindowContentCurrent(int level, TerrainHeightCacheWindow window)
+    {
+        var settings = LoadWorldSettings();
+        if (!window.IsValid || !TryResolveReadinessContext(settings, out string committed)
+            || activeHeightStates == null || level < 0 || level >= activeHeightStates.Length) return false;
+        var state = activeHeightStates[level];
+        var cache = state.ActiveCache;
+        if (cache == null || !new TerrainHeightCacheWindow(cache.CacheOriginTile, cache.CacheSize).Contains(window)) return false;
+        var maximum = window.MaximumExclusive;
+        for (int z = window.OriginTile.y; z < maximum.y; z++)
+            for (int x = window.OriginTile.x; x < maximum.x; x++)
+                if (!IsStateTileContentCurrent(state, settings, committed, new Vector2Int(x, z))) return false;
+        return true;
+    }
+
+    public static TerrainAuthoringPreviewInteractionReadiness GetWorldTileInteractionReadiness(Vector2Int tile)
+    {
+        var settings = LoadWorldSettings();
+        if (settings == null) return TerrainAuthoringPreviewInteractionReadiness.PreviewUnavailable;
+        bool available = TryResolveReadinessContext(settings, out string committed);
+        return EvaluateWorldTileInteractionReadiness(settings, tile, available, committed);
+    }
+
+    private static TerrainAuthoringPreviewInteractionReadiness EvaluateWorldTileInteractionReadiness(
+        WorldSettings settings, Vector2Int tile, bool available, string committed)
+    {
+        bool inside = tile.x >= 0 && tile.y >= 0 && tile.x < settings.HeightTileGridWidth && tile.y < settings.HeightTileGridHeight;
+        var state = inside ? FindFinestResidentDisplayState(tile) : null;
+        var cache = state?.ActiveCache;
+        return TerrainAuthoringPreviewReadinessPolicy.EvaluateInteractionTile(available, inside,
+            cache != null, cache != null && cache.SourceCommittedHeightfieldSignature == committed, cache != null,
+            IsStateTileDrawable(state, settings, committed, tile), !IsStateTileContentCurrent(state, settings, committed, tile));
+    }
+
+    public static TerrainAuthoringPreviewInteractionReadiness GetWorldBoundsInteractionReadiness(
+        Bounds bounds, int samplePadding = 1)
+    {
+        var settings = LoadWorldSettings();
+        if (settings == null) return TerrainAuthoringPreviewInteractionReadiness.PreviewUnavailable;
+        var world = TerrainClipmapLayoutUtility.CalculateWorldSizeXZ(settings);
+        if (bounds.max.x < 0 || bounds.max.z < 0 || bounds.min.x > world.x || bounds.min.z > world.y)
+            return TerrainAuthoringPreviewInteractionReadiness.OutsideWorld;
+        var tiles = new List<Vector2Int>();
+        TerrainAuthoringPreviewDirtyRegionUtility.CollectTilesOverlappingBounds(settings, bounds, tiles, samplePadding);
+        if (tiles.Count == 0) return TerrainAuthoringPreviewInteractionReadiness.OutsideWorld;
+        bool available = TryResolveReadinessContext(settings, out string committed);
+        if (!available) return TerrainAuthoringPreviewInteractionReadiness.PreviewUnavailable;
+        bool updating = false;
+        foreach (var tile in tiles)
+        {
+            var readiness = EvaluateWorldTileInteractionReadiness(settings, tile, available, committed);
+            if (!TerrainAuthoringPreviewReadinessPolicy.IsInteractionAllowed(readiness)) return readiness;
+            updating |= readiness == TerrainAuthoringPreviewInteractionReadiness.Updating;
+        }
+        return updating ? TerrainAuthoringPreviewInteractionReadiness.Updating : TerrainAuthoringPreviewInteractionReadiness.Ready;
     }
 
     public static TerrainAuthoringPreviewReadiness GetWorldTileReadiness(
@@ -610,10 +707,14 @@ public static partial class TerrainAuthoringPreviewService
         activeDirtyMaterializer.ReleaseTextureBindings(); activeDirtySource = null; activeDirtySourceGeneration = 0;
     }
 
-    private static void InvalidateActiveHeightContent()
+    private static void InvalidateActiveHeightContent(bool contentOnly)
     {
         ReleaseActiveDirtySource();
-        if (activeHeightStates != null) foreach (var s in activeHeightStates) s.CacheReady = false;
+        if (activeHeightStates != null) foreach (var s in activeHeightStates)
+        {
+            s.CacheReady = false;
+            s.DirtyTargetGeneration = contentOnly ? authoringGeneration : 0L;
+        }
     }
 
     // Every obligation is assigned before the incoming global/regional scope is
@@ -666,8 +767,8 @@ public static partial class TerrainAuthoringPreviewService
         foreach (var s in activeHeightStates)
         {
             var c = s.ActiveCache;
-            if (c != null && c.IsCompleteForActivation && c.SourceCommittedHeightfieldSignature == committed
-                && !s.WriteFailed && s.PendingDirtyTiles.Count == 0)
+            if (!committedRebuildRequested && s.HasUsableActiveAllocation && c.SourceCommittedHeightfieldSignature == committed
+                && s.PendingDirtyTiles.Count == 0 && s.PendingRegionalTiles.Count == 0)
             {
                 c.MarkOverallAuthoringSignature(overall); s.ActiveAuthoringGeneration = authoringGeneration;
                 s.DirtyTargetGeneration = authoringGeneration; s.CacheReady = true;
@@ -811,4 +912,5 @@ public static partial class TerrainAuthoringPreviewService
     // Observability only; maintained alongside existing bounded dirty projection.
     private static readonly HashSet<Vector2Int> diagnosticPendingGeographicDirty = new HashSet<Vector2Int>();
 }
+
 

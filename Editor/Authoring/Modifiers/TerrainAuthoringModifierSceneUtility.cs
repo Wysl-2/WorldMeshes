@@ -140,13 +140,13 @@ public static class TerrainAuthoringModifierSceneUtility
         }
 
         if (
-            TerrainAuthoringPreviewService
-                .GetWorldBoundsReadiness(
-                    modifier.GetAffectedWorldBounds(),
-                    1
-                )
-            !=
-            TerrainAuthoringPreviewReadiness.Ready
+            !TerrainAuthoringPreviewReadinessPolicy.IsInteractionAllowed(
+                TerrainAuthoringPreviewService
+                    .GetWorldBoundsInteractionReadiness(
+                        modifier.GetAffectedWorldBounds(),
+                        1
+                    )
+            )
         )
         {
             return false;
@@ -179,7 +179,7 @@ public static class TerrainAuthoringModifierSceneUtility
 
             if (
                 !TerrainAuthoringPreviewService
-                    .TryGetCompositeSliceRange(
+                    .TryGetDrawableCompositeSliceRange(
                         coordinate.x,
                         coordinate.y,
                         out float tileMinimum,

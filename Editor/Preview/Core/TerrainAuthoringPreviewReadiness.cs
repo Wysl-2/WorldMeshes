@@ -8,8 +8,40 @@ public enum TerrainAuthoringPreviewReadiness
     PreviewUnavailable
 }
 
+public enum TerrainAuthoringPreviewInteractionReadiness
+{
+    Ready,
+    Updating,
+    Loading,
+    OutsideWorld,
+    PreviewUnavailable
+}
+
 internal static class TerrainAuthoringPreviewReadinessPolicy
 {
+    internal static bool IsInteractionAllowed(
+        TerrainAuthoringPreviewInteractionReadiness readiness
+    ) => readiness == TerrainAuthoringPreviewInteractionReadiness.Ready
+        || readiness == TerrainAuthoringPreviewInteractionReadiness.Updating;
+
+    internal static TerrainAuthoringPreviewInteractionReadiness EvaluateInteractionTile(
+        bool previewAvailable,
+        bool insideWorld,
+        bool hasActiveCache,
+        bool committedSourceCurrent,
+        bool resident,
+        bool finalCompositeReady,
+        bool pendingResidentDirty
+    )
+    {
+        if (!insideWorld) return TerrainAuthoringPreviewInteractionReadiness.OutsideWorld;
+        if (!previewAvailable) return TerrainAuthoringPreviewInteractionReadiness.PreviewUnavailable;
+        if (!hasActiveCache || !committedSourceCurrent || !resident || !finalCompositeReady)
+            return TerrainAuthoringPreviewInteractionReadiness.Loading;
+        return pendingResidentDirty ? TerrainAuthoringPreviewInteractionReadiness.Updating
+            : TerrainAuthoringPreviewInteractionReadiness.Ready;
+    }
+
     internal static TerrainAuthoringPreviewReadiness EvaluateTile(
         bool previewAvailable,
         bool insideWorld,
@@ -59,6 +91,22 @@ internal static class TerrainAuthoringPreviewReadinessPolicy
  */
 internal static class TerrainAuthoringPreviewReadinessFeedback
 {
+    internal static string GetMessage(TerrainAuthoringPreviewInteractionReadiness readiness)
+    {
+        switch (readiness)
+        {
+            case TerrainAuthoringPreviewInteractionReadiness.Ready:
+            case TerrainAuthoringPreviewInteractionReadiness.Updating:
+                return "";
+            case TerrainAuthoringPreviewInteractionReadiness.Loading:
+                return "Usable resident terrain for this modifier is not available yet.";
+            case TerrainAuthoringPreviewInteractionReadiness.OutsideWorld:
+                return "This modifier does not currently overlap editable terrain.";
+            default:
+                return "Terrain Height Preview is unavailable. Surface-dependent editing requires a stable authoring preview.";
+        }
+    }
+
     internal static string GetMessage(
         TerrainAuthoringPreviewReadiness readiness
     )
@@ -83,3 +131,4 @@ internal static class TerrainAuthoringPreviewReadinessFeedback
         }
     }
 }
+

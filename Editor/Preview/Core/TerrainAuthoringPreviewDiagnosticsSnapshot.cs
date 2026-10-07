@@ -305,10 +305,13 @@ internal readonly struct TerrainAuthoringPreviewFailureSnapshot
 internal readonly struct TerrainAuthoringPreviewDiagnosticsSnapshot
 {
     public readonly bool Enabled;
+    // Complete authoring convergence; pending content does not invalidate residency.
     public readonly bool CacheReady;
     public readonly bool Drawable;
+    // Physical representation/committed coverage and paired placement are independent.
     public readonly bool LatestCoverageCurrent;
     public readonly bool PlacementCurrent;
+    // Latest physical destination is usable, even if content is still updating.
     public readonly bool ReadyForLatestIntent;
     public readonly TerrainAuthoringPreviewStatus PreviewStatus;
     public readonly string PreviewStatusMessage;

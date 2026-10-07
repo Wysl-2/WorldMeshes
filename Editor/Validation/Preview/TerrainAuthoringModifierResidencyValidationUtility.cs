@@ -88,6 +88,8 @@ public static class TerrainAuthoringModifierResidencyValidationUtility
             ValidateNonresidentAcknowledgementPolicy();
             ValidateReadinessPolicy();
             ValidateTileSpecificReadiness();
+            ValidateInteractionReadiness();
+            ValidateLocalContentObligations();
             ValidateCommittedInvalidationStrength();
             ValidateReadinessQuerySideEffects();
             ValidateResidencySizeRecovery();
@@ -600,6 +602,62 @@ public static class TerrainAuthoringModifierResidencyValidationUtility
         }
     }
 
+    private static void ValidateInteractionReadiness()
+    {
+        var ready = TerrainAuthoringPreviewReadinessPolicy.EvaluateInteractionTile(true, true, true, true, true, true, false);
+        var updating = TerrainAuthoringPreviewReadinessPolicy.EvaluateInteractionTile(true, true, true, true, true, true, true);
+        bool valid = ready == TerrainAuthoringPreviewInteractionReadiness.Ready
+            && updating == TerrainAuthoringPreviewInteractionReadiness.Updating
+            && TerrainAuthoringPreviewReadinessPolicy.IsInteractionAllowed(ready)
+            && TerrainAuthoringPreviewReadinessPolicy.IsInteractionAllowed(updating)
+            && TerrainAuthoringPreviewReadinessPolicy.EvaluateTile(true, true, true, true, true, true, true)
+                == TerrainAuthoringPreviewReadiness.Loading;
+        var blocked = new[]
+        {
+            TerrainAuthoringPreviewReadinessPolicy.EvaluateInteractionTile(true, true, false, true, true, true, true),
+            TerrainAuthoringPreviewReadinessPolicy.EvaluateInteractionTile(true, true, true, false, true, true, true),
+            TerrainAuthoringPreviewReadinessPolicy.EvaluateInteractionTile(true, true, true, true, false, true, true),
+            TerrainAuthoringPreviewReadinessPolicy.EvaluateInteractionTile(true, true, true, true, true, false, true)
+        };
+        foreach (var state in blocked)
+            valid &= state == TerrainAuthoringPreviewInteractionReadiness.Loading
+                && !TerrainAuthoringPreviewReadinessPolicy.IsInteractionAllowed(state);
+        valid &= TerrainAuthoringPreviewReadinessPolicy.EvaluateInteractionTile(true, false, true, true, true, true, true)
+                == TerrainAuthoringPreviewInteractionReadiness.OutsideWorld
+            && TerrainAuthoringPreviewReadinessPolicy.EvaluateInteractionTile(false, true, true, true, true, true, true)
+                == TerrainAuthoringPreviewInteractionReadiness.PreviewUnavailable;
+        if (valid) AddPass("Resident interaction and strict freshness", "Pending content permits interaction while strict reads wait; absent, incompatible, and never-valid terrain remain blocked.");
+        else AddFail("Resident interaction and strict freshness", "Interaction confused pending content with usable published terrain.");
+    }
+
+    private static void ValidateLocalContentObligations()
+    {
+        var fine = new TerrainAuthoringPreviewLodState(0, 1, 9, 1);
+        var coarse = new TerrainAuthoringPreviewLodState(1, 2, 5, 2);
+        var affected = new Vector2Int(5, 5);
+        var other = new Vector2Int(6, 5);
+        var incoming = new HashSet<Vector2Int> { affected };
+        try
+        {
+            fine.PendingDirtyTiles.Add(affected);
+            coarse.PendingDirtyTiles.Add(affected);
+            bool valid = TerrainAuthoringPreviewService.HasTileContentObligation(fine, affected, null, false)
+                && !TerrainAuthoringPreviewService.HasTileContentObligation(fine, other, incoming, false);
+            fine.PendingDirtyTiles.Clear();
+            valid &= !TerrainAuthoringPreviewService.HasTileContentObligation(fine, affected, null, false)
+                && TerrainAuthoringPreviewService.HasTileContentObligation(coarse, affected, null, false)
+                && TerrainAuthoringPreviewService.HasTileContentObligation(fine, affected, incoming, false);
+            fine.PendingRegionalTiles.Add(affected);
+            valid &= TerrainAuthoringPreviewService.HasTileContentObligation(fine, affected, null, false)
+                && !TerrainAuthoringPreviewService.HasTileContentObligation(fine, other, null, false);
+            fine.PendingRegionalTiles.Clear();
+            valid &= TerrainAuthoringPreviewService.HasTileContentObligation(fine, affected, null, true);
+            if (valid) AddPass("Region-local content obligations", "Projected modifier/regional and unprojected scope are checked locally; unrelated tiles and other LOD work do not change the selected tile's obligations.");
+            else AddFail("Region-local content obligations", "A local obligation was lost or unrelated content made the selected region dirty.");
+        }
+        finally { fine.Dispose(); coarse.Dispose(); }
+    }
+
     private static void ValidateCommittedInvalidationStrength()
     {
         TerrainAuthoringPreviewReadiness readiness =
@@ -663,6 +721,14 @@ public static class TerrainAuthoringModifierResidencyValidationUtility
                 )
             );
 
+        string identityBefore = TerrainAuthoringPreviewService.CaptureDisplayIdentityForValidation();
+        long cacheCreatesBefore = TerrainAuthoringPreviewCache.DiagnosticCreateCount;
+        TerrainAuthoringPreviewService.GetWorldTileInteractionReadiness(new Vector2Int(-1, 0));
+        TerrainAuthoringPreviewService.GetWorldBoundsInteractionReadiness(new Bounds(Vector3.zero, Vector3.one));
+        TerrainAuthoringPreviewService.IsDisplayLodWindowContentCurrent(0, Window(0, 0, 1, 1));
+        bool resourcesUnchanged = identityBefore == TerrainAuthoringPreviewService.CaptureDisplayIdentityForValidation()
+            && cacheCreatesBefore == TerrainAuthoringPreviewCache.DiagnosticCreateCount;
+
         long authoringAfter =
             TerrainAuthoringPreviewService.AuthoringGeneration;
 
@@ -673,6 +739,7 @@ public static class TerrainAuthoringModifierResidencyValidationUtility
             authoringBefore == authoringAfter
             &&
             streamingBefore == streamingAfter
+            && resourcesUnchanged
         )
         {
             AddPass(
@@ -1075,3 +1142,4 @@ public static class TerrainAuthoringModifierResidencyValidationUtility
     }
 
 }
+

@@ -212,13 +212,13 @@ public sealed class TerrainStampEditorTool :
         )
         {
             if (
-                TerrainAuthoringPreviewService
-                    .GetWorldBoundsReadiness(
-                        selectedStamp.GetAffectedWorldBounds(),
-                        1
-                    )
-                ==
-                TerrainAuthoringPreviewReadiness.Ready
+                TerrainAuthoringPreviewReadinessPolicy.IsInteractionAllowed(
+                    TerrainAuthoringPreviewService
+                        .GetWorldBoundsInteractionReadiness(
+                            selectedStamp.GetAffectedWorldBounds(),
+                            1
+                        )
+                )
             )
             {
                 toolResidencyMessage =
@@ -2768,16 +2768,15 @@ public sealed class TerrainStampEditorTool :
             hotAfter != 0
         )
         {
-            TerrainAuthoringPreviewReadiness surfaceReadiness =
+            TerrainAuthoringPreviewInteractionReadiness surfaceReadiness =
                 TerrainAuthoringPreviewService
-                    .GetWorldBoundsReadiness(
+                    .GetWorldBoundsInteractionReadiness(
                         stamp.GetAffectedWorldBounds(),
                         1
                     );
 
             if (
-                surfaceReadiness !=
-                    TerrainAuthoringPreviewReadiness.Ready
+                !TerrainAuthoringPreviewReadinessPolicy.IsInteractionAllowed(surfaceReadiness)
             )
             {
                 toolResidencyMessage =
@@ -4023,7 +4022,7 @@ public sealed class TerrainStampEditorTool :
 
         if (
             TerrainAuthoringPreviewService
-                .CacheReady
+                .HasDrawableHeightPreview
             &&
             IsFinite(
                 minimum
@@ -4361,3 +4360,4 @@ public sealed class TerrainStampEditorTool :
         }
     }
 }
+

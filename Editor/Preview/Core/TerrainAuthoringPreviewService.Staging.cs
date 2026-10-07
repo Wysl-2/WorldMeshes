@@ -73,7 +73,7 @@ public static partial class TerrainAuthoringPreviewService
             for (int i = 0; i < candidate.Length; i++) candidate[i] = transaction.Entries[i].Destination;
         }
         else if (!CanActiveHeightCacheSetCover(intent.Plan))
-        { error = "The retained complete Height set is not current for this layout."; return false; }
+        { error = "The retained Height set does not provide usable coverage for this layout."; return false; }
         var renderers = new List<TerrainClipmapRendererBinding>();
         if (!TerrainAuthoringSceneViewController.TryPreflightDisplayPlacement(intent, renderers, out error)) return false;
         var view = CreateHeightView(candidate);

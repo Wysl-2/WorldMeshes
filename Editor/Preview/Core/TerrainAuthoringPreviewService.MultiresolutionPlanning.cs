@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 public static partial class TerrainAuthoringPreviewService
 {
@@ -64,20 +65,56 @@ public static partial class TerrainAuthoringPreviewService
     {
         get
         {
-            if (!Enabled || activeDisplayIntent == null || boundClipmapRoot == null
-                || activeDisplayIntent.Root != boundClipmapRoot || activeHeightStates == null
-                || activeHeightStates.Length != activeDisplayIntent.Plan.LevelCount) return false;
-            if (boundHeightRenderers.Count != activeHeightStates.Length * 2 - 1) return false;
-            foreach (var binding in boundHeightRenderers) if (!binding.IsValid) return false;
-            foreach (var state in activeHeightStates)
-                if (state.WriteFailed || state.ActiveCache == null || !state.ActiveCache.IsCompleteForActivation) return false;
-            return true;
+            var settings = LoadWorldSettings();
+            return PublishedDisplayIsDrawable(settings,
+                TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(settings));
         }
+    }
+
+    private static bool PublishedDisplayIsDrawable(WorldSettings settings, string committed)
+    {
+        if (!Enabled || Application.isPlaying || UnityEditor.EditorApplication.isPlayingOrWillChangePlaymode
+            || activeDisplayIntent == null || !activeDisplayIntent.ConfigurationMatches(settings)
+            || boundClipmapRoot == null || activeDisplayIntent.Root != boundClipmapRoot
+            || activeHeightStates == null || activeHeightStates.Length != activeDisplayIntent.Plan.LevelCount
+            || boundHeightRenderers.Count != activeHeightStates.Length * 2 - 1) return false;
+        foreach (var binding in boundHeightRenderers) if (!binding.IsValid) return false;
+        for (int i = 0; i < activeHeightStates.Length; i++)
+            if (!StateHasResidentCoverage(activeHeightStates[i], activeDisplayIntent.Plan.Levels[i], settings, committed))
+                return false;
+        return true;
+    }
+
+    // Active ownership follows complete publication. Dirty queues change content
+    // targets, not allocation geometry; unsafe writes invalidate that ownership.
+    internal static bool StateHasResidentCoverage(TerrainAuthoringPreviewLodState state,
+        TerrainAuthoringPreviewLodResidencyPlan plan, WorldSettings settings, string committed)
+    {
+        if (state == null || plan == null || !plan.IsStructurallyValid || settings == null
+            || string.IsNullOrEmpty(committed) || !state.HasUsableActiveAllocation) return false;
+        var cache = state.ActiveCache;
+        var texture = cache.HeightCache;
+        var window = new TerrainHeightCacheWindow(cache.CacheOriginTile, cache.CacheSize);
+        return state.Level == plan.Level && state.SampleStride == plan.SampleStride
+            && state.SamplesPerSide == plan.SamplesPerSide && Mathf.Approximately(state.SampleSpacing, plan.SampleSpacing)
+            && cache.SampleStride == state.SampleStride && cache.SamplesPerSide == state.SamplesPerSide
+            && Mathf.Approximately(cache.SampleSpacing, state.SampleSpacing)
+            && TerrainHeightStreamingPyramidPolicy.IsHeightRepresentationStrideSupported(settings, state.SampleStride)
+            && TerrainHeightResolutionUtility.IsRepresentationStrideCompatible(settings, state.SampleStride)
+            && state.SamplesPerSide == TerrainHeightResolutionUtility.GetSamplesPerSide(settings, state.SampleStride)
+            && Mathf.Approximately(state.SampleSpacing, TerrainHeightResolutionUtility.GetSampleSpacing(settings, state.SampleStride))
+            && cache.SourceCommittedHeightfieldSignature == committed
+            && cache.WorldSizeXZ == TerrainClipmapLayoutUtility.CalculateWorldSizeXZ(settings)
+            && TerrainAuthoringPreviewResidencyPolicy.IsWindowInsideWorldGrid(window,
+                new Vector2Int(settings.HeightTileGridWidth, settings.HeightTileGridHeight))
+            && window.Contains(plan.RequiredWindow) && texture.format == RenderTextureFormat.RFloat
+            && texture.dimension == TextureDimension.Tex2DArray && texture.width == state.SamplesPerSide
+            && texture.height == state.SamplesPerSide && texture.volumeDepth == cache.SliceCount;
     }
 
     private static bool ActiveHeightContentIsCurrent(WorldSettings settings, TerrainAuthoringData data)
     {
-        if (activeHeightStates == null || settings == null || data == null) return false;
+        if (committedRebuildRequested || activeHeightStates == null || settings == null || data == null) return false;
         string committed = TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(settings);
         string overall = TerrainAuthoringStateUtility.GetOverallAuthoringSignature(settings, data);
         foreach (var state in activeHeightStates) if (!StateContentIsCurrent(state, committed, overall)) return false;
@@ -86,24 +123,29 @@ public static partial class TerrainAuthoringPreviewService
 
     private static bool StateContentIsCurrent(TerrainAuthoringPreviewLodState state, string committed, string overall)
     {
-        return state != null && state.CacheReady && !state.WriteFailed && state.PendingDirtyTiles.Count == 0
-            && state.ActiveAuthoringGeneration == authoringGeneration && state.ActiveCache != null
-            && state.ActiveCache.IsCompleteForActivation && state.ActiveCache.SourceCommittedHeightfieldSignature == committed
+        return state != null && state.CacheReady && state.HasUsableActiveAllocation && state.PendingDirtyTiles.Count == 0
+            && state.PendingRegionalTiles.Count == 0 && state.ActiveAuthoringGeneration == authoringGeneration
+            && !string.IsNullOrEmpty(committed) && !string.IsNullOrEmpty(overall)
+            && state.ActiveCache.SourceCommittedHeightfieldSignature == committed
             && state.ActiveCache.SourceOverallAuthoringSignature == overall;
     }
 
     internal static bool CanActiveHeightCacheSetCover(TerrainAuthoringPreviewResidencyPlan plan)
     {
         if (plan == null || !plan.IsStructurallyValid || activeHeightStates == null || activeHeightStates.Length != plan.LevelCount) return false;
-        var settings = LoadWorldSettings(); var data = LoadAuthoringData();
-        if (!ActiveHeightContentIsCurrent(settings, data)) return false;
+        var settings = LoadWorldSettings();
+        return HasActiveBaseCoverage(plan, settings,
+            TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(settings));
+    }
+
+    private static bool HasActiveBaseCoverage(TerrainAuthoringPreviewResidencyPlan plan,
+        WorldSettings settings, string committed)
+    {
+        if (plan == null || !plan.IsStructurallyValid || activeHeightStates == null
+            || activeHeightStates.Length != plan.LevelCount) return false;
         for (int i = 0; i < plan.LevelCount; i++)
         {
-            var s = activeHeightStates[i]; var p = plan.Levels[i]; var c = s.ActiveCache;
-            if (s.Level != i || s.SampleStride != p.SampleStride || s.SamplesPerSide != p.SamplesPerSide
-                || !Mathf.Approximately(s.SampleSpacing, p.SampleSpacing)
-                || c.WorldSizeXZ != TerrainClipmapLayoutUtility.CalculateWorldSizeXZ(settings)
-                || !new TerrainHeightCacheWindow(c.CacheOriginTile, c.CacheSize).Contains(p.RequiredWindow)) return false;
+            if (!StateHasResidentCoverage(activeHeightStates[i], plan.Levels[i], settings, committed)) return false;
         }
         return true;
     }
@@ -115,17 +157,13 @@ public static partial class TerrainAuthoringPreviewService
             && TerrainAuthoringPreviewDisplayIntent.PlacementMatches(activeDisplayIntent.Layout, layout) && HasDrawableHeightPreview;
     }
 
-    private static bool HasActiveBaseCoverage(TerrainAuthoringPreviewResidencyPlan plan, string committed)
+    private static bool LatestDisplayCoverageIsCurrent(WorldSettings settings, string committed)
     {
-        if (activeHeightStates == null || activeHeightStates.Length != plan.LevelCount) return false;
-        for (int i = 0; i < plan.LevelCount; i++)
-        {
-            var s = activeHeightStates[i]; var c = s.ActiveCache; var p = plan.Levels[i];
-            if (c == null || s.WriteFailed || !c.IsCompleteForActivation || c.SourceCommittedHeightfieldSignature != committed
-                || s.SampleStride != p.SampleStride || s.SamplesPerSide != p.SamplesPerSide || !Mathf.Approximately(s.SampleSpacing, p.SampleSpacing)
-                || !new TerrainHeightCacheWindow(c.CacheOriginTile, c.CacheSize).Contains(p.RequiredWindow)) return false;
-        }
-        return true;
+        return latestDisplayIntent != null && latestDisplayIntent.Root == boundClipmapRoot
+            && latestDisplayIntent.ConfigurationMatches(settings)
+            && latestDisplayIntent.OwnershipGeneration == TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration
+            && PublishedDisplayIsDrawable(settings, committed)
+            && HasActiveBaseCoverage(latestDisplayIntent.Plan, settings, committed);
     }
 
     internal static bool RequestPreparedHeightCacheSet(WorldSettings settings, TerrainAuthoringData data,
@@ -149,13 +187,14 @@ public static partial class TerrainAuthoringPreviewService
         string overall = TerrainAuthoringStateUtility.GetOverallAuthoringSignature(settings, data);
         if (string.IsNullOrEmpty(committed) || string.IsNullOrEmpty(overall))
         { error = "Current authoring signatures are unavailable."; return false; }
-        bool covered = !rebuildCommitted && HasActiveBaseCoverage(snapshot, committed);
-        // A retained valid base with known dirty obligations is updated in place.
-        if (covered && HasPendingActiveDirtyWork) return true;
-        bool current = covered && CanActiveHeightCacheSetCover(snapshot);
-        if (current && (!IsDisplayLayoutPublished(intent.Layout) || clipmapRebindRequested
+        bool covered = !rebuildCommitted && HasActiveBaseCoverage(snapshot, settings, committed);
+        if (covered && (!IsDisplayLayoutPublished(intent.Layout) || clipmapRebindRequested
             || activeDisplayIntent.PlacementGeneration != intent.PlacementGeneration))
             if (!TryCommitDisplayHeight(null, intent, activeHeightStates, out error)) return false;
+        // Placement can reuse valid allocations while their content converges.
+        // Optional expansion waits; a genuinely missing destination does not.
+        if (covered && HasPendingActiveDirtyWork) return true;
+        bool current = covered && ActiveHeightContentIsCurrent(settings, data);
         var targets = new TerrainHeightCacheWindow[snapshot.LevelCount]; var expansions = new bool[snapshot.LevelCount];
         bool needsWork = !current; bool critical = !current;
         for (int i = 0; i < snapshot.LevelCount; i++)
@@ -208,3 +247,4 @@ public static partial class TerrainAuthoringPreviewService
         pendingCompositePublication.Clear(); pendingNativePublication.Clear(); diagnosticPendingGeographicDirty.Clear();
     }
 }
+

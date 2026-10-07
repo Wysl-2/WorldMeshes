@@ -57,10 +57,6 @@ public static partial class TerrainAuthoringPreviewService
         TerrainRegionalElevationInvalidationScope scope
     )
     {
-        RegisterPreviewAuthoringInvalidation(
-            "Regional elevation authoring state changed."
-        );
-
         if (
             scope.Kind !=
                 TerrainRegionalElevationInvalidationKind.None
@@ -104,6 +100,10 @@ public static partial class TerrainAuthoringPreviewService
 
         overallSignatureAcknowledgementRequested =
             true;
+
+        RegisterPreviewAuthoringInvalidation(
+            "Regional elevation authoring state changed."
+        );
 
         ScheduleRefresh();
     }

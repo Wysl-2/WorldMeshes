@@ -38,12 +38,21 @@ internal sealed class TerrainAuthoringPreviewLodState :
 
     public TerrainAuthoringPreviewCache StagingCache;
 
+    // Whole-representation content acknowledgement, independent of residency.
     public bool CacheReady;
     internal readonly HashSet<Vector2Int> PendingDirtyTiles = new HashSet<Vector2Int>();
     internal readonly HashSet<Vector2Int> SuccessfulDirtyTiles = new HashSet<Vector2Int>();
     internal readonly HashSet<Vector2Int> PendingRegionalTiles = new HashSet<Vector2Int>();
+    // Direct active writes may invalidate the only visible composite on failure.
     internal bool WriteFailed;
+    // Accepted content target; global scope may still await per-LOD projection.
     internal long DirtyTargetGeneration;
+
+    internal bool HasUsableActiveAllocation =>
+        !WriteFailed && ActiveCache != null && ActiveCache.IsReady;
+
+    internal bool HasPendingContent(Vector2Int tile) =>
+        PendingDirtyTiles.Contains(tile) || PendingRegionalTiles.Contains(tile);
 
     public TerrainAuthoringPreviewLodTransitionState TransitionState =
         TerrainAuthoringPreviewLodTransitionState.Idle;

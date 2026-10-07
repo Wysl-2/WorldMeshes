@@ -90,7 +90,7 @@ public static partial class TerrainAuthoringSceneViewController
          * satisfy the desired layout.
          */
         if (
-            TerrainAuthoringPreviewService.CacheReady
+            TerrainAuthoringPreviewService.HasDrawableHeightPreview
             &&
             TerrainAuthoringPreviewService.Status ==
                 TerrainAuthoringPreviewStatus.Ready

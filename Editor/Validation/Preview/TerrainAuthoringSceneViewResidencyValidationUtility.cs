@@ -1418,7 +1418,7 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
                 }
             }
             if (snapshot.ReadyForLatestIntent)
-                valid &= row.HasLatestPlan && row.Active.Current && row.Active.Window.Contains(row.RequiredWindow)
+                valid &= row.HasLatestPlan && row.Active.Complete && !row.WriteFailed && row.Active.Window.Contains(row.RequiredWindow)
                     && row.Active.Representation.Stride == row.PlannedRepresentation.Stride
                     && row.Active.Representation.SamplesPerSide == row.PlannedRepresentation.SamplesPerSide
                     && Mathf.Approximately(row.Active.Representation.SampleSpacing, row.PlannedRepresentation.SampleSpacing);
@@ -1427,7 +1427,12 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
                 $"Stride={row.Active.Representation.Stride}, physical={row.Active.Window}, published required={row.PublishedRequiredWindow}, latest required={row.RequiredWindow}; current={row.Active.Current}, dirty={row.PendingDirtyCount}.");
         }
         bool totalsValid = displayBytes == ownership.DisplayActiveBytes && stagingBytes == ownership.DisplayStagingBytes
-            && (!snapshot.ReadyForLatestIntent || snapshot.CacheReady && snapshot.LatestCoverageCurrent && snapshot.PlacementCurrent);
+            && snapshot.ReadyForLatestIntent == (snapshot.Drawable && snapshot.LatestCoverageCurrent && snapshot.PlacementCurrent)
+            && snapshot.WaitingForCoverage == (snapshot.Enabled && TerrainAuthoringPreviewService.LatestMultiresolutionResidencyGeneration != 0
+                && !snapshot.ReadyForLatestIntent)
+            && snapshot.WaitingForCoverage == TerrainAuthoringPreviewService.IsWaitingForStreamingCoverage;
+        foreach (var row in snapshot.DisplayLods)
+            totalsValid &= !row.Active.Current || row.PendingDirtyCount == 0 && !row.WriteFailed;
         AddResult("Display rows reconcile ownership and paired intent", rowsValid && totalsValid ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             $"{allocated} allocated display rows; active={displayBytes}, staging={stagingBytes} bytes; latest intent ready={snapshot.ReadyForLatestIntent}.");
         if (allocated == 0) AddResult("Live display prerequisites", ValidationOutcome.Blocked, "No published Height arrays are available. Synthetic checks are separate.");

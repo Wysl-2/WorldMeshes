@@ -1550,6 +1550,8 @@ public static class TerrainAuthoringStagedTransitionValidationUtility
                 RequireSetFixture(state.CacheReady && state.ActiveCache.IsCompleteForActivation,
                     "Transferred caches were disposed with their transaction.");
 
+            ValidateDirtyResidentCoverage(published, initial.AcceptedPlan, settings, committed, overall);
+
             // Local fine publication can be current while an unresolved coarse row is pending.
             published[0].ActiveAuthoringGeneration = TerrainAuthoringPreviewService.AuthoringGeneration;
             published[1].ActiveAuthoringGeneration = TerrainAuthoringPreviewService.AuthoringGeneration;
@@ -1733,6 +1735,56 @@ public static class TerrainAuthoringStagedTransitionValidationUtility
     }
 
 
+    private static void ValidateDirtyResidentCoverage(TerrainAuthoringPreviewLodState[] states,
+        TerrainAuthoringPreviewResidencyPlan plan, WorldSettings settings, string committed, string overall)
+    {
+        var state = states[0];
+        var tile = plan.Levels[0].RequiredWindow.OriginTile;
+        var geometrySettings = UnityEngine.Object.Instantiate(settings);
+        TerrainAuthoringPreviewCacheSetTransition stale = null;
+        try
+        {
+            // The isolated worker uses small representations independent of the
+            // user's configured streaming cap. Only this temporary copy changes.
+            geometrySettings.heightStreamingMaximumStride = Math.Max(settings.heightStreamingMaximumStride, states[2].SampleStride);
+            state.CacheReady = false;
+            state.PendingDirtyTiles.Add(tile);
+            state.DirtyTargetGeneration = 8;
+            var view = new TerrainAuthoringPreviewHeightCacheView(state);
+            RequireSetFixture(TerrainAuthoringPreviewService.StateHasResidentCoverage(state, plan.Levels[0], geometrySettings, committed)
+                && !view.IsCurrent && state.ActiveCache.IsSliceFinalCompositeReady(tile),
+                "Queued content invalidated a published physical representation or claimed current content.");
+            RequireSetFixture(!TerrainAuthoringPreviewService.StateHasResidentCoverage(state, plan.Levels[0], geometrySettings, committed + "-changed"),
+                "A mismatched committed source passed physical coverage.");
+            var incompatible = plan.CreateSnapshot().Levels[0];
+            incompatible.SamplesPerSide++;
+            RequireSetFixture(!TerrainAuthoringPreviewService.StateHasResidentCoverage(state, incompatible, geometrySettings, committed),
+                "Incompatible representation geometry passed physical coverage.");
+            state.WriteFailed = true;
+            RequireSetFixture(!TerrainAuthoringPreviewService.StateHasResidentCoverage(state, plan.Levels[0], geometrySettings, committed),
+                "An unsafe active write was treated as usable residency.");
+            state.WriteFailed = false;
+            var sources = new[] { states[0].ActiveCache, states[1].ActiveCache, states[2].ActiveCache };
+            var targets = new[] { plan.Levels[0].RequiredWindow, plan.Levels[1].RequiredWindow, plan.Levels[2].RequiredWindow };
+            stale = new TerrainAuthoringPreviewCacheSetTransition(plan, targets, new bool[3], sources, new long[] { 7, 7, 7 },
+                TerrainAuthoringPreviewCachePublication.DisplayHeightSet, committed, overall, 8, 1, 3, false);
+            foreach (var entry in stale.Entries)
+                RequireSetFixture(entry.Transition.ReusableRetainedTiles.Count == 0,
+                    "An older authoring generation was copied as final-current replacement content.");
+            RequireSetFixture(!TerrainAuthoringPreviewService.IsRetainedReuseGloballyEligible(state.ActiveCache, state.ActiveCache,
+                committed, overall + "-changed", false), "A stale overall signature passed retained content reuse.");
+        }
+        finally
+        {
+            stale?.Dispose();
+            state.CacheReady = true;
+            state.WriteFailed = false;
+            state.PendingDirtyTiles.Remove(tile);
+            state.DirtyTargetGeneration = 0;
+            UnityEngine.Object.DestroyImmediate(geometrySettings);
+        }
+    }
+
     private static void ValidateSemanticHeightBinding(WorldSettings settings,
         TerrainAuthoringPreviewResidencyPlan plan, TerrainAuthoringPreviewLodState[] states)
     {
@@ -1810,4 +1862,5 @@ public static class TerrainAuthoringStagedTransitionValidationUtility
     }
 
 }
+
 

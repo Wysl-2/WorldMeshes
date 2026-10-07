@@ -382,10 +382,21 @@ public static partial class TerrainAuthoringPreviewService
     {
         minimumHeight = maximumHeight = 0;
         var tile = new Vector2Int(tileX, tileZ);
+        var settings = LoadWorldSettings();
+        if (!TryResolveReadinessContext(settings, out string committed)) return false;
         var state = FindFinestResidentDisplayState(tile);
-        if (state == null || state.WriteFailed || state.PendingDirtyTiles.Contains(tile)
-            || dirtyCompositeTiles.Contains(tile) || IsWorldTilePendingRegionalElevationRecomposition(LoadWorldSettings(), tile)
-            || !state.ActiveCache.IsSliceFinalCompositeReady(tile)) return false;
+        if (!IsStateTileContentCurrent(state, settings, committed, tile)) return false;
+        return state.ActiveCache.TryGetCompositeSliceRange(tileX, tileZ, out minimumHeight, out maximumHeight);
+    }
+
+    internal static bool TryGetDrawableCompositeSliceRange(int tileX, int tileZ, out float minimumHeight, out float maximumHeight)
+    {
+        minimumHeight = maximumHeight = 0;
+        var settings = LoadWorldSettings();
+        if (!TryResolveReadinessContext(settings, out string committed)) return false;
+        var tile = new Vector2Int(tileX, tileZ);
+        var state = FindFinestResidentDisplayState(tile);
+        if (!IsStateTileDrawable(state, settings, committed, tile)) return false;
         return state.ActiveCache.TryGetCompositeSliceRange(tileX, tileZ, out minimumHeight, out maximumHeight);
     }
 
@@ -553,10 +564,6 @@ public static partial class TerrainAuthoringPreviewService
     {
         ClearTransitionFailureSuppression();
 
-        RegisterPreviewAuthoringInvalidation(
-            "Committed heightfield changed."
-        );
-
         committedRebuildRequested =
             true;
 
@@ -575,6 +582,11 @@ public static partial class TerrainAuthoringPreviewService
         overallSignatureAcknowledgementRequested =
             false;
 
+        RegisterPreviewAuthoringInvalidation(
+            "Committed heightfield changed.",
+            false
+        );
+
         ScheduleRefresh();
     }
 
@@ -590,15 +602,15 @@ public static partial class TerrainAuthoringPreviewService
         int tileZ
     )
     {
-        RegisterPreviewAuthoringInvalidation(
-            "A composite authoring tile changed."
-        );
-
         dirtyCompositeTiles.Add(
             new Vector2Int(
                 tileX,
                 tileZ
             )
+        );
+
+        RegisterPreviewAuthoringInvalidation(
+            "A composite authoring tile changed."
         );
 
         ScheduleRefresh();
@@ -608,12 +620,12 @@ public static partial class TerrainAuthoringPreviewService
         Vector2Int tileCoordinate
     )
     {
-        RegisterPreviewAuthoringInvalidation(
-            "A composite authoring tile changed."
-        );
-
         dirtyCompositeTiles.Add(
             tileCoordinate
+        );
+
+        RegisterPreviewAuthoringInvalidation(
+            "A composite authoring tile changed."
         );
 
         ScheduleRefresh();
@@ -628,10 +640,6 @@ public static partial class TerrainAuthoringPreviewService
             return;
         }
 
-        RegisterPreviewAuthoringInvalidation(
-            "Composite authoring tiles changed."
-        );
-
         foreach (
             Vector2Int coordinate
             in tileCoordinates
@@ -641,6 +649,10 @@ public static partial class TerrainAuthoringPreviewService
                 coordinate
             );
         }
+
+        RegisterPreviewAuthoringInvalidation(
+            "Composite authoring tiles changed."
+        );
 
         ScheduleRefresh();
     }
@@ -657,10 +669,6 @@ public static partial class TerrainAuthoringPreviewService
     {
         ClearTransitionFailureSuppression();
 
-        RegisterPreviewAuthoringInvalidation(
-            "Composite authoring state changed."
-        );
-
         if (tileCoordinates != null)
         {
             foreach (
@@ -676,6 +684,10 @@ public static partial class TerrainAuthoringPreviewService
 
         overallSignatureAcknowledgementRequested =
             true;
+
+        RegisterPreviewAuthoringInvalidation(
+            "Composite authoring state changed."
+        );
 
         ScheduleRefresh();
     }
@@ -735,8 +747,6 @@ public static partial class TerrainAuthoringPreviewService
     public static void ForceCommittedRebuildNow()
     {
         ClearTransitionFailureSuppression();
-        RegisterPreviewAuthoringInvalidation("An explicit committed preview rebuild was requested.");
-
         committedRebuildRequested =
             true;
 
@@ -744,6 +754,10 @@ public static partial class TerrainAuthoringPreviewService
             true;
 
         dirtyCompositeTiles.Clear();
+
+        ClearPendingRegionalElevationInvalidationForCommittedChange();
+        overallSignatureAcknowledgementRequested = false;
+        RegisterPreviewAuthoringInvalidation("An explicit committed preview rebuild was requested.", false);
 
         ScheduleRefresh();
     }
@@ -1154,9 +1168,10 @@ public static partial class TerrainAuthoringPreviewService
     private static bool DisplayLodTileCurrentForValidation(int level, int tileX, int tileZ, out TerrainAuthoringPreviewCache cache)
     {
         if (!TryGetActiveDisplayLodCacheForValidation(level, out cache)) return false;
+        var settings = LoadWorldSettings();
+        if (!TryResolveReadinessContext(settings, out string committed)) return false;
         var state = activeHeightStates[level]; var tile = new Vector2Int(tileX, tileZ);
-        return state.ActiveAuthoringGeneration == authoringGeneration && !state.PendingDirtyTiles.Contains(tile)
-            && cache.IsSliceFinalCompositeReady(tile);
+        return IsStateTileContentCurrent(state, settings, committed, tile);
     }
 
     internal static bool TryGetDisplayLodCompositeSliceRange(int level, int tileX, int tileZ,
@@ -1200,3 +1215,4 @@ public static partial class TerrainAuthoringPreviewService
     }
 
 }
+

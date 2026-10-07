@@ -68,8 +68,16 @@ public static partial class TerrainAuthoringPreviewService
     public static string StreamingStatusMessage => streamingStatusMessage;
     public static bool IsStreaming => streamingState != TerrainAuthoringPreviewStreamingState.Idle
         && streamingState != TerrainAuthoringPreviewStreamingState.Failed;
-    public static bool IsWaitingForStreamingCoverage => Enabled && latestDisplayIntent != null
-        && (!CanActiveHeightCacheSetCover(latestDisplayIntent.Plan) || !IsDisplayLayoutPublished(latestDisplayIntent.Layout));
+    public static bool IsWaitingForStreamingCoverage
+    {
+        get
+        {
+            var settings = LoadWorldSettings();
+            return Enabled && latestDisplayIntent != null
+                && (!LatestDisplayCoverageIsCurrent(settings, TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(settings))
+                    || !IsDisplayLayoutPublished(latestDisplayIntent.Layout));
+        }
+    }
     public static float StreamingProgress => Mathf.Clamp01(streamingProgress);
     public static long StreamingRequestGeneration => streamingRequestGeneration;
     public static int StreamingRetainedTileCount => SumSetTiles(0);
@@ -90,8 +98,8 @@ public static partial class TerrainAuthoringPreviewService
         {
             var snapshot = GetDiagnosticsSnapshot();
             return !snapshot.Drawable ? "No Published Display"
-                : !snapshot.CacheReady ? "Retained Display Awaiting Current Content"
-                : snapshot.WaitingForCoverage ? "Waiting For Latest Paired Destination" : "Current Display Safe";
+                : snapshot.WaitingForCoverage ? "Waiting For Latest Paired Destination"
+                : !snapshot.CacheReady ? "Retained Display Awaiting Current Content" : "Current Display Safe";
         }
     }
 
@@ -549,3 +557,4 @@ public static partial class TerrainAuthoringPreviewService
         RepaintEditorViews();
     }
 }
+
