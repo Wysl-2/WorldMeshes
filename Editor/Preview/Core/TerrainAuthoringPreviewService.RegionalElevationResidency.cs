@@ -57,6 +57,7 @@ public static partial class TerrainAuthoringPreviewService
         TerrainRegionalElevationInvalidationScope scope
     )
     {
+        RearmRegionalDirtyFailures(activeHeightStates, LoadWorldSettings(), scope);
         if (
             scope.Kind !=
                 TerrainRegionalElevationInvalidationKind.None

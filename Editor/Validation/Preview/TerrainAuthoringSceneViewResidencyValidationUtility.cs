@@ -136,6 +136,7 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
             RunMultiresolutionResidencyPlanValidation();
             RunMultiresolutionBoundedScalingValidation();
             RunDiagnosticsProjectionValidation();
+            RunDirtyScratchOwnershipValidation();
             RunLivePreviewValidation();
         }
         catch (Exception exception)
@@ -1390,12 +1391,15 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
             && ownership.TotalBytes == TerrainAuthoringPreviewService.ApproximateTotalResidentGpuMemoryBytes;
         AddResult("Distinct preview resource ownership", ownersValid ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             $"Service cache objects={ownership.OwnedCacheCount}, arrays={ownership.AllocatedArrayCount}; editor-domain live={snapshot.CacheLiveCount}; Height payload={ownership.TotalBytes} bytes. Stale/retained owners remain counted.");
-        long displayBytes = 0, stagingBytes = 0;
+        long displayBytes = 0, stagingBytes = 0, scratchBytes = 0;
         int allocated = 0;
         bool rowsValid = true;
         foreach (var row in snapshot.DisplayLods)
         {
             displayBytes += row.Active.GpuBytes;
+            scratchBytes += row.DirtyScratchBytes;
+            rowsValid &= row.FailedDirtyCount <= row.PendingDirtyCount
+                && (row.FailedDirtyCount == 0 || row.DirtyFailure.Present);
             stagingBytes += row.Staging.GpuBytes;
             if (!row.Active.HasTexture) continue;
             allocated++;
@@ -1427,6 +1431,9 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
                 $"Stride={row.Active.Representation.Stride}, physical={row.Active.Window}, published required={row.PublishedRequiredWindow}, latest required={row.RequiredWindow}; current={row.Active.Current}, dirty={row.PendingDirtyCount}.");
         }
         bool totalsValid = displayBytes == ownership.DisplayActiveBytes && stagingBytes == ownership.DisplayStagingBytes
+            && scratchBytes <= ownership.DirtyScratchBytes
+            && ownership.TotalBytes == ownership.ActiveBytes + ownership.StagingBytes
+                + ownership.RetiringDisplayBytes + ownership.RetiringAnalysisBytes + ownership.DirtyScratchBytes
             && snapshot.ReadyForLatestIntent == (snapshot.Drawable && snapshot.LatestCoverageCurrent && snapshot.PlacementCurrent)
             && snapshot.WaitingForCoverage == (snapshot.Enabled && TerrainAuthoringPreviewService.LatestMultiresolutionResidencyGeneration != 0
                 && !snapshot.ReadyForLatestIntent)
@@ -1794,6 +1801,33 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
             );
         }
     }
+    private static void RunDirtyScratchOwnershipValidation()
+    {
+        var state = new TerrainAuthoringPreviewLodState(0, 1, 9, 1);
+        long cacheLive = TerrainAuthoringPreviewCache.DiagnosticLiveCount;
+        RenderTexture scratch = null;
+        try
+        {
+            if (!state.TryEnsureDirtyScratch(out bool allocated, out string error))
+            { AddResult("Dirty scratch ownership", ValidationOutcome.Blocked, error); return; }
+            scratch = state.DirtyScratch;
+            var active = TerrainAuthoringPreviewService.CaptureHeightOwnership(new[] { state }, null, null, null, new[] { state }, null);
+            var retiring = TerrainAuthoringPreviewService.CaptureHeightOwnership(null, null, null, null, new[] { state }, null);
+            bool valid = allocated && state.TryEnsureDirtyScratch(out allocated, out _) && !allocated
+                && active.DirtyScratchArrayCount == 1 && active.DirtyScratchBytes == 2L * sizeof(float) * 9 * 9
+                && active.TotalBytes == active.DirtyScratchBytes && active.OwnedCacheCount == 0 && active.AllocatedArrayCount == 0
+                && active.DisplayActiveBytes == 0 && active.StagingBytes == 0
+                && retiring.DirtyScratchBytes == active.DirtyScratchBytes && retiring.DirtyScratchArrayCount == 1
+                && TerrainAuthoringPreviewCache.DiagnosticLiveCount == cacheLive;
+            state.Dispose(); state.Dispose();
+            valid &= state.DirtyScratch == null && scratch == null && state.DirtyScratchBytes == 0
+                && TerrainAuthoringPreviewService.CaptureHeightOwnership(new[] { state }, null, null, null, null, null).TotalBytes == 0;
+            AddResult("Dirty scratch ownership", valid ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+                "Scratch reuses one two-slice array, counts active/retiring identity once, changes no cache/page counters, and releases idempotently.");
+        }
+        finally { state.Dispose(); }
+    }
+
     private static void RunDiagnosticsProjectionValidation()
     {
         var required = new TerrainHeightCacheWindow(new Vector2Int(5, 6), Vector2Int.one);
@@ -1866,6 +1900,14 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
             rows[0] = default;
             plan.SampleStride = 4;
             display.PendingDirtyTiles.Add(required.OriginTile);
+            display.RecordDirtyFailure(required.OriginTile, 4, "Isolated copied failure", true);
+            var failedRow = TerrainAuthoringPreviewService.CaptureDisplayLodMetadata(0, display, plan, null, null, false);
+            display.DirtyFailures.Clear();
+            bool failureCopied = failedRow.FailedDirtyCount == 1 && failedRow.DirtyFailure.Present
+                && failedRow.DirtyFailure.Tile == required.OriginTile && failedRow.DirtyFailure.AttemptedGeneration == 4
+                && failedRow.DirtyFailure.LastGoodAvailable && failedRow.DirtyScratchBytes == 0;
+            AddResult("Dirty diagnostics are copied values", failureCopied ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+                "Clearing authoritative suppression after capture leaves its representative tile/generation/message unchanged.");
             bool copied = snapshot.DisplayLods.Count == 2 && snapshot.DisplayLods[0].PlannedRepresentation.Stride == 2
                 && snapshot.DisplayLods[0].Active.Present && !snapshot.DisplayLods[0].Active.HasTexture
                 && snapshot.DisplayLods[0].Staging.Present && !snapshot.DisplayLods[0].Staging.HasTexture
@@ -1896,4 +1938,5 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
     }
 
 }
+
 

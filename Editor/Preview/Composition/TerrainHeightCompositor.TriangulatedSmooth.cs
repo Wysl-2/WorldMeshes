@@ -669,9 +669,9 @@ public sealed partial class TerrainHeightCompositor
             return false;
         }
 
-        triangulatedSmoothComputeShader =
-            AssetDatabase.LoadAssetAtPath<ComputeShader>(
-                TriangulatedSmoothComputeShaderAssetPath);
+        var shaderAsset = AssetDatabase.LoadAssetAtPath<ComputeShader>(TriangulatedSmoothComputeShaderAssetPath);
+        triangulatedSmoothComputeShader = shaderAsset != null ? UnityEngine.Object.Instantiate(shaderAsset) : null;
+        if (triangulatedSmoothComputeShader != null) triangulatedSmoothComputeShader.hideFlags = HideFlags.HideAndDontSave;
 
         if (triangulatedSmoothComputeShader == null)
         {
@@ -1232,6 +1232,7 @@ public sealed partial class TerrainHeightCompositor
 
     private void ResetTriangulatedSmoothShaderState()
     {
+        if (triangulatedSmoothComputeShader != null) UnityEngine.Object.DestroyImmediate(triangulatedSmoothComputeShader);
         triangulatedSmoothComputeShader = null;
         triangulatedSmoothComposeKernel = -1;
         triangulatedSmoothSampleKernel = -1;
@@ -1240,3 +1241,4 @@ public sealed partial class TerrainHeightCompositor
         triangulatedSmoothSampleThreadGroupSizeX = 0;
     }
 }
+

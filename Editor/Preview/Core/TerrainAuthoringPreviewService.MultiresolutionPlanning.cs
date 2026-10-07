@@ -239,7 +239,7 @@ public static partial class TerrainAuthoringPreviewService
 
     private static void ReleaseActiveHeightCacheSet()
     {
-        ReleaseBinding(); ReleaseActiveDirtySource();
+        ReleaseBinding(); ReleaseActiveDirtySource(); heightCompositor.ReleaseTextureBindings();
         var states = activeHeightStates; activeHeightStates = null; activeHeightView = null; activeDisplayIntent = null;
         if (states != null) foreach (var s in states) s.Dispose();
         if (retiringHeightStates != null) foreach (var s in retiringHeightStates) s.Dispose();

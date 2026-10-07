@@ -90,6 +90,7 @@ public static class TerrainAuthoringModifierResidencyValidationUtility
             ValidateTileSpecificReadiness();
             ValidateInteractionReadiness();
             ValidateLocalContentObligations();
+            ValidateLocalDirtyFailures();
             ValidateCommittedInvalidationStrength();
             ValidateReadinessQuerySideEffects();
             ValidateResidencySizeRecovery();
@@ -658,6 +659,51 @@ public static class TerrainAuthoringModifierResidencyValidationUtility
         finally { fine.Dispose(); coarse.Dispose(); }
     }
 
+    private static void ValidateLocalDirtyFailures()
+    {
+        var state = new TerrainAuthoringPreviewLodState(0, 1, 9, 1);
+        var affected = new Vector2Int(2, 2);
+        var unrelated = new Vector2Int(8, 8);
+        var states = new[] { state };
+        var world = ScriptableObject.CreateInstance<WorldSettings>();
+        world.heightTileChunkSpan = 1; world.gridWidth = world.gridHeight = 16;
+        world.chunkSize = 100f; world.heightfieldResolutionPerChunk = 100;
+        long generation = TerrainAuthoringPreviewService.AuthoringGeneration;
+        try
+        {
+            state.PendingRegionalTiles.Add(affected);
+            state.RecordDirtyFailure(affected, 7, "Isolated preparation failure", true);
+            bool valid = state.PendingDirtyTiles.Contains(affected) && state.PendingRegionalTiles.Contains(affected)
+                && !state.WriteFailed && state.DirtyFailures.Count == 1;
+            var interaction = TerrainAuthoringPreviewReadinessPolicy.EvaluateInteractionTile(true, true, true, true, true, true, state.HasPendingContent(affected));
+            var strict = TerrainAuthoringPreviewReadinessPolicy.EvaluateTile(true, true, true, true, true, true, state.HasPendingContent(affected));
+            valid &= interaction == TerrainAuthoringPreviewInteractionReadiness.Updating
+                     && strict == TerrainAuthoringPreviewReadiness.Loading;
+            state.DirtyTargetGeneration = 8;
+            TerrainAuthoringPreviewService.RearmDirtyTile(states, unrelated);
+            TerrainAuthoringPreviewService.RearmRegionalDirtyFailures(states, world, TerrainRegionalElevationInvalidationScope.None);
+            var remoteScope = TerrainRegionalElevationInvalidationScope.FromWorldBounds(new Bounds(new Vector3(850, 0, 850), Vector3.one));
+            TerrainAuthoringPreviewService.RearmRegionalDirtyFailures(states, world, remoteScope);
+            valid &= state.DirtyFailures.ContainsKey(affected);
+            TerrainAuthoringPreviewService.RearmDirtyTile(states, affected);
+            valid &= state.DirtyFailures.Count == 0 && state.PendingDirtyTiles.Contains(affected);
+            state.RecordDirtyFailure(affected, 8, "Isolated failure", true);
+            var localScope = TerrainRegionalElevationInvalidationScope.FromWorldBounds(new Bounds(new Vector3(250, 0, 250), Vector3.one));
+            TerrainAuthoringPreviewService.RearmRegionalDirtyFailures(states, world, localScope);
+            valid &= state.DirtyFailures.Count == 0;
+            state.RecordDirtyFailure(affected, 9, "Isolated failure", true);
+            TerrainAuthoringPreviewService.RearmAllDirtyFailures(states);
+            valid &= state.DirtyFailures.Count == 0 && state.PendingDirtyTiles.Contains(affected)
+                && state.PendingRegionalTiles.Contains(affected) && TerrainAuthoringPreviewService.AuthoringGeneration == generation;
+            state.RecordDirtyFailure(affected, 9, "Isolated failure", true);
+            TerrainAuthoringPreviewService.RearmRegionalDirtyFailures(states, world, TerrainRegionalElevationInvalidationScope.WholeWorld);
+            valid &= state.DirtyFailures.Count == 0;
+            if (valid) AddPass("Local dirty failure suppression and relevant retry", "Failure remains stale/editable; generation and unrelated modifier/regional scope do not rearm it. Relevant scope and retry retain obligations without advancing authoring identity.");
+            else AddFail("Local dirty failure suppression and relevant retry", "Suppression, pending scope, interaction readiness or retry identity was incorrect.");
+        }
+        finally { state.Dispose(); UnityEngine.Object.DestroyImmediate(world); }
+    }
+
     private static void ValidateCommittedInvalidationStrength()
     {
         TerrainAuthoringPreviewReadiness readiness =
@@ -1142,4 +1188,5 @@ public static class TerrainAuthoringModifierResidencyValidationUtility
     }
 
 }
+
 

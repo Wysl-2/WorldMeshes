@@ -1818,6 +1818,103 @@ public sealed partial class TerrainAuthoringPreviewCache :
         return true;
     }
 
+    // The candidate and recovery slices are workspace, never resident cache pages.
+    internal bool TryCommitCompositeSliceFromScratch(RenderTexture scratch, Vector2Int tile,
+        float minimum, float maximum, out bool liveSliceSafe, out int copies, out string error)
+    {
+        return TryCommitCompositeSliceFromScratch(scratch, tile, minimum, maximum,
+            CopyHeightSlice, out liveSliceSafe, out copies, out error);
+    }
+
+    // A local copy seam lets an isolated validator throw after a real publication.
+    internal bool TryCommitCompositeSliceFromScratch(RenderTexture scratch, Vector2Int tile,
+        float minimum, float maximum, Action<RenderTexture, int, RenderTexture, int> copy,
+        out bool liveSliceSafe, out int copies, out string error)
+    {
+        copies = 0;
+        error = "";
+        liveSliceSafe = IsReady && IsSliceFinalCompositeReady(tile);
+        int slice = GetSliceIndex(tile.x, tile.y);
+        if (!liveSliceSafe || slice < 0 || heightCache == null || !heightCache.IsCreated())
+        { error = "The live Height slice is not a usable final composite."; return false; }
+        if (scratch == null || !scratch.IsCreated() || ReferenceEquals(scratch, heightCache) || copy == null
+            || scratch.dimension != TextureDimension.Tex2DArray || heightCache.dimension != TextureDimension.Tex2DArray
+            || scratch.width != samplesPerSide || scratch.height != samplesPerSide
+            || heightCache.width != samplesPerSide || heightCache.height != samplesPerSide
+            || scratch.volumeDepth != 2 || heightCache.volumeDepth != SliceCount || slice >= heightCache.volumeDepth
+            || !scratch.enableRandomWrite || !heightCache.enableRandomWrite
+            || scratch.graphicsFormat != heightCache.graphicsFormat || scratch.format != RenderTextureFormat.RFloat
+            || scratch.antiAliasing != 1 || heightCache.antiAliasing != 1
+            || scratch.useMipMap || heightCache.useMipMap || scratch.mipmapCount != 1 || heightCache.mipmapCount != 1
+            || (SystemInfo.copyTextureSupport & CopyTextureSupport.Basic) == 0
+            || sliceMinimumHeights == null || sliceMaximumHeights == null || sliceRangeValid == null
+            || sliceReadiness == null || sliceMinimumHeights.Length != SliceCount
+            || sliceMaximumHeights.Length != SliceCount || sliceRangeValid.Length != SliceCount
+            || sliceReadiness.Length != SliceCount || !IsFinite(minimum) || !IsFinite(maximum) || maximum < minimum)
+        { error = "The dirty Height candidate or live slice contract is invalid."; return false; }
+
+        // Compute the future aggregate before touching pixels or metadata.
+        float nextMinimum = float.PositiveInfinity, nextMaximum = float.NegativeInfinity;
+        for (int index = 0; index < SliceCount; index++)
+        {
+            float low = index == slice ? minimum : sliceMinimumHeights[index];
+            float high = index == slice ? maximum : sliceMaximumHeights[index];
+            if (!sliceRangeValid[index] || sliceReadiness[index] != TerrainAuthoringPreviewSliceReadiness.FinalCompositeReady
+                || !IsFinite(sliceMinimumHeights[index]) || !IsFinite(sliceMaximumHeights[index])
+                || sliceMaximumHeights[index] < sliceMinimumHeights[index] || !IsFinite(low) || !IsFinite(high) || high < low)
+            { error = "The live Height range or readiness metadata is incomplete."; return false; }
+            nextMinimum = Mathf.Min(nextMinimum, low);
+            nextMaximum = Mathf.Max(nextMaximum, high);
+        }
+        float previousMinimum = sliceMinimumHeights[slice], previousMaximum = sliceMaximumHeights[slice];
+        float previousGlobalMinimum = minimumHeight, previousGlobalMaximum = maximumHeight;
+        bool previousValid = sliceRangeValid[slice];
+        var previousReadiness = sliceReadiness[slice];
+        bool publicationAttempted = false;
+        try
+        {
+            copies++;
+            copy(heightCache, slice, scratch, 1);
+            publicationAttempted = true;
+            copies++;
+            copy(scratch, 0, heightCache, slice);
+        }
+        catch (Exception exception)
+        {
+            error = exception.Message;
+            if (publicationAttempted)
+            {
+                try
+                {
+                    if (heightCache == null || !heightCache.IsCreated() || scratch == null || !scratch.IsCreated())
+                        throw new InvalidOperationException("The Height recovery storage is unavailable.");
+                    copies++;
+                    copy(scratch, 1, heightCache, slice);
+                    sliceMinimumHeights[slice] = previousMinimum; sliceMaximumHeights[slice] = previousMaximum;
+                    sliceRangeValid[slice] = previousValid; sliceReadiness[slice] = previousReadiness;
+                    minimumHeight = previousGlobalMinimum; maximumHeight = previousGlobalMaximum;
+                }
+                catch (Exception recoveryException)
+                { liveSliceSafe = false; error += " Recovery failed: " + recoveryException.Message; }
+            }
+            if (heightCache == null || !heightCache.IsCreated()) liveSliceSafe = false;
+            return false;
+        }
+
+        // No allocations, callbacks, range rescans, or other fallible work after publication.
+        sliceMinimumHeights[slice] = minimum; sliceMaximumHeights[slice] = maximum;
+        sliceRangeValid[slice] = true;
+        sliceReadiness[slice] = TerrainAuthoringPreviewSliceReadiness.FinalCompositeReady;
+        minimumHeight = nextMinimum; maximumHeight = nextMaximum;
+        lastIncrementalSliceCount = 1; totalIncrementalSliceUpdates++;
+        return true;
+    }
+
+    private static void CopyHeightSlice(RenderTexture source, int sourceSlice, RenderTexture destination, int destinationSlice)
+    {
+        Graphics.CopyTexture(source, sourceSlice, 0, destination, destinationSlice, 0);
+    }
+
     // =====================================================
     // GLOBAL RANGE
     // =====================================================
@@ -2137,4 +2234,5 @@ public sealed partial class TerrainAuthoringPreviewCache :
             0.0001f;
     }
 }
+
 

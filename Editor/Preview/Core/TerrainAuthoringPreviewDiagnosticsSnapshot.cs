@@ -60,6 +60,21 @@ internal readonly struct TerrainAuthoringPreviewCacheSnapshot
     }
 }
 
+internal readonly struct TerrainAuthoringPreviewDirtyFailureSnapshot
+{
+    public readonly bool Present;
+    public readonly Vector2Int Tile;
+    public readonly long AttemptedGeneration;
+    public readonly string Message;
+    public readonly bool LastGoodAvailable;
+
+    internal TerrainAuthoringPreviewDirtyFailureSnapshot(Vector2Int tile, TerrainAuthoringPreviewDirtyFailure failure)
+    {
+        Present = true; Tile = tile; AttemptedGeneration = failure.AttemptedGeneration;
+        Message = failure.Message; LastGoodAvailable = failure.LastGoodAvailable;
+    }
+}
+
 internal readonly struct TerrainAuthoringPreviewLodDiagnosticsSnapshot
 {
     public readonly int Level;
@@ -77,6 +92,9 @@ internal readonly struct TerrainAuthoringPreviewLodDiagnosticsSnapshot
     public readonly TerrainHeightCacheWindow QueuedTargetWindow;
     public readonly TerrainAuthoringPreviewRepresentationSnapshot QueuedRepresentation;
     public readonly int PendingDirtyCount;
+    public readonly int FailedDirtyCount;
+    public readonly TerrainAuthoringPreviewDirtyFailureSnapshot DirtyFailure;
+    public readonly long DirtyScratchBytes;
     public readonly bool WriteFailed;
     public readonly long PublishedGeneration;
     public readonly long RequestGeneration;
@@ -119,7 +137,10 @@ internal readonly struct TerrainAuthoringPreviewLodDiagnosticsSnapshot
         int materializedCount,
         int compositionRemainingCount,
         int composedCount,
-        TerrainAuthoringPreviewResidencySizeHealth sizeHealth)
+        TerrainAuthoringPreviewResidencySizeHealth sizeHealth,
+        int failedDirtyCount = 0,
+        TerrainAuthoringPreviewDirtyFailureSnapshot dirtyFailure = default,
+        long dirtyScratchBytes = 0L)
     {
         Level = level;
         HasLatestPlan = hasLatestPlan;
@@ -136,6 +157,7 @@ internal readonly struct TerrainAuthoringPreviewLodDiagnosticsSnapshot
         QueuedTargetWindow = queuedTargetWindow;
         QueuedRepresentation = queuedRepresentation;
         PendingDirtyCount = pendingDirtyCount;
+        FailedDirtyCount = failedDirtyCount; DirtyFailure = dirtyFailure; DirtyScratchBytes = dirtyScratchBytes;
         WriteFailed = writeFailed;
         PublishedGeneration = publishedGeneration;
         RequestGeneration = requestGeneration;
@@ -225,6 +247,8 @@ internal readonly struct TerrainAuthoringPreviewOwnershipSnapshot
     public readonly long AnalysisStagingBytes;
     public readonly long RetiringDisplayBytes;
     public readonly long RetiringAnalysisBytes;
+    public readonly long DirtyScratchBytes;
+    public readonly int DirtyScratchArrayCount;
     public readonly int OwnedCacheCount;
     public readonly int AllocatedArrayCount;
     public readonly int DisplayActiveCount;
@@ -234,7 +258,7 @@ internal readonly struct TerrainAuthoringPreviewOwnershipSnapshot
     public readonly int RetiringCount;
     public long ActiveBytes => DisplayActiveBytes + AnalysisActiveBytes;
     public long StagingBytes => DisplayStagingBytes + AnalysisStagingBytes;
-    public long TotalBytes => ActiveBytes + StagingBytes + RetiringDisplayBytes + RetiringAnalysisBytes;
+    public long TotalBytes => ActiveBytes + StagingBytes + RetiringDisplayBytes + RetiringAnalysisBytes + DirtyScratchBytes;
 
     internal TerrainAuthoringPreviewOwnershipSnapshot(
         long displayActiveBytes,
@@ -249,7 +273,9 @@ internal readonly struct TerrainAuthoringPreviewOwnershipSnapshot
         int analysisActiveCount,
         int displayStagingCount,
         int analysisStagingCount,
-        int retiringCount)
+        int retiringCount,
+        long dirtyScratchBytes = 0L,
+        int dirtyScratchArrayCount = 0)
     {
         DisplayActiveBytes = displayActiveBytes;
         AnalysisActiveBytes = analysisActiveBytes;
@@ -264,6 +290,7 @@ internal readonly struct TerrainAuthoringPreviewOwnershipSnapshot
         DisplayStagingCount = displayStagingCount;
         AnalysisStagingCount = analysisStagingCount;
         RetiringCount = retiringCount;
+        DirtyScratchBytes = dirtyScratchBytes; DirtyScratchArrayCount = dirtyScratchArrayCount;
     }
 }
 
@@ -346,6 +373,17 @@ internal readonly struct TerrainAuthoringPreviewDiagnosticsSnapshot
     public readonly TerrainAuthoringSceneViewFollowSource FollowSource;
     public readonly bool FreezePreview;
     public readonly int PendingGeographicDirtyCount;
+    public readonly int LastDirtyAllocations;
+    public readonly int LastDirtyCopies;
+    public readonly bool BoundsFollowUpPending;
+    public readonly bool AnalysisFollowUpPending;
+    public readonly string BoundsFollowUpError;
+    public readonly string AnalysisFollowUpError;
+    public readonly string LastFollowUpError;
+    public bool HasFailedDirtyUpdates
+    {
+        get { foreach (var row in DisplayLods) if (row.FailedDirtyCount > 0) return true; return false; }
+    }
     public readonly int LastDirtyLoads;
     public readonly int LastDirtyMaterializations;
     public readonly int LastDirtyCompositions;
@@ -398,7 +436,14 @@ internal readonly struct TerrainAuthoringPreviewDiagnosticsSnapshot
         int lastDirtyMaterializations,
         int lastDirtyCompositions,
         string cancellationReason,
-        TerrainAuthoringPreviewLodDiagnosticsSnapshot[] displayLods)
+        TerrainAuthoringPreviewLodDiagnosticsSnapshot[] displayLods,
+        int lastDirtyAllocations = 0,
+        int lastDirtyCopies = 0,
+        bool boundsFollowUpPending = false,
+        bool analysisFollowUpPending = false,
+        string boundsFollowUpError = "",
+        string analysisFollowUpError = "",
+        string lastFollowUpError = "")
     {
         Enabled = enabled;
         CacheReady = cacheReady;
@@ -439,6 +484,10 @@ internal readonly struct TerrainAuthoringPreviewDiagnosticsSnapshot
         FollowSource = followSource;
         FreezePreview = freezePreview;
         PendingGeographicDirtyCount = pendingGeographicDirtyCount;
+        LastDirtyAllocations = lastDirtyAllocations; LastDirtyCopies = lastDirtyCopies;
+        BoundsFollowUpPending = boundsFollowUpPending; AnalysisFollowUpPending = analysisFollowUpPending;
+        BoundsFollowUpError = boundsFollowUpError ?? ""; AnalysisFollowUpError = analysisFollowUpError ?? "";
+        LastFollowUpError = lastFollowUpError ?? "";
         LastDirtyLoads = lastDirtyLoads;
         LastDirtyMaterializations = lastDirtyMaterializations;
         LastDirtyCompositions = lastDirtyCompositions;
@@ -446,3 +495,4 @@ internal readonly struct TerrainAuthoringPreviewDiagnosticsSnapshot
         DisplayLods = Array.AsReadOnly((TerrainAuthoringPreviewLodDiagnosticsSnapshot[])(displayLods ?? Array.Empty<TerrainAuthoringPreviewLodDiagnosticsSnapshot>()).Clone());
     }
 }
+

@@ -1,6 +1,21 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
+
+internal readonly struct TerrainAuthoringPreviewDirtyFailure
+{
+    internal readonly long AttemptedGeneration;
+    internal readonly string Message;
+    internal readonly bool LastGoodAvailable;
+
+    internal TerrainAuthoringPreviewDirtyFailure(long generation, string message, bool lastGoodAvailable)
+    {
+        AttemptedGeneration = generation;
+        Message = message ?? "";
+        LastGoodAvailable = lastGoodAvailable;
+    }
+}
 
 internal enum TerrainAuthoringPreviewLodTransitionState
 {
@@ -43,7 +58,13 @@ internal sealed class TerrainAuthoringPreviewLodState :
     internal readonly HashSet<Vector2Int> PendingDirtyTiles = new HashSet<Vector2Int>();
     internal readonly HashSet<Vector2Int> SuccessfulDirtyTiles = new HashSet<Vector2Int>();
     internal readonly HashSet<Vector2Int> PendingRegionalTiles = new HashSet<Vector2Int>();
-    // Direct active writes may invalidate the only visible composite on failure.
+    internal RenderTexture DirtyScratch { get; private set; }
+    internal readonly Dictionary<Vector2Int, TerrainAuthoringPreviewDirtyFailure> DirtyFailures =
+        new Dictionary<Vector2Int, TerrainAuthoringPreviewDirtyFailure>();
+    internal long DirtyScratchBytes => DirtyScratch != null && DirtyScratch.IsCreated()
+        ? 2L * sizeof(float) * SamplesPerSide * SamplesPerSide : 0L;
+
+    // Only a destroyed live allocation or an unsuccessful restoration is unsafe.
     internal bool WriteFailed;
     // Accepted content target; global scope may still await per-LOD projection.
     internal long DirtyTargetGeneration;
@@ -153,6 +174,68 @@ internal sealed class TerrainAuthoringPreviewLodState :
             sampleSpacing;
     }
 
+    internal bool IsDirtyTileRunnable(Vector2Int tile) =>
+        HasUsableActiveAllocation && PendingDirtyTiles.Contains(tile) && !DirtyFailures.ContainsKey(tile);
+
+    internal void RecordDirtyFailure(Vector2Int tile, long generation, string message, bool lastGoodAvailable)
+    {
+        PendingDirtyTiles.Add(tile);
+        SuccessfulDirtyTiles.Remove(tile);
+        CacheReady = false;
+        DirtyFailures[tile] = new TerrainAuthoringPreviewDirtyFailure(generation, message, lastGoodAvailable);
+    }
+
+    internal bool TryEnsureDirtyScratch(out bool allocated, out string error)
+    {
+        allocated = false;
+        error = "";
+        if (DirtyScratch != null && DirtyScratch.IsCreated() && DirtyScratch.width == SamplesPerSide
+            && DirtyScratch.height == SamplesPerSide && DirtyScratch.volumeDepth == 2
+            && DirtyScratch.dimension == TextureDimension.Tex2DArray && DirtyScratch.format == RenderTextureFormat.RFloat
+            && DirtyScratch.antiAliasing == 1 && !DirtyScratch.useMipMap && DirtyScratch.enableRandomWrite)
+            return true;
+
+        ReleaseDirtyScratch();
+        if (!SystemInfo.supportsComputeShaders || !SystemInfo.supports2DArrayTextures
+            || !SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.RFloat)
+            || !SystemInfo.SupportsRandomWriteOnRenderTextureFormat(RenderTextureFormat.RFloat)
+            || SamplesPerSide > SystemInfo.maxTextureSize || SystemInfo.maxTextureArraySlices < 2)
+        {
+            error = "The graphics device cannot allocate the dirty Height scratch array.";
+            return false;
+        }
+
+        RenderTexture candidate = null;
+        try
+        {
+            candidate = new RenderTexture(SamplesPerSide, SamplesPerSide, 0, RenderTextureFormat.RFloat,
+                RenderTextureReadWrite.Linear)
+            {
+                name = "Terrain Height dirty scratch", dimension = TextureDimension.Tex2DArray, volumeDepth = 2,
+                enableRandomWrite = true, antiAliasing = 1, useMipMap = false, autoGenerateMips = false,
+                filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.HideAndDontSave
+            };
+            if (!candidate.Create() || !candidate.IsCreated())
+                throw new InvalidOperationException("The dirty Height scratch array could not be created.");
+            DirtyScratch = candidate;
+            allocated = true;
+            return true;
+        }
+        catch (Exception exception)
+        {
+            if (candidate != null) { candidate.Release(); UnityEngine.Object.DestroyImmediate(candidate); }
+            error = exception.Message;
+            return false;
+        }
+    }
+
+    private void ReleaseDirtyScratch()
+    {
+        var scratch = DirtyScratch;
+        DirtyScratch = null;
+        if (scratch != null) { scratch.Release(); UnityEngine.Object.DestroyImmediate(scratch); }
+    }
+
     public void Dispose()
     {
         TerrainAuthoringPreviewCache active =
@@ -199,6 +282,8 @@ internal sealed class TerrainAuthoringPreviewLodState :
         TransitionState =
             TerrainAuthoringPreviewLodTransitionState.Idle;
 
+        ReleaseDirtyScratch();
+        DirtyFailures.Clear();
         PendingDirtyTiles.Clear();
         SuccessfulDirtyTiles.Clear();
         PendingRegionalTiles.Clear();
@@ -228,4 +313,5 @@ internal sealed class TerrainAuthoringPreviewLodState :
             );
     }
 }
+
 

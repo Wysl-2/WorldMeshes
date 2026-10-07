@@ -205,7 +205,8 @@ public static partial class TerrainAuthoringPreviewService
     private static void OnStreamingEditorUpdate()
     {
         if (!CanRunEditorPreviewWork || displayCommitInProgress || retiringHeightStates != null || retiringAnalysisState != null) return;
-        LastDirtyUpdateLoads = LastDirtyUpdateMaterializations = LastDirtyUpdateCompositions = 0;
+        LastDirtyUpdateAllocations = LastDirtyUpdateCopies = LastDirtyUpdateLoads =
+            LastDirtyUpdateMaterializations = LastDirtyUpdateCompositions = 0;
         if (currentCacheSetTransition != null)
         {
             currentCacheSetTransition.LastUpdateAllocations = currentCacheSetTransition.LastUpdateLoads =
@@ -219,13 +220,16 @@ public static partial class TerrainAuthoringPreviewService
         string overall = TerrainAuthoringStateUtility.GetOverallAuthoringSignature(settings, data);
         if (!TryProjectPendingDisplayAuthoring(settings, committed, overall, out string error))
         { SetStatus(TerrainAuthoringPreviewStatus.Error, error); return; }
+        long followUpGeneration = authoringGeneration;
+        TryAdvancePreviewFollowUps(settings, data, committed, overall);
+        if (!CanRunEditorPreviewWork || followUpGeneration != authoringGeneration) return;
         if (TransitionInProgress && !ValidateCacheSetTransaction(currentCacheSetTransition, settings, data, out string stale))
         { CancelCurrentStreamingTransition(stale, false); ScheduleRefresh(); }
         var work = TransitionInProgress ? currentCacheSetTransition : pendingCacheSetTransition;
         bool mandatoryDisplay = work != null && work.Publication == TerrainAuthoringPreviewCachePublication.DisplayHeightSet
             && work.DisplayCritical && !HasActiveInteractiveTerrainAuthoringEdit;
         bool runningAnalysis = TransitionInProgress && currentCacheSetTransition.Publication == TerrainAuthoringPreviewCachePublication.NativeAnalysis;
-        if (!mandatoryDisplay && !runningAnalysis && HasRequiredActiveDirtyWork)
+        if (!mandatoryDisplay && !runningAnalysis && HasRunnableRequiredActiveDirtyWork)
         {
             // Exactly one resource worker receives this callback's clock/caps.
             currentCacheSetTransition?.ReleaseCurrentSource();
@@ -234,16 +238,16 @@ public static partial class TerrainAuthoringPreviewService
         if (!mandatoryDisplay && TerrainAnalysisHeightIsRequired && work != null
             && work.Publication == TerrainAuthoringPreviewCachePublication.DisplayHeightSet && !work.DisplayCritical)
             CancelCurrentStreamingTransition("Native analysis demand superseded optional display guard preparation.", false);
-        AdmitPendingTerrainAnalysisSource(settings, data);
+        TryRunAnalysisFollowUp(() => AdmitPendingTerrainAnalysisSource(settings, data));
         work = TransitionInProgress ? currentCacheSetTransition : pendingCacheSetTransition;
-        if (!mandatoryDisplay && work == null && HasPendingActiveDirtyWork)
+        if (!mandatoryDisplay && work == null && HasRunnableActiveDirtyWork)
         { AdvanceActiveDisplayDirty(settings, data, watch); return; }
         if (!TransitionInProgress && hasPendingStreamingStart)
         {
             if (TerrainAuthoringPreviewStreamingPolicy.ShouldDeferHeightRequestRestart(pendingCacheSetTransition.Publication,
                 HasActiveInteractiveTerrainAuthoringEdit, TerrainAuthoringVisualizationController.RequiresLiveTerrainAnalysisDuringInteractiveEdit))
             {
-                if (HasPendingActiveDirtyWork) AdvanceActiveDisplayDirty(settings, data, watch);
+                if (HasRunnableActiveDirtyWork) AdvanceActiveDisplayDirty(settings, data, watch);
                 return;
             }
             ReleaseActiveDirtySource(); ReleaseStagingCacheOnly();
@@ -437,6 +441,7 @@ public static partial class TerrainAuthoringPreviewService
             t.ReleaseCurrentSource();
             return false;
         }
+        finally { compositor.ReleaseTextureBindings(); }
     }
 
     private static bool WorkerFailure(TerrainAuthoringPreviewCacheSetTransition t,
@@ -524,6 +529,7 @@ public static partial class TerrainAuthoringPreviewService
 
     private static void ClearPendingStreamingStart()
     {
+        heightCompositor.ReleaseTextureBindings();
         pendingCacheSetTransition?.Dispose();
         pendingCacheSetTransition = null;
     }
@@ -553,8 +559,9 @@ public static partial class TerrainAuthoringPreviewService
             $"{StreamingSourceComposedCount}|{streamingProgress}|{IsWaitingForStreamingCoverage}";
         if (snapshot == lastPublishedStreamingSnapshot) return;
         lastPublishedStreamingSnapshot = snapshot;
-        StreamingStateChanged?.Invoke();
+        DispatchPreviewObservers(StreamingStateChanged, "Streaming state");
         RepaintEditorViews();
     }
 }
+
 

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
@@ -602,12 +603,9 @@ public static partial class TerrainAuthoringPreviewService
         int tileZ
     )
     {
-        dirtyCompositeTiles.Add(
-            new Vector2Int(
-                tileX,
-                tileZ
-            )
-        );
+        var tile = new Vector2Int(tileX, tileZ);
+        RearmDirtyTile(activeHeightStates, tile);
+        dirtyCompositeTiles.Add(tile);
 
         RegisterPreviewAuthoringInvalidation(
             "A composite authoring tile changed."
@@ -620,9 +618,8 @@ public static partial class TerrainAuthoringPreviewService
         Vector2Int tileCoordinate
     )
     {
-        dirtyCompositeTiles.Add(
-            tileCoordinate
-        );
+        RearmDirtyTile(activeHeightStates, tileCoordinate);
+        dirtyCompositeTiles.Add(tileCoordinate);
 
         RegisterPreviewAuthoringInvalidation(
             "A composite authoring tile changed."
@@ -645,9 +642,8 @@ public static partial class TerrainAuthoringPreviewService
             in tileCoordinates
         )
         {
-            dirtyCompositeTiles.Add(
-                coordinate
-            );
+            RearmDirtyTile(activeHeightStates, coordinate);
+            dirtyCompositeTiles.Add(coordinate);
         }
 
         RegisterPreviewAuthoringInvalidation(
@@ -676,9 +672,8 @@ public static partial class TerrainAuthoringPreviewService
                 in tileCoordinates
             )
             {
-                dirtyCompositeTiles.Add(
-                    coordinate
-                );
+                RearmDirtyTile(activeHeightStates, coordinate);
+                dirtyCompositeTiles.Add(coordinate);
             }
         }
 
@@ -735,6 +730,7 @@ public static partial class TerrainAuthoringPreviewService
      */
     public static void NotifyClipmapHierarchyChanged()
     {
+        boundsHierarchyBoundary++;
         clipmapRebindRequested =
             true;
 
@@ -744,6 +740,18 @@ public static partial class TerrainAuthoringPreviewService
     /*
      * Explicit user command: validate/rebuild the committed cache now.
      */
+    public static void RetryFailedDirtyUpdates()
+    {
+        RearmAllDirtyFailures(activeHeightStates);
+        ReleaseActiveDirtySource(); heightCompositor.ReleaseTextureBindings();
+        lastBoundsFollowUpAttempt = lastAnalysisFollowUpAttempt = lastCompletionFollowUpFailure = "";
+        latestFollowUpError = "";
+        Array.Clear(observerFailureStamps, 0, observerFailureStamps.Length);
+        if (activeHeightStates != null) foreach (var state in activeHeightStates)
+            if (state.WriteFailed) { ClearDisplayTransitionFailureSuppression(); clipmapRebindRequested = true; }
+        ScheduleRefresh();
+    }
+
     public static void ForceCommittedRebuildNow()
     {
         ClearTransitionFailureSuppression();
@@ -937,7 +945,6 @@ public static partial class TerrainAuthoringPreviewService
         }
         if (!TryProjectPendingDisplayAuthoring(settings, committed, overall, out error))
         { SetStatus(TerrainAuthoringPreviewStatus.Error, error); return; }
-        if (activeDirtyFailureGeneration == authoringGeneration && HasPendingActiveDirtyWork) return;
         if (latestDisplayIntent == null || latestDisplayIntent.Root != root || !latestDisplayIntent.ConfigurationMatches(settings)
             || latestDisplayIntent.OwnershipGeneration != TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration)
         {
@@ -970,11 +977,206 @@ public static partial class TerrainAuthoringPreviewService
 
     private static bool ApplyCurrentPreviewBounds(Transform root, out string errorMessage)
     {
-        errorMessage = "";
         var controller = root != null ? root.GetComponent<TerrainClipmapBoundsController>() : null;
-        if (controller == null || !controller.ApplyBoundsForRange(aggregateMinimumHeight, aggregateMaximumHeight))
-        { errorMessage = "The transient multiresolution Height range could not be applied."; return false; }
-        return true;
+        var renderers = root != null ? root.GetComponentsInChildren<MeshRenderer>(true) : Array.Empty<MeshRenderer>();
+        return TryApplyPreviewBounds(renderers, () => controller != null
+            && controller.ApplyBoundsForRange(aggregateMinimumHeight, aggregateMaximumHeight), out errorMessage);
+    }
+
+    private static long dirtyContentBoundary;
+    private static long boundsHierarchyBoundary;
+    private static bool boundsFollowUpPending;
+    private static bool analysisFollowUpPending;
+    private static Transform boundsFollowUpRoot;
+    private static long boundsFollowUpOwnership;
+    private static string lastBoundsFollowUpAttempt = "";
+    private static string lastAnalysisFollowUpAttempt = "";
+    private static string lastCompletionFollowUpFailure = "";
+    private static string boundsFollowUpError = "";
+    private static string analysisFollowUpError = "";
+    private static string latestFollowUpError = "";
+    private static readonly string[] observerFailureStamps = new string[10];
+
+    internal static bool TryApplyPreviewBounds(IEnumerable<MeshRenderer> renderers, Func<bool> apply, out string error)
+    {
+        var previous = new Dictionary<MeshRenderer, Bounds>();
+        error = "";
+        try
+        {
+            foreach (var renderer in renderers) if (renderer != null && !previous.ContainsKey(renderer)) previous.Add(renderer, renderer.localBounds);
+            if (!apply()) throw new InvalidOperationException("The transient multiresolution Height range could not be applied.");
+            return true;
+        }
+        catch (Exception exception)
+        {
+            error = exception.Message;
+            foreach (var pair in previous)
+                if (pair.Key != null)
+                {
+                    try { pair.Key.localBounds = pair.Value; }
+                    catch (Exception restore) { error += " Bounds restoration failed: " + restore.Message; }
+                }
+            return false;
+        }
+    }
+
+    private static string FollowUpBoundary => authoringGeneration + ":" + dirtyContentBoundary + ":"
+        + TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration + ":" + analysisIntentGeneration
+        + ":" + analysisSelectedResourceIdentity + ":" + (activeDisplayIntent?.PlacementGeneration ?? 0L);
+
+    private static void QueueBoundsFollowUp()
+    {
+        boundsFollowUpPending = true;
+        boundsFollowUpRoot = boundClipmapRoot;
+        boundsFollowUpOwnership = activeDisplayIntent?.OwnershipGeneration ?? -1L;
+    }
+
+    private static void TryAdvancePreviewFollowUps(WorldSettings settings, TerrainAuthoringData data, string committed, string overall)
+    {
+        if (!CanRunEditorPreviewWork || displayCommitInProgress) return;
+        if (boundsFollowUpPending)
+        {
+            if (boundsFollowUpRoot == null || boundsFollowUpRoot != boundClipmapRoot || activeDisplayIntent == null
+                || boundsFollowUpOwnership != activeDisplayIntent.OwnershipGeneration
+                || boundsFollowUpOwnership != TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration)
+                ClearBoundsFollowUp();
+            else
+            {
+                string boundary = dirtyContentBoundary + ":" + boundsFollowUpRoot.GetInstanceID() + ":"
+                    + boundsHierarchyBoundary + ":" + (latestDisplayIntent?.PlacementGeneration ?? 0L);
+                if (boundary != lastBoundsFollowUpAttempt)
+                {
+                    lastBoundsFollowUpAttempt = boundary;
+                    try
+                    {
+                        RefreshAggregateHeightRange(!ActiveHeightContentIsCurrent(settings, data));
+                        if (!ApplyCurrentPreviewBounds(boundsFollowUpRoot, out string error)) throw new InvalidOperationException(error);
+                        ClearBoundsFollowUp();
+                    }
+                    catch (Exception exception)
+                    {
+                        boundsFollowUpError = exception.Message;
+                        ReportFollowUpFailure("Height bounds", exception.Message);
+                    }
+                }
+            }
+        }
+        // Whole-representation publication remains eligible only after convergence.
+        // Internal analysis failure is independent of composite observers.
+        string completionBoundary = FollowUpBoundary;
+        if ((pendingCompositePublication.Count > 0 || pendingNativePublication.Count > 0)
+            && lastCompletionFollowUpFailure != completionBoundary)
+        {
+            try { PublishCompletedDisplayDirtyTiles(committed, overall); lastCompletionFollowUpFailure = ""; }
+            catch (Exception exception)
+            { lastCompletionFollowUpFailure = completionBoundary; ReportFollowUpFailure("Height completion follow-up", exception.Message); }
+        }
+        if (analysisFollowUpPending) TryRunAnalysisFollowUp(() =>
+        {
+            if (hasAnalysisSourceIntent) EvaluateTerrainAnalysisSource(analysisSettings, data, false);
+            PublishTerrainAnalysisSourceState(true);
+        });
+    }
+
+    private static void TryRunAnalysisFollowUp(Action followUp)
+    {
+        string boundary = FollowUpBoundary;
+        if (analysisFollowUpPending && lastAnalysisFollowUpAttempt == boundary) return;
+        lastAnalysisFollowUpAttempt = boundary;
+        try { followUp(); analysisFollowUpPending = false; analysisFollowUpError = ""; }
+        catch (Exception exception)
+        {
+            analysisFollowUpPending = true;
+            analysisFollowUpError = exception.Message;
+            ReportFollowUpFailure("Terrain Analysis follow-up", exception.Message);
+        }
+    }
+
+    private static void ClearBoundsFollowUp()
+    {
+        boundsFollowUpPending = false; boundsFollowUpRoot = null;
+        boundsFollowUpError = ""; lastBoundsFollowUpAttempt = "";
+    }
+
+    private static void ClearPreviewFollowUps()
+    {
+        ClearBoundsFollowUp(); analysisFollowUpPending = false;
+        lastAnalysisFollowUpAttempt = lastCompletionFollowUpFailure = analysisFollowUpError = latestFollowUpError = "";
+        Array.Clear(observerFailureStamps, 0, observerFailureStamps.Length);
+    }
+
+    private static void ReportFollowUpFailure(string context, string error)
+    {
+        string message = context + ": " + error;
+        if (latestFollowUpError != message) Debug.LogWarning(message);
+        latestFollowUpError = message;
+    }
+
+    internal static string DispatchObserverCallbacks(Action callbacks)
+    {
+        if (callbacks == null) return "";
+        var errors = new List<string>();
+        foreach (Action callback in callbacks.GetInvocationList())
+        {
+            try { callback(); }
+            catch (Exception exception) { errors.Add(callback.Method.DeclaringType + "." + callback.Method.Name + ": " + exception.Message); }
+        }
+        return string.Join("; ", errors);
+    }
+
+    private static void DispatchPreviewObservers(Action callbacks, string channel)
+    {
+        ReportObserverFailure(channel, DispatchObserverCallbacks(callbacks));
+    }
+
+    private static void DispatchPreviewObservers<T>(Action<T> callbacks, T value, string channel)
+    {
+        if (callbacks == null) return;
+        var errors = new List<string>();
+        foreach (Action<T> callback in callbacks.GetInvocationList())
+        {
+            try { callback(value); }
+            catch (Exception exception) { errors.Add(callback.Method.DeclaringType + "." + callback.Method.Name + ": " + exception.Message); }
+        }
+        ReportObserverFailure(channel, string.Join("; ", errors));
+    }
+
+    private static void DispatchPreviewObservers(Action<TerrainHeightCacheWindow, string> callbacks,
+        TerrainHeightCacheWindow window, string error, string channel)
+    {
+        if (callbacks == null) return;
+        var errors = new List<string>();
+        foreach (Action<TerrainHeightCacheWindow, string> callback in callbacks.GetInvocationList())
+        {
+            try { callback(window, error); }
+            catch (Exception exception) { errors.Add(callback.Method.DeclaringType + "." + callback.Method.Name + ": " + exception.Message); }
+        }
+        ReportObserverFailure(channel, string.Join("; ", errors));
+    }
+
+    private static void ReportObserverFailure(string channel, string error)
+    {
+        int index;
+        switch (channel)
+        {
+            case "Height coverage": index = 0; break;
+            case "Preview state": index = 1; break;
+            case "Composite tiles": index = 2; break;
+            case "Streaming state": index = 3; break;
+            case "Height transition": index = 4; break;
+            case "Analysis source": index = 5; break;
+            case "Analysis tiles": index = 6; break;
+            case "Analysis state": index = 7; break;
+            case "Streaming preparation": index = 8; break;
+            case "Residency intent": index = 9; break;
+            default: throw new ArgumentOutOfRangeException(nameof(channel));
+        }
+        if (string.IsNullOrEmpty(error)) return;
+        string stamp = FollowUpBoundary + ":" + error;
+        latestFollowUpError = channel + " observer: " + error;
+        if (observerFailureStamps[index] == stamp) return;
+        observerFailureStamps[index] = stamp;
+        Debug.LogWarning(latestFollowUpError);
     }
 
     // =====================================================
@@ -983,6 +1185,7 @@ public static partial class TerrainAuthoringPreviewService
 
     private static void ReleaseBinding()
     {
+        ClearPreviewFollowUps();
         TerrainAuthoringPreviewHeightBindingUtility.Disable(boundHeightRenderers); boundHeightRenderers.Clear();
         var controller = boundClipmapRoot != null ? boundClipmapRoot.GetComponent<TerrainClipmapBoundsController>() : null;
         if (controller != null) controller.RestoreConfiguredBounds();
@@ -1002,6 +1205,7 @@ public static partial class TerrainAuthoringPreviewService
     {
         if (displayCommitInProgress) return;
         clipmapRebindRequested = true;
+        boundsHierarchyBoundary++;
         ScheduleRefresh();
     }
 
@@ -1097,7 +1301,7 @@ public static partial class TerrainAuthoringPreviewService
         hasPublishedHeightCacheCoverage = hasCoverage; publishedHeightCoverageStamp = next;
         publishedHeightCacheMinimumXZ = hasCoverage ? low : Vector2.zero;
         publishedHeightCacheMaximumXZ = hasCoverage ? high : Vector2.zero;
-        HeightCacheCoverageChanged?.Invoke();
+        DispatchPreviewObservers(HeightCacheCoverageChanged, "Height coverage");
     }
 
     // =====================================================
@@ -1106,10 +1310,12 @@ public static partial class TerrainAuthoringPreviewService
 
     private static void NotifyPreviewStateChanged()
     {
-        if (hasAnalysisSourceIntent)
-            EvaluateTerrainAnalysisSource(analysisSettings, LoadAuthoringData(), false);
-        PublishTerrainAnalysisSourceState(true);
-        PreviewStateChanged?.Invoke();
+        TryRunAnalysisFollowUp(() =>
+        {
+            if (hasAnalysisSourceIntent) EvaluateTerrainAnalysisSource(analysisSettings, LoadAuthoringData(), false);
+            PublishTerrainAnalysisSourceState(true);
+        });
+        DispatchPreviewObservers(PreviewStateChanged, "Preview state");
     }
 
     // =====================================================
@@ -1215,4 +1421,5 @@ public static partial class TerrainAuthoringPreviewService
     }
 
 }
+
 

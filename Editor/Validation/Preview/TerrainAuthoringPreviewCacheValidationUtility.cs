@@ -160,6 +160,7 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
                 "features are available."
             );
 
+            RunLastGoodDirtyPublicationValidation(worldSettings, authoringData);
             RunHeightRepresentationValidation(
                 worldSettings
             );
@@ -186,6 +187,159 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
         }
 
         FinishValidation();
+    }
+
+    // Isolated promoted caches share this fixture with the existing preview validators.
+    internal static bool TryCreateDirtyFixtureState(int level, int strideMultiplier,
+        out TerrainAuthoringPreviewLodState state, out WorldSettings settings, out TerrainAuthoringData data,
+        out string error, out bool blocked)
+    {
+        state = null;
+        blocked = !TryValidateCachePrerequisites(out settings, out data, out _, out error);
+        if (blocked) return false;
+        if (!SystemInfo.supportsComputeShaders || !SystemInfo.supports2DArrayTextures
+            || !SystemInfo.SupportsRandomWriteOnRenderTextureFormat(RenderTextureFormat.RFloat)
+            || (SystemInfo.copyTextureSupport & (CopyTextureSupport.Basic | CopyTextureSupport.DifferentTypes | CopyTextureSupport.TextureToRT))
+                != (CopyTextureSupport.Basic | CopyTextureSupport.DifferentTypes | CopyTextureSupport.TextureToRT)
+            || settings.HeightTileGridWidth * (long)settings.HeightTileGridHeight < 2)
+        { blocked = true; error = "Two committed tiles and array/compute/RFloat copy support are required."; return false; }
+        int stride = 1;
+        while (TerrainHeightResolutionUtility.GetSamplesPerSide(settings, stride) > 17) stride *= 2;
+        stride *= strideMultiplier;
+        if (!TerrainHeightResolutionUtility.IsRepresentationStrideCompatible(settings, stride))
+        { blocked = true; error = "The committed geometry cannot provide this small representation."; return false; }
+        int samples = TerrainHeightResolutionUtility.GetSamplesPerSide(settings, stride);
+        var window = new TerrainHeightCacheWindow(Vector2Int.zero,
+            settings.HeightTileGridWidth >= 2 ? new Vector2Int(2, 1) : new Vector2Int(1, 2));
+        state = new TerrainAuthoringPreviewLodState(level, stride, samples,
+            TerrainHeightResolutionUtility.GetSampleSpacing(settings, stride));
+        state.StagingCache = new TerrainAuthoringPreviewCache();
+        Texture2D seed = null;
+        try
+        {
+            if (!state.StagingCache.TryInitializeStagingWindow(settings, data, window, stride, out error))
+                throw new InvalidOperationException(error);
+            seed = new Texture2D(samples, samples, TextureFormat.RFloat, false, true) { hideFlags = HideFlags.HideAndDontSave };
+            var values = new float[samples * samples];
+            for (int slice = 0; slice < 2; slice++)
+            {
+                float sentinel = slice == 0 ? 5f : 10f;
+                for (int index = 0; index < values.Length; index++) values[index] = sentinel;
+                seed.SetPixelData(values, 0); seed.Apply(false, false);
+                Graphics.CopyTexture(seed, 0, 0, state.StagingCache.HeightCache, slice, 0);
+                if (!state.StagingCache.TryGetTileCoordinate(slice, out var tile)
+                    || !state.StagingCache.TryCommitFinalCompositeTile(tile, sentinel, sentinel, out error))
+                    throw new InvalidOperationException(error);
+            }
+            if (!state.StagingCache.TryFinalizeStagingForActivation(
+                TerrainAuthoringStateUtility.GetOverallAuthoringSignature(settings, data), out error))
+                throw new InvalidOperationException(error);
+            state.RequestedRequiredWindow = window;
+            state.PromoteStagingCache();
+            return true;
+        }
+        catch (Exception exception)
+        { state.Dispose(); state = null; error = exception.Message; return false; }
+        finally { if (seed != null) UnityEngine.Object.DestroyImmediate(seed); }
+    }
+
+    private static void RunLastGoodDirtyPublicationValidation(WorldSettings settings, TerrainAuthoringData data)
+    {
+        if (!SystemInfo.supportsAsyncGPUReadback)
+        { AddResult("Last-good dirty Height publication", ValidationOutcome.Blocked, "Async GPU readback is required for the explicit isolated fixture."); return; }
+        if (!TryCreateDirtyFixtureState(0, 1, out var state, out _, out _, out string error, out bool blocked))
+        { AddResult("Last-good dirty Height publication", blocked ? ValidationOutcome.Blocked : ValidationOutcome.Fail, error); return; }
+        Texture2D seed = null;
+        var materializer = new TerrainAuthoringPreviewHeightMaterializer();
+        var compositor = new TerrainHeightCompositor();
+        try
+        {
+            var cache = state.ActiveCache;
+            var tile = cache.CacheOriginTile;
+            cache.TryGetTileCoordinate(1, out var neighbor);
+            cache.TryGetCommittedRange(tile, out float baseLow, out float baseHigh, out _);
+            if (!state.TryEnsureDirtyScratch(out _, out error)) throw new InvalidOperationException(error);
+            seed = new Texture2D(state.SamplesPerSide, state.SamplesPerSide, TextureFormat.RFloat, false, true)
+                { hideFlags = HideFlags.HideAndDontSave };
+            var samples = new float[state.SamplesPerSide * state.SamplesPerSide];
+            for (int index = 0; index < samples.Length; index++) samples[index] = 70f;
+            seed.SetPixelData(samples, 0); seed.Apply(false, true);
+            Graphics.CopyTexture(seed, 0, 0, state.DirtyScratch, 0, 0);
+            bool rejected = !cache.TryCommitCompositeSliceFromScratch(state.DirtyScratch, tile,
+                float.NaN, 70f, out bool safe, out int copies, out _) && safe && copies == 0;
+            AssertDirtyFixture(cache, tile, neighbor, 5f, 10f, baseLow, baseHigh);
+            rejected &= !cache.TryCommitCompositeSliceFromScratch(cache.HeightCache, tile,
+                70f, 70f, out safe, out copies, out _) && safe && copies == 0;
+            AssertDirtyFixture(cache, tile, neighbor, 5f, 10f, baseLow, baseHigh);
+            rejected &= !materializer.TryMaterialize(null, state.DirtyScratch, 0,
+                settings.HeightTileSamplesPerSide, state.SamplesPerSide, state.SampleStride, out _);
+            if (!compositor.TryPrepare(out error)) throw new InvalidOperationException(error);
+            rejected &= !compositor.TryComposeTile(state.DirtyScratch, tile, -1, state.SamplesPerSide,
+                state.SampleSpacing, settings.HeightTileWorldSize, cache.WorldSizeXZ, data,
+                5f, 5f, out _, out _, out _);
+            materializer.ReleaseTextureBindings(); compositor.ReleaseTextureBindings();
+            AssertDirtyFixture(cache, tile, neighbor, 5f, 10f, baseLow, baseHigh);
+            AddResult("Dirty preparation and preflight preserve live Height", rejected ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+                "Rejected invalid range, live-as-scratch, materialization, and composition inputs; checked all live pixels, neighbor, readiness and ranges.");
+
+            bool recovered = !cache.TryCommitCompositeSliceFromScratch(state.DirtyScratch, tile, 70f, 70f,
+                (source, sourceSlice, destination, destinationSlice) =>
+                {
+                    Graphics.CopyTexture(source, sourceSlice, 0, destination, destinationSlice, 0);
+                    if (source == state.DirtyScratch && sourceSlice == 0)
+                        throw new InvalidOperationException("Isolated publication failure after the copy.");
+                }, out safe, out copies, out _) && safe && copies == 3;
+            AssertDirtyFixture(cache, tile, neighbor, 5f, 10f, baseLow, baseHigh);
+            AddResult("Dirty publication restores after a submitted live write", recovered ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+                "Injected the exception after the real candidate copy; checked restored pixels and unchanged neighboring/committed metadata.");
+
+            bool success = cache.TryCommitCompositeSliceFromScratch(state.DirtyScratch, tile, 70f, 70f,
+                out safe, out copies, out error) && safe && copies == 2;
+            if (!success) throw new InvalidOperationException(error);
+            AssertDirtyFixture(cache, tile, neighbor, 70f, 10f, baseLow, baseHigh);
+            AddResult("Dirty publication commits pixels and final metadata together", ValidationOutcome.Pass,
+                "The target became 70, its neighbor stayed 10, and global range became 10..70 without altering committed range.");
+
+            bool unsafeRejected = !cache.TryCommitCompositeSliceFromScratch(state.DirtyScratch, tile, 70f, 70f,
+                (source, sourceSlice, destination, destinationSlice) =>
+                {
+                    if (source == state.DirtyScratch && sourceSlice == 1)
+                        throw new InvalidOperationException("Isolated recovery failure.");
+                    Graphics.CopyTexture(source, sourceSlice, 0, destination, destinationSlice, 0);
+                    if (source == state.DirtyScratch && sourceSlice == 0)
+                        throw new InvalidOperationException("Isolated publication failure.");
+                }, out safe, out copies, out _) && !safe && copies == 3;
+            AddResult("Unrestorable live publication is reported unsafe", unsafeRejected ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+                "The isolated cache is disposed; no user preview or global fault switch was used.");
+        }
+        catch (Exception exception)
+        { AddResult("Last-good dirty Height fixture", ValidationOutcome.Fail, exception.ToString()); }
+        finally
+        {
+            materializer.ReleaseTextureBindings(); compositor.Dispose(); state.Dispose();
+            if (seed != null) UnityEngine.Object.DestroyImmediate(seed);
+        }
+    }
+
+    private static void AssertDirtyFixture(TerrainAuthoringPreviewCache cache, Vector2Int tile, Vector2Int neighbor,
+        float expected, float expectedNeighbor, float committedLow, float committedHigh)
+    {
+        var readback = AsyncGPUReadback.Request(cache.HeightCache, 0);
+        readback.WaitForCompletion();
+        if (readback.hasError || readback.layerCount != 2) throw new InvalidOperationException("Dirty fixture readback failed.");
+        for (int slice = 0; slice < 2; slice++)
+        {
+            var pixels = readback.GetData<float>(slice);
+            if (pixels.Length != cache.SamplesPerSide * cache.SamplesPerSide) throw new InvalidOperationException("Dirty fixture sample count changed.");
+            foreach (float pixel in pixels)
+                if (pixel != (slice == 0 ? expected : expectedNeighbor)) throw new InvalidOperationException("Live or neighboring pixels changed unexpectedly.");
+        }
+        if (!cache.TryGetCompositeSliceRange(tile.x, tile.y, out float low, out float high) || low != expected || high != expected
+            || !cache.TryGetCompositeSliceRange(neighbor.x, neighbor.y, out low, out high) || low != expectedNeighbor || high != expectedNeighbor
+            || !cache.IsSliceFinalCompositeReady(tile) || !cache.IsSliceFinalCompositeReady(neighbor)
+            || cache.MinimumHeight != Mathf.Min(expected, expectedNeighbor) || cache.MaximumHeight != Mathf.Max(expected, expectedNeighbor)
+            || !cache.TryGetCommittedRange(tile, out low, out high, out _) || low != committedLow || high != committedHigh)
+            throw new InvalidOperationException("Dirty fixture range/readiness metadata changed unexpectedly.");
     }
 
     private static void RunWindowValueValidation()
@@ -2288,4 +2442,5 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
             tolerance;
     }
 }
+
 

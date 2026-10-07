@@ -221,10 +221,9 @@ public sealed partial class TerrainHeightCompositor :
             return false;
         }
 
-        computeShader =
-            AssetDatabase.LoadAssetAtPath<ComputeShader>(
-                ComputeShaderAssetPath
-            );
+        var shaderAsset = AssetDatabase.LoadAssetAtPath<ComputeShader>(ComputeShaderAssetPath);
+        computeShader = shaderAsset != null ? UnityEngine.Object.Instantiate(shaderAsset) : null;
+        if (computeShader != null) computeShader.hideFlags = HideFlags.HideAndDontSave;
 
         if (computeShader == null)
         {
@@ -2355,7 +2354,16 @@ public sealed partial class TerrainHeightCompositor :
         ReleaseRegionalNodeBuffer();
         ReleaseTriangulatedSmoothGpuResources();
         ReleaseTriangulatedLinearGpuResources();
+        ReleaseTextureBindings();
+    }
 
+    // Destroy owned shader instances to release every borrowed texture binding.
+    // Reusable regional and triangulation buffers survive this operation.
+    internal void ReleaseTextureBindings()
+    {
+        ResetTriangulatedLinearShaderState();
+        ResetTriangulatedSmoothShaderState();
+        if (computeShader != null) UnityEngine.Object.DestroyImmediate(computeShader);
         computeShader = null;
 
         identityKernel = -1;
@@ -2391,3 +2399,4 @@ public sealed partial class TerrainHeightCompositor :
             && !float.IsInfinity(value);
     }
 }
+

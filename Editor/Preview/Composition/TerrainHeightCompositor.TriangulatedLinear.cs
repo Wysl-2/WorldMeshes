@@ -540,9 +540,9 @@ public sealed partial class TerrainHeightCompositor
             return false;
         }
 
-        triangulatedLinearComputeShader =
-            AssetDatabase.LoadAssetAtPath<ComputeShader>(
-                TriangulatedLinearComputeShaderAssetPath);
+        var shaderAsset = AssetDatabase.LoadAssetAtPath<ComputeShader>(TriangulatedLinearComputeShaderAssetPath);
+        triangulatedLinearComputeShader = shaderAsset != null ? UnityEngine.Object.Instantiate(shaderAsset) : null;
+        if (triangulatedLinearComputeShader != null) triangulatedLinearComputeShader.hideFlags = HideFlags.HideAndDontSave;
 
         if (triangulatedLinearComputeShader == null)
         {
@@ -995,6 +995,7 @@ public sealed partial class TerrainHeightCompositor
 
     private void ResetTriangulatedLinearShaderState()
     {
+        if (triangulatedLinearComputeShader != null) UnityEngine.Object.DestroyImmediate(triangulatedLinearComputeShader);
         triangulatedLinearComputeShader = null;
         triangulatedLinearComposeKernel = -1;
         triangulatedLinearSampleKernel = -1;
@@ -1037,3 +1038,4 @@ public sealed partial class TerrainHeightCompositor
         return Mathf.CeilToInt(value / (float)divisor);
     }
 }
+

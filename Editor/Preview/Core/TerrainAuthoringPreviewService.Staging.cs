@@ -126,6 +126,8 @@ public static partial class TerrainAuthoringPreviewService
             boundHeightRenderers.Clear(); boundHeightRenderers.AddRange(renderers); boundClipmapRoot = intent.Root;
             aggregateMinimumHeight = low; aggregateMaximumHeight = high;
             committedRebuildRequested = false; clipmapRebindRequested = false;
+            ClearBoundsFollowUp();
+            if (transaction != null) ClearPreviewFollowUps();
             diagnosticBindingApplyCount++;
         }
         catch (Exception exception)
@@ -166,6 +168,7 @@ public static partial class TerrainAuthoringPreviewService
         }
         finally
         {
+            heightCompositor.ReleaseTextureBindings(); activeDirtyMaterializer.ReleaseTextureBindings();
             if (retiringHeightStates != null) foreach (var s in retiringHeightStates) s.Dispose();
             retiringHeightStates = null;
             if (transaction != null) CompleteTransitionMemoryTracking();
@@ -182,12 +185,12 @@ public static partial class TerrainAuthoringPreviewService
     private static void ClearTransitionFailureSuppression()
     {
         ClearDisplayTransitionFailureSuppression(); lastFailedAnalysisCacheSetRequest = null; analysisSourceError = "";
-        activeDirtyFailureGeneration = -1L;
     }
 
     private static void ReleaseStagingCacheOnly()
     {
         if (currentCacheSetTransition == null) return;
+        heightCompositor.ReleaseTextureBindings();
         CompleteTransitionMemoryTracking(); currentCacheSetTransition.Dispose();
     }
 
@@ -223,7 +226,7 @@ public static partial class TerrainAuthoringPreviewService
         {
             SetStatus(HasDrawableHeightPreview ? TerrainAuthoringPreviewStatus.Ready : TerrainAuthoringPreviewStatus.Error,
                 "Height display streaming failed. " + error);
-            HeightCacheTransitionFailed?.Invoke(t.Entries[0].Target, error);
+            DispatchPreviewObservers(HeightCacheTransitionFailed, t.Entries[0].Target, error, "Height transition");
         }
     }
 
@@ -251,6 +254,10 @@ public static partial class TerrainAuthoringPreviewService
         long[] bytes = new long[6];
         int[] counts = new int[6];
         int arrays = 0;
+        var scratchSeen = new HashSet<RenderTexture>();
+        long scratchBytes = 0L;
+        if (display != null) foreach (var state in display) CountOwnedDirtyScratch(state, scratchSeen, ref scratchBytes);
+        if (retiringDisplay != null) foreach (var state in retiringDisplay) CountOwnedDirtyScratch(state, scratchSeen, ref scratchBytes);
         if (display != null) foreach (var state in display)
             CountOwnedHeight(state.ActiveCache, 0, seen, bytes, counts, ref arrays);
         CountOwnedHeight(analysis?.ActiveCache, 1, seen, bytes, counts, ref arrays);
@@ -263,7 +270,14 @@ public static partial class TerrainAuthoringPreviewService
             CountOwnedHeight(state.ActiveCache, 4, seen, bytes, counts, ref arrays);
         CountOwnedHeight(retiringAnalysis?.ActiveCache, 5, seen, bytes, counts, ref arrays);
         return new TerrainAuthoringPreviewOwnershipSnapshot(bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5],
-            seen.Count, arrays, counts[0], counts[1], counts[2], counts[3], counts[4] + counts[5]);
+            seen.Count, arrays, counts[0], counts[1], counts[2], counts[3], counts[4] + counts[5], scratchBytes, scratchSeen.Count);
+    }
+
+    private static void CountOwnedDirtyScratch(TerrainAuthoringPreviewLodState state,
+        HashSet<RenderTexture> seen, ref long bytes)
+    {
+        var scratch = state?.DirtyScratch;
+        if (scratch != null && scratch.IsCreated() && seen.Add(scratch)) bytes += state.DirtyScratchBytes;
     }
 
     private static void CountOwnedHeight(TerrainAuthoringPreviewCache cache, int category,
@@ -290,3 +304,4 @@ public static partial class TerrainAuthoringPreviewService
     }
 
 }
+

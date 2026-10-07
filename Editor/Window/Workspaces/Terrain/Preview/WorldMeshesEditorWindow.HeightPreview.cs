@@ -26,7 +26,15 @@ public partial class WorldMeshesEditorWindow :
         if (GUILayout.Button("Rebuild Committed Preview", GUILayout.ExpandWidth(true)))
             TerrainAuthoringPreviewService.ForceCommittedRebuildNow();
         EditorGUI.EndDisabledGroup();
-        EditorGUILayout.HelpBox("The published display set stays bound while a complete replacement is prepared. Source loads count geographic tiles; composition counts representation pages. Work caps apply to the whole editor callback. Height memory is an RFloat array payload estimate, excluding compositor buffers, committed texture assets and driver overhead.", MessageType.Info);
+        if (snapshot.HasFailedDirtyUpdates || snapshot.BoundsFollowUpPending || snapshot.AnalysisFollowUpPending
+            || !string.IsNullOrEmpty(snapshot.LastFollowUpError))
+        {
+            EditorGUI.BeginDisabledGroup(!snapshot.Enabled || !snapshot.PreviewWorkAllowed);
+            if (GUILayout.Button("Retry Height Updates", GUILayout.ExpandWidth(true)))
+                TerrainAuthoringPreviewService.RetryFailedDirtyUpdates();
+            EditorGUI.EndDisabledGroup();
+        }
+        EditorGUILayout.HelpBox("The published display set stays bound while a complete replacement is prepared. Source loads count geographic tiles; composition counts representation pages. Dirty updates prepare one scratch candidate per callback, then capture recovery and publish with two copies (three if restoration is required). Work caps apply to the whole editor callback. Height memory is an RFloat array payload estimate, excluding compositor buffers, committed texture assets and driver overhead.", MessageType.Info);
         GUILayout.EndVertical();
     }
 
@@ -71,7 +79,16 @@ public partial class WorldMeshesEditorWindow :
         int dirty = 0;
         foreach (var row in snapshot.DisplayLods) dirty += row.PendingDirtyCount;
         EditorGUILayout.LabelField("Pending Dirty: Geographic / Display Jobs", $"{snapshot.PendingGeographicDirtyCount:N0} / {dirty:N0}");
-        EditorGUILayout.LabelField("Last Dirty Callback: Load / Materialize / Compose", $"{snapshot.LastDirtyLoads} / {snapshot.LastDirtyMaterializations} / {snapshot.LastDirtyCompositions}");
+        EditorGUILayout.LabelField("Last Dirty Callback: Allocate / Load / Copy / Materialize / Compose",
+            $"{snapshot.LastDirtyAllocations} / {snapshot.LastDirtyLoads} / {snapshot.LastDirtyCopies} / {snapshot.LastDirtyMaterializations} / {snapshot.LastDirtyCompositions}");
+        int failures = 0;
+        foreach (var row in snapshot.DisplayLods) failures += row.FailedDirtyCount;
+        if (failures > 0) EditorGUILayout.HelpBox($"{failures} Height updates are suppressed pending a relevant edit or retry. Safe failures retain last-good terrain.", MessageType.Warning);
+        if (snapshot.BoundsFollowUpPending || snapshot.AnalysisFollowUpPending)
+            EditorGUILayout.LabelField("Pending Follow-ups", $"Bounds={snapshot.BoundsFollowUpPending}; Analysis={snapshot.AnalysisFollowUpPending}");
+        if (!string.IsNullOrEmpty(snapshot.BoundsFollowUpError)) EditorGUILayout.HelpBox("Bounds repair: " + snapshot.BoundsFollowUpError, MessageType.Warning);
+        if (!string.IsNullOrEmpty(snapshot.AnalysisFollowUpError)) EditorGUILayout.HelpBox("Analysis follow-up: " + snapshot.AnalysisFollowUpError, MessageType.Warning);
+        if (!string.IsNullOrEmpty(snapshot.LastFollowUpError)) EditorGUILayout.HelpBox("Last follow-up error: " + snapshot.LastFollowUpError, MessageType.Warning);
         if (!string.IsNullOrEmpty(snapshot.StreamingStatusMessage)) EditorGUILayout.HelpBox(snapshot.StreamingStatusMessage, snapshot.StreamingState == TerrainAuthoringPreviewStreamingState.Failed ? MessageType.Error : MessageType.Info);
         if (!string.IsNullOrEmpty(snapshot.CancellationReason)) EditorGUILayout.LabelField("Last Cancellation", snapshot.CancellationReason);
         var memory = snapshot.Ownership;
@@ -79,6 +96,7 @@ public partial class WorldMeshesEditorWindow :
         EditorGUILayout.LabelField("Analysis Active Height Payload", FormatPreviewMemory(memory.AnalysisActiveBytes));
         EditorGUILayout.LabelField("Display / Analysis Staging Payload", $"{FormatPreviewMemory(memory.DisplayStagingBytes)} / {FormatPreviewMemory(memory.AnalysisStagingBytes)}");
         EditorGUILayout.LabelField("Retiring Display / Analysis Payload", $"{FormatPreviewMemory(memory.RetiringDisplayBytes)} / {FormatPreviewMemory(memory.RetiringAnalysisBytes)}");
+        EditorGUILayout.LabelField("Dirty Scratch Payload / Arrays", $"{FormatPreviewMemory(memory.DirtyScratchBytes)} / {memory.DirtyScratchArrayCount}");
         EditorGUILayout.LabelField("Total / Transition Peak Height Payload", $"{FormatPreviewMemory(memory.TotalBytes)} / {FormatPreviewMemory(snapshot.PeakTransitionGpuMemoryBytes)}");
         EditorGUILayout.LabelField("Service Owned Cache Objects / Arrays", $"{memory.OwnedCacheCount} / {memory.AllocatedArrayCount}");
         EditorGUILayout.LabelField("Editor Domain: Created / Disposed / Live", $"{snapshot.CacheCreateCount} / {snapshot.CacheDisposeCount} / {snapshot.CacheLiveCount}");
@@ -92,7 +110,14 @@ public partial class WorldMeshesEditorWindow :
                 showHeightPreviewLodRows[row.Level] = EditorGUILayout.Foldout(showHeightPreviewLodRows[row.Level],
                     $"LOD {row.Level}: stride {row.Active.Representation.Stride}; current={row.Active.Current}; dirty={row.PendingDirtyCount}; {row.SizeHealth}; active/staging {FormatPreviewMemory(row.Active.GpuBytes)}/{FormatPreviewMemory(row.Staging.GpuBytes)}", true);
                 if (!showHeightPreviewLodRows[row.Level]) continue;
-                EditorGUILayout.LabelField("Failed Write", row.WriteFailed ? "Yes" : "No");
+                EditorGUILayout.LabelField("Unsafe Live Storage", row.WriteFailed ? "Yes" : "No");
+                EditorGUILayout.LabelField("Suppressed Dirty / Scratch", $"{row.FailedDirtyCount} / {FormatPreviewMemory(row.DirtyScratchBytes)}");
+                if (row.DirtyFailure.Present)
+                {
+                    var failure = row.DirtyFailure;
+                    EditorGUILayout.HelpBox($"Tile {failure.Tile}, attempted generation {failure.AttemptedGeneration}; last-good available={failure.LastGoodAvailable}. {failure.Message}",
+                        failure.LastGoodAvailable ? MessageType.Warning : MessageType.Error);
+                }
                 DrawHeightAllocation("Published", row.Active);
                 if (row.Active.Present) EditorGUILayout.LabelField("Published Required", row.PublishedRequiredWindow.ToString());
                 if (row.HasLatestPlan)
@@ -163,3 +188,4 @@ public partial class WorldMeshesEditorWindow :
     }
 
 }
+

@@ -85,6 +85,8 @@ public static class TerrainAuthoringIncrementalStreamingValidationUtility
             else if (setPassed) AddPass("Resumable Height cache set worker", setDetail);
             else AddFail("Resumable Height cache set worker", setDetail);
             ValidateHeightSetPolicy();
+            ValidateDirtyFailureProgress();
+            ValidatePostCommitFollowUps();
             ValidateBoundedWorkBudgets();
             ValidateCursorResume();
             ValidateDuplicateIntentCoalescing();
@@ -970,6 +972,74 @@ public static class TerrainAuthoringIncrementalStreamingValidationUtility
         );
     }
 
+    private static void ValidateDirtyFailureProgress()
+    {
+        if (!TerrainAuthoringPreviewCacheValidationUtility.TryCreateDirtyFixtureState(0, 1,
+            out var fine, out _, out _, out string error, out bool blocked))
+        { if (blocked) AddBlocked("Suppressed dirty worker progress", error); else AddFail("Suppressed dirty worker progress", error); return; }
+        TerrainAuthoringPreviewLodState coarse = null;
+        try
+        {
+            if (!TerrainAuthoringPreviewCacheValidationUtility.TryCreateDirtyFixtureState(1, 2,
+                out coarse, out _, out _, out error, out blocked))
+            { if (blocked) AddBlocked("Suppressed dirty worker progress", error); else AddFail("Suppressed dirty worker progress", error); return; }
+            var failed = fine.ActiveCache.CacheOriginTile;
+            fine.ActiveCache.TryGetTileCoordinate(1, out var other);
+            var states = new[] { fine, coarse };
+            fine.RecordDirtyFailure(failed, 1, "Isolated fine failure", true);
+            coarse.PendingDirtyTiles.Add(failed);
+            bool valid = !fine.IsDirtyTileRunnable(failed) && coarse.IsDirtyTileRunnable(failed);
+            var chosen = TerrainAuthoringPreviewService.ChooseDirtyDestination(states, true, failed, false, out var tile);
+            valid &= ReferenceEquals(chosen, coarse) && tile == failed;
+            fine.PendingDirtyTiles.Add(other);
+            chosen = TerrainAuthoringPreviewService.ChooseDirtyDestination(states, true, failed, true, out tile);
+            valid &= ReferenceEquals(chosen, fine) && tile == other;
+            fine.RecordDirtyFailure(other, 1, "Isolated other failure", true);
+            coarse.RecordDirtyFailure(failed, 1, "Isolated coarse failure", true);
+            valid &= !TerrainAuthoringPreviewService.HasRunnableDirtyWork(states, true)
+                && !TerrainAuthoringPreviewService.HasRunnableDirtyWork(states, false)
+                && TerrainAuthoringPreviewService.ChooseDirtyDestination(states, true, failed, true, out _) == null
+                && fine.PendingDirtyTiles.Count == 2 && coarse.PendingDirtyTiles.Count == 1;
+            TerrainAuthoringPreviewService.RearmDirtyTile(states, other);
+            chosen = TerrainAuthoringPreviewService.ChooseDirtyDestination(states, true, failed, true, out tile);
+            valid &= ReferenceEquals(chosen, fine) && tile == other;
+            if (valid) AddPass("Suppressed dirty worker progress", "Held-source and interactive fine selection skip local failures; other LODs/tiles progress, and all-suppressed obligations leave other workers eligible.");
+            else AddFail("Suppressed dirty worker progress", "A failed obligation blocked runnable work or all-suppressed state selected a dirty worker.");
+        }
+        finally { fine.Dispose(); coarse?.Dispose(); }
+    }
+
+    private static void ValidatePostCommitFollowUps()
+    {
+        var state = new TerrainAuthoringPreviewLodState(0, 1, 9, 1);
+        var tile = Vector2Int.zero;
+        var instance = new GameObject("Transient Height bounds validation") { hideFlags = HideFlags.HideAndDontSave };
+        var renderer = instance.AddComponent<MeshRenderer>();
+        var oldBounds = new Bounds(Vector3.zero, Vector3.one * 2f);
+        renderer.localBounds = oldBounds;
+        try
+        {
+            state.RecordDirtyFailure(tile, 1, "Isolated earlier failure", true);
+            state.PendingRegionalTiles.Add(tile);
+            TerrainAuthoringPreviewService.CompleteDirtyContent(state, tile);
+            bool firstRan = false, secondRan = false;
+            Action listeners = () => { firstRan = true; throw new InvalidOperationException("Isolated observer failure"); };
+            listeners += () => secondRan = true;
+            string errors = TerrainAuthoringPreviewService.DispatchObserverCallbacks(listeners);
+            bool restored = !TerrainAuthoringPreviewService.TryApplyPreviewBounds(new[] { renderer }, () =>
+            {
+                renderer.localBounds = new Bounds(Vector3.one, Vector3.one * 100f);
+                throw new InvalidOperationException("Isolated bounds failure after a renderer write");
+            }, out string boundsError) && renderer.localBounds == oldBounds;
+            bool valid = firstRan && secondRan && !string.IsNullOrEmpty(errors) && restored && !string.IsNullOrEmpty(boundsError)
+                && state.SuccessfulDirtyTiles.Contains(tile) && state.PendingDirtyTiles.Count == 0
+                && state.PendingRegionalTiles.Count == 0 && state.DirtyFailures.Count == 0 && !state.WriteFailed;
+            if (valid) AddPass("Postcommit bounds and observer isolation", "A throwing first listener did not skip the second; partial bounds writes were restored, and neither follow-up requeued successful content.");
+            else AddFail("Postcommit bounds and observer isolation", "Observer dispatch, bounds restoration or committed obligations regressed.");
+        }
+        finally { state.Dispose(); UnityEngine.Object.DestroyImmediate(instance); }
+    }
+
     private static void ValidateHeightSetPolicy()
     {
         var required = new TerrainHeightCacheWindow(new Vector2Int(4, 4), Vector2Int.one);
@@ -1142,3 +1212,4 @@ public static class TerrainAuthoringIncrementalStreamingValidationUtility
         }
     }
 }
+

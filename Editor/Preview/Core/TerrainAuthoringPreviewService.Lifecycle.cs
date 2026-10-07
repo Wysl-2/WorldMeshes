@@ -231,7 +231,7 @@ public static partial class TerrainAuthoringPreviewService
     {
         RefreshTransientSuspensionState();
 
-        PreviewStreamingUpdatePreparing?.Invoke();
+        DispatchPreviewObservers(PreviewStreamingUpdatePreparing, "Streaming preparation");
 
         OnStreamingEditorUpdate();
     }
@@ -460,7 +460,7 @@ public static partial class TerrainAuthoringPreviewService
         lifecycleResumePending =
             false;
 
-        ResidencyIntentRefreshRequested?.Invoke();
+        DispatchPreviewObservers(ResidencyIntentRefreshRequested, "Residency intent");
 
         if (Enabled)
         {
@@ -607,6 +607,7 @@ public static partial class TerrainAuthoringPreviewService
 
         ClearMultiresolutionResidencyIntent();
         ReleaseActiveDirtySource(); // Ownership changes preserve the last drawable display set.
+        heightCompositor.ReleaseTextureBindings(); ClearPreviewFollowUps();
         ReleaseTerrainAnalysisSource(true);
 
         ClearTransitionFailureSuppression();
@@ -815,4 +816,5 @@ public static partial class TerrainAuthoringPreviewService
         );
     }
 }
+
 

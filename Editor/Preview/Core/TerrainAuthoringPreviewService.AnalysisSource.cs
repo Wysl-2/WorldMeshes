@@ -280,7 +280,7 @@ public static partial class TerrainAuthoringPreviewService
         analysisSelectedCommittedSignature = committed;
         analysisResidencyGeneration = NextAnalysisGeneration(analysisResidencyGeneration);
         if (contentPublished) analysisCompositeGeneration = NextAnalysisGeneration(analysisCompositeGeneration);
-        TerrainAnalysisSourceChanged?.Invoke();
+        DispatchPreviewObservers(TerrainAnalysisSourceChanged, "Analysis source");
     }
 
     private static void InvalidateTerrainAnalysisAuthoring()
@@ -289,29 +289,37 @@ public static partial class TerrainAuthoringPreviewService
         // Height is rebuilt conservatively even for edits outside display coverage.
         analysisSourceError = "";
         lastFailedAnalysisCacheSetRequest = null;
-        if (hasAnalysisSourceIntent)
-            EvaluateTerrainAnalysisSource(analysisSettings, LoadAuthoringData());
-        PublishTerrainAnalysisSourceState();
+        TryRunAnalysisFollowUp(() =>
+        {
+            if (hasAnalysisSourceIntent) EvaluateTerrainAnalysisSource(analysisSettings, LoadAuthoringData());
+            PublishTerrainAnalysisSourceState();
+        });
     }
 
     private static void PublishNativeTerrainAnalysisCompositeUpdate(IReadOnlyList<Vector2Int> tiles)
     {
-        if (!hasAnalysisSourceIntent) return;
-        EvaluateTerrainAnalysisSource(analysisSettings, LoadAuthoringData(), false);
-        if (analysisSelectedKind == TerrainAuthoringAnalysisSourceKind.BorrowedNative
-            && TryGetTerrainAnalysisGpuSource(out _, out _) && tiles != null)
+        List<Vector2Int> changed = null;
+        long target = authoringGeneration;
+        if (hasAnalysisSourceIntent)
         {
-            var unique = new HashSet<Vector2Int>();
-            foreach (var tile in tiles)
-                if (analysisRequiredSourceWindow.Contains(tile)) unique.Add(tile);
-            if (unique.Count > 0)
+            EvaluateTerrainAnalysisSource(analysisSettings, LoadAuthoringData(), false);
+            if (target != authoringGeneration) return;
+            if (analysisSelectedKind == TerrainAuthoringAnalysisSourceKind.BorrowedNative
+                && TryGetTerrainAnalysisGpuSource(out _, out _) && tiles != null)
             {
-                var changed = new List<Vector2Int>(unique);
-                SortWorldTilesRowMajor(changed);
-                analysisCompositeGeneration = NextAnalysisGeneration(analysisCompositeGeneration);
-                TerrainAnalysisSourceTilesUpdated?.Invoke(changed);
+                var unique = new HashSet<Vector2Int>();
+                foreach (var tile in tiles) if (analysisRequiredSourceWindow.Contains(tile)) unique.Add(tile);
+                if (unique.Count > 0)
+                {
+                    changed = new List<Vector2Int>(unique); SortWorldTilesRowMajor(changed);
+                }
             }
         }
+        if (changed != null) analysisCompositeGeneration = NextAnalysisGeneration(analysisCompositeGeneration);
+        // Consume internal intent before external callbacks; never clear their newly queued work.
+        foreach (var tile in tiles) pendingNativePublication.Remove(tile);
+        if (changed != null) DispatchPreviewObservers(TerrainAnalysisSourceTilesUpdated,
+            (IReadOnlyList<Vector2Int>)changed, "Analysis tiles");
         PublishTerrainAnalysisSourceState(true);
     }
 
@@ -344,6 +352,7 @@ public static partial class TerrainAuthoringPreviewService
             CancelTerrainAnalysisPreparation("Current native Height already satisfies terrain analysis.");
             if (analysisSelectedKind == TerrainAuthoringAnalysisSourceKind.BorrowedNative && analysisOwnedState != null)
             {
+                heightCompositor.ReleaseTextureBindings();
                 analysisOwnedState.Dispose();
                 analysisOwnedState = null;
             }
@@ -390,12 +399,15 @@ public static partial class TerrainAuthoringPreviewService
         CaptureTransitionMemoryEstimate();
         try
         {
-            EvaluateTerrainAnalysisSource(analysisSettings, LoadAuthoringData(), false);
-            PublishTerrainAnalysisSourceState(true);
+            TryRunAnalysisFollowUp(() =>
+            {
+                EvaluateTerrainAnalysisSource(analysisSettings, LoadAuthoringData(), false);
+                PublishTerrainAnalysisSourceState(true);
+            });
         }
         finally
         {
-            previous?.Dispose(); retiringAnalysisState = null; CompleteTransitionMemoryTracking();
+            heightCompositor.ReleaseTextureBindings(); previous?.Dispose(); retiringAnalysisState = null; CompleteTransitionMemoryTracking();
         }
     }
 
@@ -409,8 +421,11 @@ public static partial class TerrainAuthoringPreviewService
     private static void DetachTerrainAnalysisBorrowing(TerrainAuthoringPreviewCache releasing)
     {
         if (releasing == null || !ReferenceEquals(releasing, analysisSelectedCache)) return;
-        SelectTerrainAnalysisCache(null, TerrainAuthoringAnalysisSourceKind.Unavailable);
-        PublishTerrainAnalysisSourceState();
+        TryRunAnalysisFollowUp(() =>
+        {
+            SelectTerrainAnalysisCache(null, TerrainAuthoringAnalysisSourceKind.Unavailable);
+            PublishTerrainAnalysisSourceState();
+        });
     }
 
     private static void ReleaseTerrainAnalysisSource(bool notifyObservers)
@@ -433,9 +448,9 @@ public static partial class TerrainAuthoringPreviewService
         analysisOwnershipGeneration = analysisOwnedOwnershipGeneration = 0;
         analysisSourceError = "";
         if (hadSource) analysisResidencyGeneration = NextAnalysisGeneration(analysisResidencyGeneration);
-        if (notifyObservers && hadSource) TerrainAnalysisSourceChanged?.Invoke();
-        if (notifyObservers) PublishTerrainAnalysisSourceState(true);
-        owned?.Dispose();
+        if (notifyObservers && hadSource) DispatchPreviewObservers(TerrainAnalysisSourceChanged, "Analysis source");
+        try { if (notifyObservers) TryRunAnalysisFollowUp(() => PublishTerrainAnalysisSourceState(true)); }
+        finally { heightCompositor.ReleaseTextureBindings(); owned?.Dispose(); }
     }
 
     internal static TerrainAuthoringAnalysisSourceSnapshot GetTerrainAnalysisSourceSnapshot()
@@ -494,7 +509,7 @@ public static partial class TerrainAuthoringPreviewService
             + state.CompositeGeneration + "|" + state.Message;
         if (!forceBoundary && snapshot == lastAnalysisSourceState) return;
         lastAnalysisSourceState = snapshot;
-        TerrainAnalysisSourceStateChanged?.Invoke();
+        DispatchPreviewObservers(TerrainAnalysisSourceStateChanged, "Analysis state");
     }
 
     private static long NextAnalysisGeneration(long current)
@@ -526,3 +541,4 @@ public static partial class TerrainAuthoringPreviewService
         && cache.WorldSizeXZ == TerrainClipmapLayoutUtility.CalculateWorldSizeXZ(analysisSettings);
 
 }
+

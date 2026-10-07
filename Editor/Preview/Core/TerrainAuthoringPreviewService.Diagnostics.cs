@@ -154,7 +154,19 @@ public static partial class TerrainAuthoringPreviewService
             work?.EnteringTiles.Count ?? 0, work?.LeavingTiles.Count ?? 0, work?.RetainedGpuCopyCount ?? 0,
             work?.CommittedLoadCursor ?? 0,
             work != null ? Math.Max(0, work.SourceMaterializationTiles.Count - work.FullyComposedTileCount) : 0,
-            work?.FullyComposedTileCount ?? 0, health);
+            work?.FullyComposedTileCount ?? 0, health, state?.DirtyFailures.Count ?? 0,
+            CaptureDirtyFailure(state), state?.DirtyScratchBytes ?? 0L);
+    }
+
+    internal static TerrainAuthoringPreviewDirtyFailureSnapshot CaptureDirtyFailure(TerrainAuthoringPreviewLodState state)
+    {
+        var selected = default(TerrainAuthoringPreviewDirtyFailureSnapshot);
+        if (state != null) foreach (var pair in state.DirtyFailures)
+            if (!selected.Present || pair.Value.AttemptedGeneration > selected.AttemptedGeneration
+                || (pair.Value.AttemptedGeneration == selected.AttemptedGeneration
+                    && (pair.Key.y < selected.Tile.y || pair.Key.y == selected.Tile.y && pair.Key.x < selected.Tile.x)))
+                selected = new TerrainAuthoringPreviewDirtyFailureSnapshot(pair.Key, pair.Value);
+        return selected;
     }
 
     internal static TerrainAuthoringPreviewResidencySizeHealth AggregateSizeHealth(
@@ -241,8 +253,10 @@ public static partial class TerrainAuthoringPreviewService
             TerrainAuthoringSceneViewController.FollowSceneView, TerrainAuthoringSceneViewController.FollowSource,
             TerrainAuthoringSceneViewController.FreezePreview,
             diagnosticPendingGeographicDirty.Count, LastDirtyUpdateLoads, LastDirtyUpdateMaterializations, LastDirtyUpdateCompositions,
-            lastStreamingCancellationReason, rows);
+            lastStreamingCancellationReason, rows, LastDirtyUpdateAllocations, LastDirtyUpdateCopies,
+            boundsFollowUpPending, analysisFollowUpPending, boundsFollowUpError, analysisFollowUpError, latestFollowUpError);
     }
 
 }
+
 
