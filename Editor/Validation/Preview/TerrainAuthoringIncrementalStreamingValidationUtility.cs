@@ -805,19 +805,18 @@ public static class TerrainAuthoringIncrementalStreamingValidationUtility
 
     private static void ValidateLiveStreamingInformation()
     {
-        string detail =
-            $"State={TerrainAuthoringPreviewService.StreamingStateLabel}; " +
-            $"Coverage={TerrainAuthoringPreviewService.StreamingCoverageLabel}; " +
-            $"Progress={TerrainAuthoringPreviewService.StreamingProgress:P1}; " +
-            $"Generation={TerrainAuthoringPreviewService.StreamingRequestGeneration}; " +
-            $"Budgets={TerrainAuthoringPreviewService.StreamingRetainedCopiesPerUpdate}/" +
-            $"{TerrainAuthoringPreviewService.StreamingCommittedLoadsPerUpdate}/" +
-            $"{TerrainAuthoringPreviewService.StreamingCompositionsPerUpdate}.";
-
-        AddPass(
-            "Live incremental streaming information",
-            detail
-        );
+        var snapshot = TerrainAuthoringPreviewService.GetDiagnosticsSnapshot();
+        string detail = $"State={snapshot.StreamingState}; published current={snapshot.CacheReady}; latest paired ready={snapshot.ReadyForLatestIntent}; worker={snapshot.Worker.Purpose}, present={snapshot.Worker.Present}; queued={snapshot.QueuedWorker.Purpose}, present={snapshot.QueuedWorker.Present}; geographic loads={snapshot.Worker.LoadedGroupCount}/{snapshot.Worker.SourceGroupCount}; composed pages={snapshot.Worker.ComposedCount}/{snapshot.Worker.RepresentationCount}.";
+        var worker = snapshot.Worker;
+        bool consistent = !worker.Present || worker.LoadedGroupCount <= worker.SourceGroupCount
+            && worker.MaterializedCount <= worker.RepresentationCount && worker.ComposedCount <= worker.MaterializedCount
+            && worker.LastAllocations <= 1 && worker.LastLoads <= TerrainAuthoringPreviewService.StreamingCommittedLoadsPerUpdate
+            && worker.LastCopies <= TerrainAuthoringPreviewService.StreamingRetainedCopiesPerUpdate
+            && worker.LastMaterializations <= TerrainAuthoringPreviewService.StreamingMaterializationsPerUpdate
+            && worker.LastCompositions <= TerrainAuthoringPreviewService.StreamingCompositionsPerUpdate;
+        if (!snapshot.Worker.Present && snapshot.DisplayLods.Count == 0) AddBlocked("Live streaming diagnostics", detail);
+        else if (consistent) AddPass("Live worker metadata consistency", detail + " GPU behavior is validated only by the isolated fixture.");
+        else AddFail("Live worker metadata consistency", detail);
     }
 
     private static void ValidatePersistentAuthoringStateSafety()
@@ -1011,6 +1010,26 @@ public static class TerrainAuthoringIncrementalStreamingValidationUtility
             new Vector2Int(8, 8), Vector2Int.one);
         incompatible.Levels[1].DesiredWindow = incompatible.Levels[1].RequiredWindow;
         valid &= !TerrainAuthoringPreviewStreamingPolicy.IsCacheSetUseful(first, incompatible);
+        var metadata = TerrainAuthoringPreviewService.CaptureWorkerMetadata(first);
+        valid &= metadata.SourceGroupCount == 1 && metadata.RepresentationCount == 2
+            && metadata.Purpose == TerrainAuthoringPreviewCachePublication.DisplayHeightSet
+            && metadata.RequestGeneration == 3 && metadata.Progress == 0f;
+        first.CompletedWorkUnits = 1;
+        first.State = TerrainAuthoringPreviewTransitionState.Preparing;
+        var partial = TerrainAuthoringPreviewService.CaptureWorkerMetadata(first);
+        first.State = TerrainAuthoringPreviewTransitionState.Cancelled;
+        var cancelled = TerrainAuthoringPreviewService.CaptureWorkerMetadata(first);
+        first.Dispose();
+        valid &= partial.Progress > 0f && partial.Phase != cancelled.Phase
+            && cancelled.Phase == TerrainAuthoringPreviewTransitionState.Cancelled
+            && partial.RequestGeneration == 3 && cancelled.RepresentationCount == 2;
+        var nativePlan = new TerrainAuthoringPreviewResidencyPlan { LevelCount = 1, Levels = new[] { plan.Levels[0] } };
+        using var native = new TerrainAuthoringPreviewCacheSetTransition(nativePlan, new[] { required }, new bool[1],
+            new TerrainAuthoringPreviewCache[1], new long[1], TerrainAuthoringPreviewCachePublication.NativeAnalysis,
+            "base", "content", 1, 4, 1, false);
+        var nativeMetadata = TerrainAuthoringPreviewService.CaptureWorkerMetadata(native);
+        valid &= nativeMetadata.Purpose == TerrainAuthoringPreviewCachePublication.NativeAnalysis
+            && nativeMetadata.SourceGroupCount == 1 && nativeMetadata.RepresentationCount == 1;
         if (valid) AddPass("Complete Height set request policy",
             "Identical effective targets coalesce; required-only work remains useful; guard growth and incompatible latest intent are classified.");
         else AddFail("Complete Height set request policy", "A set-level usefulness, equality, or prefetch decision was incorrect.");

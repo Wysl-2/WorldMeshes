@@ -107,7 +107,7 @@ public static partial class TerrainAuthoringPreviewService
             || analysisOwnershipGeneration != TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration)
             return false;
         long generation = analysisSelectedKind == TerrainAuthoringAnalysisSourceKind.BorrowedNative
-            && ReferenceEquals(analysisSelectedCache, activeCache) ? CurrentNativeDisplayAuthoringGeneration
+            && ReferenceEquals(analysisSelectedCache, Lod0DisplayCache) ? CurrentNativeDisplayAuthoringGeneration
             : analysisSelectedKind == TerrainAuthoringAnalysisSourceKind.OwnedNative
                 && ReferenceEquals(analysisSelectedCache, analysisOwnedState?.ActiveCache)
                 && analysisOwnedOwnershipGeneration == analysisOwnershipGeneration
@@ -440,7 +440,36 @@ public static partial class TerrainAuthoringPreviewService
 
     internal static TerrainAuthoringAnalysisSourceSnapshot GetTerrainAnalysisSourceSnapshot()
     {
-        bool ready = TryGetTerrainAnalysisGpuSource(out _, out _);
+        bool displayConfigurationCurrent = analysisSelectedKind == TerrainAuthoringAnalysisSourceKind.BorrowedNative
+            && activeDisplayIntent != null && activeDisplayIntent.OwnershipGeneration == TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration
+            && activeDisplayIntent.Root == boundClipmapRoot && activeDisplayIntent.ConfigurationMatches(activeDisplayIntent.Settings);
+        return CaptureAnalysisSourceMetadata(displayConfigurationCurrent);
+    }
+
+    internal static TerrainAuthoringAnalysisSourceSnapshot CaptureAnalysisSourceMetadata(bool displayConfigurationCurrent)
+    {
+        // Observational state only. The GPU source query retains full eligibility
+        // checks; this projection does not load assets or rebuild signatures.
+        long owner = TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration;
+        bool borrowed = analysisSelectedKind == TerrainAuthoringAnalysisSourceKind.BorrowedNative;
+        var state = borrowed ? activeHeightStates != null && activeHeightStates.Length > 0
+            ? activeHeightStates[0] : null : analysisOwnedState;
+        var cache = state?.ActiveCache;
+        bool nativeSettingsValid = TerrainHeightResolutionUtility.IsRepresentationStrideCompatible(analysisSettings, 1);
+        int nativeSamples = nativeSettingsValid ? TerrainHeightResolutionUtility.GetSamplesPerSide(analysisSettings, 1) : 0;
+        float nativeSpacing = nativeSettingsValid ? TerrainHeightResolutionUtility.GetSampleSpacing(analysisSettings, 1) : 0f;
+        bool nativeGeometryCurrent = NativeCacheGeometryCurrentForDiagnostics(cache, nativeSamples, nativeSpacing);
+        bool configurationCurrent = nativeGeometryCurrent && (borrowed ? displayConfigurationCurrent
+            : analysisOwnedOwnershipGeneration == owner);
+        bool ready = Enabled && hasAnalysisSourceIntent && analysisOwnershipGeneration == owner
+            && !Application.isPlaying && !UnityEditor.EditorApplication.isPlayingOrWillChangePlaymode
+            && StateCurrentForDiagnostics(state, configurationCurrent) && cache.SampleStride == 1
+            && ReferenceEquals(cache, analysisSelectedCache) && analysisSelectedOwnershipGeneration == owner
+            && cache.HeightCache.GetInstanceID() == analysisSelectedResourceIdentity
+            && analysisSelectedOutputWindow == analysisOutputWindow
+            && analysisSelectedPhysicalWindow == new TerrainHeightCacheWindow(cache.CacheOriginTile, cache.CacheSize)
+            && analysisSelectedPhysicalWindow.Contains(analysisRequiredSourceWindow)
+            && analysisRequiredSourceWindow.Contains(analysisOutputWindow);
         string message = ready ? "Current native Height is available for bounded terrain analysis."
             : !string.IsNullOrEmpty(analysisSourceError) ? analysisSourceError
             : !hasAnalysisSourceIntent ? "No native terrain analysis focus is available."
@@ -448,16 +477,15 @@ public static partial class TerrainAuthoringPreviewService
             : !CanRunEditorPreviewWork ? "Native terrain analysis is suspended with the editor preview."
             : "Waiting for current native Height for analysis output " + analysisOutputWindow
                 + "; dependency source " + analysisRequiredSourceWindow + ".";
-        long generation = analysisSelectedKind == TerrainAuthoringAnalysisSourceKind.BorrowedNative
-            ? activeCacheAuthoringGeneration : analysisOwnedState?.ActiveAuthoringGeneration ?? 0;
         return new TerrainAuthoringAnalysisSourceSnapshot(analysisSelectedKind, analysisOutputWindow,
             analysisRequiredSourceWindow, analysisSelectedPhysicalWindow, analysisGuardTileCount,
-            analysisSettings != null ? TerrainHeightResolutionUtility.GetSamplesPerSide(analysisSettings, 1) : 0,
-            analysisSettings != null ? TerrainHeightResolutionUtility.GetSampleSpacing(analysisSettings, 1) : 0f,
+            nativeSamples, nativeSpacing,
             ready, lastFailedAnalysisCacheSetRequest != null
                 || (!hasAnalysisSourceIntent && !string.IsNullOrEmpty(analysisSourceError)),
-            generation, analysisOwnershipGeneration, analysisResidencyGeneration, analysisCompositeGeneration, message);
+            state?.ActiveAuthoringGeneration ?? 0L, analysisOwnershipGeneration,
+            analysisResidencyGeneration, analysisCompositeGeneration, message);
     }
+
 
     private static void PublishTerrainAnalysisSourceState(bool forceBoundary = false)
     {
@@ -491,5 +519,10 @@ public static partial class TerrainAuthoringPreviewService
             TerrainAuthoringStateUtility.GetOverallAuthoringSignature(settings, data))) return false;
         cache = state.ActiveCache; return true;
     }
+
+    private static bool NativeCacheGeometryCurrentForDiagnostics(TerrainAuthoringPreviewCache cache, int samples, float spacing) =>
+        samples > 1 && analysisSettings != null && cache != null && cache.SampleStride == 1
+        && cache.SamplesPerSide == samples && Mathf.Approximately(cache.SampleSpacing, spacing)
+        && cache.WorldSizeXZ == TerrainClipmapLayoutUtility.CalculateWorldSizeXZ(analysisSettings);
 
 }

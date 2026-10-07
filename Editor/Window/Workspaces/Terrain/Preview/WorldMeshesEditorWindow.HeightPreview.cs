@@ -6,671 +6,31 @@ public partial class WorldMeshesEditorWindow :
 {
     private void DrawHeightPreviewSettings()
     {
-        GUILayout.BeginVertical(
-            EditorStyles.helpBox,
-            GUILayout.ExpandWidth(true)
-        );
-
-        GUILayout.Label(
-            "Height Preview",
-            EditorStyles.boldLabel
-        );
-
-        bool previewEnabled =
-            TerrainAuthoringPreviewService.Enabled;
-
+        GUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.ExpandWidth(true));
+        GUILayout.Label("Height Preview", EditorStyles.boldLabel);
         EditorGUI.BeginChangeCheck();
-
-        bool newPreviewEnabled =
-            EditorGUILayout.Toggle(
-                "Enabled",
-                previewEnabled
-            );
-
-        if (EditorGUI.EndChangeCheck())
+        bool enabled = EditorGUILayout.Toggle("Enabled", TerrainAuthoringPreviewService.Enabled);
+        if (EditorGUI.EndChangeCheck()) TerrainAuthoringPreviewService.Enabled = enabled;
+        var snapshot = TerrainAuthoringPreviewService.GetDiagnosticsSnapshot();
+        DrawHeightPreviewDiagnostics(snapshot);
+        if (snapshot.Enabled)
         {
-            TerrainAuthoringPreviewService.Enabled =
-                newPreviewEnabled;
-
-            previewEnabled =
-                newPreviewEnabled;
+            EditorGUILayout.LabelField("Modifier Logical Dirty Tiles", TerrainAuthoringPreviewService.PendingGlobalDirtyTileCount.ToString("N0"));
+            EditorGUILayout.LabelField("Modifier Resident / Nonresident", $"{TerrainAuthoringPreviewService.LastResidentDirtyTileCount:N0} / {TerrainAuthoringPreviewService.LastNonresidentDirtyTileCount:N0}");
+            EditorGUILayout.LabelField("Regional Scope", TerrainAuthoringPreviewService.LastRegionalInvalidationKind);
+            EditorGUILayout.LabelField("Regional Logical / Resident / Nonresident", $"{TerrainAuthoringPreviewService.LastRegionalLogicalAffectedTileCount:N0} / {TerrainAuthoringPreviewService.LastRegionalResidentAffectedTileCount:N0} / {TerrainAuthoringPreviewService.LastRegionalNonresidentAffectedTileCount:N0}");
+            EditorGUILayout.LabelField("Interactive Edits", $"Modifier={TerrainAuthoringPreviewService.InteractiveModifierEditActive}; Regional={TerrainAuthoringPreviewService.InteractiveRegionalElevationEditActive}");
+            EditorGUILayout.LabelField("Deferred Restart", TerrainAuthoringPreviewService.StreamingRestartDeferredForInteractiveEdit ? "Yes" : "No");
         }
-
-        EditorGUILayout.LabelField(
-            "Status",
-            TerrainAuthoringPreviewService
-                .StatusLabel
-        );
-
-        if (
-            !string.IsNullOrEmpty(
-                TerrainAuthoringPreviewService
-                    .StatusMessage
-            )
-        )
-        {
-            MessageType messageType =
-                TerrainAuthoringPreviewService.Status ==
-                    TerrainAuthoringPreviewStatus.Error
-                    ? MessageType.Error
-                    :
-                    TerrainAuthoringPreviewService.Status ==
-                        TerrainAuthoringPreviewStatus.Ready
-                        ? MessageType.Info
-                        : MessageType.Warning;
-
-            EditorGUILayout.HelpBox(
-                TerrainAuthoringPreviewService
-                    .StatusMessage,
-                messageType
-            );
-        }
-
-        if (
-            previewEnabled
-            &&
-            TerrainAuthoringPreviewService.HasDrawableHeightPreview
-        )
-        {
-            GUILayout.Space(
-                5f
-            );
-
-            EditorGUILayout.LabelField(
-                "Height Content Current", TerrainAuthoringPreviewService.CacheReady ? "Yes" : "Updating"
-            );
-            int totalPages = 0;
-            if (TerrainAuthoringPreviewService.TryGetActiveHeightCacheSet(out var heightSet))
-                foreach (var cache in heightSet) totalPages += cache.ResidentWindow.TileCount;
-            EditorGUILayout.LabelField("Total Display Pages", totalPages.ToString("N0"));
-            EditorGUILayout.LabelField(
-                "Cache Model",
-                "Per-LOD Composite + Staging Set"
-            );
-
-            EditorGUILayout.LabelField(
-                "LOD0 Tile Grid",
-                $"{TerrainAuthoringPreviewService.CacheWidth} x " +
-                $"{TerrainAuthoringPreviewService.CacheHeight}"
-            );
-
-            EditorGUILayout.LabelField(
-                "LOD0 Slices",
-                TerrainAuthoringPreviewService
-                    .CacheSliceCount
-                    .ToString("N0")
-            );
-
-            EditorGUILayout.LabelField(
-                "LOD0 Samples / Slice",
-                $"{TerrainAuthoringPreviewService.SamplesPerSide} x " +
-                $"{TerrainAuthoringPreviewService.SamplesPerSide}"
-            );
-
-            Vector2Int cacheOrigin =
-                TerrainAuthoringPreviewService
-                    .CacheOriginTile;
-
-            EditorGUILayout.LabelField(
-                "LOD0 Cache Origin",
-                $"{cacheOrigin.x}, {cacheOrigin.y}"
-            );
-
-            if (
-                TerrainAuthoringPreviewService
-                    .TryGetDesiredResidentWindow(
-                        out TerrainHeightCacheWindow desiredWindow
-                    )
-            )
-            {
-                EditorGUILayout.LabelField(
-                    "LOD0 Desired Window",
-                    desiredWindow.ToString()
-                );
-            }
-
-            EditorGUILayout.LabelField(
-                "LOD0 Size Health",
-                TerrainAuthoringPreviewService
-                    .ActiveResidencySizeHealthLabel
-            );
-
-            EditorGUILayout.LabelField(
-                "Residency Size Tolerance",
-                $"{TerrainAuthoringPreviewService.ResidencySizeToleranceTiles} tile(s)"
-            );
-
-            if (
-                TerrainAuthoringPreviewService
-                    .TryGetRequestedResidentWindow(
-                        out TerrainHeightCacheWindow requestedWindow
-                    )
-            )
-            {
-                EditorGUILayout.LabelField(
-                    "LOD0 Requested Window",
-                    requestedWindow.ToString()
-                );
-            }
-
-            if (
-                TerrainAuthoringPreviewService
-                    .HasTransitionDiagnostics
-            )
-            {
-                GUILayout.Space(
-                    5f
-                );
-
-                EditorGUILayout.LabelField(
-                    "Transition State",
-                    TerrainAuthoringPreviewService
-                        .TransitionStateLabel
-                );
-
-                if (
-                    TerrainAuthoringPreviewService
-                        .TryGetStagingResidentWindow(
-                            out TerrainHeightCacheWindow stagingWindow
-                        )
-                )
-                {
-                    EditorGUILayout.LabelField(
-                        "LOD0 Staging Window",
-                        stagingWindow.ToString()
-                    );
-                }
-
-                EditorGUILayout.LabelField(
-                    "Retained Tiles",
-                    TerrainAuthoringPreviewService
-                        .LastTransitionRetainedTileCount
-                        .ToString("N0")
-                );
-
-                EditorGUILayout.LabelField(
-                    "Entering Tiles",
-                    TerrainAuthoringPreviewService
-                        .LastTransitionEnteringTileCount
-                        .ToString("N0")
-                );
-
-                EditorGUILayout.LabelField(
-                    "Leaving Tiles",
-                    TerrainAuthoringPreviewService
-                        .LastTransitionLeavingTileCount
-                        .ToString("N0")
-                );
-
-                EditorGUILayout.LabelField(
-                    "Reusable Retained",
-                    TerrainAuthoringPreviewService
-                        .LastTransitionReusableRetainedTileCount
-                        .ToString("N0")
-                );
-
-                EditorGUILayout.LabelField(
-                    "Retained GPU Copies",
-                    TerrainAuthoringPreviewService
-                        .LastTransitionRetainedGpuCopyCount
-                        .ToString("N0")
-                );
-
-                EditorGUILayout.LabelField(
-                    "Committed Source Loads",
-                    TerrainAuthoringPreviewService
-                        .LastTransitionCommittedSourceLoadCount
-                        .ToString("N0")
-                );
-
-                EditorGUILayout.LabelField(
-                    "Composed Representation Slices",
-                    TerrainAuthoringPreviewService
-                        .LastTransitionComposedTileCount
-                        .ToString("N0")
-                );
-
-                if (
-                    TerrainAuthoringPreviewService
-                        .HasTransitionFailure
-                )
-                {
-                    EditorGUILayout.HelpBox(
-                        TerrainAuthoringPreviewService
-                            .LastTransitionFailureMessage,
-                        MessageType.Error
-                    );
-                }
-            }
-
-            EditorGUILayout.LabelField(
-                "Active Height Range",
-                $"{TerrainAuthoringPreviewService.MinimumPreviewHeight:R} -> " +
-                $"{TerrainAuthoringPreviewService.MaximumPreviewHeight:R}"
-            );
-
-            EditorGUILayout.LabelField(
-                "Active Texture ID",
-                TerrainAuthoringPreviewService
-                    .CacheTextureInstanceId
-                    .ToString()
-            );
-
-            EditorGUILayout.LabelField(
-                "Active Cache Activations",
-                TerrainAuthoringPreviewService
-                    .ResidentCacheBuildCount
-                    .ToString("N0")
-            );
-
-            EditorGUILayout.LabelField(
-                "Pending Dirty Tiles",
-                TerrainAuthoringPreviewService
-                    .PendingDirtyTileCount
-                    .ToString("N0")
-            );
-
-            EditorGUILayout.LabelField(
-                "Last Incremental Update",
-                TerrainAuthoringPreviewService
-                    .LastIncrementalSliceCount
-                    .ToString("N0") +
-                " slice(s)"
-            );
-
-            EditorGUILayout.LabelField(
-                "Total Incremental Slices",
-                TerrainAuthoringPreviewService
-                    .TotalIncrementalSliceUpdates
-                    .ToString("N0")
-            );
-
-            EditorGUILayout.LabelField(
-                "Approx. Active GPU Memory",
-                FormatPreviewMemory(
-                    TerrainAuthoringPreviewService
-                        .ApproximateGpuMemoryBytes
-                )
-            );
-
-            GUILayout.Space(
-                5f
-            );
-
-            DrawShortSignature(
-                "Committed Signature",
-                TerrainAuthoringPreviewService
-                    .SourceCommittedHeightfieldSignature
-            );
-
-            DrawShortSignature(
-                "Overall Signature",
-                TerrainAuthoringPreviewService
-                    .SourceOverallAuthoringSignature
-            );
-        }
-
-        if (previewEnabled)
-        {
-            GUILayout.Space(
-                5f
-            );
-
-            GUILayout.Label(
-                "Incremental Streaming",
-                EditorStyles.boldLabel
-            );
-
-            EditorGUILayout.LabelField(
-                "Streaming State",
-                TerrainAuthoringPreviewService
-                    .StreamingStateLabel
-            );
-
-            EditorGUILayout.LabelField(
-                "Coverage",
-                TerrainAuthoringPreviewService
-                    .StreamingCoverageLabel
-            );
-
-            if (
-                TerrainAuthoringPreviewService
-                    .TryGetStagingResidentWindow(
-                        out TerrainHeightCacheWindow streamingTarget
-                    )
-            )
-            {
-                EditorGUILayout.LabelField(
-                    "Streaming Target",
-                    streamingTarget.ToString()
-                );
-            }
-            else if (
-                TerrainAuthoringPreviewService
-                    .TryGetRequestedResidentWindow(
-                        out TerrainHeightCacheWindow queuedTarget
-                    )
-            )
-            {
-                EditorGUILayout.LabelField(
-                    "Streaming Target",
-                    queuedTarget.ToString()
-                );
-            }
-
-            if (
-                TerrainAuthoringPreviewService
-                    .TryGetDesiredResidentWindow(
-                        out TerrainHeightCacheWindow latestDesired
-                    )
-            )
-            {
-                EditorGUILayout.LabelField(
-                    "LOD0 Latest Desired Window",
-                    latestDesired.ToString()
-                );
-            }
-
-            EditorGUILayout.LabelField(
-                "Retained Copied",
-                $"{TerrainAuthoringPreviewService.StreamingRetainedCopiedCount:N0} / " +
-                $"{TerrainAuthoringPreviewService.StreamingRetainedTileCount:N0}"
-            );
-
-            EditorGUILayout.LabelField(
-                "Committed Loads",
-                $"{TerrainAuthoringPreviewService.StreamingSourceLoadedCount:N0} / " +
-                $"{TerrainAuthoringPreviewService.StreamingSourceGroupCount:N0}"
-            );
-
-            EditorGUILayout.LabelField(
-                "Composed Representation Slices",
-                $"{TerrainAuthoringPreviewService.StreamingSourceComposedCount:N0} / " +
-                $"{TerrainAuthoringPreviewService.StreamingSourceTileCount:N0}"
-            );
-
-            EditorGUILayout.LabelField(
-                "Progress",
-                TerrainAuthoringPreviewService
-                    .StreamingProgress
-                    .ToString("P1")
-            );
-
-            EditorGUILayout.LabelField(
-                "Copies / Update",
-                TerrainAuthoringPreviewService
-                    .StreamingRetainedCopiesPerUpdate
-                    .ToString()
-            );
-
-            EditorGUILayout.LabelField(
-                "Loads / Update",
-                TerrainAuthoringPreviewService
-                    .StreamingCommittedLoadsPerUpdate
-                    .ToString()
-            );
-
-            EditorGUILayout.LabelField(
-                "Compositions / Update",
-                TerrainAuthoringPreviewService
-                    .StreamingCompositionsPerUpdate
-                    .ToString()
-            );
-
-            EditorGUILayout.LabelField(
-                "Soft Work Budget",
-                $"{TerrainAuthoringPreviewService.StreamingSoftWorkBudgetMilliseconds:R} ms"
-            );
-
-            if (
-                !string.IsNullOrEmpty(
-                    TerrainAuthoringPreviewService
-                        .StreamingStatusMessage
-                )
-            )
-            {
-                EditorGUILayout.HelpBox(
-                    TerrainAuthoringPreviewService
-                        .StreamingStatusMessage,
-                    TerrainAuthoringPreviewService.StreamingState ==
-                        TerrainAuthoringPreviewStreamingState.Failed
-                        ? MessageType.Error
-                        : MessageType.Info
-                );
-            }
-        }
-
-        if (previewEnabled)
-        {
-            GUILayout.Space(
-                5f
-            );
-
-            GUILayout.Label(
-                "Modifier Residency",
-                EditorStyles.boldLabel
-            );
-
-            EditorGUILayout.LabelField(
-                "Authoring Generation",
-                TerrainAuthoringPreviewService
-                    .AuthoringGeneration
-                    .ToString("N0")
-            );
-
-            EditorGUILayout.LabelField(
-                "Active Authoring Generation",
-                TerrainAuthoringPreviewService
-                    .ActiveCacheAuthoringGeneration
-                    .ToString("N0")
-            );
-
-            EditorGUILayout.LabelField(
-                "Pending Global Dirty Tiles",
-                TerrainAuthoringPreviewService
-                    .PendingGlobalDirtyTileCount
-                    .ToString("N0")
-            );
-
-            EditorGUILayout.LabelField(
-                "Last Global Dirty Tiles",
-                TerrainAuthoringPreviewService
-                    .LastGlobalDirtyTileCount
-                    .ToString("N0")
-            );
-
-            EditorGUILayout.LabelField(
-                "Last Resident Dirty Tiles",
-                TerrainAuthoringPreviewService
-                    .LastResidentDirtyTileCount
-                    .ToString("N0")
-            );
-
-            EditorGUILayout.LabelField(
-                "Last Nonresident Dirty Tiles",
-                TerrainAuthoringPreviewService
-                    .LastNonresidentDirtyTileCount
-                    .ToString("N0")
-            );
-
-            EditorGUILayout.LabelField(
-                "Last Published Composite Tiles",
-                TerrainAuthoringPreviewService
-                    .LastPublishedCompositeTileCount
-                    .ToString("N0")
-            );
-
-            EditorGUILayout.LabelField(
-                "Interactive Modifier Edit",
-                TerrainAuthoringPreviewService
-                    .InteractiveModifierEditActive
-                    ? "Yes"
-                    : "No"
-            );
-
-            EditorGUILayout.LabelField(
-                "Streaming Restart",
-                TerrainAuthoringPreviewService
-                    .StreamingRestartDeferredForInteractiveEdit
-                    ? "Deferred During Edit"
-                    : "Normal"
-            );
-        }
-
-        if (previewEnabled)
-        {
-            GUILayout.Space(
-                5f
-            );
-
-            GUILayout.Label(
-                "Regional Elevation Residency",
-                EditorStyles.boldLabel
-            );
-
-            EditorGUILayout.LabelField(
-                "Regional Scope",
-                TerrainAuthoringPreviewService
-                    .LastRegionalInvalidationKind
-            );
-
-            EditorGUILayout.LabelField(
-                "Logical Affected Tiles",
-                TerrainAuthoringPreviewService
-                    .LastRegionalLogicalAffectedTileCount
-                    .ToString("N0")
-            );
-
-            EditorGUILayout.LabelField(
-                "Resident Affected Tiles",
-                TerrainAuthoringPreviewService
-                    .LastRegionalResidentAffectedTileCount
-                    .ToString("N0")
-            );
-
-            EditorGUILayout.LabelField(
-                "Nonresident Affected Tiles",
-                TerrainAuthoringPreviewService
-                    .LastRegionalNonresidentAffectedTileCount
-                    .ToString("N0")
-            );
-
-            EditorGUILayout.LabelField(
-                "Regional Published Tiles",
-                TerrainAuthoringPreviewService
-                    .LastRegionalPublishedCompositeTileCount
-                    .ToString("N0")
-            );
-
-            EditorGUILayout.LabelField(
-                "Pending Regional Invalidation",
-                TerrainAuthoringPreviewService
-                    .HasPendingRegionalElevationInvalidation
-                    ? "Yes"
-                    : "No"
-            );
-
-            EditorGUILayout.LabelField(
-                "Interactive Regional Edit",
-                TerrainAuthoringPreviewService
-                    .InteractiveRegionalElevationEditActive
-                    ? "Yes"
-                    : "No"
-            );
-        }
-
-        GUILayout.Space(
-            5f
-        );
-
-        EditorGUI.BeginDisabledGroup(
-            !previewEnabled
-            ||
-            EditorApplication
-                .isPlayingOrWillChangePlaymode
-        );
-
-        if (
-            GUILayout.Button(
-                "Rebuild Committed Preview",
-                GUILayout.ExpandWidth(true)
-            )
-        )
-        {
-            TerrainAuthoringPreviewService
-                .ForceCommittedRebuildNow();
-        }
-
+        EditorGUI.BeginDisabledGroup(!enabled || EditorApplication.isPlayingOrWillChangePlaymode);
+        if (GUILayout.Button("Rebuild Committed Preview", GUILayout.ExpandWidth(true)))
+            TerrainAuthoringPreviewService.ForceCommittedRebuildNow();
         EditorGUI.EndDisabledGroup();
-
-        GUILayout.Space(
-            5f
-        );
-
-        EditorGUILayout.HelpBox(
-            "The edit-mode Height Preview keeps the current active cache bound " +
-            "while replacement residency is prepared incrementally through " +
-            "EditorApplication.update. Retained GPU copies, committed tile " +
-            "loads, and tile composition are bounded per editor update.\n\n" +
-
-            "Committed height loading starts conservatively at one tile per " +
-            "update. The soft work budget only prevents starting additional " +
-            "work after the threshold; it cannot interrupt a Unity operation " +
-            "that is already running. All AssetDatabase, GPU-copy, and compute " +
-            "work remains on the editor main thread.\n\n" +
-
-            "Guard-based prefetch begins before active coverage becomes unsafe. " +
-            "Rapid Scene View movement coalesces toward the latest meaningful " +
-            "destination, obsolete staging is cancelled, and atomic activation " +
-            "still occurs only after every staging slice is final-ready.\n\n" +
-
-            "Modifier authoring remains world-global, but immediate GPU " +
-            "recomposition is restricted to affected active resident tiles. " +
-            "Nonresident modifier changes do not load height tiles solely for " +
-            "the edit; those tiles reconstruct the current complete modifier " +
-            "stack when they later enter residency. Authoring generations " +
-            "cancel stale staging, and remote staging restart is deferred while " +
-            "an interactive modifier gesture is active.\n\n" +
-
-            "Regional elevation authoring is also world-global. Whole-world " +
-            "regional influence is represented as a compact logical scope and " +
-            "intersected with active residency, so distant regional terrain is " +
-            "not loaded solely because a node changed. Later-entering tiles " +
-            "reconstruct the current regional surface before the complete " +
-            "modifier stack. Regional interactive edits share the same " +
-            "authoring-generation and streaming-deferral safety.",
-            MessageType.Info
-        );
-
+        EditorGUILayout.HelpBox("The published display set stays bound while a complete replacement is prepared. Source loads count geographic tiles; composition counts representation pages. Work caps apply to the whole editor callback. Height memory is an RFloat array payload estimate, excluding compositor buffers, committed texture assets and driver overhead.", MessageType.Info);
         GUILayout.EndVertical();
     }
 
-    private static void DrawShortSignature(
-        string label,
-        string signature
-    )
-    {
-        string value =
-            string.IsNullOrEmpty(
-                signature
-            )
-                ? "(none)"
-                :
-                signature.Length <=
-                    16
-                    ? signature
-                    :
-                    signature.Substring(
-                        0,
-                        16
-                    ) +
-                    "...";
 
-        EditorGUILayout.LabelField(
-            label,
-            value
-        );
-    }
 
     private static string FormatPreviewMemory(
         long byteCount
@@ -690,4 +50,116 @@ public partial class WorldMeshesEditorWindow :
         return
             $"{mebibytes:F1} MiB";
     }
+    private bool showHeightPreviewLods;
+    private bool showHeightPreviewAnalysis;
+    private readonly bool[] showHeightPreviewLodRows = new bool[TerrainClipmapTopologyUtility.MaximumLevelCount];
+
+    private void DrawHeightPreviewDiagnostics(TerrainAuthoringPreviewDiagnosticsSnapshot snapshot)
+    {
+        EditorGUILayout.LabelField("Status", snapshot.PreviewStatus.ToString());
+        EditorGUILayout.LabelField("Published Display", $"Drawable={snapshot.Drawable}; Content Current={snapshot.CacheReady}");
+        EditorGUILayout.LabelField("Latest Paired Intent", $"Coverage={snapshot.LatestCoverageCurrent}; Placement={snapshot.PlacementCurrent}; Ready={snapshot.ReadyForLatestIntent}");
+        EditorGUILayout.LabelField("Authoring / Request Generation", $"{snapshot.AuthoringGeneration} / {snapshot.StreamingRequestGeneration}");
+        if (!string.IsNullOrEmpty(snapshot.PreviewStatusMessage))
+            EditorGUILayout.HelpBox(snapshot.PreviewStatusMessage, snapshot.PreviewStatus == TerrainAuthoringPreviewStatus.Error ? MessageType.Error : MessageType.Info);
+        EditorGUILayout.LabelField("Streaming State", snapshot.StreamingState.ToString());
+        DrawHeightWorker("Running", snapshot.Worker);
+        DrawHeightWorker("Queued", snapshot.QueuedWorker);
+        EditorGUILayout.LabelField("Callback Caps: Allocate / Load / Copy / Materialize / Compose",
+            $"1 / {TerrainAuthoringPreviewService.StreamingCommittedLoadsPerUpdate} / {TerrainAuthoringPreviewService.StreamingRetainedCopiesPerUpdate} / {TerrainAuthoringPreviewService.StreamingMaterializationsPerUpdate} / {TerrainAuthoringPreviewService.StreamingCompositionsPerUpdate}");
+        EditorGUILayout.LabelField("Soft Callback Budget", $"{TerrainAuthoringPreviewService.StreamingSoftWorkBudgetMilliseconds:R} ms");
+        int dirty = 0;
+        foreach (var row in snapshot.DisplayLods) dirty += row.PendingDirtyCount;
+        EditorGUILayout.LabelField("Pending Dirty: Geographic / Display Jobs", $"{snapshot.PendingGeographicDirtyCount:N0} / {dirty:N0}");
+        EditorGUILayout.LabelField("Last Dirty Callback: Load / Materialize / Compose", $"{snapshot.LastDirtyLoads} / {snapshot.LastDirtyMaterializations} / {snapshot.LastDirtyCompositions}");
+        if (!string.IsNullOrEmpty(snapshot.StreamingStatusMessage)) EditorGUILayout.HelpBox(snapshot.StreamingStatusMessage, snapshot.StreamingState == TerrainAuthoringPreviewStreamingState.Failed ? MessageType.Error : MessageType.Info);
+        if (!string.IsNullOrEmpty(snapshot.CancellationReason)) EditorGUILayout.LabelField("Last Cancellation", snapshot.CancellationReason);
+        var memory = snapshot.Ownership;
+        EditorGUILayout.LabelField("Display Active Height Payload", FormatPreviewMemory(memory.DisplayActiveBytes));
+        EditorGUILayout.LabelField("Analysis Active Height Payload", FormatPreviewMemory(memory.AnalysisActiveBytes));
+        EditorGUILayout.LabelField("Display / Analysis Staging Payload", $"{FormatPreviewMemory(memory.DisplayStagingBytes)} / {FormatPreviewMemory(memory.AnalysisStagingBytes)}");
+        EditorGUILayout.LabelField("Retiring Display / Analysis Payload", $"{FormatPreviewMemory(memory.RetiringDisplayBytes)} / {FormatPreviewMemory(memory.RetiringAnalysisBytes)}");
+        EditorGUILayout.LabelField("Total / Transition Peak Height Payload", $"{FormatPreviewMemory(memory.TotalBytes)} / {FormatPreviewMemory(snapshot.PeakTransitionGpuMemoryBytes)}");
+        EditorGUILayout.LabelField("Service Owned Cache Objects / Arrays", $"{memory.OwnedCacheCount} / {memory.AllocatedArrayCount}");
+        EditorGUILayout.LabelField("Editor Domain: Created / Disposed / Live", $"{snapshot.CacheCreateCount} / {snapshot.CacheDisposeCount} / {snapshot.CacheLiveCount}");
+        EditorGUILayout.LabelField("Aggregate Residency Size Health", TerrainAuthoringPreviewService.AggregateSizeHealth(snapshot.DisplayLods).ToString());
+        showHeightPreviewLods = EditorGUILayout.Foldout(showHeightPreviewLods, $"Display LODs ({snapshot.DisplayLods.Count})", true);
+        if (showHeightPreviewLods)
+        {
+            EditorGUI.indentLevel++;
+            foreach (var row in snapshot.DisplayLods)
+            {
+                showHeightPreviewLodRows[row.Level] = EditorGUILayout.Foldout(showHeightPreviewLodRows[row.Level],
+                    $"LOD {row.Level}: stride {row.Active.Representation.Stride}; current={row.Active.Current}; dirty={row.PendingDirtyCount}; {row.SizeHealth}; active/staging {FormatPreviewMemory(row.Active.GpuBytes)}/{FormatPreviewMemory(row.Staging.GpuBytes)}", true);
+                if (!showHeightPreviewLodRows[row.Level]) continue;
+                EditorGUILayout.LabelField("Failed Write", row.WriteFailed ? "Yes" : "No");
+                DrawHeightAllocation("Published", row.Active);
+                if (row.Active.Present) EditorGUILayout.LabelField("Published Required", row.PublishedRequiredWindow.ToString());
+                if (row.HasLatestPlan)
+                {
+                    EditorGUILayout.LabelField("Latest Representation", FormatHeightRepresentation(row.PlannedRepresentation));
+                    EditorGUILayout.LabelField("Latest Required", row.RequiredWindow.ToString());
+                    EditorGUILayout.LabelField("Latest Guarded / Desired", $"{row.GuardedWindow} / {row.DesiredWindow}");
+                }
+                if (row.WorkerRepresentation.IsValid)
+                {
+                    EditorGUILayout.LabelField("Running Representation", FormatHeightRepresentation(row.WorkerRepresentation));
+                    EditorGUILayout.LabelField("Running Required / Frozen Target", $"{row.WorkerRequiredWindow} / {row.WorkerTargetWindow}");
+                }
+                DrawHeightAllocation("Display Staging", row.Staging);
+                if (row.QueuedRepresentation.IsValid)
+                    EditorGUILayout.LabelField("Queued Target", $"{FormatHeightRepresentation(row.QueuedRepresentation)}; {row.QueuedTargetWindow}");
+                EditorGUILayout.LabelField("Published / Request Generation", $"{row.PublishedGeneration} / {row.RequestGeneration}");
+                EditorGUILayout.LabelField("Phase / Retained / Reusable / Entering / Leaving", $"{row.Phase} / {row.RetainedCount} / {row.ReusableCount} / {row.EnteringCount} / {row.LeavingCount}");
+                EditorGUILayout.LabelField("Copied / Materialized / Composed / Remaining", $"{row.CopiedCount} / {row.MaterializedCount} / {row.ComposedCount} / {row.CompositionRemainingCount}");
+            }
+            EditorGUI.indentLevel--;
+        }
+        showHeightPreviewAnalysis = EditorGUILayout.Foldout(showHeightPreviewAnalysis, $"Native Analysis: {snapshot.Analysis.Kind}; Ready={snapshot.Analysis.Ready}", true);
+        if (showHeightPreviewAnalysis)
+        {
+            EditorGUI.indentLevel++;
+            var analysis = snapshot.Analysis;
+            EditorGUILayout.LabelField("Native Samples / Spacing", $"{analysis.SamplesPerSide} / {analysis.SampleSpacing:R}");
+            EditorGUILayout.LabelField("Derived Output", analysis.OutputWindow.ToString());
+            EditorGUILayout.LabelField("Source Dependency / Guard Tiles", $"{analysis.RequiredSourceWindow} / {analysis.GuardTileCount}");
+            EditorGUILayout.LabelField("Selected Physical Storage", analysis.PhysicalWindow.ToString());
+            EditorGUILayout.LabelField("Authoring / Ownership / Residency / Composite", $"{analysis.AuthoringGeneration} / {analysis.OwnershipGeneration} / {analysis.ResidencyGeneration} / {analysis.CompositeGeneration}");
+            DrawHeightAllocation("Owned Native Active", snapshot.AnalysisActive);
+            DrawHeightAllocation("Native Staging", snapshot.AnalysisStaging);
+            if (!string.IsNullOrEmpty(analysis.Message)) EditorGUILayout.HelpBox(analysis.Message, analysis.Failed ? MessageType.Error : MessageType.Info);
+            EditorGUI.indentLevel--;
+        }
+        DrawHeightFailure("Display Failure", snapshot.DisplayFailure);
+        DrawHeightFailure("Native Analysis Failure", snapshot.AnalysisFailure);
+    }
+
+    private static string FormatHeightRepresentation(TerrainAuthoringPreviewRepresentationSnapshot representation) =>
+        representation.IsValid ? $"Stride {representation.Stride}; {representation.SamplesPerSide} samples; spacing {representation.SampleSpacing:R}" : "Unplanned";
+
+    private static void DrawHeightAllocation(string label, TerrainAuthoringPreviewCacheSnapshot allocation)
+    {
+        EditorGUILayout.LabelField(label, !allocation.Present ? "None" : !allocation.HasTexture ? "Unallocated" :
+            $"{FormatHeightRepresentation(allocation.Representation)}; {allocation.Window}; {allocation.PageCount} pages; texture {allocation.TextureId}; {FormatPreviewMemory(allocation.GpuBytes)}; complete={allocation.Complete}");
+    }
+
+    private static void DrawHeightWorker(string label, TerrainAuthoringPreviewWorkerSnapshot worker)
+    {
+        EditorGUILayout.LabelField(label + " Worker", worker.Present ? $"{worker.Purpose}; {worker.Phase}; {worker.Progress:P1}" : "Idle");
+        if (!worker.Present) return;
+        EditorGUILayout.LabelField(label + " Generations: Request / Authoring / Ownership", $"{worker.RequestGeneration} / {worker.AuthoringGeneration} / {worker.OwnershipGeneration}");
+        EditorGUILayout.LabelField(label + " Geographic Sources Loaded", $"{worker.LoadedGroupCount:N0} / {worker.SourceGroupCount:N0}");
+        EditorGUILayout.LabelField(label + " Representation Pages Materialized / Composed", $"{worker.MaterializedCount:N0} / {worker.ComposedCount:N0} of {worker.RepresentationCount:N0}");
+        EditorGUILayout.LabelField(label + " Retained Copies", $"{worker.CopiedCount:N0} / {worker.ReusableCount:N0}");
+        EditorGUILayout.LabelField(label + " Last Callback: Allocate / Load / Copy / Materialize / Compose", $"{worker.LastAllocations} / {worker.LastLoads} / {worker.LastCopies} / {worker.LastMaterializations} / {worker.LastCompositions}");
+    }
+
+    private static void DrawHeightFailure(string label, TerrainAuthoringPreviewFailureSnapshot failure)
+    {
+        if (!failure.Present) return;
+        string scope = failure.Level >= 0 ? $"LOD {failure.Level}; {failure.Window}" : "Whole set";
+        if (failure.HasTile) scope += $"; tile {failure.Tile}";
+        EditorGUILayout.HelpBox($"{label}: {failure.Purpose}; {scope}; request {failure.RequestGeneration}, placement {failure.PlacementGeneration}. {failure.Message}", MessageType.Error);
+    }
+
 }

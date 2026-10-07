@@ -135,6 +135,7 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
             RunBoundedScalingValidation();
             RunMultiresolutionResidencyPlanValidation();
             RunMultiresolutionBoundedScalingValidation();
+            RunDiagnosticsProjectionValidation();
             RunLivePreviewValidation();
         }
         catch (Exception exception)
@@ -1379,316 +1380,64 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
 
     private static void RunLivePreviewValidation()
     {
-        TerrainAuthoringPreviewDiagnosticsSnapshot snapshot =
-            TerrainAuthoringPreviewService.GetDiagnosticsSnapshot();
-
-        AddResult(
-            "Live preview transition cache ownership",
-            snapshot.CacheLiveCount <= 2
-                ? ValidationOutcome.Pass
-                : ValidationOutcome.Fail,
-            $"Live caches={snapshot.CacheLiveCount:N0}; active + staging ownership permits at most two."
-        );
-
-        bool settled =
-            !snapshot.IsStreaming
-            && !snapshot.HasStagingWindow;
-
-        if (!settled)
+        var snapshot = TerrainAuthoringPreviewService.GetDiagnosticsSnapshot();
+        var ownership = snapshot.Ownership;
+        bool ownersValid = ownership.OwnedCacheCount == ownership.DisplayActiveCount + ownership.AnalysisActiveCount
+            + ownership.DisplayStagingCount + ownership.AnalysisStagingCount + ownership.RetiringCount
+            && ownership.AllocatedArrayCount <= ownership.OwnedCacheCount
+            && ownership.OwnedCacheCount <= snapshot.CacheLiveCount
+            && snapshot.CacheCreateCount - snapshot.CacheDisposeCount == snapshot.CacheLiveCount
+            && ownership.TotalBytes == TerrainAuthoringPreviewService.ApproximateTotalResidentGpuMemoryBytes;
+        AddResult("Distinct preview resource ownership", ownersValid ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+            $"Service cache objects={ownership.OwnedCacheCount}, arrays={ownership.AllocatedArrayCount}; editor-domain live={snapshot.CacheLiveCount}; Height payload={ownership.TotalBytes} bytes. Stale/retained owners remain counted.");
+        long displayBytes = 0, stagingBytes = 0;
+        int allocated = 0;
+        bool rowsValid = true;
+        foreach (var row in snapshot.DisplayLods)
         {
-            AddResult(
-                "Settled preview cache ownership",
-                ValidationOutcome.Blocked,
-                $"Streaming or staging is still active. Live caches={snapshot.CacheLiveCount:N0}."
-            );
+            displayBytes += row.Active.GpuBytes;
+            stagingBytes += row.Staging.GpuBytes;
+            if (!row.Active.HasTexture) continue;
+            allocated++;
+            bool borrowed = TerrainAuthoringPreviewService.TryGetActiveDisplayLodCacheForValidation(row.Level, out var cache);
+            bool valid = row.Active.Representation.IsValid && row.Active.PageCount == row.Active.Window.TileCount
+                && row.Active.Window.Contains(row.PublishedRequiredWindow)
+                && row.Active.GpuBytes == (long)row.Active.Representation.SamplesPerSide * row.Active.Representation.SamplesPerSide * row.Active.PageCount * sizeof(float);
+            if (!row.WriteFailed)
+            {
+                valid &= borrowed && cache.HeightCache.volumeDepth == row.Active.PageCount
+                    && cache.SamplesPerSide == row.Active.Representation.SamplesPerSide
+                    && cache.SampleStride == row.Active.Representation.Stride
+                    && Mathf.Approximately(cache.SampleSpacing, row.Active.Representation.SampleSpacing);
+                if (borrowed)
+                {
+                    // Bounded selected probes; no large live per-page readback or scan.
+                    valid &= TerrainAuthoringPreviewService.TryGetDisplayLodSliceIndex(row.Level, row.Active.Window.OriginTile.x, row.Active.Window.OriginTile.y, out int first)
+                        && first == 0 && cache.TryGetTileCoordinate(row.Active.PageCount - 1, out var last)
+                        && last == (row.Active.Window.MaximumExclusive - Vector2Int.one);
+                }
+            }
+            if (snapshot.ReadyForLatestIntent)
+                valid &= row.HasLatestPlan && row.Active.Current && row.Active.Window.Contains(row.RequiredWindow)
+                    && row.Active.Representation.Stride == row.PlannedRepresentation.Stride
+                    && row.Active.Representation.SamplesPerSide == row.PlannedRepresentation.SamplesPerSide
+                    && Mathf.Approximately(row.Active.Representation.SampleSpacing, row.PlannedRepresentation.SampleSpacing);
+            rowsValid &= valid;
+            AddResult($"Published display LOD {row.Level} geometry and required coverage", valid ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+                $"Stride={row.Active.Representation.Stride}, physical={row.Active.Window}, published required={row.PublishedRequiredWindow}, latest required={row.RequiredWindow}; current={row.Active.Current}, dirty={row.PendingDirtyCount}.");
         }
-        else
-        {
-            int expectedLive =
-                snapshot.CacheReady
-                    ? 1
-                    : 0;
-
-            AddResult(
-                "Settled preview cache ownership",
-                snapshot.CacheLiveCount == expectedLive
-                    ? ValidationOutcome.Pass
-                    : ValidationOutcome.Fail,
-                $"CacheReady={snapshot.CacheReady}; Created={snapshot.CacheCreateCount:N0}; " +
-                $"Disposed={snapshot.CacheDisposeCount:N0}; Live={snapshot.CacheLiveCount:N0}; " +
-                $"Expected live={expectedLive:N0}."
-            );
-        }
-
-        WorldSettings worldSettings =
-            AssetDatabase
-                .LoadAssetAtPath<WorldSettings>(
-                    WorldMeshesPaths
-                        .WorldSettingsAssetPath
-                );
-
-        TerrainAuthoringData authoringData =
-            AssetDatabase
-                .LoadAssetAtPath<TerrainAuthoringData>(
-                    WorldMeshesPaths
-                        .TerrainAuthoringDataAssetPath
-                );
-
-        if (
-            worldSettings == null
-            ||
-            authoringData == null
-        )
-        {
-            AddResult(
-                "Live PreviewService residency prerequisites",
-                ValidationOutcome.Blocked,
-                "WorldSettings or TerrainAuthoringData is unavailable."
-            );
-
-            return;
-        }
-
-        int revisionBefore =
-            authoringData.authoringRevision;
-
-        string committedSignatureBefore =
-            TerrainAuthoringStateUtility
-                .GetCommittedHeightfieldSignature(
-                    worldSettings
-                );
-
-        string overallSignatureBefore =
-            TerrainAuthoringStateUtility
-                .GetOverallAuthoringSignature(
-                    worldSettings,
-                    authoringData
-                );
-
-        if (
-            !TerrainAuthoringPreviewService.CacheReady
-            ||
-            !TerrainAuthoringPreviewService
-                .TryGetActiveResidentWindow(
-                    out TerrainHeightCacheWindow activeWindow
-                )
-            ||
-            !TerrainAuthoringPreviewService
-                .TryGetHeightCacheWorldCoverage(
-                    out Vector2 coverageMinimum,
-                    out Vector2 coverageMaximum
-                )
-        )
-        {
-            AddResult(
-                "Live PreviewService residency prerequisites",
-                ValidationOutcome.Blocked,
-                "Enable Height Preview and wait for a ready resident cache, then rerun validation."
-            );
-
-            RunPersistentStateSafetyValidation(
-                worldSettings,
-                authoringData,
-                revisionBefore,
-                committedSignatureBefore,
-                overallSignatureBefore
-            );
-
-            return;
-        }
-
-        AddResult(
-            "Live PreviewService residency prerequisites",
-            ValidationOutcome.Pass,
-            $"Active={activeWindow}; coverage={coverageMinimum} -> {coverageMaximum}."
-        );
-
-        bool layoutStateCorrect =
-            activeWindow.OriginTile ==
-                TerrainAuthoringPreviewService
-                    .CacheOriginTile
-            &&
-            activeWindow.Size ==
-                new Vector2Int(
-                    TerrainAuthoringPreviewService
-                        .CacheWidth,
-                    TerrainAuthoringPreviewService
-                        .CacheHeight
-                )
-            &&
-            TerrainAuthoringPreviewService
-                .CacheSliceCount ==
-                activeWindow.TileCount;
-
-        AddResult(
-            "Active resident window matches cache layout",
-            layoutStateCorrect
-                ? ValidationOutcome.Pass
-                : ValidationOutcome.Fail,
-            $"Active={activeWindow}, slices={TerrainAuthoringPreviewService.CacheSliceCount:N0}."
-        );
-
-        long expectedMemory = 0;
-        bool setAvailable = TerrainAuthoringPreviewService.TryGetActiveHeightCacheSet(out var heightSet);
-        if (setAvailable) foreach (var cache in heightSet)
-            expectedMemory += (long)cache.SamplesPerSide * cache.SamplesPerSide * cache.ResidentWindow.TileCount * sizeof(float);
-        bool memoryCorrect = setAvailable && TerrainAuthoringPreviewService.ApproximateDisplayGpuMemoryBytes == expectedMemory;
-
-        AddResult(
-            "Display GPU memory sums every LOD representation",
-            memoryCorrect
-                ? ValidationOutcome.Pass
-                : ValidationOutcome.Fail,
-            $"Expected/actual bytes: {expectedMemory} / " +
-            $"{TerrainAuthoringPreviewService.ApproximateDisplayGpuMemoryBytes}."
-        );
-
-        float tileWorldSize =
-            worldSettings.HeightTileWorldSize;
-
-        float sampleSpacing =
-            TerrainAuthoringPreviewResidencyUtility
-                .CalculateHeightSampleSpacing(
-                    worldSettings
-                );
-
-        if (
-            activeWindow.Width >= 3
-            &&
-            activeWindow.Height >= 3
-        )
-        {
-            Vector2 insideMinimum =
-                new Vector2(
-                    (
-                        activeWindow.OriginTile.x +
-                        1
-                    )
-                    *
-                    tileWorldSize
-                    +
-                    sampleSpacing *
-                    2f,
-                    (
-                        activeWindow.OriginTile.y +
-                        1
-                    )
-                    *
-                    tileWorldSize
-                    +
-                    sampleSpacing *
-                    2f
-                );
-
-            Vector2 insideMaximum =
-                new Vector2(
-                    (
-                        activeWindow.OriginTile.x +
-                        2
-                    )
-                    *
-                    tileWorldSize
-                    -
-                    sampleSpacing *
-                    2f,
-                    (
-                        activeWindow.OriginTile.y +
-                        2
-                    )
-                    *
-                    tileWorldSize
-                    -
-                    sampleSpacing *
-                    2f
-                );
-
-            bool insideCovered =
-                TerrainAuthoringPreviewService
-                    .CanActiveCacheCoverWorldBounds(
-                        insideMinimum,
-                        insideMaximum
-                    );
-
-            AddResult(
-                "Sample-safe active containment query",
-                insideCovered
-                    ? ValidationOutcome.Pass
-                    : ValidationOutcome.Fail,
-                $"Interior bounds: {insideMinimum} -> {insideMaximum}."
-            );
-        }
-        else
-        {
-            AddResult(
-                "Sample-safe active containment query",
-                ValidationOutcome.Blocked,
-                "The current resident cache is too small for a stable interior containment probe."
-            );
-        }
-
-        if (
-            TryCreateOutsideActiveProbe(
-                worldSettings,
-                activeWindow,
-                out Vector2 outsideMinimum,
-                out Vector2 outsideMaximum
-            )
-        )
-        {
-            bool outsideCovered =
-                TerrainAuthoringPreviewService
-                    .CanActiveCacheCoverWorldBounds(
-                        outsideMinimum,
-                        outsideMaximum
-                    );
-
-            AddResult(
-                "Nonresident bounds rejected by active cache",
-                !outsideCovered
-                    ? ValidationOutcome.Pass
-                    : ValidationOutcome.Fail,
-                $"Outside bounds: {outsideMinimum} -> {outsideMaximum}."
-            );
-        }
-        else
-        {
-            AddResult(
-                "Nonresident bounds rejected by active cache",
-                ValidationOutcome.Blocked,
-                "The current resident cache covers the complete logical world."
-            );
-        }
-
-        int fullWorldTileCount =
-            worldSettings.HeightTileCount;
-
-        if (
-            activeWindow.TileCount <
-            fullWorldTileCount
-        )
-        {
-            AddResult(
-                "Current cache is locally bounded",
-                ValidationOutcome.Pass,
-                $"Resident={activeWindow.TileCount:N0} slices; full world={fullWorldTileCount:N0} tiles."
-            );
-        }
-        else
-        {
-            AddResult(
-                "Current cache is locally bounded",
-                ValidationOutcome.Blocked,
-                "The current world/clipmap configuration legitimately requires the complete height-tile grid. Synthetic scaling remains the architectural test."
-            );
-        }
-
-        RunPersistentStateSafetyValidation(
-            worldSettings,
-            authoringData,
-            revisionBefore,
-            committedSignatureBefore,
-            overallSignatureBefore
-        );
+        bool totalsValid = displayBytes == ownership.DisplayActiveBytes && stagingBytes == ownership.DisplayStagingBytes
+            && (!snapshot.ReadyForLatestIntent || snapshot.CacheReady && snapshot.LatestCoverageCurrent && snapshot.PlacementCurrent);
+        AddResult("Display rows reconcile ownership and paired intent", rowsValid && totalsValid ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+            $"{allocated} allocated display rows; active={displayBytes}, staging={stagingBytes} bytes; latest intent ready={snapshot.ReadyForLatestIntent}.");
+        if (allocated == 0) AddResult("Live display prerequisites", ValidationOutcome.Blocked, "No published Height arrays are available. Synthetic checks are separate.");
+        var settings = AssetDatabase.LoadAssetAtPath<WorldSettings>(WorldMeshesPaths.WorldSettingsAssetPath);
+        var data = AssetDatabase.LoadAssetAtPath<TerrainAuthoringData>(WorldMeshesPaths.TerrainAuthoringDataAssetPath);
+        if (settings != null && data != null)
+            RunPersistentStateSafetyValidation(settings, data, data.authoringRevision,
+                TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(settings),
+                TerrainAuthoringStateUtility.GetOverallAuthoringSignature(settings, data));
+        else AddResult("Live authoring prerequisites", ValidationOutcome.Blocked, "WorldSettings or TerrainAuthoringData is unavailable.");
     }
 
     // =====================================================
@@ -1848,118 +1597,7 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
                 );
     }
 
-    private static bool TryCreateOutsideActiveProbe(
-        WorldSettings settings,
-        TerrainHeightCacheWindow activeWindow,
-        out Vector2 minimumXZ,
-        out Vector2 maximumXZ
-    )
-    {
-        minimumXZ =
-            Vector2.zero;
 
-        maximumXZ =
-            Vector2.zero;
-
-        Vector2Int worldGridSize =
-            new Vector2Int(
-                settings.HeightTileGridWidth,
-                settings.HeightTileGridHeight
-            );
-
-        Vector2Int outsideTile;
-
-        if (
-            activeWindow.MaximumExclusive.x <
-                worldGridSize.x
-        )
-        {
-            outsideTile =
-                new Vector2Int(
-                    activeWindow.MaximumExclusive.x,
-                    activeWindow.OriginTile.y
-                );
-        }
-        else if (
-            activeWindow.OriginTile.x > 0
-        )
-        {
-            outsideTile =
-                new Vector2Int(
-                    activeWindow.OriginTile.x -
-                        1,
-                    activeWindow.OriginTile.y
-                );
-        }
-        else if (
-            activeWindow.MaximumExclusive.y <
-                worldGridSize.y
-        )
-        {
-            outsideTile =
-                new Vector2Int(
-                    activeWindow.OriginTile.x,
-                    activeWindow.MaximumExclusive.y
-                );
-        }
-        else if (
-            activeWindow.OriginTile.y > 0
-        )
-        {
-            outsideTile =
-                new Vector2Int(
-                    activeWindow.OriginTile.x,
-                    activeWindow.OriginTile.y -
-                        1
-                );
-        }
-        else
-        {
-            return false;
-        }
-
-        float tileWorldSize =
-            settings.HeightTileWorldSize;
-
-        Vector2 center =
-            new Vector2(
-                (
-                    outsideTile.x +
-                    0.5f
-                )
-                *
-                tileWorldSize,
-                (
-                    outsideTile.y +
-                    0.5f
-                )
-                *
-                tileWorldSize
-            );
-
-        float extent =
-            Mathf.Max(
-                1f,
-                TerrainAuthoringPreviewResidencyUtility
-                    .CalculateHeightSampleSpacing(
-                        settings
-                    )
-                *
-                2f
-            );
-
-        minimumXZ =
-            center -
-            Vector2.one *
-            extent;
-
-        maximumXZ =
-            center +
-            Vector2.one *
-            extent;
-
-        return true;
-    }
 
     private static void RunPersistentStateSafetyValidation(
         WorldSettings worldSettings,
@@ -2151,5 +1789,106 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
             );
         }
     }
+    private static void RunDiagnosticsProjectionValidation()
+    {
+        var required = new TerrainHeightCacheWindow(new Vector2Int(5, 6), Vector2Int.one);
+        var plan = new TerrainAuthoringPreviewLodResidencyPlan { Level = 0, SampleStride = 2,
+            SamplesPerSide = 5, SampleSpacing = 2, RequiredWindow = required, DesiredWindow = required };
+        var fullPlan = new TerrainAuthoringPreviewResidencyPlan { LevelCount = 1, Levels = new[] { plan } };
+        var display = new TerrainAuthoringPreviewLodState(0, 1, 9, 1) { ActiveCache = new TerrainAuthoringPreviewCache() };
+        var analysis = new TerrainAuthoringPreviewLodState(0, 1, 9, 1) { ActiveCache = new TerrainAuthoringPreviewCache() };
+        TerrainAuthoringPreviewCacheSetTransition running = null, queued = null;
+        long liveBefore = TerrainAuthoringPreviewCache.DiagnosticLiveCount - 2;
+        try
+        {
+            running = new TerrainAuthoringPreviewCacheSetTransition(fullPlan, new[] { required }, new bool[1],
+                new[] { display.ActiveCache }, new long[1], TerrainAuthoringPreviewCachePublication.DisplayHeightSet,
+                "committed", "overall", 1, 2, 3, false);
+            queued = new TerrainAuthoringPreviewCacheSetTransition(fullPlan, new[] { required }, new bool[1],
+                new TerrainAuthoringPreviewCache[1], new long[1], TerrainAuthoringPreviewCachePublication.NativeAnalysis,
+                "committed", "overall", 1, 4, 3, false);
+            running.Entries[0].Destination.StagingCache = new TerrainAuthoringPreviewCache();
+            var row = TerrainAuthoringPreviewService.CaptureDisplayLodMetadata(0, display, plan,
+                running.Entries[0], null, false);
+            var missing = TerrainAuthoringPreviewService.CaptureDisplayLodMetadata(0, null, plan,
+                null, running.Entries[0], false);
+            var rows = new[] { row, missing };
+            var snapshot = new TerrainAuthoringPreviewDiagnosticsSnapshot(
+                enabled: default,
+                cacheReady: default,
+                drawable: default,
+                latestCoverageCurrent: default,
+                placementCurrent: default,
+                readyForLatestIntent: default,
+                previewStatus: default,
+                previewStatusMessage: default,
+                streamingState: default,
+                streamingStatusMessage: default,
+                streamingProgress: default,
+                isStreaming: default,
+                waitingForCoverage: default,
+                authoringGeneration: default,
+                streamingRequestGeneration: default,
+                worker: default,
+                queuedWorker: default,
+                analysis: default,
+                analysisActive: default,
+                analysisStaging: default,
+                ownership: default,
+                displayFailure: default,
+                analysisFailure: default,
+                failureAffectsRequiredCoverage: default,
+                peakTransitionGpuMemoryBytes: default,
+                cacheCreateCount: default,
+                cacheDisposeCount: default,
+                cacheLiveCount: default,
+                editorLifecycleStable: default,
+                previewWorkAllowed: default,
+                lifecycleResumePending: default,
+                suspensionReasons: default,
+                hasControllingSceneView: default,
+                controllingSceneViewInstanceId: default,
+                sceneViewOwnershipGeneration: default,
+                followSceneView: default,
+                followSource: default,
+                freezePreview: default,
+                pendingGeographicDirtyCount: default,
+                lastDirtyLoads: default,
+                lastDirtyMaterializations: default,
+                lastDirtyCompositions: default,
+                cancellationReason: default,
+                displayLods: rows);
+            rows[0] = default;
+            plan.SampleStride = 4;
+            display.PendingDirtyTiles.Add(required.OriginTile);
+            bool copied = snapshot.DisplayLods.Count == 2 && snapshot.DisplayLods[0].PlannedRepresentation.Stride == 2
+                && snapshot.DisplayLods[0].Active.Present && !snapshot.DisplayLods[0].Active.HasTexture
+                && snapshot.DisplayLods[0].Staging.Present && !snapshot.DisplayLods[0].Staging.HasTexture
+                && !snapshot.DisplayLods[1].Active.Present && snapshot.DisplayLods[1].HasLatestPlan
+                && snapshot.DisplayLods[1].QueuedRepresentation.Stride == 2
+                && snapshot.DisplayLods[0].PendingDirtyCount == 0
+                && snapshot.DisplayLods[0].SizeHealth == TerrainAuthoringPreviewResidencySizeHealth.Unavailable;
+            var borrowed = TerrainAuthoringPreviewService.CaptureHeightOwnership(new[] { display }, null,
+                running, queued, new[] { display }, null);
+            var owned = TerrainAuthoringPreviewService.CaptureHeightOwnership(new[] { display }, analysis,
+                running, queued, new[] { display }, analysis);
+            bool classification = borrowed.OwnedCacheCount == 2 && owned.OwnedCacheCount == 3
+                && borrowed.DisplayActiveCount == 1 && borrowed.DisplayStagingCount == 1
+                && borrowed.AnalysisActiveCount == 0 && borrowed.AnalysisStagingCount == 0
+                && owned.AnalysisActiveCount == 1 && owned.RetiringCount == 0
+                && owned.AllocatedArrayCount == 0 && owned.TotalBytes == 0;
+            AddResult("Copied diagnostics preserve queued and changing representations", copied ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+                "Caller rows, source plans and dirty queues were mutated after capture; old native allocation and new coarse intent remain distinct.");
+            AddResult("Borrowed sources and pending metadata add no ownership", classification ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+                "Borrowed transaction sources and duplicate retiring references count once; unallocated objects have zero Height payload.");
+        }
+        finally
+        {
+            running?.Dispose(); queued?.Dispose(); display.Dispose(); analysis.Dispose();
+        }
+        AddResult("Snapshot fixture releases cache objects", TerrainAuthoringPreviewCache.DiagnosticLiveCount == liveBefore ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+            "The isolated snapshot fixture restored the editor-domain live count.");
+    }
+
 }
 

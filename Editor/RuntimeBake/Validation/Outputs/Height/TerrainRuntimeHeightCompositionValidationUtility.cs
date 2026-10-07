@@ -213,11 +213,56 @@ public static class TerrainRuntimeHeightCompositionValidationUtility
             return;
         }
 
+        if (
+            !TerrainHeightResolutionUtility
+                .IsRepresentationStrideCompatible(worldSettings, 1)
+            ||
+            !TerrainAuthoringPreviewService
+                .TryGetActiveDisplayLodCacheForValidation(
+                    0,
+                    out TerrainAuthoringPreviewCache previewCache
+                )
+            ||
+            previewCache.SampleStride != 1
+            ||
+            previewCache.SamplesPerSide !=
+                worldSettings.HeightTileSamplesPerSide
+            ||
+            !Mathf.Approximately(
+                previewCache.SampleSpacing,
+                TerrainHeightResolutionUtility
+                    .GetSampleSpacing(worldSettings, 1)
+            )
+        )
+        {
+            AddResult(
+                "Editor/runtime native sample layout",
+                ValidationOutcome.Blocked,
+                "Runtime height parity requires a resident native-resolution " +
+                "display LOD0 with the current world sample layout. A coarse " +
+                "preview cannot be compared sample-for-sample with native " +
+                "runtime tiles."
+            );
+
+            return;
+        }
+
+        if (!SystemInfo.supportsAsyncGPUReadback)
+        {
+            AddResult(
+                "Editor/runtime composite readback",
+                ValidationOutcome.Blocked,
+                "The current graphics device does not support AsyncGPUReadback."
+            );
+
+            return;
+        }
+
         AddResult(
             "Validation prerequisites",
             ValidationOutcome.Pass,
             "Current authoring state, generated runtime heightmaps, " +
-            "and editor composite preview are available."
+            "and native-resolution display LOD0 are available."
         );
 
         string currentOverallSignature =
@@ -250,10 +295,14 @@ public static class TerrainRuntimeHeightCompositionValidationUtility
         }
 
         if (
-            TerrainAuthoringPreviewService
-                .SourceOverallAuthoringSignature
-            !=
-            currentOverallSignature
+            !TerrainAuthoringPreviewService
+                .DisplaySetSignaturesCurrentForValidation(
+                    TerrainAuthoringStateUtility
+                        .GetCommittedHeightfieldSignature(
+                            worldSettings
+                        ),
+                    currentOverallSignature
+                )
         )
         {
             AddResult(
@@ -333,6 +382,25 @@ public static class TerrainRuntimeHeightCompositionValidationUtility
                 "height tile. Add or enable a test stamp before using " +
                 "this validation to prove modifier-inclusive runtime " +
                 "composition."
+            );
+
+            return;
+        }
+
+        foreach (Vector2Int tile in affectedTiles)
+        {
+            if (previewCache.GetSliceIndex(tile.x, tile.y) >= 0)
+            {
+                continue;
+            }
+
+            AddResult(
+                "Editor/runtime composite coverage",
+                ValidationOutcome.Blocked,
+                $"Modifier-affected tile ({tile.x}, {tile.y}) is outside " +
+                "the selected native-resolution display LOD0 residency. " +
+                "Position the preview to cover the affected tiles before " +
+                "running the complete comparison."
             );
 
             return;
@@ -474,7 +542,8 @@ public static class TerrainRuntimeHeightCompositionValidationUtility
                 {
                     if (
                         !TerrainAuthoringPreviewService
-                            .TryReadCompositeSlice(
+                            .TryReadDisplayLodCompositeSlice(
+                                0,
                                 tileX,
                                 tileZ,
                                 out float[] previewData,

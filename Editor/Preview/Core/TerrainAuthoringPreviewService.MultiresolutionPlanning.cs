@@ -51,9 +51,6 @@ public static partial class TerrainAuthoringPreviewService
             CalculateNextAuthoringGeneration(nextPlacementGeneration), owner);
         nextPlacementGeneration = latestDisplayIntent.PlacementGeneration;
         lastMultiresolutionPlanningError = "";
-        // LOD0 compatibility projections never drive the display scheduler.
-        latestRequiredResidencyWindow = plan.Levels[0].RequiredWindow; hasLatestRequiredResidencyWindow = true;
-        desiredResidencyWindow = plan.Levels[0].DesiredWindow; hasDesiredResidencyWindow = true;
         ScheduleRefresh();
         return true;
     }
@@ -176,7 +173,6 @@ public static partial class TerrainAuthoringPreviewService
         var request = CreateCacheSetRequest(settings, snapshot, targets, expansions,
             TerrainAuthoringPreviewCachePublication.DisplayHeightSet, committed, overall, rebuildCommitted);
         request.DisplayCritical = critical; request.AcceptDisplayIntent(intent, request.RequestGeneration);
-        requestedResidencyWindow = targets[0]; hasRequestedResidencyWindow = true;
         return QueueCacheSetRequest(request, out error);
     }
 
@@ -208,7 +204,7 @@ public static partial class TerrainAuthoringPreviewService
         var states = activeHeightStates; activeHeightStates = null; activeHeightView = null; activeDisplayIntent = null;
         if (states != null) foreach (var s in states) s.Dispose();
         if (retiringHeightStates != null) foreach (var s in retiringHeightStates) s.Dispose();
-        retiringHeightStates = null; aggregateMinimumHeight = aggregateMaximumHeight = 0; activeCacheAuthoringGeneration = 0;
-        pendingCompositePublication.Clear(); pendingNativePublication.Clear();
+        retiringHeightStates = null; aggregateMinimumHeight = aggregateMaximumHeight = 0;
+        pendingCompositePublication.Clear(); pendingNativePublication.Clear(); diagnosticPendingGeographicDirty.Clear();
     }
 }

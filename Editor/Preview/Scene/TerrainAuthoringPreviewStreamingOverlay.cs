@@ -288,11 +288,13 @@ internal static class TerrainAuthoringPreviewStreamingOverlay
                 rowHeight
             );
 
-        string statusText =
-            snapshot.SourceTileCount > 0
-                ? $"Prepared {snapshot.SourceComposedCount:N0} / " +
-                    $"{snapshot.SourceTileCount:N0} tiles"
-                : "Preparing resident terrain...";
+        bool preparingDisplay = snapshot.Worker.Present
+            && snapshot.Worker.Purpose == TerrainAuthoringPreviewCachePublication.DisplayHeightSet;
+        string statusText = preparingDisplay && snapshot.Worker.RepresentationCount > 0
+            ? $"Prepared {snapshot.Worker.ComposedCount:N0} / {snapshot.Worker.RepresentationCount:N0} display pages"
+            : snapshot.Worker.Present ? $"Waiting for display; worker: {snapshot.Worker.Purpose}"
+            : "Waiting for the latest display destination...";
+        float displayProgress = preparingDisplay ? snapshot.Worker.Progress : 0f;
 
         Handles.BeginGUI();
 
@@ -322,9 +324,9 @@ internal static class TerrainAuthoringPreviewStreamingOverlay
         EditorGUI.ProgressBar(
             progressRect,
             Mathf.Clamp01(
-                snapshot.StreamingProgress
+                displayProgress
             ),
-            snapshot.StreamingProgress.ToString("P0")
+            displayProgress.ToString("P0")
         );
 
         Handles.EndGUI();
@@ -349,7 +351,7 @@ internal static class TerrainAuthoringPreviewStreamingOverlay
                 : snapshot.LastFailureMessage;
 
         string preservationMessage =
-            snapshot.HasActiveWindow
+            snapshot.Drawable
                 ? "Previous resident terrain remains active."
                 : "No replacement terrain cache was activated.";
 

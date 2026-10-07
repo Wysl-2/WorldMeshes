@@ -2428,7 +2428,7 @@ public partial class WorldMeshesEditorWindow :
             );
 
             EditorGUILayout.LabelField(
-                "Cache Texture ID",
+                "Selected LOD0 Texture ID",
                 baseline.CacheTextureId.ToString()
             );
 
@@ -2438,14 +2438,14 @@ public partial class WorldMeshesEditorWindow :
             );
 
             EditorGUILayout.LabelField(
-                "Incremental Slice Updates",
+                "Display Page Updates",
                 baseline
                     .TotalIncrementalSliceUpdates
                     .ToString()
             );
 
             EditorGUILayout.LabelField(
-                "Composite Tiles",
+                "Shared Compositor Pages",
                 baseline
                     .TotalCompositeTileCount
                     .ToString()
@@ -2484,21 +2484,21 @@ public partial class WorldMeshesEditorWindow :
             );
 
             EditorGUILayout.LabelField(
-                "Dirty Tiles",
+                "Logical Geographic Dirty Tiles",
                 report
                     .ExpectedDirtyTileCount
                     .ToString()
             );
 
             EditorGUILayout.LabelField(
-                "Incremental Slices",
+                "Display Representation Updates",
                 report
                     .ActualIncrementalSliceCount
                     .ToString()
             );
 
             EditorGUILayout.LabelField(
-                "Composited Tiles",
+                "Shared Composited Pages",
                 report
                     .ActualCompositeTileCount
                     .ToString()

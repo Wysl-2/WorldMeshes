@@ -17,6 +17,7 @@ public sealed class TerrainLiveStampValidationBaseline
 {
     public string Label { get; internal set; }
     public int CacheTextureId { get; internal set; }
+    public string DisplayIdentity { get; internal set; }
     public long FullCacheBuilds { get; internal set; }
     public long TotalIncrementalSliceUpdates { get; internal set; }
     public long TotalCompositeTileCount { get; internal set; }
@@ -58,6 +59,8 @@ public static class TerrainLiveStampValidationUtility
 {
     private const int MaximumPreviewWaitCycles =
         120;
+
+    private const long MaximumBorderReadbackSamples = 4L * 1024L * 1024L;
 
     private enum RequestedOperation
     {
@@ -1010,8 +1013,7 @@ public static class TerrainLiveStampValidationUtility
             TerrainAuthoringPreviewService.Status ==
                 TerrainAuthoringPreviewStatus.Ready
             &&
-            TerrainAuthoringPreviewService.SourceOverallAuthoringSignature ==
-                currentOverall;
+            DisplaySignaturesCurrent(currentOverall);
 
         if (!previewSettled)
         {
@@ -1063,6 +1065,8 @@ public static class TerrainLiveStampValidationUtility
         int expectedDirtyTileCount =
             expectedDirtyTiles.Count;
 
+        int expectedDisplayJobs = CountDirtyDisplayJobs(expectedDirtyTiles);
+
         long incrementalDelta =
             after.TotalIncrementalSliceUpdates
             -
@@ -1091,8 +1095,8 @@ public static class TerrainLiveStampValidationUtility
         AddCheck(
             checks,
             ref passed,
-            after.CacheTextureId == lastBaseline.CacheTextureId,
-            "Cache Texture ID remained unchanged",
+            after.CacheTextureId == lastBaseline.CacheTextureId && after.DisplayIdentity == lastBaseline.DisplayIdentity,
+            "All display allocation identities remained unchanged",
             $"before={lastBaseline.CacheTextureId}, after={after.CacheTextureId}"
         );
 
@@ -1133,12 +1137,10 @@ public static class TerrainLiveStampValidationUtility
         AddCheck(
             checks,
             ref passed,
-            TerrainAuthoringPreviewService.SourceOverallAuthoringSignature ==
-                after.OverallAuthoringSignature,
+            DisplaySignaturesCurrent(after.OverallAuthoringSignature),
             "Preview acknowledges the current OverallAuthoringSignature",
             ShortSignature(
-                TerrainAuthoringPreviewService
-                    .SourceOverallAuthoringSignature
+                (SelectedPreviewCache?.SourceOverallAuthoringSignature ?? "")
             )
         );
 
@@ -1154,34 +1156,34 @@ public static class TerrainLiveStampValidationUtility
         AddCheck(
             checks,
             ref passed,
-            incrementalDelta == expectedDirtyTileCount,
-            "Incremental slice updates match the dirty tile set",
-            $"expected={expectedDirtyTileCount}, actual={incrementalDelta}"
+            incrementalDelta == expectedDisplayJobs,
+            "Display representation updates match resident dirty obligations",
+            $"geographic={expectedDirtyTileCount}, display jobs={expectedDisplayJobs}, actual={incrementalDelta}"
         );
 
         AddCheck(
             checks,
             ref passed,
-            compositeTileDelta == expectedDirtyTileCount,
-            "Compositor tile count matches the dirty tile set",
-            $"expected={expectedDirtyTileCount}, actual={compositeTileDelta}"
+            compositeTileDelta >= expectedDisplayJobs,
+            "Shared compositor covered all dirty display pages",
+            $"minimum display pages={expectedDisplayJobs}, shared worker pages={compositeTileDelta}"
         );
 
         long expectedConsidered =
-            (long)expectedDirtyTileCount
+            (long)expectedDisplayJobs
             *
             authoringData.HeightModifierCount;
 
         AddCheck(
             checks,
             ref passed,
-            consideredDelta == expectedConsidered,
-            "Modifier considered count is internally consistent",
+            consideredDelta >= expectedConsidered,
+            "Shared considered count covers display obligations",
             $"expected={expectedConsidered}, actual={consideredDelta}"
         );
 
         long expectedModifierDispatches =
-            CalculateExpectedModifierDispatches(
+            CalculateExpectedDisplayModifierDispatches(
                 authoringData,
                 worldSettings,
                 expectedDirtyTiles
@@ -1190,17 +1192,17 @@ public static class TerrainLiveStampValidationUtility
         AddCheck(
             checks,
             ref passed,
-            modifierDispatchDelta == expectedModifierDispatches,
-            "Modifier dispatch count matches the current overlapping stack",
+            modifierDispatchDelta >= expectedModifierDispatches,
+            "Shared modifier dispatches cover the display stack",
             $"expected={expectedModifierDispatches}, actual={modifierDispatchDelta}"
         );
 
         AddCheck(
             checks,
             ref passed,
-            computeDispatchDelta == expectedModifierDispatches,
+            computeDispatchDelta == modifierDispatchDelta,
             "Compute dispatch count matches dispatched modifiers",
-            $"expected={expectedModifierDispatches}, actual={computeDispatchDelta}"
+            $"modifier dispatches={modifierDispatchDelta}, compute dispatches={computeDispatchDelta}"
         );
 
         StringBuilder details = new StringBuilder();
@@ -1271,13 +1273,35 @@ public static class TerrainLiveStampValidationUtility
             return;
         }
 
+        var selected = SelectedPreviewCache;
+        if (selected == null || !SystemInfo.supportsAsyncGPUReadback)
+        {
+            borderValidationSummary = "Blocked: a current selected display LOD0 and AsyncGPUReadback support are required.";
+            return;
+        }
+        var physical = new TerrainHeightCacheWindow(selected.CacheOriginTile, selected.CacheSize);
+        float tileSize = worldSettings.HeightTileWorldSize;
+        var affectedBounds = modifier.GetAffectedWorldBounds();
+        var clippedMinimum = affectedBounds.min;
+        var clippedMaximum = affectedBounds.max;
+        clippedMinimum.x = Mathf.Max(clippedMinimum.x, physical.OriginTile.x * tileSize);
+        clippedMinimum.z = Mathf.Max(clippedMinimum.z, physical.OriginTile.y * tileSize);
+        clippedMaximum.x = Mathf.Min(clippedMaximum.x, physical.MaximumExclusive.x * tileSize);
+        clippedMaximum.z = Mathf.Min(clippedMaximum.z, physical.MaximumExclusive.y * tileSize);
+        if (clippedMaximum.x < clippedMinimum.x || clippedMaximum.z < clippedMinimum.z)
+        {
+            borderValidationSummary = "Blocked: the selected stamp has no resident LOD0 border probe.";
+            return;
+        }
+        affectedBounds.SetMinMax(clippedMinimum, clippedMaximum);
+
         HashSet<Vector2Int> tiles =
             new HashSet<Vector2Int>();
 
         TerrainAuthoringPreviewDirtyRegionUtility
             .CollectTilesOverlappingBounds(
                 worldSettings,
-                modifier.GetAffectedWorldBounds(),
+                affectedBounds,
                 tiles,
                 1
             );
@@ -1291,13 +1315,20 @@ public static class TerrainLiveStampValidationUtility
             return;
         }
 
+        tiles = SelectResidentBorderProbe(tiles, physical);
+        if (tiles.Count < 2 || (long)tiles.Count * selected.SamplesPerSide * selected.SamplesPerSide > MaximumBorderReadbackSamples)
+        {
+            borderValidationSummary = "Blocked: a resident adjacent pair within the four-page/four-million-sample readback budget is required.";
+            return;
+        }
+
         Dictionary<Vector2Int, float[]> sliceValues =
             new Dictionary<Vector2Int, float[]>();
 
         foreach (Vector2Int tile in tiles)
         {
             if (
-                !TerrainAuthoringPreviewService.TryReadCompositeSlice(
+                !TerrainAuthoringPreviewService.TryReadDisplayLodCompositeSlice(SelectedPreviewLevel, 
                     tile.x,
                     tile.y,
                     out float[] values,
@@ -1316,9 +1347,9 @@ public static class TerrainLiveStampValidationUtility
         }
 
         int samplesPerSide =
-            TerrainAuthoringPreviewService.SamplesPerSide;
+            (SelectedPreviewCache?.SamplesPerSide ?? 0);
 
-        int xBorderPairs = 0;
+        int xBorderPairs = 0; // Border values use the selected LOD0 sample lattice, including coarse strides.
         int zBorderPairs = 0;
         int cornerGroups = 0;
         int mismatches = 0;
@@ -1502,7 +1533,7 @@ public static class TerrainLiveStampValidationUtility
         borderValidationSummary =
             (borderValidationPassed ? "PASS" : "FAIL")
             +
-            $": X borders={xBorderPairs}, "
+            $": selected LOD0 probe ({tiles.Count} pages, stride {selected.SampleStride}); X borders={xBorderPairs}, "
             +
             $"Z borders={zBorderPairs}, "
             +
@@ -1612,8 +1643,7 @@ public static class TerrainLiveStampValidationUtility
             );
 
         if (
-            TerrainAuthoringPreviewService.SourceOverallAuthoringSignature !=
-                currentOverall
+            !DisplaySignaturesCurrent(currentOverall)
         )
         {
             errorMessage =
@@ -1635,8 +1665,9 @@ public static class TerrainLiveStampValidationUtility
         return new TerrainLiveStampValidationBaseline
         {
             Label = label,
+            DisplayIdentity = TerrainAuthoringPreviewService.CaptureDisplayIdentityForValidation(),
             CacheTextureId =
-                TerrainAuthoringPreviewService.CacheTextureInstanceId,
+                (SelectedPreviewCache?.HeightCache?.GetInstanceID() ?? 0),
             FullCacheBuilds =
                 TerrainAuthoringPreviewService.FullCommittedBuildCount,
             TotalIncrementalSliceUpdates =
@@ -2175,4 +2206,70 @@ public static class TerrainLiveStampValidationUtility
             assetGuid
         );
     }
+    // These user-invoked mutation/readback probes deliberately select display LOD0.
+    // The borrowed cache is used immediately; this validator never disposes it.
+    private const int SelectedPreviewLevel = 0;
+    private static TerrainAuthoringPreviewCache SelectedPreviewCache =>
+        TerrainAuthoringPreviewService.TryGetActiveDisplayLodCacheForValidation(SelectedPreviewLevel, out var cache) ? cache : null;
+
+    private static bool DisplaySignaturesCurrent(string overall) =>
+        TerrainAuthoringPreviewService.DisplaySetSignaturesCurrentForValidation(
+            SelectedPreviewCache?.SourceCommittedHeightfieldSignature ?? "", overall);
+
+    private static int CountDirtyDisplayJobs(IReadOnlyList<Vector2Int> tiles)
+    {
+        int count = 0;
+        var snapshot = TerrainAuthoringPreviewService.GetDiagnosticsSnapshot();
+        foreach (var row in snapshot.DisplayLods)
+            if (row.Active.HasTexture) foreach (var tile in tiles) if (row.Active.Window.Contains(tile)) count++;
+        return count;
+    }
+
+    private static long CalculateExpectedDisplayModifierDispatches(TerrainAuthoringData data,
+        WorldSettings settings, IReadOnlyList<Vector2Int> tiles)
+    {
+        long count = 0;
+        var snapshot = TerrainAuthoringPreviewService.GetDiagnosticsSnapshot();
+        foreach (var row in snapshot.DisplayLods)
+        {
+            if (!row.Active.HasTexture) continue;
+            var resident = new List<Vector2Int>();
+            foreach (var tile in tiles) if (row.Active.Window.Contains(tile)) resident.Add(tile);
+            count += CalculateExpectedModifierDispatches(data, settings, resident);
+        }
+        return count;
+    }
+
+    private static HashSet<Vector2Int> SelectResidentBorderProbe(HashSet<Vector2Int> affected,
+        TerrainHeightCacheWindow physical)
+    {
+        Vector2Int best = default;
+        bool found = false;
+        // Prefer a complete shared corner. Selection is bounded to four readback pages.
+        foreach (var tile in affected)
+        {
+            var right = tile + new Vector2Int(1, 0);
+            var top = tile + new Vector2Int(0, 1);
+            var corner = tile + Vector2Int.one;
+            if (!physical.Contains(tile) || !physical.Contains(corner) || !affected.Contains(right)
+                || !affected.Contains(top) || !affected.Contains(corner)) continue;
+            if (!found || tile.y < best.y || tile.y == best.y && tile.x < best.x) { best = tile; found = true; }
+        }
+        if (found) return new HashSet<Vector2Int> { best, best + new Vector2Int(1, 0),
+            best + new Vector2Int(0, 1), best + Vector2Int.one };
+        var result = new HashSet<Vector2Int>();
+        foreach (var tile in affected)
+        {
+            if (!physical.Contains(tile)) continue;
+            foreach (var direction in new[] { new Vector2Int(1, 0), new Vector2Int(0, 1) })
+            {
+                var adjacent = tile + direction;
+                if (!physical.Contains(adjacent) || !affected.Contains(adjacent)) continue;
+                if (result.Count == 0 || tile.y < best.y || tile.y == best.y && tile.x < best.x)
+                { best = tile; result.Clear(); result.Add(tile); result.Add(adjacent); }
+            }
+        }
+        return result;
+    }
+
 }

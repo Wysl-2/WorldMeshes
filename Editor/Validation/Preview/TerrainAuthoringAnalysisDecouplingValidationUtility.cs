@@ -534,7 +534,20 @@ public static class TerrainAuthoringAnalysisDecouplingValidationUtility
             Add("Live native analysis source", ValidationOutcome.Blocked, snapshot.Message);
             return;
         }
-        bool safe = source.SourceWindow.Contains(snapshot.RequiredSourceWindow)
+        var diagnostics = TerrainAuthoringPreviewService.GetDiagnosticsSnapshot();
+        var ownership = diagnostics.Ownership;
+        bool nativeClassified = snapshot.Kind != TerrainAuthoringAnalysisSourceKind.Unavailable
+            && snapshot.SamplesPerSide == source.SamplesPerSide && Mathf.Approximately(snapshot.SampleSpacing, source.SampleSpacing)
+            && (!diagnostics.Worker.Present || diagnostics.Worker.Purpose != TerrainAuthoringPreviewCachePublication.NativeAnalysis
+                || diagnostics.DisplayLods.Count == 0 || !diagnostics.DisplayLods[0].Staging.Present);
+        if (snapshot.Kind == TerrainAuthoringAnalysisSourceKind.BorrowedNative)
+        {
+            nativeClassified &= diagnostics.DisplayLods.Count > 0 && diagnostics.DisplayLods[0].Active.Representation.Stride == 1
+                && diagnostics.DisplayLods[0].Active.Window == snapshot.PhysicalWindow
+                && ownership.TotalBytes == TerrainAuthoringPreviewService.ApproximateTotalResidentGpuMemoryBytes;
+            // A retained owned native cache is still charged once; borrowing adds no new allocation category.
+        }
+        bool safe = nativeClassified && source.SourceWindow.Contains(snapshot.RequiredSourceWindow)
             && snapshot.RequiredSourceWindow.Contains(output) && output.TileCount <= 9
             && TerrainAnalysisWindowUtility.TryCalculateInteractiveOutputWindow(source, out var safeOutput, out _)
             && safeOutput.Contains(output);

@@ -532,17 +532,17 @@ public partial class WorldMeshesEditorWindow :
         );
 
         EditorGUILayout.LabelField(
-            "Current Created",
+            "Editor Domain Created",
             snapshot.CacheCreateCount.ToString("N0")
         );
 
         EditorGUILayout.LabelField(
-            "Current Disposed",
+            "Editor Domain Disposed",
             snapshot.CacheDisposeCount.ToString("N0")
         );
 
         EditorGUILayout.LabelField(
-            "Current Live",
+            "Editor Domain Live",
             snapshot.CacheLiveCount.ToString("N0")
         );
 
@@ -610,10 +610,10 @@ public partial class WorldMeshesEditorWindow :
             "Manual lifecycle / ownership checks:\n\n" +
             "• Start staging, then trigger compilation. Streaming should pause while the healthy active cache remains resident, then current intent should be reevaluated.\n\n" +
             "• Start staging, then trigger assembly/domain reload. Editor preview resources should be released and reconstructed without stranded caches.\n\n" +
-            "• Disable Height Preview during staging. Live cache count should settle at 0. Re-enable and allow a fresh local cache to settle at 1.\n\n" +
+            "• Disable Height Preview during staging. Service-owned cache count should settle at 0. Re-enable and allow a complete display set to settle; owned native analysis may add one cache.\n\n" +
             "• Change active scene during staging. Previous-scene active/staging resources must not survive.\n\n" +
             "• Switch between Scene Views during staging, then close/reopen views. Ownership generation should change and obsolete targets must not return.\n\n" +
-            "• Enter Play Mode during staging. Editor live cache count should reach 0 while runtime streaming owns terrain residency. Returning to Edit Mode should reconstruct one local editor cache when Height Preview is enabled.",
+            "• Enter Play Mode during staging. Service-owned cache count should reach 0 while runtime streaming owns terrain residency. Returning to Edit Mode should reconstruct the display set when Height Preview is enabled.",
             MessageType.Info
         );
 
@@ -626,7 +626,7 @@ public partial class WorldMeshesEditorWindow :
     {
         if (
             snapshot.IsStreaming
-            || snapshot.HasStagingWindow
+            || snapshot.Ownership.DisplayStagingCount > 0 || snapshot.Ownership.AnalysisStagingCount > 0 || snapshot.QueuedWorker.Present
         )
         {
             authoringStreamingStressSummary =
@@ -646,22 +646,16 @@ public partial class WorldMeshesEditorWindow :
             snapshot.CacheDisposeCount -
             authoringStreamingStressBaselineDisposeCount;
 
-        int expectedLive =
-            snapshot.CacheReady
-                ? 1
-                : 0;
-
-        bool passed =
-            snapshot.CacheLiveCount == expectedLive
-            && snapshot.CacheLiveCount <= 1;
-
-        authoringStreamingStressSummary =
-            (passed ? "PASS" : "FAIL") +
-            $" - Created delta={createdDelta:N0}; " +
-            $"Disposed delta={disposedDelta:N0}; " +
-            $"Live before={authoringStreamingStressBaselineLiveCount:N0}; " +
-            $"Live after={snapshot.CacheLiveCount:N0}; " +
-            $"Expected settled live={expectedLive:N0}.";
+        var ownership = snapshot.Ownership;
+        bool countsReconcile = snapshot.CacheCreateCount - snapshot.CacheDisposeCount == snapshot.CacheLiveCount
+            && snapshot.CacheLiveCount - authoringStreamingStressBaselineLiveCount == createdDelta - disposedDelta;
+        bool ownershipReconciles = ownership.OwnedCacheCount == ownership.DisplayActiveCount + ownership.AnalysisActiveCount
+            + ownership.DisplayStagingCount + ownership.AnalysisStagingCount + ownership.RetiringCount
+            && ownership.AllocatedArrayCount <= ownership.OwnedCacheCount
+            && ownership.OwnedCacheCount <= snapshot.CacheLiveCount;
+        bool passed = countsReconcile && ownershipReconciles;
+        authoringStreamingStressSummary = (passed ? "PASS" : "FAIL")
+            + $" - Created/disposed delta={createdDelta}/{disposedDelta}; editor-domain live before/after={authoringStreamingStressBaselineLiveCount}/{snapshot.CacheLiveCount}; service owned objects/arrays={ownership.OwnedCacheCount}/{ownership.AllocatedArrayCount}; display/analysis active={ownership.DisplayActiveCount}/{ownership.AnalysisActiveCount}; retained current={snapshot.CacheReady}. Domain counters also include explicit validation fixtures.";
 
         authoringStreamingStressMessageType =
             passed
@@ -1038,3 +1032,4 @@ public partial class WorldMeshesEditorWindow :
         }
     }
 }
+

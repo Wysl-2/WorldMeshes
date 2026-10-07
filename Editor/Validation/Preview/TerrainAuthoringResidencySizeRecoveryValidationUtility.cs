@@ -128,6 +128,7 @@ public static class TerrainAuthoringResidencySizeRecoveryValidationUtility
             ValidateShrinkClassification();
             ValidateBuildWindowSelection();
             ValidateSizeStability();
+            ValidateAggregateSizeHealth();
             ValidateLiveResidencyInformation();
             ValidatePersistentAuthoringState(
                 worldSettings,
@@ -757,33 +758,26 @@ public static class TerrainAuthoringResidencySizeRecoveryValidationUtility
 
     private static void ValidateLiveResidencyInformation()
     {
-        if (
-            !TerrainAuthoringPreviewService
-                .TryGetActiveResidentWindow(
-                    out TerrainHeightCacheWindow active
-                )
-        )
+        var snapshot = TerrainAuthoringPreviewService.GetDiagnosticsSnapshot();
+        if (snapshot.DisplayLods.Count == 0)
         {
-            AddBlocked(
-                "Live residency size information",
-                "No active Height Preview cache is currently available. Synthetic regression tests remain authoritative."
-            );
-
+            AddBlocked("Live residency size information", "No published or planned display rows. Pure size-policy checks remain separate.");
             return;
         }
-
-        string desiredText =
-            TerrainAuthoringPreviewService
-                .TryGetDesiredResidentWindow(
-                    out TerrainHeightCacheWindow desired
-                )
-                ? desired.ToString()
-                : "(not evaluated)";
-
-        AddPass(
-            "Live residency size information",
-            $"Active={active}; Desired={desiredText}; Health={TerrainAuthoringPreviewService.ActiveResidencySizeHealthLabel}; Slices={TerrainAuthoringPreviewService.CacheSliceCount:N0}; Memory={TerrainAuthoringPreviewService.ApproximateGpuMemoryBytes:N0} byte(s)."
-        );
+        foreach (var row in snapshot.DisplayLods)
+        {
+            var expected = row.SizeHealth == TerrainAuthoringPreviewResidencySizeHealth.Unavailable
+                ? TerrainAuthoringPreviewResidencySizeHealth.Unavailable
+                : TerrainAuthoringPreviewResidencyPolicy.EvaluateSizeHealth(true, row.Active.Window, row.DesiredWindow);
+            if (row.SizeHealth != expected) AddFail($"LOD {row.Level} size health", "The row disagrees with the existing size policy.");
+            else if (expected == TerrainAuthoringPreviewResidencySizeHealth.Unavailable)
+                AddBlocked($"LOD {row.Level} size health", "Allocation and latest representation/configuration are not comparable.");
+            else AddPass($"LOD {row.Level} size health", $"{expected}; physical={row.Active.Window}; desired={row.DesiredWindow}; pages={row.Active.PageCount}; Height payload={row.Active.GpuBytes} bytes.");
+        }
+        var aggregate = TerrainAuthoringPreviewService.AggregateSizeHealth(snapshot.DisplayLods);
+        if (aggregate == TerrainAuthoringPreviewResidencySizeHealth.Unavailable)
+            AddBlocked("Aggregate size information", "At least one required row cannot be compared.");
+        else AddPass("Aggregate size information", $"Health={aggregate}; display Height payload={snapshot.Ownership.DisplayActiveBytes} bytes; all owned Height payload={snapshot.Ownership.TotalBytes} bytes.");
     }
 
     private static void ValidatePersistentAuthoringState(
@@ -1042,4 +1036,21 @@ public static class TerrainAuthoringResidencySizeRecoveryValidationUtility
             );
         }
     }
+    private static TerrainAuthoringPreviewLodDiagnosticsSnapshot SizeHealthRow(TerrainAuthoringPreviewResidencySizeHealth health) =>
+        new TerrainAuthoringPreviewLodDiagnosticsSnapshot(level: default, hasLatestPlan: true, plannedRepresentation: default, active: default, staging: default, publishedRequiredWindow: default, requiredWindow: default, guardedWindow: default, desiredWindow: default, workerRequiredWindow: default, workerTargetWindow: default, workerRepresentation: default, queuedTargetWindow: default, queuedRepresentation: default, pendingDirtyCount: default, writeFailed: default, publishedGeneration: default, requestGeneration: default, phase: default, retainedCount: default, reusableCount: default, enteringCount: default, leavingCount: default, copiedCount: default, materializedCount: default, compositionRemainingCount: default, composedCount: default, sizeHealth: health);
+
+    private static void ValidateAggregateSizeHealth()
+    {
+        var healthy = SizeHealthRow(TerrainAuthoringPreviewResidencySizeHealth.Healthy);
+        var undersized = SizeHealthRow(TerrainAuthoringPreviewResidencySizeHealth.Undersized);
+        var oversized = SizeHealthRow(TerrainAuthoringPreviewResidencySizeHealth.Oversized);
+        var unavailable = SizeHealthRow(TerrainAuthoringPreviewResidencySizeHealth.Unavailable);
+        bool valid = TerrainAuthoringPreviewService.AggregateSizeHealth(new[] { healthy }) == TerrainAuthoringPreviewResidencySizeHealth.Healthy
+            && TerrainAuthoringPreviewService.AggregateSizeHealth(new[] { undersized, healthy }) == TerrainAuthoringPreviewResidencySizeHealth.Undersized
+            && TerrainAuthoringPreviewService.AggregateSizeHealth(new[] { undersized, oversized }) == TerrainAuthoringPreviewResidencySizeHealth.Oversized
+            && TerrainAuthoringPreviewService.AggregateSizeHealth(new[] { oversized, unavailable }) == TerrainAuthoringPreviewResidencySizeHealth.Unavailable;
+        if (valid) AddPass("Mixed display LOD size-health precedence", "Unavailable, Oversized, Undersized, Healthy order preserves all required rows.");
+        else AddFail("Mixed display LOD size-health precedence", "The aggregate hid an incomparable or oversized row.");
+    }
+
 }

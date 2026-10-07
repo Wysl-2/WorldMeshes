@@ -395,7 +395,7 @@ public static class TerrainAuthoringStagedTransitionValidationUtility
 
         if (
             !TerrainAuthoringPreviewService
-                .TryGetActiveCacheForValidation(
+                .TryGetActiveDisplayLodCacheForValidation(0, 
                     out TerrainAuthoringPreviewCache activeCache
                 )
             ||
@@ -412,20 +412,13 @@ public static class TerrainAuthoringStagedTransitionValidationUtility
             return;
         }
 
-        if (
-            !TerrainAuthoringPreviewService
-                .TryGetActiveResidentWindow(
-                    out TerrainHeightCacheWindow activeWindow
-                )
-        )
+        if (activeCache.SampleStride != 1)
         {
-            AddBlocked(
-                "Live staged-transition prerequisites",
-                "The active resident window is unavailable."
-            );
-
+            AddBlocked("Selected LOD0 native retained-reuse fixture", "LOD0 is coarse. Native-only comparisons require stride one; the bounded complete-set fixture still validates coarse representations.");
             return;
         }
+        var activeWindow = new TerrainHeightCacheWindow(activeCache.CacheOriginTile, activeCache.CacheSize);
+        string liveIdentityBefore = TerrainAuthoringPreviewService.CaptureDisplayIdentityForValidation();
 
         string committedSignature =
             TerrainAuthoringStateUtility
@@ -459,8 +452,7 @@ public static class TerrainAuthoringStagedTransitionValidationUtility
         }
 
         int activeTextureBefore =
-            TerrainAuthoringPreviewService
-                .CacheTextureInstanceId;
+            activeCache.HeightCache.GetInstanceID();
 
         int authoringRevisionBefore =
             authoringData.authoringRevision;
@@ -526,31 +518,19 @@ public static class TerrainAuthoringStagedTransitionValidationUtility
             overallSignature
         );
 
-        bool activeIdentityUnchanged =
-            TerrainAuthoringPreviewService
-                .CacheTextureInstanceId
-            ==
-            activeTextureBefore
-            &&
-            TerrainAuthoringPreviewService
-                .TryGetActiveResidentWindow(
-                    out TerrainHeightCacheWindow activeAfter
-                )
-            &&
-            activeAfter ==
-                activeWindow;
+        bool activeIdentityUnchanged = TerrainAuthoringPreviewService.CaptureDisplayIdentityForValidation() == liveIdentityBefore;
 
         if (activeIdentityUnchanged)
         {
             AddPass(
-                "Active cache unaffected by isolated staging",
+                "All live display allocations unaffected by isolated staging",
                 $"Active TextureID remained {activeTextureBefore}, window remained {activeWindow}."
             );
         }
         else
         {
             AddFail(
-                "Active cache unaffected by isolated staging",
+                "All live display allocations unaffected by isolated staging",
                 "Temporary staging validation changed the live active cache identity or window."
             );
         }
@@ -1472,6 +1452,7 @@ public static class TerrainAuthoringStagedTransitionValidationUtility
         TerrainAuthoringPreviewLodState[] published = null;
         TerrainAuthoringPreviewLodState[] next = null;
         var compositor = new TerrainHeightCompositor();
+        string liveIdentityBefore = TerrainAuthoringPreviewService.CaptureDisplayIdentityForValidation();
         try
         {
             string committed = TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(settings);
@@ -1520,6 +1501,12 @@ public static class TerrainAuthoringStagedTransitionValidationUtility
             catch (InvalidOperationException) { rejectedPartial = true; }
             RequireSetFixture(rejectedPartial && initial.Entries[0].Destination != null,
                 "A partial set transferred ownership.");
+            var queuedSnapshot = TerrainAuthoringPreviewService.CaptureWorkerMetadata(initial);
+            RequireSetFixture(queuedSnapshot.Purpose == TerrainAuthoringPreviewCachePublication.DisplayHeightSet
+                && queuedSnapshot.SourceGroupCount == 3 && queuedSnapshot.RepresentationCount == 9
+                && queuedSnapshot.MaterializedCount == 0 && !TerrainAuthoringPreviewService.CaptureDisplayLodMetadata(
+                    0, null, initial.AcceptedPlan.Levels[0], initial.Entries[0], null, true).Staging.Present,
+                "Queued display work merged geographic groups with representation pages or invented allocation.");
             int actualLoads = 0;
             TerrainAuthoringPreviewService.NativeHeightSourceLoader loader =
                 (WorldSettings world, UnityEngine.Vector2Int tile, out Texture2D source, out string error) =>
@@ -1554,12 +1541,25 @@ public static class TerrainAuthoringStagedTransitionValidationUtility
                 && !initial.MatchesContent(committed, overall, 8, 3, false)
                 && !initial.MatchesContent(committed, overall, 7, 4, false),
                 "Missing latest coverage or stale content/owner was accepted.");
+            var completedSnapshot = TerrainAuthoringPreviewService.CaptureWorkerMetadata(initial);
+            RequireSetFixture(completedSnapshot.LoadedGroupCount == 3 && completedSnapshot.MaterializedCount == 9
+                && completedSnapshot.ComposedCount == 9, "Completed worker snapshot used incorrect denominators.");
             published = initial.TransferPreparedStates();
             initial.Dispose();
             foreach (var state in published)
                 RequireSetFixture(state.CacheReady && state.ActiveCache.IsCompleteForActivation,
                     "Transferred caches were disposed with their transaction.");
 
+            // Local fine publication can be current while an unresolved coarse row is pending.
+            published[0].ActiveAuthoringGeneration = TerrainAuthoringPreviewService.AuthoringGeneration;
+            published[1].ActiveAuthoringGeneration = TerrainAuthoringPreviewService.AuthoringGeneration;
+            published[1].PendingDirtyTiles.Add(firstWindow.OriginTile);
+            var fineRow = TerrainAuthoringPreviewService.CaptureDisplayLodMetadata(0, published[0], initial.AcceptedPlan.Levels[0], null, null, true);
+            var coarseRow = TerrainAuthoringPreviewService.CaptureDisplayLodMetadata(1, published[1], initial.AcceptedPlan.Levels[1], null, null, true);
+            RequireSetFixture(fineRow.Active.Current && !coarseRow.Active.Current && coarseRow.PendingDirtyCount == 1,
+                "A pending coarse obligation changed fine-row diagnostic currency.");
+            published[0].ActiveAuthoringGeneration = published[1].ActiveAuthoringGeneration = 7;
+            published[1].PendingDirtyTiles.Clear();
             ValidateSemanticHeightBinding(settings, initial.AcceptedPlan, published);
             RequireSetFixture(!TerrainAuthoringPreviewService.IsNativeAnalysisCacheEligible(published[2].ActiveCache,
                 settings, 7, 7, committed, overall, firstWindow, firstWindow),
@@ -1632,7 +1632,15 @@ public static class TerrainAuthoringStagedTransitionValidationUtility
                 if (!advanced) { failedAsExpected = true; break; }
             }
             RequireSetFixture(failedAsExpected && !failed.Complete, "A failed candidate claimed complete readiness.");
+            RequireSetFixture(failed.FailedLevel >= 0 && failed.HasFailedTile && failed.FailedWindow == guard,
+                "Source failure lost representation/tile attribution.");
+            var failureSnapshot = TerrainAuthoringPreviewService.CaptureWorkerMetadata(failed);
             failed.Dispose();
+            RequireSetFixture(failureSnapshot.Phase == TerrainAuthoringPreviewTransitionState.Failed
+                && failureSnapshot.Purpose == TerrainAuthoringPreviewCachePublication.DisplayHeightSet,
+                "Failure metadata was not copied before disposal.");
+            RequireSetFixture(TerrainAuthoringPreviewService.CaptureDisplayIdentityForValidation() == liveIdentityBefore,
+                "The isolated fixture changed a live display texture or physical window.");
             foreach (var state in next)
                 RequireSetFixture(state.ActiveCache.IsCompleteForActivation,
                     "Failed expansion disposed the previous complete required cache.");
@@ -1653,6 +1661,8 @@ public static class TerrainAuthoringStagedTransitionValidationUtility
             if (published != null) foreach (var state in published) state.Dispose();
             if (next != null) foreach (var state in next) state.Dispose();
             compositor.Dispose();
+            if (TerrainAuthoringPreviewService.CaptureDisplayIdentityForValidation() != liveIdentityBefore)
+                Debug.LogError("Isolated Height set validation changed live display identities during cleanup.");
         }
     }
 
@@ -1679,6 +1689,17 @@ public static class TerrainAuthoringStagedTransitionValidationUtility
             RequireSetFixture(transaction.CompletedWorkUnits >= completed
                 && transaction.CompletedWorkUnits <= transaction.TotalWorkUnits,
                 "Operation progress regressed or exceeded planned work.");
+            var snapshot = TerrainAuthoringPreviewService.CaptureWorkerMetadata(transaction);
+            RequireSetFixture(snapshot.LoadedGroupCount == transaction.SourceLoads
+                && snapshot.ComposedCount == transaction.ComposedSlices
+                && snapshot.LastAllocations <= 1 && snapshot.LastLoads <= 1
+                && snapshot.LastMaterializations <= materializationLimit
+                && snapshot.LastCompositions <= TerrainAuthoringPreviewService.DefaultCompositionsPerUpdate,
+                "Partial preparation snapshot lost whole-callback counts.");
+            if (transaction.Entries[0].Destination.StagingCache != null && !transaction.Entries[0].Finalized)
+                RequireSetFixture(!TerrainAuthoringPreviewService.CaptureDisplayLodMetadata(0, null,
+                    transaction.AcceptedPlan.Levels[0], transaction.Entries[0], null, true).Staging.Complete,
+                    "Partial staging claimed complete publication.");
             completed = transaction.CompletedWorkUnits;
             if (held != null && transaction.GroupCursor == oldGroup)
             {

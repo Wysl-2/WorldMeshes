@@ -262,4 +262,8 @@ internal sealed class TerrainAuthoringPreviewCacheSetTransition : IDisposable
             e.Composition.Clear();
         }
     }
+    internal int FailedLevel = -1;
+    internal bool HasFailedTile;
+    internal Vector2Int FailedTile;
+    internal TerrainHeightCacheWindow FailedWindow;
 }

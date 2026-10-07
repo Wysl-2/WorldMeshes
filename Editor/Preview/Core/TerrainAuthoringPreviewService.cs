@@ -71,13 +71,10 @@ public static partial class TerrainAuthoringPreviewService
     // STATE
     // =====================================================
 
-    // LOD0 compatibility projection for diagnostics and native analysis only.
-    private static TerrainAuthoringPreviewCache activeCache => activeHeightStates != null && activeHeightStates.Length > 0
+    // Explicit private display LOD0 projection for native-analysis borrowing.
+    private static TerrainAuthoringPreviewCache Lod0DisplayCache => activeHeightStates != null && activeHeightStates.Length > 0
         ? activeHeightStates[0].ActiveCache : null;
-    private static TerrainAuthoringPreviewCache previewCache => activeCache;
-    private static TerrainAuthoringPreviewCache stagingCache => currentCacheSetTransition != null
-        && currentCacheSetTransition.Publication == TerrainAuthoringPreviewCachePublication.DisplayHeightSet
-        ? currentCacheSetTransition.Entries[0].Destination?.StagingCache : null;
+
 
     /*
      * PreviewService owns when and which resident tiles are recomposed.
@@ -119,29 +116,6 @@ public static partial class TerrainAuthoringPreviewService
 
     private static Vector2 publishedHeightCacheMaximumXZ =
         Vector2.zero;
-
-    /*
-     * Requested residency state.
-     *
-     * The active resident window remains authoritative on activeCache.
-     * This value represents the latest local target prepared
-     * in staging before atomic activation.
-     */
-    private static bool hasRequestedResidencyWindow;
-
-    private static TerrainHeightCacheWindow requestedResidencyWindow;
-
-    /*
-     * Preview residency policy state.
-     *
-     * Desired residency describes the guarded local window that current
-     * clipmap coverage ideally wants. It is intentionally independent from
-     * requestedResidencyWindow, which exists only while a concrete staged
-     * transition is pending.
-     */
-    private static bool hasDesiredResidencyWindow;
-
-    private static TerrainHeightCacheWindow desiredResidencyWindow;
 
     /*
      * Validation-only monotonic binding diagnostic.
@@ -262,279 +236,11 @@ public static partial class TerrainAuthoringPreviewService
         return true;
     }
 
-    public static bool TryGetActiveResidentWindow(
-        out TerrainHeightCacheWindow window
-    )
-    {
-        window =
-            default;
-
-        if (
-            previewCache == null
-            ||
-            !previewCache.IsReady
-        )
-        {
-            return false;
-        }
-
-        window =
-            new TerrainHeightCacheWindow(
-                previewCache.CacheOriginTile,
-                previewCache.CacheSize
-            );
-
-        return
-            window.IsValid;
-    }
-
-    public static bool TryGetRequestedResidentWindow(
-        out TerrainHeightCacheWindow window
-    )
-    {
-        window =
-            hasRequestedResidencyWindow
-                ? requestedResidencyWindow
-                : default;
-
-        return
-            hasRequestedResidencyWindow
-            &&
-            window.IsValid;
-    }
-
-    public static bool TryGetDesiredResidentWindow(
-        out TerrainHeightCacheWindow window
-    )
-    {
-        window =
-            hasDesiredResidencyWindow
-                ? desiredResidencyWindow
-                : default;
-
-        return
-            hasDesiredResidencyWindow
-            &&
-            window.IsValid;
-    }
-
-    internal static bool TryGetActiveResidencySizeHealth(
-        out TerrainAuthoringPreviewResidencySizeHealth sizeHealth
-    )
-    {
-        sizeHealth =
-            TerrainAuthoringPreviewResidencySizeHealth.Unavailable;
-
-        if (
-            !TryGetDesiredResidentWindow(
-                out TerrainHeightCacheWindow desiredWindow
-            )
-            ||
-            !TryGetActiveResidentWindow(
-                out TerrainHeightCacheWindow activeWindow
-            )
-        )
-        {
-            return false;
-        }
-
-        sizeHealth =
-            TerrainAuthoringPreviewResidencyPolicy
-                .EvaluateSizeHealth(
-                    true,
-                    activeWindow,
-                    desiredWindow
-                );
-
-        return true;
-    }
-
-    public static string ActiveResidencySizeHealthLabel
-    {
-        get
-        {
-            if (
-                !TryGetActiveResidencySizeHealth(
-                    out TerrainAuthoringPreviewResidencySizeHealth sizeHealth
-                )
-            )
-            {
-                return
-                    "Unavailable";
-            }
-
-            bool recoveryRequested =
-                hasRequestedResidencyWindow
-                &&
-                hasDesiredResidencyWindow
-                &&
-                requestedResidencyWindow ==
-                    desiredResidencyWindow;
-
-            switch (sizeHealth)
-            {
-                case TerrainAuthoringPreviewResidencySizeHealth.Oversized:
-                    return
-                        recoveryRequested
-                            ? "Oversized - recovery requested"
-                            : "Oversized";
-
-                case TerrainAuthoringPreviewResidencySizeHealth.Undersized:
-                    return
-                        recoveryRequested
-                            ? "Undersized - resize requested"
-                            : "Undersized";
-
-                case TerrainAuthoringPreviewResidencySizeHealth.Healthy:
-                    return
-                        "Healthy";
-
-                default:
-                    return
-                        "Unavailable";
-            }
-        }
-    }
 
     public static int ResidencySizeToleranceTiles =>
         TerrainAuthoringPreviewResidencyPolicy
             .DefaultResidentSizeToleranceTiles;
 
-    public static bool ActiveCacheContains(
-        TerrainHeightCacheWindow requiredWindow
-    )
-    {
-        if (
-            !Enabled
-            ||
-            status !=
-                TerrainAuthoringPreviewStatus.Ready
-            ||
-            !requiredWindow.IsValid
-            ||
-            !TryGetActiveResidentWindow(
-                out TerrainHeightCacheWindow activeWindow
-            )
-        )
-        {
-            return false;
-        }
-
-        return
-            activeWindow.Contains(
-                requiredWindow
-            );
-    }
-
-    public static bool CanActiveCacheCoverWorldBounds(
-        Vector2 minimumXZ,
-        Vector2 maximumXZ
-    )
-    {
-        if (
-            !Enabled
-            ||
-            status !=
-                TerrainAuthoringPreviewStatus.Ready
-        )
-        {
-            return false;
-        }
-
-        WorldSettings worldSettings =
-            LoadWorldSettings();
-
-        if (worldSettings == null)
-        {
-            return false;
-        }
-
-        if (
-            !TerrainAuthoringPreviewResidencyUtility
-                .TryCalculateRequiredWindow(
-                    worldSettings,
-                    minimumXZ,
-                    maximumXZ,
-                    TerrainAuthoringPreviewResidencyUtility
-                        .DefaultSamplePadding,
-                    out TerrainHeightCacheWindow requiredWindow,
-                    out _
-                )
-        )
-        {
-            return false;
-        }
-
-        return
-            ActiveCacheContains(
-                requiredWindow
-            );
-    }
-
-    public static bool RequestResidencyForWorldBounds(Vector2 minimumXZ, Vector2 maximumXZ, out string errorMessage)
-    {
-        // Scalar compatibility metadata only. The live display always requires a paired LOD plan/layout.
-        errorMessage = "";
-        if (!TerrainAuthoringPreviewResidencyUtility.TryCalculateRequiredWindow(LoadWorldSettings(),
-            minimumXZ, maximumXZ, TerrainAuthoringPreviewResidencyUtility.DefaultSamplePadding,
-            out TerrainHeightCacheWindow required, out errorMessage)) return false;
-        return ActiveCacheContains(required);
-    }
-
-    public static int CacheWidth
-    {
-        get
-        {
-            return
-                previewCache != null
-                    ? previewCache.CacheWidth
-                    : 0;
-        }
-    }
-
-    public static int CacheHeight
-    {
-        get
-        {
-            return
-                previewCache != null
-                    ? previewCache.CacheHeight
-                    : 0;
-        }
-    }
-
-    public static int CacheSliceCount
-    {
-        get
-        {
-            return
-                previewCache != null
-                    ? previewCache.SliceCount
-                    : 0;
-        }
-    }
-
-    public static int SamplesPerSide
-    {
-        get
-        {
-            return
-                previewCache != null
-                    ? previewCache.SamplesPerSide
-                    : 0;
-        }
-    }
-
-    public static Vector2Int CacheOriginTile
-    {
-        get
-        {
-            return
-                previewCache != null
-                    ? previewCache.CacheOriginTile
-                    : Vector2Int.zero;
-        }
-    }
 
     public static long ApproximateGpuMemoryBytes => EstimatePublishedHeightMemory();
 
@@ -542,29 +248,6 @@ public static partial class TerrainAuthoringPreviewService
 
     public static float MaximumPreviewHeight => aggregateMaximumHeight;
 
-    public static string SourceCommittedHeightfieldSignature
-    {
-        get
-        {
-            return
-                previewCache != null
-                    ? previewCache
-                        .SourceCommittedHeightfieldSignature
-                    : "";
-        }
-    }
-
-    public static string SourceOverallAuthoringSignature
-    {
-        get
-        {
-            return
-                previewCache != null
-                    ? previewCache
-                        .SourceOverallAuthoringSignature
-                    : "";
-        }
-    }
 
     public static int PendingDirtyTileCount
     {
@@ -601,21 +284,6 @@ public static partial class TerrainAuthoringPreviewService
         {
             return
                 fullCommittedBuildCount;
-        }
-    }
-
-    public static int CacheTextureInstanceId
-    {
-        get
-        {
-            return
-                previewCache != null
-                &&
-                previewCache.HeightCache != null
-                    ? previewCache
-                        .HeightCache
-                        .GetInstanceID()
-                    : 0;
         }
     }
 
@@ -696,7 +364,6 @@ public static partial class TerrainAuthoringPreviewService
             .TotalRegionalElevationDispatchCount;
 
 
-
     // =====================================================
     // VALIDATION DIAGNOSTICS
     // =====================================================
@@ -709,57 +376,7 @@ public static partial class TerrainAuthoringPreviewService
      * without gaining access to cache allocation, GPU resources, or
      * renderer binding ownership.
      */
-    internal static bool TryGetSliceIndex(
-        int tileX,
-        int tileZ,
-        out int sliceIndex
-    )
-    {
-        sliceIndex =
-            -1;
 
-        if (
-            previewCache == null
-            ||
-            !previewCache.IsReady
-        )
-        {
-            return false;
-        }
-
-        sliceIndex =
-            previewCache.GetSliceIndex(
-                tileX,
-                tileZ
-            );
-
-        return
-            sliceIndex >= 0;
-    }
-
-    internal static bool TryGetTileCoordinate(
-        int sliceIndex,
-        out Vector2Int tileCoordinate
-    )
-    {
-        tileCoordinate =
-            Vector2Int.zero;
-
-        if (
-            previewCache == null
-            ||
-            !previewCache.IsReady
-        )
-        {
-            return false;
-        }
-
-        return
-            previewCache.TryGetTileCoordinate(
-                sliceIndex,
-                out tileCoordinate
-            );
-    }
 
     internal static bool TryGetCompositeSliceRange(int tileX, int tileZ, out float minimumHeight, out float maximumHeight)
     {
@@ -816,7 +433,8 @@ public static partial class TerrainAuthoringPreviewService
      * Validation-only synchronous readback of one existing composite
      * cache slice. The cache and RenderTexture remain private.
      */
-    internal static bool TryReadCompositeSlice(
+    internal static bool TryReadDisplayLodCompositeSlice(
+        int level,
         int tileX,
         int tileZ,
         out float[] values,
@@ -829,19 +447,9 @@ public static partial class TerrainAuthoringPreviewService
         errorMessage =
             "";
 
-        if (
-            previewCache == null
-            ||
-            !previewCache.IsReady
-            ||
-            previewCache.HeightCache == null
-            ||
-            !previewCache.HeightCache.IsCreated()
-        )
+        if (!DisplayLodTileCurrentForValidation(level, tileX, tileZ, out var cache))
         {
-            errorMessage =
-                "The preview cache is not ready.";
-
+            errorMessage = "The selected display LOD slice is unavailable, stale or outside residency.";
             return false;
         }
 
@@ -854,7 +462,7 @@ public static partial class TerrainAuthoringPreviewService
         }
 
         int sliceIndex =
-            previewCache.GetSliceIndex(
+            cache.GetSliceIndex(
                 tileX,
                 tileZ
             );
@@ -868,11 +476,11 @@ public static partial class TerrainAuthoringPreviewService
         }
 
         int samples =
-            previewCache.SamplesPerSide;
+            cache.SamplesPerSide;
 
         AsyncGPUReadbackRequest request =
             AsyncGPUReadback.Request(
-                previewCache.HeightCache,
+                cache.HeightCache,
                 0,
                 0,
                 samples,
@@ -928,21 +536,6 @@ public static partial class TerrainAuthoringPreviewService
         }
 
         return true;
-    }
-
-    internal static bool DiagnosticCacheRandomWriteEnabled
-    {
-        get
-        {
-            return
-                previewCache != null
-                &&
-                previewCache.HeightCache != null
-                &&
-                previewCache.HeightCache.IsCreated()
-                &&
-                previewCache.HeightCache.enableRandomWrite;
-        }
     }
 
 
@@ -1204,7 +797,6 @@ public static partial class TerrainAuthoringPreviewService
         overallSignatureAcknowledgementRequested =
             false;
 
-        ClearRequestedResidency();
 
         ReleaseBinding();
         ReleaseCache();
@@ -1222,25 +814,6 @@ public static partial class TerrainAuthoringPreviewService
     // =====================================================
     // RESIDENCY HELPERS
     // =====================================================
-
-    private static void ClearRequestedResidency()
-    {
-        hasRequestedResidencyWindow =
-            false;
-
-        requestedResidencyWindow =
-            default;
-    }
-
-    private static void ClearDesiredResidency()
-    {
-        hasDesiredResidencyWindow =
-            false;
-
-        desiredResidencyWindow =
-            default;
-    }
-
 
 
     private static bool IsWindowInsideWorldGrid(
@@ -1564,4 +1137,66 @@ public static partial class TerrainAuthoringPreviewService
             }
         }
     }
+    internal static bool TryGetDisplayLodSliceIndex(int level, int tileX, int tileZ, out int sliceIndex)
+    {
+        sliceIndex = -1;
+        if (!TryGetActiveDisplayLodCacheForValidation(level, out var cache)) return false;
+        sliceIndex = cache.GetSliceIndex(tileX, tileZ);
+        return sliceIndex >= 0;
+    }
+
+    internal static bool TryGetDisplayLodTileCoordinate(int level, int sliceIndex, out Vector2Int tile)
+    {
+        tile = default;
+        return TryGetActiveDisplayLodCacheForValidation(level, out var cache) && cache.TryGetTileCoordinate(sliceIndex, out tile);
+    }
+
+    private static bool DisplayLodTileCurrentForValidation(int level, int tileX, int tileZ, out TerrainAuthoringPreviewCache cache)
+    {
+        if (!TryGetActiveDisplayLodCacheForValidation(level, out cache)) return false;
+        var state = activeHeightStates[level]; var tile = new Vector2Int(tileX, tileZ);
+        return state.ActiveAuthoringGeneration == authoringGeneration && !state.PendingDirtyTiles.Contains(tile)
+            && cache.IsSliceFinalCompositeReady(tile);
+    }
+
+    internal static bool TryGetDisplayLodCompositeSliceRange(int level, int tileX, int tileZ,
+        out float minimum, out float maximum)
+    {
+        minimum = maximum = 0f;
+        return DisplayLodTileCurrentForValidation(level, tileX, tileZ, out var cache)
+            && cache.TryGetCompositeSliceRange(tileX, tileZ, out minimum, out maximum);
+    }
+
+    internal static bool DisplaySetSignaturesCurrentForValidation(string committed, string overall)
+    {
+        if (activeHeightStates == null || activeHeightStates.Length == 0) return false;
+        foreach (var state in activeHeightStates)
+            if (!StateContentIsCurrent(state, committed, overall)) return false;
+        return true;
+    }
+
+    internal static string CaptureDisplayIdentityForValidation()
+    {
+        var result = new System.Text.StringBuilder();
+        if (activeHeightStates != null) foreach (var state in activeHeightStates)
+        {
+            var cache = state.ActiveCache;
+            result.Append(state.Level).Append(':').Append(state.SampleStride).Append(':')
+                .Append(cache?.HeightCache != null ? cache.HeightCache.GetInstanceID() : 0).Append(':')
+                .Append(cache != null ? new TerrainHeightCacheWindow(cache.CacheOriginTile, cache.CacheSize).ToString() : "none").Append(';');
+        }
+        return result.ToString();
+    }
+
+    internal static string CaptureDisplaySignaturesForValidation()
+    {
+        var identity = new System.Text.StringBuilder();
+        if (activeHeightStates != null)
+            foreach (var state in activeHeightStates)
+                identity.Append(state.Level).Append(':').Append(state.ActiveAuthoringGeneration).Append(':')
+                    .Append(state.ActiveCache?.SourceCommittedHeightfieldSignature).Append(':')
+                    .Append(state.ActiveCache?.SourceOverallAuthoringSignature).Append(';');
+        return identity.ToString();
+    }
+
 }

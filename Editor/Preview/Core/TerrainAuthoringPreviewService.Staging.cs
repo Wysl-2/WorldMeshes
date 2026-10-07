@@ -5,23 +5,21 @@ using UnityEngine;
 public static partial class TerrainAuthoringPreviewService
 {
     public static event Action<TerrainHeightCacheWindow, string> HeightCacheTransitionFailed;
-    private static TerrainAuthoringPreviewCacheTransition currentTransition => currentCacheSetTransition != null
-        && currentCacheSetTransition.Publication == TerrainAuthoringPreviewCachePublication.DisplayHeightSet
-            ? currentCacheSetTransition.Entries[0].Transition : null;
+
     private static TerrainAuthoringPreviewCacheSetTransition lastFailedCacheSetRequest;
     private static TerrainAuthoringPreviewLodState retiringAnalysisState;
     private static bool hasTransitionFailure;
-    private static TerrainHeightCacheWindow lastFailedTransitionWindow;
+
     private static string lastTransitionFailureMessage = "";
-    private static string lastFailedCommittedSignature = "";
-    private static string lastFailedOverallSignature = "";
+
+
     public static bool TransitionInProgress => currentCacheSetTransition != null && currentCacheSetTransition.InProgress;
     public static bool HasTransitionDiagnostics => currentCacheSetTransition != null || hasTransitionFailure;
     public static string TransitionStateLabel => currentCacheSetTransition != null
         ? currentCacheSetTransition.State.ToString() : hasTransitionFailure ? "Failed" : "Idle";
     public static bool HasTransitionFailure => hasTransitionFailure;
     public static string LastTransitionFailureMessage => lastTransitionFailureMessage;
-    public static TerrainHeightCacheWindow LastFailedTransitionWindow => lastFailedTransitionWindow;
+
     public static int LastTransitionRetainedTileCount => SumSetTiles(2);
     public static int LastTransitionEnteringTileCount => SumSetTiles(3);
     public static int LastTransitionLeavingTileCount => SumSetTiles(4);
@@ -31,50 +29,22 @@ public static partial class TerrainAuthoringPreviewService
     public static int LastTransitionComposedTileCount => StreamingSourceComposedCount;
     public static long ApproximateStagingGpuMemoryBytes => EstimateOwnedHeightMemory(false);
     public static long ApproximateTotalResidentGpuMemoryBytes => EstimateOwnedHeightMemory(true);
-    internal static long ApproximateDisplayGpuMemoryBytes => EstimateStatesMemory(activeHeightStates);
-    internal static long ApproximateAnalysisGpuMemoryBytes => analysisOwnedState?.ActiveCache?.ApproximateGpuMemoryBytes ?? 0L;
+    internal static long ApproximateDisplayGpuMemoryBytes => CaptureHeightOwnership().DisplayActiveBytes;
+    internal static long ApproximateAnalysisGpuMemoryBytes => CaptureHeightOwnership().AnalysisActiveBytes;
 
-    private static long EstimateStatesMemory(TerrainAuthoringPreviewLodState[] states)
-    {
-        long bytes = 0; var seen = new HashSet<TerrainAuthoringPreviewCache>();
-        if (states != null) foreach (var s in states)
-            if (s.ActiveCache != null && seen.Add(s.ActiveCache)) bytes += s.ActiveCache.ApproximateGpuMemoryBytes;
-        return bytes;
-    }
+
 
     private static long EstimateOwnedHeightMemory(bool includeActive)
     {
-        var seen = new HashSet<TerrainAuthoringPreviewCache>(); long bytes = 0;
-        if (includeActive)
-        {
-            if (activeHeightStates != null) foreach (var s in activeHeightStates)
-                AddOwnedMemory(s.ActiveCache, seen, ref bytes);
-            AddOwnedMemory(analysisOwnedState?.ActiveCache, seen, ref bytes);
-            AddOwnedMemory(retiringAnalysisState?.ActiveCache, seen, ref bytes);
-            if (retiringHeightStates != null) foreach (var s in retiringHeightStates)
-                AddOwnedMemory(s.ActiveCache, seen, ref bytes);
-        }
-        if (currentCacheSetTransition != null) foreach (var e in currentCacheSetTransition.Entries)
-            AddOwnedMemory(e.Destination?.StagingCache, seen, ref bytes);
-        return bytes;
+        var ownership = CaptureHeightOwnership();
+        return includeActive ? ownership.TotalBytes : ownership.StagingBytes;
     }
 
-    private static void AddOwnedMemory(TerrainAuthoringPreviewCache cache,
-        HashSet<TerrainAuthoringPreviewCache> seen, ref long bytes)
-    {
-        if (cache != null && seen.Add(cache)) bytes += cache.ApproximateGpuMemoryBytes;
-    }
 
-    public static bool TryGetStagingResidentWindow(out TerrainHeightCacheWindow window)
-    {
-        var c = stagingCache; window = c == null ? default : new TerrainHeightCacheWindow(c.CacheOriginTile, c.CacheSize);
-        return c != null && c.IsReady && window.IsValid;
-    }
 
-    internal static bool TryGetActiveCacheForValidation(out TerrainAuthoringPreviewCache cache)
-    {
-        cache = activeCache; return cache != null && cache.IsReady;
-    }
+
+
+
 
     internal static bool IsRetainedReuseGloballyEligible(TerrainAuthoringPreviewCache source,
         TerrainAuthoringPreviewCache destination, string committed, string overall, bool rebuild)
@@ -155,7 +125,6 @@ public static partial class TerrainAuthoringPreviewService
             for (int i = 0; i < transferred.Length; i++) transferred[i].ActiveRequiredWindow = intent.Plan.Levels[i].RequiredWindow;
             boundHeightRenderers.Clear(); boundHeightRenderers.AddRange(renderers); boundClipmapRoot = intent.Root;
             aggregateMinimumHeight = low; aggregateMaximumHeight = high;
-            activeCacheAuthoringGeneration = authoringGeneration;
             committedRebuildRequested = false; clipmapRebindRequested = false;
             diagnosticBindingApplyCount++;
         }
@@ -187,7 +156,7 @@ public static partial class TerrainAuthoringPreviewService
             if (transaction != null)
             {
                 ReleaseActiveDirtySource(); dirtyCompositeTiles.Clear();
-                pendingCompositePublication.Clear(); pendingNativePublication.Clear();
+                pendingCompositePublication.Clear(); pendingNativePublication.Clear(); diagnosticPendingGeographicDirty.Clear();
                 AcknowledgePendingRegionalElevationAfterActivation(transaction.AuthoringGeneration);
                 if (retiringHeightStates != null) foreach (var s in retiringHeightStates) DetachTerrainAnalysisBorrowing(s.ActiveCache);
                 ClearDisplayTransitionFailureSuppression(); fullCommittedBuildCount++;
@@ -207,8 +176,7 @@ public static partial class TerrainAuthoringPreviewService
     private static void ClearDisplayTransitionFailureSuppression()
     {
         lastFailedCacheSetRequest = null; hasTransitionFailure = false;
-        lastFailedTransitionWindow = default; lastTransitionFailureMessage = "";
-        lastFailedCommittedSignature = lastFailedOverallSignature = "";
+        lastTransitionFailureMessage = "";
     }
 
     private static void ClearTransitionFailureSuppression()
@@ -246,8 +214,7 @@ public static partial class TerrainAuthoringPreviewService
         else
         {
             lastFailedCacheSetRequest = t; hasTransitionFailure = true;
-            lastFailedTransitionWindow = t.Entries[0].Target;
-            lastTransitionFailureMessage = error; lastFailedCommittedSignature = t.CommittedSignature; lastFailedOverallSignature = t.OverallSignature;
+            lastTransitionFailureMessage = error;
         }
         ReleaseStagingCacheOnly(); ClearPendingStreamingStart(); lastStreamingFailureMessage = error;
         SetStreamingState(TerrainAuthoringPreviewStreamingState.Failed, error);
@@ -256,7 +223,7 @@ public static partial class TerrainAuthoringPreviewService
         {
             SetStatus(HasDrawableHeightPreview ? TerrainAuthoringPreviewStatus.Ready : TerrainAuthoringPreviewStatus.Error,
                 "Height display streaming failed. " + error);
-            HeightCacheTransitionFailed?.Invoke(lastFailedTransitionWindow, error);
+            HeightCacheTransitionFailed?.Invoke(t.Entries[0].Target, error);
         }
     }
 
@@ -266,15 +233,60 @@ public static partial class TerrainAuthoringPreviewService
         ReleaseTerrainAnalysisSource(notifyObservers); retiringAnalysisState?.Dispose(); retiringAnalysisState = null;
         ReleaseActiveHeightCacheSet(); currentCacheSetTransition = null;
         ClearMultiresolutionResidencyIntent(); ResetStreamingStateForResourceRelease(notifyObservers);
-        ClearRegionalElevationResidencyForResourceRelease(); ClearDesiredResidency(); ClearTransitionFailureSuppression();
+        ClearRegionalElevationResidencyForResourceRelease(); ClearTransitionFailureSuppression();
         if (notifyObservers) { NotifyHeightCacheCoverageIfChanged(); NotifyPreviewStateChanged(); }
     }
-    private static long EstimatePublishedHeightMemory()
+    private static long EstimatePublishedHeightMemory() => CaptureHeightOwnership().ActiveBytes;
+
+    internal static TerrainAuthoringPreviewOwnershipSnapshot CaptureHeightOwnership() =>
+        CaptureHeightOwnership(activeHeightStates, analysisOwnedState, currentCacheSetTransition,
+            pendingCacheSetTransition, retiringHeightStates, retiringAnalysisState);
+
+    internal static TerrainAuthoringPreviewOwnershipSnapshot CaptureHeightOwnership(TerrainAuthoringPreviewLodState[] display,
+        TerrainAuthoringPreviewLodState analysis, TerrainAuthoringPreviewCacheSetTransition running,
+        TerrainAuthoringPreviewCacheSetTransition queued, TerrainAuthoringPreviewLodState[] retiringDisplay,
+        TerrainAuthoringPreviewLodState retiringAnalysis)
     {
-        var seen = new HashSet<TerrainAuthoringPreviewCache>(); long bytes = 0;
-        if (activeHeightStates != null) foreach (var s in activeHeightStates) AddOwnedMemory(s.ActiveCache, seen, ref bytes);
-        AddOwnedMemory(analysisOwnedState?.ActiveCache, seen, ref bytes);
-        return bytes;
+        var seen = new HashSet<TerrainAuthoringPreviewCache>();
+        long[] bytes = new long[6];
+        int[] counts = new int[6];
+        int arrays = 0;
+        if (display != null) foreach (var state in display)
+            CountOwnedHeight(state.ActiveCache, 0, seen, bytes, counts, ref arrays);
+        CountOwnedHeight(analysis?.ActiveCache, 1, seen, bytes, counts, ref arrays);
+        foreach (var transaction in new[] { running, queued })
+            if (transaction != null) foreach (var entry in transaction.Entries)
+                CountOwnedHeight(entry.Destination?.StagingCache,
+                    transaction.Publication == TerrainAuthoringPreviewCachePublication.DisplayHeightSet ? 2 : 3,
+                    seen, bytes, counts, ref arrays);
+        if (retiringDisplay != null) foreach (var state in retiringDisplay)
+            CountOwnedHeight(state.ActiveCache, 4, seen, bytes, counts, ref arrays);
+        CountOwnedHeight(retiringAnalysis?.ActiveCache, 5, seen, bytes, counts, ref arrays);
+        return new TerrainAuthoringPreviewOwnershipSnapshot(bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5],
+            seen.Count, arrays, counts[0], counts[1], counts[2], counts[3], counts[4] + counts[5]);
+    }
+
+    private static void CountOwnedHeight(TerrainAuthoringPreviewCache cache, int category,
+        HashSet<TerrainAuthoringPreviewCache> seen, long[] bytes, int[] counts, ref int arrays)
+    {
+        if (cache == null || !seen.Add(cache)) return;
+        counts[category]++;
+        if (cache.HeightCache != null && cache.HeightCache.IsCreated())
+        {
+            arrays++;
+            bytes[category] += cache.ApproximateGpuMemoryBytes;
+        }
+    }
+
+    // Borrowed for an immediate explicit validation operation; never dispose it.
+    internal static bool TryGetActiveDisplayLodCacheForValidation(int level, out TerrainAuthoringPreviewCache cache)
+    {
+        cache = null;
+        if (activeHeightStates == null || level < 0 || level >= activeHeightStates.Length) return false;
+        var state = activeHeightStates[level];
+        if (state.Level != level || state.WriteFailed || state.ActiveCache == null || !state.ActiveCache.IsReady) return false;
+        cache = state.ActiveCache;
+        return true;
     }
 
 }

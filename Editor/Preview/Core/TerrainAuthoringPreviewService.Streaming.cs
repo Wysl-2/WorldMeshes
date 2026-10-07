@@ -20,8 +20,8 @@ public static partial class TerrainAuthoringPreviewService
     private static TerrainAuthoringPreviewCacheSetTransition pendingCacheSetTransition;
     private static TerrainAuthoringPreviewStreamingState streamingState;
     private static string streamingStatusMessage = "Streaming is idle.";
-    private static bool hasLatestRequiredResidencyWindow;
-    private static TerrainHeightCacheWindow latestRequiredResidencyWindow;
+
+
     private static long streamingRequestGeneration;
     private static float streamingProgress;
     private static string lastStreamingFailureMessage = "";
@@ -84,8 +84,16 @@ public static partial class TerrainAuthoringPreviewService
     public static int StreamingCompositionsPerUpdate => DefaultCompositionsPerUpdate;
     public static int StreamingMaterializationsPerUpdate => DefaultMaterializationsPerUpdate;
     public static double StreamingSoftWorkBudgetMilliseconds => DefaultSoftWorkBudgetMilliseconds;
-    public static string StreamingCoverageLabel => !TryGetActiveResidentWindow(out _)
-        ? "No Active Cache" : IsWaitingForStreamingCoverage ? "Waiting For Destination" : "Active Safe";
+    public static string StreamingCoverageLabel
+    {
+        get
+        {
+            var snapshot = GetDiagnosticsSnapshot();
+            return !snapshot.Drawable ? "No Published Display"
+                : !snapshot.CacheReady ? "Retained Display Awaiting Current Content"
+                : snapshot.WaitingForCoverage ? "Waiting For Latest Paired Destination" : "Current Display Safe";
+        }
+    }
 
     private static int SumSetTiles(int kind)
     {
@@ -102,34 +110,9 @@ public static partial class TerrainAuthoringPreviewService
         return count;
     }
 
-    public static bool TryGetLatestRequiredResidentWindow(out TerrainHeightCacheWindow window)
-    {
-        window = hasLatestRequiredResidencyWindow ? latestRequiredResidencyWindow : default;
-        return hasLatestRequiredResidencyWindow && window.IsValid;
-    }
 
-    internal static bool RecordStreamingResidencyIntent(
-        TerrainHeightCacheWindow requiredWindow, TerrainHeightCacheWindow desiredWindow)
-    {
-        bool changed = !TerrainAuthoringPreviewStreamingPolicy.IsSameResidencyIntent(
-            hasLatestRequiredResidencyWindow, latestRequiredResidencyWindow,
-            hasDesiredResidencyWindow, desiredResidencyWindow, requiredWindow, desiredWindow);
-        hasLatestRequiredResidencyWindow = true;
-        latestRequiredResidencyWindow = requiredWindow;
-        hasDesiredResidencyWindow = true;
-        desiredResidencyWindow = desiredWindow;
-        if (changed)
-        {
-            streamingRequestGeneration++;
-            if (streamingState == TerrainAuthoringPreviewStreamingState.Failed)
-            {
-                lastStreamingFailureMessage = "";
-                streamingState = TerrainAuthoringPreviewStreamingState.Idle;
-            }
-        }
-        PublishStreamingStateIfChanged();
-        return changed;
-    }
+
+
 
     internal static void NotifyStreamingIntentNoLongerRequiresTarget()
     {
@@ -454,6 +437,9 @@ public static partial class TerrainAuthoringPreviewService
     {
         error = $"Height {operation}, LOD {entry.Plan.Level}, tile {tile}: {detail}";
         t.Error = error;
+        t.FailedLevel = entry.Plan.Level;
+        t.HasFailedTile = operation != "allocation" && operation != "finalization";
+        t.FailedTile = tile; t.FailedWindow = entry.Target;
         t.State = TerrainAuthoringPreviewTransitionState.Failed;
         entry.Transition.MarkFailed(error);
         t.ReleaseCurrentSource();
@@ -522,8 +508,7 @@ public static partial class TerrainAuthoringPreviewService
         ClearPendingStreamingStart();
         if (clearIntent)
         {
-            hasLatestRequiredResidencyWindow = false;
-            latestRequiredResidencyWindow = default;
+            ClearMultiresolutionResidencyIntent();
         }
         streamingProgress = 0;
         SetStreamingState(TerrainAuthoringPreviewStreamingState.Idle, reason);
@@ -538,8 +523,6 @@ public static partial class TerrainAuthoringPreviewService
     private static void ResetStreamingStateForResourceRelease(bool notifyObservers = true)
     {
         ClearPendingStreamingStart();
-        hasLatestRequiredResidencyWindow = false;
-        latestRequiredResidencyWindow = default;
         ClearMultiresolutionResidencyIntent();
         streamingState = TerrainAuthoringPreviewStreamingState.Idle;
         streamingStatusMessage = "Streaming is idle.";

@@ -734,21 +734,20 @@ public static class TerrainAuthoringRegionalElevationResidencyValidationUtility
 
     private static void ValidateLiveInformation()
     {
-        string details =
-            $"AuthoringGeneration={TerrainAuthoringPreviewService.AuthoringGeneration:N0}; " +
-            $"RegionalScope={TerrainAuthoringPreviewService.LastRegionalInvalidationKind}; " +
-            $"Logical/Resident/Nonresident=" +
-            $"{TerrainAuthoringPreviewService.LastRegionalLogicalAffectedTileCount:N0}/" +
-            $"{TerrainAuthoringPreviewService.LastRegionalResidentAffectedTileCount:N0}/" +
-            $"{TerrainAuthoringPreviewService.LastRegionalNonresidentAffectedTileCount:N0}; " +
-            $"Pending={TerrainAuthoringPreviewService.HasPendingRegionalElevationInvalidation}; " +
-            $"InteractiveRegionalEdit={TerrainAuthoringPreviewService.InteractiveRegionalElevationEditActive}.";
-
-        AddResult(
-            "Live regional-elevation residency information",
-            ValidationOutcome.Pass,
-            details
-        );
+        var snapshot = TerrainAuthoringPreviewService.GetDiagnosticsSnapshot();
+        int jobs = 0;
+        var detail = new System.Text.StringBuilder();
+        foreach (var row in snapshot.DisplayLods)
+        {
+            jobs += row.PendingDirtyCount;
+            detail.Append($"LOD {row.Level}: current={row.Active.Current}, dirty jobs={row.PendingDirtyCount}, physical={row.Active.Window}; ");
+        }
+        detail.Append($"Unique geographic dirty tiles={snapshot.PendingGeographicDirtyCount}; display representation jobs={jobs}; authoring={snapshot.AuthoringGeneration}. ");
+        detail.Append($"Regional logical affected={TerrainAuthoringPreviewService.LastRegionalLogicalAffectedTileCount}; scope={TerrainAuthoringPreviewService.LastRegionalInvalidationKind}.");
+        bool consistent = jobs >= snapshot.PendingGeographicDirtyCount;
+        foreach (var row in snapshot.DisplayLods) consistent &= !row.Active.Current || row.PendingDirtyCount == 0 && !row.WriteFailed;
+        AddResult("Live regional diagnostic consistency", snapshot.DisplayLods.Count == 0 ? ValidationOutcome.Blocked
+            : consistent ? ValidationOutcome.Pass : ValidationOutcome.Fail, detail.ToString() + " Metadata only; no live GPU work was tested.");
     }
 
     private static void AddResult(
@@ -902,6 +901,16 @@ public static class TerrainAuthoringRegionalElevationResidencyValidationUtility
                 TerrainAuthoringPreviewService.QueueDirtyTilesForLod(states[i], windows[i], tiles, unique);
             }
             valid &= states[0].PendingDirtyTiles.Count == 1 && states[1].PendingDirtyTiles.Count == 9 && unique.Count == 9;
+            // Resolve the fine obligation; repeated coarse invalidation must preserve all unresolved guard work.
+            states[0].PendingDirtyTiles.Clear();
+            var unresolved = new HashSet<Vector2Int>(states[1].PendingDirtyTiles);
+            TerrainAuthoringPreviewService.QueueDirtyTilesForLod(states[1], windows[1],
+                new[] { new Vector2Int(5, 5), windows[1].OriginTile }, unique);
+            valid &= states[0].PendingDirtyTiles.Count == 0 && states[1].PendingDirtyTiles.IsSupersetOf(unresolved)
+                && states[1].PendingDirtyTiles.Contains(windows[1].OriginTile);
+            var fine = TerrainAuthoringPreviewService.CaptureDisplayLodMetadata(0, states[0], null, null, null, true);
+            var coarse = TerrainAuthoringPreviewService.CaptureDisplayLodMetadata(1, states[1], null, null, null, true);
+            valid &= fine.PendingDirtyCount == 0 && coarse.PendingDirtyCount > 0;
             AddResult("Compact regional scope projects to every LOD window", valid ? ValidationOutcome.Pass : ValidationOutcome.Fail,
                 "A whole-world scope produces ten representation jobs for nine resident geographic tiles without expanding residency.");
         }

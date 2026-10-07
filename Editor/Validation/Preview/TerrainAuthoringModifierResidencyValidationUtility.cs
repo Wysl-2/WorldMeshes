@@ -736,20 +736,21 @@ public static class TerrainAuthoringModifierResidencyValidationUtility
 
     private static void ValidateLiveInformation()
     {
-        string detail =
-            $"AuthoringGeneration={TerrainAuthoringPreviewService.AuthoringGeneration}; " +
-            $"ActiveGeneration={TerrainAuthoringPreviewService.ActiveCacheAuthoringGeneration}; " +
-            $"PendingDirty={TerrainAuthoringPreviewService.PendingGlobalDirtyTileCount}; " +
-            $"LastGlobal/Resident/Nonresident=" +
-            $"{TerrainAuthoringPreviewService.LastGlobalDirtyTileCount}/" +
-            $"{TerrainAuthoringPreviewService.LastResidentDirtyTileCount}/" +
-            $"{TerrainAuthoringPreviewService.LastNonresidentDirtyTileCount}; " +
-            $"InteractiveEdit={TerrainAuthoringPreviewService.InteractiveModifierEditActive}.";
-
-        AddPass(
-            "Live modifier-residency information",
-            detail
-        );
+        var snapshot = TerrainAuthoringPreviewService.GetDiagnosticsSnapshot();
+        int jobs = 0;
+        var detail = new System.Text.StringBuilder();
+        foreach (var row in snapshot.DisplayLods)
+        {
+            jobs += row.PendingDirtyCount;
+            detail.Append($"LOD {row.Level}: current={row.Active.Current}, dirty jobs={row.PendingDirtyCount}, physical={row.Active.Window}; ");
+        }
+        detail.Append($"Unique geographic dirty tiles={snapshot.PendingGeographicDirtyCount}; display representation jobs={jobs}; authoring={snapshot.AuthoringGeneration}. ");
+        detail.Append($"Modifier logical pending={TerrainAuthoringPreviewService.PendingGlobalDirtyTileCount}.");
+        bool consistent = jobs >= snapshot.PendingGeographicDirtyCount;
+        foreach (var row in snapshot.DisplayLods) consistent &= !row.Active.Current || row.PendingDirtyCount == 0 && !row.WriteFailed;
+        if (snapshot.DisplayLods.Count == 0) AddBlocked("Live modifier diagnostics", detail.ToString());
+        else if (consistent) AddPass("Live modifier diagnostic consistency", detail.ToString() + " Metadata only; no live GPU work was tested.");
+        else AddFail("Live modifier diagnostic consistency", detail.ToString());
     }
 
     private static void ValidatePersistentAuthoringStateSafety()
@@ -1057,6 +1058,16 @@ public static class TerrainAuthoringModifierResidencyValidationUtility
             TerrainAuthoringPreviewService.QueueDirtyTilesForLod(states[0], windows[0], tiles, all);
             bool valid = states[0].PendingDirtyTiles.Count == 1 && states[1].PendingDirtyTiles.Count == 1
                 && states[2].PendingDirtyTiles.Count == 2 && all.Count == 2 && states[0].SuccessfulDirtyTiles.Count == 0;
+            // Resolve the fine obligation; repeated coarse invalidation must preserve all unresolved guard work.
+            states[0].PendingDirtyTiles.Clear();
+            var unresolved = new HashSet<Vector2Int>(states[1].PendingDirtyTiles);
+            TerrainAuthoringPreviewService.QueueDirtyTilesForLod(states[1], windows[1],
+                new[] { new Vector2Int(5, 5), windows[1].OriginTile }, all);
+            valid &= states[0].PendingDirtyTiles.Count == 0 && states[1].PendingDirtyTiles.IsSupersetOf(unresolved)
+                && states[1].PendingDirtyTiles.Contains(windows[1].OriginTile);
+            var fine = TerrainAuthoringPreviewService.CaptureDisplayLodMetadata(0, states[0], null, null, null, true);
+            var coarse = TerrainAuthoringPreviewService.CaptureDisplayLodMetadata(1, states[1], null, null, null, true);
+            valid &= fine.PendingDirtyCount == 0 && coarse.PendingDirtyCount > 0;
             if (valid) AddPass("Dirty fan-out retains every affected display LOD", "Duplicates coalesce, coarse-only tiles remain queued and later edits invalidate prior success.");
             else AddFail("Dirty fan-out retains every affected display LOD", "A resident obligation was lost or assigned outside a physical window.");
         }

@@ -73,10 +73,15 @@ public static partial class TerrainAuthoringPreviewService
     internal static bool LifecycleResumePending =>
         lifecycleResumePending;
 
-    internal static bool HasLifecycleActiveCache =>
-        activeCache != null
-        &&
-        activeCache.IsReady;
+    internal static bool HasLifecycleActiveCache
+    {
+        get
+        {
+            if (activeHeightStates != null) foreach (var state in activeHeightStates)
+                if (state.ActiveCache != null && state.ActiveCache.IsReady) return true;
+            return false;
+        }
+    }
 
     internal static bool HasLifecycleStagingCache =>
         currentCacheSetTransition != null && TransitionInProgress;
@@ -518,7 +523,6 @@ public static partial class TerrainAuthoringPreviewService
         refreshScheduled =
             false;
 
-        ClearRequestedResidency();
 
         ReleaseBinding();
 
@@ -545,14 +549,9 @@ public static partial class TerrainAuthoringPreviewService
                 ? "Transient Scene View residency intent was cleared."
                 : reason;
 
-        bool hadIntent =
-            hasLatestRequiredResidencyWindow
-            ||
-            hasDesiredResidencyWindow
-            ||
-            hasRequestedResidencyWindow
-            || hasAnalysisSourceIntent
-            || hasAnalysisSourceDemand;
+        bool hadIntent = latestDisplayIntent != null || latestMultiresolutionResidencyPlan != null
+            || currentCacheSetTransition != null || pendingCacheSetTransition != null
+            || hasAnalysisSourceIntent || hasAnalysisSourceDemand;
 
         bool hadStreamingWork =
             hasPendingStreamingStart
@@ -606,18 +605,10 @@ public static partial class TerrainAuthoringPreviewService
                 null;
         }
 
-        hasLatestRequiredResidencyWindow =
-            false;
-
-        latestRequiredResidencyWindow =
-            default;
-
         ClearMultiresolutionResidencyIntent();
         ReleaseActiveDirtySource(); // Ownership changes preserve the last drawable display set.
         ReleaseTerrainAnalysisSource(true);
 
-        ClearDesiredResidency();
-        ClearRequestedResidency();
         ClearTransitionFailureSuppression();
 
         streamingProgress =

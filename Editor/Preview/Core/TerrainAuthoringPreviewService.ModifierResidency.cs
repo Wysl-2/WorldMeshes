@@ -6,7 +6,7 @@ public static partial class TerrainAuthoringPreviewService
 {
     private static long authoringGeneration;
 
-    private static long activeCacheAuthoringGeneration;
+
 
     private static string lastAuthoringGenerationReason =
         "";
@@ -22,7 +22,7 @@ public static partial class TerrainAuthoringPreviewService
     public static long AuthoringGeneration =>
         authoringGeneration;
 
-    public static long ActiveCacheAuthoringGeneration => CacheReady ? authoringGeneration : -1L;
+
 
     public static string LastAuthoringGenerationReason =>
         lastAuthoringGenerationReason;
@@ -614,7 +614,6 @@ public static partial class TerrainAuthoringPreviewService
     {
         ReleaseActiveDirtySource();
         if (activeHeightStates != null) foreach (var s in activeHeightStates) s.CacheReady = false;
-        activeCacheAuthoringGeneration = -1L;
     }
 
     // Every obligation is assigned before the incoming global/regional scope is
@@ -633,12 +632,14 @@ public static partial class TerrainAuthoringPreviewService
             if (cache == null || !cache.IsReady || cache.SourceCommittedHeightfieldSignature != committed) continue;
             var window = new TerrainHeightCacheWindow(cache.CacheOriginTile, cache.CacheSize);
             QueueDirtyTilesForLod(s, window, dirtyCompositeTiles, modifierResident);
+            diagnosticPendingGeographicDirty.UnionWith(modifierResident);
             if (hasPendingRegionalElevationInvalidation)
             {
                 var resident = new List<Vector2Int>();
                 if (!TerrainRegionalElevationResidencyPolicy.TryCollectResidentTiles(settings,
                     pendingRegionalElevationInvalidation, true, window, resident, out error)) return false;
                 QueueDirtyTilesForLod(s, window, resident, regionalResident);
+                diagnosticPendingGeographicDirty.UnionWith(regionalResident);
                 foreach (var tile in resident) s.PendingRegionalTiles.Add(tile);
             }
             s.DirtyTargetGeneration = authoringGeneration;
@@ -662,7 +663,6 @@ public static partial class TerrainAuthoringPreviewService
     private static void AcknowledgeCompletedDisplayAuthoring(string committed, string overall)
     {
         if (activeHeightStates == null) return;
-        bool all = true;
         foreach (var s in activeHeightStates)
         {
             var c = s.ActiveCache;
@@ -672,9 +672,7 @@ public static partial class TerrainAuthoringPreviewService
                 c.MarkOverallAuthoringSignature(overall); s.ActiveAuthoringGeneration = authoringGeneration;
                 s.DirtyTargetGeneration = authoringGeneration; s.CacheReady = true;
             }
-            else all = false;
         }
-        activeCacheAuthoringGeneration = all ? authoringGeneration : -1L;
     }
 
     private static TerrainAuthoringPreviewLodState ChooseActiveDirtyDestination(out Vector2Int tile)
@@ -754,7 +752,7 @@ public static partial class TerrainAuthoringPreviewService
             if (state.Level == 0 && state.SampleStride == 1) pendingNativePublication.Add(tile);
             bool groupPending = false;
             foreach (var s in activeHeightStates) if (s.PendingDirtyTiles.Contains(tile)) groupPending = true;
-            if (!groupPending) ReleaseActiveDirtySource();
+            if (!groupPending) { diagnosticPendingGeographicDirty.Remove(tile); ReleaseActiveDirtySource(); }
             AcknowledgeCompletedDisplayAuthoring(committed, overall);
             RefreshAggregateHeightRange(!ActiveHeightContentIsCurrent(settings, data));
             if (!ApplyCurrentPreviewBounds(boundClipmapRoot, out error)) throw new InvalidOperationException(error);
@@ -763,7 +761,7 @@ public static partial class TerrainAuthoringPreviewService
         }
         catch (Exception exception)
         {
-            state.PendingDirtyTiles.Add(tile); state.CacheReady = false;
+            state.PendingDirtyTiles.Add(tile); diagnosticPendingGeographicDirty.Add(tile); state.CacheReady = false;
             activeDirtyFailureGeneration = authoringGeneration; ReleaseActiveDirtySource();
             if (attemptedWrite)
             {
@@ -810,4 +808,7 @@ public static partial class TerrainAuthoringPreviewService
             }
     }
 
+    // Observability only; maintained alongside existing bounded dirty projection.
+    private static readonly HashSet<Vector2Int> diagnosticPendingGeographicDirty = new HashSet<Vector2Int>();
 }
+

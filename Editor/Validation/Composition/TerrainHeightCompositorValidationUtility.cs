@@ -95,6 +95,8 @@ public static class TerrainHeightCompositorValidationUtility
         "";
 
     private static int dirtyTextureIdBefore;
+    private static string dirtyDisplayIdentityBefore;
+    private static int dirtyDisplayJobsExpected;
 
     private static long dirtyFullBuildCountBefore;
 
@@ -413,8 +415,7 @@ public static class TerrainHeightCompositorValidationUtility
         );
 
         bool randomWrite =
-            TerrainAuthoringPreviewService
-                .DiagnosticCacheRandomWriteEnabled;
+            (SelectedPreviewCache?.HeightCache != null && SelectedPreviewCache.HeightCache.enableRandomWrite);
 
         AddResult(
             "Preview cache random-write support",
@@ -432,13 +433,13 @@ public static class TerrainHeightCompositorValidationUtility
     private static void RunSliceAddressingValidation()
     {
         int width =
-            TerrainAuthoringPreviewService.CacheWidth;
+            (SelectedPreviewCache?.CacheWidth ?? 0);
 
         int height =
-            TerrainAuthoringPreviewService.CacheHeight;
+            (SelectedPreviewCache?.CacheHeight ?? 0);
 
         Vector2Int origin =
-            TerrainAuthoringPreviewService.CacheOriginTile;
+            (SelectedPreviewCache?.CacheOriginTile ?? Vector2Int.zero);
 
         int expectedSliceCount =
             width *
@@ -477,7 +478,7 @@ public static class TerrainHeightCompositorValidationUtility
 
                 bool mapped =
                     TerrainAuthoringPreviewService
-                        .TryGetSliceIndex(
+                        .TryGetDisplayLodSliceIndex(SelectedPreviewLevel, 
                             tileX,
                             tileZ,
                             out int actualSlice
@@ -490,7 +491,7 @@ public static class TerrainHeightCompositorValidationUtility
                     mapped
                     &&
                     TerrainAuthoringPreviewService
-                        .TryGetTileCoordinate(
+                        .TryGetDisplayLodTileCoordinate(SelectedPreviewLevel, 
                             actualSlice,
                             out reversedTile
                         );
@@ -534,28 +535,28 @@ public static class TerrainHeightCompositorValidationUtility
 
         bool rejectsOutside =
             !TerrainAuthoringPreviewService
-                .TryGetSliceIndex(
+                .TryGetDisplayLodSliceIndex(SelectedPreviewLevel, 
                     origin.x - 1,
                     origin.y,
                     out _
                 )
             &&
             !TerrainAuthoringPreviewService
-                .TryGetSliceIndex(
+                .TryGetDisplayLodSliceIndex(SelectedPreviewLevel, 
                     origin.x,
                     origin.y - 1,
                     out _
                 )
             &&
             !TerrainAuthoringPreviewService
-                .TryGetSliceIndex(
+                .TryGetDisplayLodSliceIndex(SelectedPreviewLevel, 
                     origin.x + width,
                     origin.y,
                     out _
                 )
             &&
             !TerrainAuthoringPreviewService
-                .TryGetSliceIndex(
+                .TryGetDisplayLodSliceIndex(SelectedPreviewLevel, 
                     origin.x,
                     origin.y + height,
                     out _
@@ -577,20 +578,9 @@ public static class TerrainHeightCompositorValidationUtility
     private static void RunAbsoluteWorldAddressingValidation()
     {
         int samplesPerSide =
-            TerrainAuthoringPreviewService
-                .SamplesPerSide;
+            (SelectedPreviewCache?.SamplesPerSide ?? 0);
 
-        float sampleSpacing =
-            Mathf.Max(
-                0.000001f,
-                worldSettings.chunkSize
-                /
-                Mathf.Max(
-                    1,
-                    worldSettings
-                        .heightfieldResolutionPerChunk
-                )
-            );
+        float sampleSpacing = SelectedPreviewCache.SampleSpacing;
 
         float tileWorldSize =
             worldSettings.HeightTileWorldSize;
@@ -624,13 +614,12 @@ public static class TerrainHeightCompositorValidationUtility
             );
 
         if (
-            TerrainAuthoringPreviewService.CacheWidth >=
+            (SelectedPreviewCache?.CacheWidth ?? 0) >=
             2
         )
         {
             Vector2Int origin =
-                TerrainAuthoringPreviewService
-                    .CacheOriginTile;
+                (SelectedPreviewCache?.CacheOriginTile ?? Vector2Int.zero);
 
             bool leftOk =
                 TerrainHeightCompositor
@@ -697,13 +686,12 @@ public static class TerrainHeightCompositorValidationUtility
         }
 
         if (
-            TerrainAuthoringPreviewService.CacheHeight >=
+            (SelectedPreviewCache?.CacheHeight ?? 0) >=
             2
         )
         {
             Vector2Int origin =
-                TerrainAuthoringPreviewService
-                    .CacheOriginTile;
+                (SelectedPreviewCache?.CacheOriginTile ?? Vector2Int.zero);
 
             bool bottomOk =
                 TerrainHeightCompositor
@@ -770,16 +758,15 @@ public static class TerrainHeightCompositorValidationUtility
         }
 
         if (
-            TerrainAuthoringPreviewService.CacheWidth >=
+            (SelectedPreviewCache?.CacheWidth ?? 0) >=
             2
             &&
-            TerrainAuthoringPreviewService.CacheHeight >=
+            (SelectedPreviewCache?.CacheHeight ?? 0) >=
             2
         )
         {
             Vector2Int origin =
-                TerrainAuthoringPreviewService
-                    .CacheOriginTile;
+                (SelectedPreviewCache?.CacheOriginTile ?? Vector2Int.zero);
 
             Vector2[] cornerWorld =
                 new Vector2[4];
@@ -1030,8 +1017,7 @@ public static class TerrainHeightCompositorValidationUtility
         );
 
         string previewSignatureBeforeFailureProbe =
-            TerrainAuthoringPreviewService
-                .SourceOverallAuthoringSignature;
+            TerrainAuthoringPreviewService.CaptureDisplaySignaturesForValidation();
 
         bool invalidRejected =
             !validationCompositor
@@ -1053,8 +1039,7 @@ public static class TerrainHeightCompositorValidationUtility
                 );
 
         string previewSignatureAfterFailureProbe =
-            TerrainAuthoringPreviewService
-                .SourceOverallAuthoringSignature;
+            TerrainAuthoringPreviewService.CaptureDisplaySignaturesForValidation();
 
         AddResult(
             "Invalid compositor target is rejected safely",
@@ -1332,8 +1317,9 @@ public static class TerrainHeightCompositorValidationUtility
         }
 
         dirtyTextureIdBefore =
-            TerrainAuthoringPreviewService
-                .CacheTextureInstanceId;
+            (SelectedPreviewCache?.HeightCache?.GetInstanceID() ?? 0);
+        dirtyDisplayIdentityBefore = TerrainAuthoringPreviewService.CaptureDisplayIdentityForValidation();
+        dirtyDisplayJobsExpected = CountDirtyDisplayJobs(dirtyBatchTiles);
 
         dirtyFullBuildCountBefore =
             TerrainAuthoringPreviewService
@@ -1381,15 +1367,11 @@ public static class TerrainHeightCompositorValidationUtility
                 dirtyBatchTiles[2]
             );
 
-        Vector2Int cacheOrigin =
-            TerrainAuthoringPreviewService
-                .CacheOriginTile;
-
         TerrainAuthoringPreviewService
             .NotifyCompositeTileChanged(
                 new Vector2Int(
-                    cacheOrigin.x - 1,
-                    cacheOrigin.y - 1
+                    worldSettings.HeightTileGridWidth,
+                    worldSettings.HeightTileGridHeight
                 )
             );
 
@@ -1428,16 +1410,13 @@ public static class TerrainHeightCompositorValidationUtility
         output.Clear();
 
         int width =
-            TerrainAuthoringPreviewService
-                .CacheWidth;
+            (SelectedPreviewCache?.CacheWidth ?? 0);
 
         int height =
-            TerrainAuthoringPreviewService
-                .CacheHeight;
+            (SelectedPreviewCache?.CacheHeight ?? 0);
 
         Vector2Int origin =
-            TerrainAuthoringPreviewService
-                .CacheOriginTile;
+            (SelectedPreviewCache?.CacheOriginTile ?? Vector2Int.zero);
 
         if (
             width *
@@ -1595,11 +1574,8 @@ public static class TerrainHeightCompositorValidationUtility
             dirtyCompositorDispatchesBefore;
 
         bool dispatchCorrect =
-            lastDispatchCount ==
-                expectedValidTiles
-            &&
-            dispatchDelta ==
-                expectedValidTiles;
+            lastDispatchCount <= TerrainAuthoringPreviewService.StreamingCompositionsPerUpdate
+            && dispatchDelta >= dirtyDisplayJobsExpected;
 
         AddResult(
             "Real dirty-pipeline compositor dispatch",
@@ -1607,10 +1583,8 @@ public static class TerrainHeightCompositorValidationUtility
                 ? ValidationOutcome.Pass
                 : ValidationOutcome.Fail,
             dispatchCorrect
-                ? $"Exactly {expectedValidTiles} valid dirty slices " +
-                    "were dispatched; the out-of-cache coordinate " +
-                    "was ignored."
-                : $"Expected {expectedValidTiles}; last=" +
+                ? $"{expectedValidTiles} geographic tiles produced {dirtyDisplayJobsExpected} display page updates; compositor work includes any native-analysis preparation. The outside-world coordinate was ignored."
+                : $"Expected at least {dirtyDisplayJobsExpected} display dispatches; last=" +
                     $"{lastDispatchCount}, delta={dispatchDelta}."
         );
 
@@ -1621,15 +1595,11 @@ public static class TerrainHeightCompositorValidationUtility
             dirtyIncrementalUpdatesBefore;
 
         bool resetCorrect =
-            TerrainAuthoringPreviewService
-                .LastIncrementalSliceCount ==
-                expectedValidTiles
-            &&
-            incrementalDelta ==
-                expectedValidTiles;
+            TerrainAuthoringPreviewService.LastIncrementalSliceCount <= TerrainAuthoringPreviewService.GetDiagnosticsSnapshot().DisplayLods.Count
+            && incrementalDelta == dirtyDisplayJobsExpected;
 
         AddResult(
-            "Committed reset count matches compositor dispatch count",
+            "Display resets match representation obligations",
             resetCorrect
                 ? ValidationOutcome.Pass
                 : ValidationOutcome.Fail,
@@ -1639,13 +1609,12 @@ public static class TerrainHeightCompositorValidationUtility
         );
 
         int textureIdAfter =
-            TerrainAuthoringPreviewService
-                .CacheTextureInstanceId;
+            (SelectedPreviewCache?.HeightCache?.GetInstanceID() ?? 0);
 
         AddResult(
-            "Cache Texture ID remains stable",
-            textureIdAfter ==
-                dirtyTextureIdBefore
+            "Display allocation identities remain stable",
+            (textureIdAfter ==
+                dirtyTextureIdBefore && TerrainAuthoringPreviewService.CaptureDisplayIdentityForValidation() == dirtyDisplayIdentityBefore)
                 ? ValidationOutcome.Pass
                 : ValidationOutcome.Fail,
             $"Before/after: {dirtyTextureIdBefore} / {textureIdAfter}."
@@ -1711,10 +1680,7 @@ public static class TerrainHeightCompositorValidationUtility
             &&
             TerrainAuthoringPreviewService.CacheReady
             &&
-            TerrainAuthoringPreviewService
-                .SourceOverallAuthoringSignature
-            ==
-            overallCurrent;
+            DisplaySignaturesCurrent(overallCurrent);
 
         AddResult(
             "Preview is Ready and signature-current after composition",
@@ -2119,4 +2085,23 @@ public static class TerrainHeightCompositorValidationUtility
             <=
             tolerance;
     }
+    // These user-invoked mutation/readback probes deliberately select display LOD0.
+    // The borrowed cache is used immediately; this validator never disposes it.
+    private const int SelectedPreviewLevel = 0;
+    private static TerrainAuthoringPreviewCache SelectedPreviewCache =>
+        TerrainAuthoringPreviewService.TryGetActiveDisplayLodCacheForValidation(SelectedPreviewLevel, out var cache) ? cache : null;
+
+    private static bool DisplaySignaturesCurrent(string overall) =>
+        TerrainAuthoringPreviewService.DisplaySetSignaturesCurrentForValidation(
+            SelectedPreviewCache?.SourceCommittedHeightfieldSignature ?? "", overall);
+
+    private static int CountDirtyDisplayJobs(IReadOnlyList<Vector2Int> tiles)
+    {
+        int count = 0;
+        var snapshot = TerrainAuthoringPreviewService.GetDiagnosticsSnapshot();
+        foreach (var row in snapshot.DisplayLods)
+            if (row.Active.HasTexture) foreach (var tile in tiles) if (row.Active.Window.Contains(tile)) count++;
+        return count;
+    }
+
 }

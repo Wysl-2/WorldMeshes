@@ -1,123 +1,381 @@
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+// Copied values only: diagnostics never own Height resources or advance work.
+
+internal readonly struct TerrainAuthoringPreviewRepresentationSnapshot
+{
+    public readonly int Stride;
+    public readonly int SamplesPerSide;
+    public readonly float SampleSpacing;
+    public bool IsValid => Stride > 0 && SamplesPerSide > 1 && SampleSpacing > 0f;
+
+    internal TerrainAuthoringPreviewRepresentationSnapshot(
+        int stride,
+        int samplesPerSide,
+        float sampleSpacing)
+    {
+        Stride = stride;
+        SamplesPerSide = samplesPerSide;
+        SampleSpacing = sampleSpacing;
+    }
+}
+
+internal readonly struct TerrainAuthoringPreviewCacheSnapshot
+{
+    public readonly bool Present;
+    public readonly bool HasTexture;
+    public readonly TerrainAuthoringPreviewRepresentationSnapshot Representation;
+    public readonly TerrainHeightCacheWindow Window;
+    public readonly int TextureId;
+    public readonly int PageCount;
+    public readonly bool Complete;
+    public readonly bool Current;
+    public readonly long AuthoringGeneration;
+    public readonly long GpuBytes;
+
+    internal TerrainAuthoringPreviewCacheSnapshot(
+        bool present,
+        bool hasTexture,
+        TerrainAuthoringPreviewRepresentationSnapshot representation,
+        TerrainHeightCacheWindow window,
+        int textureId,
+        int pageCount,
+        bool complete,
+        bool current,
+        long authoringGeneration,
+        long gpuBytes)
+    {
+        Present = present;
+        HasTexture = hasTexture;
+        Representation = representation;
+        Window = window;
+        TextureId = textureId;
+        PageCount = pageCount;
+        Complete = complete;
+        Current = current;
+        AuthoringGeneration = authoringGeneration;
+        GpuBytes = gpuBytes;
+    }
+}
+
+internal readonly struct TerrainAuthoringPreviewLodDiagnosticsSnapshot
+{
+    public readonly int Level;
+    public readonly bool HasLatestPlan;
+    public readonly TerrainAuthoringPreviewRepresentationSnapshot PlannedRepresentation;
+    public readonly TerrainAuthoringPreviewCacheSnapshot Active;
+    public readonly TerrainAuthoringPreviewCacheSnapshot Staging;
+    public readonly TerrainHeightCacheWindow PublishedRequiredWindow;
+    public readonly TerrainHeightCacheWindow RequiredWindow;
+    public readonly TerrainHeightCacheWindow GuardedWindow;
+    public readonly TerrainHeightCacheWindow DesiredWindow;
+    public readonly TerrainHeightCacheWindow WorkerRequiredWindow;
+    public readonly TerrainHeightCacheWindow WorkerTargetWindow;
+    public readonly TerrainAuthoringPreviewRepresentationSnapshot WorkerRepresentation;
+    public readonly TerrainHeightCacheWindow QueuedTargetWindow;
+    public readonly TerrainAuthoringPreviewRepresentationSnapshot QueuedRepresentation;
+    public readonly int PendingDirtyCount;
+    public readonly bool WriteFailed;
+    public readonly long PublishedGeneration;
+    public readonly long RequestGeneration;
+    public readonly TerrainAuthoringPreviewTransitionState Phase;
+    public readonly int RetainedCount;
+    public readonly int ReusableCount;
+    public readonly int EnteringCount;
+    public readonly int LeavingCount;
+    public readonly int CopiedCount;
+    public readonly int MaterializedCount;
+    public readonly int CompositionRemainingCount;
+    public readonly int ComposedCount;
+    public readonly TerrainAuthoringPreviewResidencySizeHealth SizeHealth;
+
+    internal TerrainAuthoringPreviewLodDiagnosticsSnapshot(
+        int level,
+        bool hasLatestPlan,
+        TerrainAuthoringPreviewRepresentationSnapshot plannedRepresentation,
+        TerrainAuthoringPreviewCacheSnapshot active,
+        TerrainAuthoringPreviewCacheSnapshot staging,
+        TerrainHeightCacheWindow publishedRequiredWindow,
+        TerrainHeightCacheWindow requiredWindow,
+        TerrainHeightCacheWindow guardedWindow,
+        TerrainHeightCacheWindow desiredWindow,
+        TerrainHeightCacheWindow workerRequiredWindow,
+        TerrainHeightCacheWindow workerTargetWindow,
+        TerrainAuthoringPreviewRepresentationSnapshot workerRepresentation,
+        TerrainHeightCacheWindow queuedTargetWindow,
+        TerrainAuthoringPreviewRepresentationSnapshot queuedRepresentation,
+        int pendingDirtyCount,
+        bool writeFailed,
+        long publishedGeneration,
+        long requestGeneration,
+        TerrainAuthoringPreviewTransitionState phase,
+        int retainedCount,
+        int reusableCount,
+        int enteringCount,
+        int leavingCount,
+        int copiedCount,
+        int materializedCount,
+        int compositionRemainingCount,
+        int composedCount,
+        TerrainAuthoringPreviewResidencySizeHealth sizeHealth)
+    {
+        Level = level;
+        HasLatestPlan = hasLatestPlan;
+        PlannedRepresentation = plannedRepresentation;
+        Active = active;
+        Staging = staging;
+        PublishedRequiredWindow = publishedRequiredWindow;
+        RequiredWindow = requiredWindow;
+        GuardedWindow = guardedWindow;
+        DesiredWindow = desiredWindow;
+        WorkerRequiredWindow = workerRequiredWindow;
+        WorkerTargetWindow = workerTargetWindow;
+        WorkerRepresentation = workerRepresentation;
+        QueuedTargetWindow = queuedTargetWindow;
+        QueuedRepresentation = queuedRepresentation;
+        PendingDirtyCount = pendingDirtyCount;
+        WriteFailed = writeFailed;
+        PublishedGeneration = publishedGeneration;
+        RequestGeneration = requestGeneration;
+        Phase = phase;
+        RetainedCount = retainedCount;
+        ReusableCount = reusableCount;
+        EnteringCount = enteringCount;
+        LeavingCount = leavingCount;
+        CopiedCount = copiedCount;
+        MaterializedCount = materializedCount;
+        CompositionRemainingCount = compositionRemainingCount;
+        ComposedCount = composedCount;
+        SizeHealth = sizeHealth;
+    }
+}
+
+internal readonly struct TerrainAuthoringPreviewWorkerSnapshot
+{
+    public readonly bool Present;
+    public readonly TerrainAuthoringPreviewCachePublication Purpose;
+    public readonly TerrainAuthoringPreviewTransitionState Phase;
+    public readonly long RequestGeneration;
+    public readonly long AuthoringGeneration;
+    public readonly long OwnershipGeneration;
+    public readonly float Progress;
+    public readonly int SourceGroupCount;
+    public readonly int LoadedGroupCount;
+    public readonly int RepresentationCount;
+    public readonly int MaterializedCount;
+    public readonly int ComposedCount;
+    public readonly int ReusableCount;
+    public readonly int CopiedCount;
+    public readonly int LastAllocations;
+    public readonly int LastLoads;
+    public readonly int LastCopies;
+    public readonly int LastMaterializations;
+    public readonly int LastCompositions;
+
+    internal TerrainAuthoringPreviewWorkerSnapshot(
+        bool present,
+        TerrainAuthoringPreviewCachePublication purpose,
+        TerrainAuthoringPreviewTransitionState phase,
+        long requestGeneration,
+        long authoringGeneration,
+        long ownershipGeneration,
+        float progress,
+        int sourceGroupCount,
+        int loadedGroupCount,
+        int representationCount,
+        int materializedCount,
+        int composedCount,
+        int reusableCount,
+        int copiedCount,
+        int lastAllocations,
+        int lastLoads,
+        int lastCopies,
+        int lastMaterializations,
+        int lastCompositions)
+    {
+        Present = present;
+        Purpose = purpose;
+        Phase = phase;
+        RequestGeneration = requestGeneration;
+        AuthoringGeneration = authoringGeneration;
+        OwnershipGeneration = ownershipGeneration;
+        Progress = progress;
+        SourceGroupCount = sourceGroupCount;
+        LoadedGroupCount = loadedGroupCount;
+        RepresentationCount = representationCount;
+        MaterializedCount = materializedCount;
+        ComposedCount = composedCount;
+        ReusableCount = reusableCount;
+        CopiedCount = copiedCount;
+        LastAllocations = lastAllocations;
+        LastLoads = lastLoads;
+        LastCopies = lastCopies;
+        LastMaterializations = lastMaterializations;
+        LastCompositions = lastCompositions;
+    }
+}
+
+internal readonly struct TerrainAuthoringPreviewOwnershipSnapshot
+{
+    public readonly long DisplayActiveBytes;
+    public readonly long AnalysisActiveBytes;
+    public readonly long DisplayStagingBytes;
+    public readonly long AnalysisStagingBytes;
+    public readonly long RetiringDisplayBytes;
+    public readonly long RetiringAnalysisBytes;
+    public readonly int OwnedCacheCount;
+    public readonly int AllocatedArrayCount;
+    public readonly int DisplayActiveCount;
+    public readonly int AnalysisActiveCount;
+    public readonly int DisplayStagingCount;
+    public readonly int AnalysisStagingCount;
+    public readonly int RetiringCount;
+    public long ActiveBytes => DisplayActiveBytes + AnalysisActiveBytes;
+    public long StagingBytes => DisplayStagingBytes + AnalysisStagingBytes;
+    public long TotalBytes => ActiveBytes + StagingBytes + RetiringDisplayBytes + RetiringAnalysisBytes;
+
+    internal TerrainAuthoringPreviewOwnershipSnapshot(
+        long displayActiveBytes,
+        long analysisActiveBytes,
+        long displayStagingBytes,
+        long analysisStagingBytes,
+        long retiringDisplayBytes,
+        long retiringAnalysisBytes,
+        int ownedCacheCount,
+        int allocatedArrayCount,
+        int displayActiveCount,
+        int analysisActiveCount,
+        int displayStagingCount,
+        int analysisStagingCount,
+        int retiringCount)
+    {
+        DisplayActiveBytes = displayActiveBytes;
+        AnalysisActiveBytes = analysisActiveBytes;
+        DisplayStagingBytes = displayStagingBytes;
+        AnalysisStagingBytes = analysisStagingBytes;
+        RetiringDisplayBytes = retiringDisplayBytes;
+        RetiringAnalysisBytes = retiringAnalysisBytes;
+        OwnedCacheCount = ownedCacheCount;
+        AllocatedArrayCount = allocatedArrayCount;
+        DisplayActiveCount = displayActiveCount;
+        AnalysisActiveCount = analysisActiveCount;
+        DisplayStagingCount = displayStagingCount;
+        AnalysisStagingCount = analysisStagingCount;
+        RetiringCount = retiringCount;
+    }
+}
+
+internal readonly struct TerrainAuthoringPreviewFailureSnapshot
+{
+    public readonly bool Present;
+    public readonly TerrainAuthoringPreviewCachePublication Purpose;
+    public readonly int Level;
+    public readonly bool HasTile;
+    public readonly Vector2Int Tile;
+    public readonly TerrainHeightCacheWindow Window;
+    public readonly long RequestGeneration;
+    public readonly long PlacementGeneration;
+    public readonly string Message;
+
+    internal TerrainAuthoringPreviewFailureSnapshot(
+        bool present,
+        TerrainAuthoringPreviewCachePublication purpose,
+        int level,
+        bool hasTile,
+        Vector2Int tile,
+        TerrainHeightCacheWindow window,
+        long requestGeneration,
+        long placementGeneration,
+        string message)
+    {
+        Present = present;
+        Purpose = purpose;
+        Level = level;
+        HasTile = hasTile;
+        Tile = tile;
+        Window = window;
+        RequestGeneration = requestGeneration;
+        PlacementGeneration = placementGeneration;
+        Message = message ?? "";
+    }
+}
+
 internal readonly struct TerrainAuthoringPreviewDiagnosticsSnapshot
 {
     public readonly bool Enabled;
     public readonly bool CacheReady;
-
+    public readonly bool Drawable;
+    public readonly bool LatestCoverageCurrent;
+    public readonly bool PlacementCurrent;
+    public readonly bool ReadyForLatestIntent;
     public readonly TerrainAuthoringPreviewStatus PreviewStatus;
     public readonly string PreviewStatusMessage;
-
-    public readonly bool HasActiveWindow;
-    public readonly TerrainHeightCacheWindow ActiveWindow;
-
-    public readonly bool HasRequiredWindow;
-    public readonly TerrainHeightCacheWindow RequiredWindow;
-
-    public readonly bool HasDesiredWindow;
-    public readonly TerrainHeightCacheWindow DesiredWindow;
-
-    public readonly bool HasRequestedWindow;
-    public readonly TerrainHeightCacheWindow RequestedWindow;
-
-    public readonly bool HasStagingWindow;
-    public readonly TerrainHeightCacheWindow StagingWindow;
-
-    public readonly bool HasTargetWindow;
-    public readonly TerrainHeightCacheWindow TargetWindow;
-
     public readonly TerrainAuthoringPreviewStreamingState StreamingState;
     public readonly string StreamingStatusMessage;
-
     public readonly float StreamingProgress;
-
     public readonly bool IsStreaming;
     public readonly bool WaitingForCoverage;
-
-    public readonly int ActiveTileCount;
-
-    public readonly int RetainedTileCount;
-    public readonly int ReusableRetainedTileCount;
-    public readonly int EnteringTileCount;
-    public readonly int LeavingTileCount;
-
-    public readonly int RetainedCopiedCount;
-    public readonly int SourceLoadedCount;
-    public readonly int SourceComposedCount;
-    public readonly int SourceTileCount;
-
     public readonly long AuthoringGeneration;
     public readonly long StreamingRequestGeneration;
-
-    public readonly long AnalysisResidencyGeneration;
-    public readonly long AnalysisCompositeGeneration;
-
-    public readonly long ActiveGpuMemoryBytes;
-    public readonly long StagingGpuMemoryBytes;
-    public readonly long CurrentResidentGpuMemoryBytes;
+    public readonly TerrainAuthoringPreviewWorkerSnapshot Worker;
+    public readonly TerrainAuthoringPreviewWorkerSnapshot QueuedWorker;
+    public readonly TerrainAuthoringAnalysisSourceSnapshot Analysis;
+    public readonly TerrainAuthoringPreviewCacheSnapshot AnalysisActive;
+    public readonly TerrainAuthoringPreviewCacheSnapshot AnalysisStaging;
+    public readonly TerrainAuthoringPreviewOwnershipSnapshot Ownership;
+    public readonly TerrainAuthoringPreviewFailureSnapshot DisplayFailure;
+    public readonly TerrainAuthoringPreviewFailureSnapshot AnalysisFailure;
+    public readonly bool FailureAffectsRequiredCoverage;
     public readonly long PeakTransitionGpuMemoryBytes;
-
     public readonly long CacheCreateCount;
     public readonly long CacheDisposeCount;
     public readonly int CacheLiveCount;
-
     public readonly bool EditorLifecycleStable;
     public readonly bool PreviewWorkAllowed;
     public readonly bool LifecycleResumePending;
-
-    public readonly TerrainAuthoringPreviewSuspensionReason
-        SuspensionReasons;
-
+    public readonly TerrainAuthoringPreviewSuspensionReason SuspensionReasons;
     public readonly bool HasControllingSceneView;
     public readonly int ControllingSceneViewInstanceId;
     public readonly long SceneViewOwnershipGeneration;
-
     public readonly bool FollowSceneView;
     public readonly TerrainAuthoringSceneViewFollowSource FollowSource;
     public readonly bool FreezePreview;
-
-    public readonly bool HasTransitionFailure;
-    public readonly TerrainHeightCacheWindow FailedWindow;
-    public readonly string LastFailureMessage;
-
-    public readonly bool FailureAffectsRequiredCoverage;
+    public readonly int PendingGeographicDirtyCount;
+    public readonly int LastDirtyLoads;
+    public readonly int LastDirtyMaterializations;
+    public readonly int LastDirtyCompositions;
+    public readonly string CancellationReason;
+    public readonly IReadOnlyList<TerrainAuthoringPreviewLodDiagnosticsSnapshot> DisplayLods;
+    public bool HasTransitionFailure => DisplayFailure.Present;
+    public string LastFailureMessage => DisplayFailure.Message ?? "";
 
     internal TerrainAuthoringPreviewDiagnosticsSnapshot(
         bool enabled,
         bool cacheReady,
+        bool drawable,
+        bool latestCoverageCurrent,
+        bool placementCurrent,
+        bool readyForLatestIntent,
         TerrainAuthoringPreviewStatus previewStatus,
         string previewStatusMessage,
-        bool hasActiveWindow,
-        TerrainHeightCacheWindow activeWindow,
-        bool hasRequiredWindow,
-        TerrainHeightCacheWindow requiredWindow,
-        bool hasDesiredWindow,
-        TerrainHeightCacheWindow desiredWindow,
-        bool hasRequestedWindow,
-        TerrainHeightCacheWindow requestedWindow,
-        bool hasStagingWindow,
-        TerrainHeightCacheWindow stagingWindow,
-        bool hasTargetWindow,
-        TerrainHeightCacheWindow targetWindow,
         TerrainAuthoringPreviewStreamingState streamingState,
         string streamingStatusMessage,
         float streamingProgress,
         bool isStreaming,
         bool waitingForCoverage,
-        int activeTileCount,
-        int retainedTileCount,
-        int reusableRetainedTileCount,
-        int enteringTileCount,
-        int leavingTileCount,
-        int retainedCopiedCount,
-        int sourceLoadedCount,
-        int sourceComposedCount,
-        int sourceTileCount,
         long authoringGeneration,
         long streamingRequestGeneration,
-        long analysisResidencyGeneration,
-        long analysisCompositeGeneration,
-        long activeGpuMemoryBytes,
-        long stagingGpuMemoryBytes,
-        long currentResidentGpuMemoryBytes,
+        TerrainAuthoringPreviewWorkerSnapshot worker,
+        TerrainAuthoringPreviewWorkerSnapshot queuedWorker,
+        TerrainAuthoringAnalysisSourceSnapshot analysis,
+        TerrainAuthoringPreviewCacheSnapshot analysisActive,
+        TerrainAuthoringPreviewCacheSnapshot analysisStaging,
+        TerrainAuthoringPreviewOwnershipSnapshot ownership,
+        TerrainAuthoringPreviewFailureSnapshot displayFailure,
+        TerrainAuthoringPreviewFailureSnapshot analysisFailure,
+        bool failureAffectsRequiredCoverage,
         long peakTransitionGpuMemoryBytes,
         long cacheCreateCount,
         long cacheDisposeCount,
@@ -132,89 +390,56 @@ internal readonly struct TerrainAuthoringPreviewDiagnosticsSnapshot
         bool followSceneView,
         TerrainAuthoringSceneViewFollowSource followSource,
         bool freezePreview,
-        bool hasTransitionFailure,
-        TerrainHeightCacheWindow failedWindow,
-        string lastFailureMessage,
-        bool failureAffectsRequiredCoverage
-    )
+        int pendingGeographicDirtyCount,
+        int lastDirtyLoads,
+        int lastDirtyMaterializations,
+        int lastDirtyCompositions,
+        string cancellationReason,
+        TerrainAuthoringPreviewLodDiagnosticsSnapshot[] displayLods)
     {
         Enabled = enabled;
         CacheReady = cacheReady;
-
+        Drawable = drawable;
+        LatestCoverageCurrent = latestCoverageCurrent;
+        PlacementCurrent = placementCurrent;
+        ReadyForLatestIntent = readyForLatestIntent;
         PreviewStatus = previewStatus;
         PreviewStatusMessage = previewStatusMessage ?? "";
-
-        HasActiveWindow = hasActiveWindow;
-        ActiveWindow = activeWindow;
-
-        HasRequiredWindow = hasRequiredWindow;
-        RequiredWindow = requiredWindow;
-
-        HasDesiredWindow = hasDesiredWindow;
-        DesiredWindow = desiredWindow;
-
-        HasRequestedWindow = hasRequestedWindow;
-        RequestedWindow = requestedWindow;
-
-        HasStagingWindow = hasStagingWindow;
-        StagingWindow = stagingWindow;
-
-        HasTargetWindow = hasTargetWindow;
-        TargetWindow = targetWindow;
-
         StreamingState = streamingState;
         StreamingStatusMessage = streamingStatusMessage ?? "";
-
         StreamingProgress = streamingProgress;
-
         IsStreaming = isStreaming;
         WaitingForCoverage = waitingForCoverage;
-
-        ActiveTileCount = activeTileCount;
-
-        RetainedTileCount = retainedTileCount;
-        ReusableRetainedTileCount = reusableRetainedTileCount;
-        EnteringTileCount = enteringTileCount;
-        LeavingTileCount = leavingTileCount;
-
-        RetainedCopiedCount = retainedCopiedCount;
-        SourceLoadedCount = sourceLoadedCount;
-        SourceComposedCount = sourceComposedCount;
-        SourceTileCount = sourceTileCount;
-
         AuthoringGeneration = authoringGeneration;
         StreamingRequestGeneration = streamingRequestGeneration;
-
-        AnalysisResidencyGeneration = analysisResidencyGeneration;
-        AnalysisCompositeGeneration = analysisCompositeGeneration;
-
-        ActiveGpuMemoryBytes = activeGpuMemoryBytes;
-        StagingGpuMemoryBytes = stagingGpuMemoryBytes;
-        CurrentResidentGpuMemoryBytes = currentResidentGpuMemoryBytes;
+        Worker = worker;
+        QueuedWorker = queuedWorker;
+        Analysis = analysis;
+        AnalysisActive = analysisActive;
+        AnalysisStaging = analysisStaging;
+        Ownership = ownership;
+        DisplayFailure = displayFailure;
+        AnalysisFailure = analysisFailure;
+        FailureAffectsRequiredCoverage = failureAffectsRequiredCoverage;
         PeakTransitionGpuMemoryBytes = peakTransitionGpuMemoryBytes;
-
         CacheCreateCount = cacheCreateCount;
         CacheDisposeCount = cacheDisposeCount;
         CacheLiveCount = cacheLiveCount;
-
         EditorLifecycleStable = editorLifecycleStable;
         PreviewWorkAllowed = previewWorkAllowed;
         LifecycleResumePending = lifecycleResumePending;
-
         SuspensionReasons = suspensionReasons;
-
         HasControllingSceneView = hasControllingSceneView;
         ControllingSceneViewInstanceId = controllingSceneViewInstanceId;
         SceneViewOwnershipGeneration = sceneViewOwnershipGeneration;
-
         FollowSceneView = followSceneView;
         FollowSource = followSource;
         FreezePreview = freezePreview;
-
-        HasTransitionFailure = hasTransitionFailure;
-        FailedWindow = failedWindow;
-        LastFailureMessage = lastFailureMessage ?? "";
-
-        FailureAffectsRequiredCoverage = failureAffectsRequiredCoverage;
+        PendingGeographicDirtyCount = pendingGeographicDirtyCount;
+        LastDirtyLoads = lastDirtyLoads;
+        LastDirtyMaterializations = lastDirtyMaterializations;
+        LastDirtyCompositions = lastDirtyCompositions;
+        CancellationReason = cancellationReason ?? "";
+        DisplayLods = Array.AsReadOnly((TerrainAuthoringPreviewLodDiagnosticsSnapshot[])(displayLods ?? Array.Empty<TerrainAuthoringPreviewLodDiagnosticsSnapshot>()).Clone());
     }
 }
