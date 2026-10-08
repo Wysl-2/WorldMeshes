@@ -91,6 +91,7 @@ public static class TerrainAuthoringModifierResidencyValidationUtility
             ValidateInteractionReadiness();
             ValidateLocalContentObligations();
             ValidateLocalDirtyFailures();
+            ValidateTileLocalDirtyConvergence();
             ValidateCommittedInvalidationStrength();
             ValidateReadinessQuerySideEffects();
             ValidateResidencySizeRecovery();
@@ -659,6 +660,75 @@ public static class TerrainAuthoringModifierResidencyValidationUtility
         finally { fine.Dispose(); coarse.Dispose(); }
     }
 
+    private static void ValidateTileLocalDirtyConvergence()
+    {
+        const string name = "Geographic dirty convergence and latest obligations";
+        if (!TerrainAuthoringPreviewCacheValidationUtility.TryCreateDirtyFixtureState(0, 1,
+            out var fine, out _, out _, out string error, out bool blocked))
+        { if (blocked) AddBlocked(name, error); else AddFail(name, error); return; }
+        TerrainAuthoringPreviewLodState coarse = null;
+        try
+        {
+            if (!TerrainAuthoringPreviewCacheValidationUtility.TryCreateDirtyFixtureState(1, 2,
+                out coarse, out _, out _, out error, out blocked))
+            { if (blocked) AddBlocked(name, error); else AddFail(name, error); return; }
+            var states = new[] { fine, coarse };
+            var tile = fine.ActiveCache.CacheOriginTile;
+            fine.ActiveCache.TryGetTileCoordinate(1, out var other);
+            string committed = fine.ActiveCache.SourceCommittedHeightfieldSignature;
+            var unprojected = new HashSet<Vector2Int>();
+            foreach (var state in states)
+            {
+                var window = new TerrainHeightCacheWindow(state.ActiveCache.CacheOriginTile, state.ActiveCache.CacheSize);
+                for (long generation = 1; generation <= 4; generation++)
+                {
+                    TerrainAuthoringPreviewService.QueueDirtyTilesForLod(state, window, new[] { tile, other, tile }, null);
+                    state.DirtyTargetGeneration = generation; state.CacheReady = false;
+                }
+            }
+            bool valid = fine.PendingDirtyTiles.Count == 2 && coarse.PendingDirtyTiles.Count == 2
+                && !TerrainAuthoringPreviewService.IsGeographicDirtyTileCurrent(states, committed, 4, tile, unprojected, false, out _);
+            TerrainAuthoringPreviewService.CompleteDirtyContent(fine, tile);
+            valid &= !TerrainAuthoringPreviewService.IsGeographicDirtyTileCurrent(states, committed, 4, tile, unprojected, false, out _);
+            TerrainAuthoringPreviewService.CompleteDirtyContent(coarse, tile);
+            valid &= TerrainAuthoringPreviewService.IsGeographicDirtyTileCurrent(states, committed, 4, tile, unprojected, false, out bool owned)
+                && owned && fine.PendingDirtyTiles.Contains(other) && coarse.PendingDirtyTiles.Contains(other)
+                && !fine.CacheReady && !coarse.CacheReady;
+            unprojected.Add(other);
+            valid &= TerrainAuthoringPreviewService.IsGeographicDirtyTileCurrent(states, committed, 4, tile, unprojected, false, out _);
+            unprojected.Add(tile);
+            valid &= !TerrainAuthoringPreviewService.IsGeographicDirtyTileCurrent(states, committed, 4, tile, unprojected, false, out _);
+            unprojected.Remove(tile);
+            valid &= !TerrainAuthoringPreviewService.IsGeographicDirtyTileCurrent(states, committed, 4, tile, unprojected, true, out _);
+            coarse.PendingRegionalTiles.Add(tile);
+            valid &= !TerrainAuthoringPreviewService.IsGeographicDirtyTileCurrent(states, committed, 4, tile, unprojected, false, out _);
+            coarse.PendingRegionalTiles.Remove(tile);
+            coarse.RecordDirtyFailure(tile, 4, "Isolated stale coarse tile", true);
+            valid &= !TerrainAuthoringPreviewService.IsGeographicDirtyTileCurrent(states, committed, 4, tile, unprojected, false, out _);
+            TerrainAuthoringPreviewService.CompleteDirtyContent(coarse, tile);
+            valid &= !TerrainAuthoringPreviewService.IsGeographicDirtyTileCurrent(states, committed, 5, tile, unprojected, false, out _)
+                && !TerrainAuthoringPreviewService.IsGeographicDirtyTileCurrent(states, committed + " changed", 4, tile, unprojected, false, out _)
+                && !TerrainAuthoringPreviewService.IsGeographicDirtyTileCurrent(states, committed, 4,
+                    new Vector2Int(int.MaxValue / 2, int.MaxValue / 2), unprojected, false, out bool hasOwner) && !hasOwner;
+            fine.DirtyTargetGeneration = coarse.DirtyTargetGeneration = 5;
+            valid &= TerrainAuthoringPreviewService.IsGeographicDirtyTileCurrent(states, committed, 5, tile, unprojected, false, out _);
+            bool laterObserverRan = false;
+            Action listeners = () =>
+            {
+                var window = new TerrainHeightCacheWindow(fine.ActiveCache.CacheOriginTile, fine.ActiveCache.CacheSize);
+                TerrainAuthoringPreviewService.QueueDirtyTilesForLod(fine, window, new[] { tile }, null);
+                throw new InvalidOperationException("Isolated re-entrant observer.");
+            };
+            listeners += () => laterObserverRan = fine.PendingDirtyTiles.Contains(tile);
+            string observerError = TerrainAuthoringPreviewService.DispatchObserverCallbacks(listeners);
+            valid &= laterObserverRan && !string.IsNullOrEmpty(observerError)
+                && !TerrainAuthoringPreviewService.IsGeographicDirtyTileCurrent(states, committed, 5, tile, unprojected, false, out _);
+            if (valid) AddPass(name, "Repeated samples coalesce; all tile owners, unprojected/regional scope and failures gate local completion while unrelated tiles and whole-LOD acknowledgement remain independent. Re-entry retains new work.");
+            else AddFail(name, "Local completion, latest targets, coalescing or re-entrant obligations were incorrect.");
+        }
+        finally { fine.Dispose(); coarse?.Dispose(); }
+    }
+
     private static void ValidateLocalDirtyFailures()
     {
         var state = new TerrainAuthoringPreviewLodState(0, 1, 9, 1);
@@ -1188,5 +1258,6 @@ public static class TerrainAuthoringModifierResidencyValidationUtility
     }
 
 }
+
 
 

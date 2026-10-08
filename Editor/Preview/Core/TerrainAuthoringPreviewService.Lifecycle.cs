@@ -607,6 +607,7 @@ public static partial class TerrainAuthoringPreviewService
 
         ClearMultiresolutionResidencyIntent();
         ReleaseActiveDirtySource(); // Ownership changes preserve the last drawable display set.
+        ClearInteractiveDirtyHint(); displayPreparationDeferredForInteractiveEdit = false;
         heightCompositor.ReleaseTextureBindings(); ClearPreviewFollowUps();
         ReleaseTerrainAnalysisSource(true);
 

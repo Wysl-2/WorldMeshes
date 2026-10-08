@@ -46,18 +46,19 @@ public static partial class TerrainAuthoringPreviewService
         TerrainAuthoringModifierService
             .HasActiveInteractiveEdit;
 
-    public static bool StreamingRestartDeferredForInteractiveEdit =>
-        HasActiveInteractiveTerrainAuthoringEdit
-        &&
-        (
-            hasPendingStreamingStart
-            ||
-            (
-                currentCacheSetTransition != null
-                &&
-                TransitionInProgress
-            )
-        );
+    public static bool StreamingRestartDeferredForInteractiveEdit
+    {
+        get
+        {
+            if (!HasActiveInteractiveTerrainAuthoringEdit) return false;
+            if (displayPreparationDeferredForInteractiveEdit) return true;
+            var work = TransitionInProgress ? currentCacheSetTransition : pendingCacheSetTransition;
+            var settings = LoadWorldSettings();
+            return work != null && TerrainAuthoringPreviewStreamingPolicy.ShouldDeferHeightRequestRestart(work.Publication,
+                true, HasLiveTerrainAnalysisDemand, IsMandatoryDisplayWork(work, settings,
+                    TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(settings)));
+        }
+    }
 
     private static void RegisterPreviewAuthoringInvalidation(
         string reason,
@@ -78,6 +79,7 @@ public static partial class TerrainAuthoringPreviewService
 
         ClearTransitionFailureSuppression();
         InvalidateActiveHeightContent(contentOnly);
+        if (contentOnly && HasActiveInteractiveTerrainAuthoringEdit) interactiveDirtyHintGeneration = authoringGeneration;
         InvalidateTerrainAnalysisAuthoring();
 
         bool hasStreamingWork =
@@ -400,10 +402,33 @@ public static partial class TerrainAuthoringPreviewService
         WorldSettings settings, string committed, Vector2Int tile)
     {
         return IsStateTileDrawable(state, settings, committed, tile)
-            && (state.CacheReady && state.ActiveAuthoringGeneration == authoringGeneration
-                || state.DirtyTargetGeneration > 0 && state.DirtyTargetGeneration == authoringGeneration)
-            && !HasTileContentObligation(state, tile, dirtyCompositeTiles,
+            && IsResidentTileContentCurrent(state, committed, authoringGeneration, tile, dirtyCompositeTiles,
                 IsWorldTilePendingRegionalElevationRecomposition(settings, tile));
+    }
+
+    internal static bool IsResidentTileContentCurrent(TerrainAuthoringPreviewLodState state, string committed,
+        long generation, Vector2Int tile, ISet<Vector2Int> unprojectedTiles, bool pendingRegionalScope)
+    {
+        return IsDirtyLiveSliceUsable(state, tile) && state.ActiveCache.SourceCommittedHeightfieldSignature == committed
+            && (state.CacheReady && state.ActiveAuthoringGeneration == generation
+                || state.DirtyTargetGeneration > 0 && state.DirtyTargetGeneration == generation)
+            && !state.DirtyFailures.ContainsKey(tile)
+            && !HasTileContentObligation(state, tile, unprojectedTiles, pendingRegionalScope);
+    }
+
+    internal static bool IsGeographicDirtyTileCurrent(TerrainAuthoringPreviewLodState[] states, string committed,
+        long generation, Vector2Int tile, ISet<Vector2Int> unprojectedTiles, bool pendingRegionalScope, out bool hasOwner)
+    {
+        hasOwner = false;
+        if (states == null) return false;
+        bool current = true;
+        foreach (var state in states)
+        {
+            if (state?.ActiveCache == null || state.ActiveCache.GetSliceIndex(tile.x, tile.y) < 0) continue;
+            hasOwner = true;
+            current &= IsResidentTileContentCurrent(state, committed, generation, tile, unprojectedTiles, pendingRegionalScope);
+        }
+        return hasOwner && current;
     }
 
     internal static bool HasTileContentObligation(TerrainAuthoringPreviewLodState state,
@@ -669,7 +694,37 @@ public static partial class TerrainAuthoringPreviewService
     private static readonly HashSet<Vector2Int> pendingNativePublication = new HashSet<Vector2Int>();
     private static Texture2D activeDirtySource;
     private static Vector2Int activeDirtySourceTile;
-    private static long activeDirtySourceGeneration;
+    private static DirtySourceIdentity activeDirtySourceIdentity;
+    private static readonly HashSet<Vector2Int> latestInteractiveDirtyTiles = new HashSet<Vector2Int>();
+    private static TerrainRegionalElevationInvalidationScope latestInteractiveRegionalScope;
+    private static long interactiveDirtyHintGeneration;
+    private static long interactiveDirtyHintOwnership = -1;
+    private static int interactiveDirtyHintSettingsId;
+    private static WorldSettings interactiveDirtyHintSettings;
+    private static Transform interactiveDirtyHintRoot;
+    private static readonly Func<Vector2Int, bool> latestInteractiveScopeContains = LatestInteractionAffectsTile;
+
+    internal readonly struct DirtySourceIdentity
+    {
+        internal readonly Vector2Int Tile;
+        internal readonly string CommittedSignature;
+        internal readonly int SettingsId;
+        internal readonly int NativeSamples;
+
+        internal DirtySourceIdentity(Vector2Int tile, string committed, int settingsId, int nativeSamples)
+        {
+            Tile = tile; CommittedSignature = committed;
+            SettingsId = settingsId; NativeSamples = nativeSamples;
+        }
+    }
+
+    internal static bool CanReuseDirtySource(Texture2D source, DirtySourceIdentity held, DirtySourceIdentity target)
+    {
+        return source != null && held.Tile == target.Tile && held.SettingsId == target.SettingsId
+            && held.NativeSamples == target.NativeSamples && !string.IsNullOrEmpty(target.CommittedSignature)
+            && string.Equals(held.CommittedSignature, target.CommittedSignature, StringComparison.Ordinal)
+            && TerrainAuthoringPreviewHeightSourceUtility.TryValidateNativeSource(source, target.NativeSamples, out _);
+    }
     private static readonly TerrainAuthoringPreviewHeightMaterializer activeDirtyMaterializer = new TerrainAuthoringPreviewHeightMaterializer();
     internal static int LastDirtyUpdateAllocations { get; private set; }
     internal static int LastDirtyUpdateCopies { get; private set; }
@@ -685,14 +740,12 @@ public static partial class TerrainAuthoringPreviewService
             return false;
         }
     }
-    private static bool HasRunnableActiveDirtyWork => HasRunnableDirtyWork(activeHeightStates, false);
-    private static bool HasRunnableRequiredActiveDirtyWork => HasRunnableDirtyWork(activeHeightStates, true);
 
     internal static bool HasRunnableDirtyWork(TerrainAuthoringPreviewLodState[] states, bool requiredOnly)
     {
         if (states != null) foreach (var state in states)
             foreach (var tile in state.PendingDirtyTiles)
-                if (state.IsDirtyTileRunnable(tile) && (!requiredOnly || state.Level == 0 || state.ActiveRequiredWindow.Contains(tile)))
+                if (state.IsDirtyTileRunnable(tile) && (!requiredOnly || state.ActiveRequiredWindow.Contains(tile)))
                     return true;
         return false;
     }
@@ -729,12 +782,81 @@ public static partial class TerrainAuthoringPreviewService
 
     private static void ReleaseActiveDirtySource()
     {
-        activeDirtyMaterializer.ReleaseTextureBindings(); activeDirtySource = null; activeDirtySourceGeneration = 0;
+        activeDirtyMaterializer.ReleaseTextureBindings(); activeDirtySource = null; activeDirtySourceIdentity = default;
+    }
+
+    private static void ClearInteractiveDirtyHint()
+    {
+        latestInteractiveDirtyTiles.Clear(); latestInteractiveRegionalScope = TerrainRegionalElevationInvalidationScope.None;
+        interactiveDirtyHintGeneration = 0; interactiveDirtyHintOwnership = -1;
+        interactiveDirtyHintSettingsId = 0; interactiveDirtyHintSettings = null; interactiveDirtyHintRoot = null;
+    }
+
+    private static void PrepareInteractiveDirtyHint(bool replaceScope)
+    {
+        if (!HasActiveInteractiveTerrainAuthoringEdit) { ClearInteractiveDirtyHint(); return; }
+        var settings = LoadWorldSettings();
+        if (settings == null) { ClearInteractiveDirtyHint(); return; }
+        long owner = TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration;
+        if (interactiveDirtyHintRoot != boundClipmapRoot || interactiveDirtyHintOwnership != owner
+            || interactiveDirtyHintSettingsId != settings.GetInstanceID()) ClearInteractiveDirtyHint();
+        if (replaceScope)
+        {
+            latestInteractiveDirtyTiles.Clear();
+            latestInteractiveRegionalScope = TerrainRegionalElevationInvalidationScope.None;
+        }
+        interactiveDirtyHintRoot = boundClipmapRoot; interactiveDirtyHintOwnership = owner;
+        interactiveDirtyHintSettingsId = settings.GetInstanceID();
+        interactiveDirtyHintSettings = settings;
+    }
+
+    private static bool LatestInteractionAffectsTile(Vector2Int tile)
+    {
+        var settings = interactiveDirtyHintSettings;
+        return HasActiveInteractiveTerrainAuthoringEdit && settings != null && interactiveDirtyHintGeneration > 0
+            && interactiveDirtyHintGeneration <= authoringGeneration && interactiveDirtyHintRoot == boundClipmapRoot
+            && interactiveDirtyHintOwnership == TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration
+            && interactiveDirtyHintSettingsId == settings.GetInstanceID()
+            && (latestInteractiveDirtyTiles.Contains(tile)
+                || TerrainRegionalElevationResidencyPolicy.ScopeAffectsTile(settings, latestInteractiveRegionalScope, tile));
+    }
+
+    private static bool ShouldRetainActiveDirtySource(WorldSettings settings, string committed)
+    {
+        if (settings == null || !CanReuseDirtySource(activeDirtySource, activeDirtySourceIdentity,
+            new DirtySourceIdentity(activeDirtySourceTile, committed, settings.GetInstanceID(), settings.HeightTileSamplesPerSide))
+            || !PublishedDisplayIsDrawable(settings, committed) || activeDisplayIntent.OwnershipGeneration
+                != TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration) return false;
+        bool pending = false, runnable = false, owner = false;
+        foreach (var state in activeHeightStates)
+        {
+            owner |= IsStateTileDrawable(state, settings, committed, activeDirtySourceTile);
+            pending |= state.PendingDirtyTiles.Contains(activeDirtySourceTile);
+            runnable |= state.IsDirtyTileRunnable(activeDirtySourceTile);
+        }
+        if (HasActiveInteractiveTerrainAuthoringEdit && !LatestInteractionAffectsTile(activeDirtySourceTile)) return false;
+        return owner && (runnable || !pending && LatestInteractionAffectsTile(activeDirtySourceTile));
+    }
+
+    private static void MaintainDirtySchedulingIntent(WorldSettings settings, string committed)
+    {
+        if (HasActiveInteractiveTerrainAuthoringEdit && (settings == null || interactiveDirtyHintRoot == null
+            || interactiveDirtyHintRoot != boundClipmapRoot
+            || interactiveDirtyHintOwnership != TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration
+            || interactiveDirtyHintSettingsId != settings.GetInstanceID())) ClearInteractiveDirtyHint();
+        if (!HasActiveInteractiveTerrainAuthoringEdit)
+        {
+            ClearInteractiveDirtyHint();
+            if (displayPreparationDeferredForInteractiveEdit)
+            { displayPreparationDeferredForInteractiveEdit = false; ScheduleRefresh(); }
+        }
+        if (!ReferenceEquals(activeDirtySource, null) && !ShouldRetainActiveDirtySource(settings, committed)) ReleaseActiveDirtySource();
     }
 
     private static void InvalidateActiveHeightContent(bool contentOnly)
     {
-        ReleaseActiveDirtySource();
+        if (!contentOnly)
+        { ReleaseActiveDirtySource(); ClearInteractiveDirtyHint(); displayPreparationDeferredForInteractiveEdit = false; }
         if (activeHeightStates != null) foreach (var s in activeHeightStates)
         {
             s.CacheReady = false;
@@ -805,35 +927,75 @@ public static partial class TerrainAuthoringPreviewService
 
     private static TerrainAuthoringPreviewLodState ChooseActiveDirtyDestination(out Vector2Int tile)
     {
-        var state = ChooseDirtyDestination(activeHeightStates, activeDirtySource != null, activeDirtySourceTile,
-            HasActiveInteractiveTerrainAuthoringEdit, out tile);
-        if (activeDirtySource != null && (state == null || tile != activeDirtySourceTile)) ReleaseActiveDirtySource();
-        return state;
+        return ChooseDirtyDestination(activeHeightStates, activeDirtySource != null, activeDirtySourceTile,
+            HasActiveInteractiveTerrainAuthoringEdit, latestInteractiveScopeContains, out tile);
     }
 
     internal static TerrainAuthoringPreviewLodState ChooseDirtyDestination(TerrainAuthoringPreviewLodState[] states,
         bool hasHeldSource, Vector2Int heldTile, bool interactive, out Vector2Int tile)
     {
+        return ChooseDirtyDestination(states, hasHeldSource, heldTile, interactive, null, out tile);
+    }
+
+    internal static bool IsDirtyLiveSliceUsable(TerrainAuthoringPreviewLodState state, Vector2Int tile)
+    {
+        if (state == null || !state.HasUsableActiveAllocation) return false;
+        var cache = state.ActiveCache;
+        return cache.SampleStride == state.SampleStride && cache.SamplesPerSide == state.SamplesPerSide
+            && Mathf.Approximately(cache.SampleSpacing, state.SampleSpacing)
+            && cache.HeightCache != null && cache.HeightCache.IsCreated() && cache.IsSliceFinalCompositeReady(tile)
+            && cache.TryGetCompositeSliceRange(tile.x, tile.y, out float low, out float high)
+            && !float.IsNaN(low) && !float.IsInfinity(low) && !float.IsNaN(high) && !float.IsInfinity(high) && low <= high;
+    }
+
+    internal static int GetDirtyDestinationPriority(TerrainAuthoringPreviewLodState[] states,
+        TerrainAuthoringPreviewLodState state, Vector2Int tile, bool interactive, Func<Vector2Int, bool> latestScope)
+    {
+        if (state == null || !state.IsDirtyTileRunnable(tile) || !IsDirtyLiveSliceUsable(state, tile)) return int.MaxValue;
+        int finestStride = int.MaxValue;
+        TerrainAuthoringPreviewLodState finestOwner = null;
+        bool finestRequired = false;
+        bool latest = interactive && latestScope != null && latestScope(tile);
+        foreach (var owner in states)
+        {
+            finestStride = Math.Min(finestStride, owner.SampleStride);
+            if (!latest || !IsDirtyLiveSliceUsable(owner, tile)
+                || owner.DirtyFailures.ContainsKey(tile)) continue;
+            bool requiredOwner = owner.ActiveRequiredWindow.Contains(tile);
+            if (finestOwner == null || requiredOwner && !finestRequired
+                || requiredOwner == finestRequired && (owner.SampleStride < finestOwner.SampleStride
+                    || owner.SampleStride == finestOwner.SampleStride && owner.Level < finestOwner.Level))
+            { finestOwner = owner; finestRequired = requiredOwner; }
+        }
+        if (latest && ReferenceEquals(finestOwner, state))
+            return TerrainAuthoringPreviewStreamingPolicy.InteractiveDirtyPriority;
+        if (!state.ActiveRequiredWindow.Contains(tile)) return TerrainAuthoringPreviewStreamingPolicy.GuardDirtyPriority;
+        return state.SampleStride == 1 || state.SampleStride == finestStride
+            ? TerrainAuthoringPreviewStreamingPolicy.FineDirtyPriority : TerrainAuthoringPreviewStreamingPolicy.RequiredDirtyPriority;
+    }
+
+    internal static TerrainAuthoringPreviewLodState ChooseDirtyDestination(TerrainAuthoringPreviewLodState[] states,
+        bool hasHeldSource, Vector2Int heldTile, bool interactive, Func<Vector2Int, bool> latestScope, out Vector2Int tile)
+    {
         tile = default;
         if (states == null || states.Length == 0) return null;
-        bool finePending = false;
-        foreach (var t in states[0].PendingDirtyTiles) if (states[0].IsDirtyTileRunnable(t)) { finePending = true; break; }
-        if (hasHeldSource)
-            foreach (var state in states)
-                if (state.IsDirtyTileRunnable(heldTile) && (!interactive || !finePending || state.Level == 0))
-                { tile = heldTile; return state; }
-        foreach (bool required in new[] { true, false })
-            foreach (var state in states)
+        TerrainAuthoringPreviewLodState chosen = null;
+        int chosenPriority = int.MaxValue;
+        foreach (var state in states)
+            foreach (var candidate in state.PendingDirtyTiles)
             {
-                bool found = false;
-                foreach (var t in state.PendingDirtyTiles)
-                {
-                    if (!state.IsDirtyTileRunnable(t) || (state.Level != 0 && state.ActiveRequiredWindow.Contains(t) != required)) continue;
-                    if (!found || t.y < tile.y || (t.y == tile.y && t.x < tile.x)) { tile = t; found = true; }
-                }
-                if (found) return state;
+                int priority = GetDirtyDestinationPriority(states, state, candidate, interactive, latestScope);
+                if (priority == int.MaxValue) continue;
+                bool sameRepresentation = chosen != null && state.SampleStride == chosen.SampleStride && state.Level == chosen.Level;
+                bool candidateHeld = hasHeldSource && candidate == heldTile, chosenHeld = hasHeldSource && tile == heldTile;
+                if (chosen == null || priority < chosenPriority
+                    || priority == chosenPriority && (state.SampleStride < chosen.SampleStride
+                        || state.SampleStride == chosen.SampleStride && state.Level < chosen.Level
+                        || sameRepresentation && (candidateHeld && !chosenHeld
+                            || candidateHeld == chosenHeld && (candidate.y < tile.y || candidate.y == tile.y && candidate.x < tile.x))))
+                { chosen = state; tile = candidate; chosenPriority = priority; }
             }
-        return null;
+        return chosen;
     }
 
     internal static void CompleteDirtyContent(TerrainAuthoringPreviewLodState state, Vector2Int tile)
@@ -865,116 +1027,151 @@ public static partial class TerrainAuthoringPreviewService
     private static void AdvanceActiveDisplayDirty(WorldSettings settings, TerrainAuthoringData data,
         System.Diagnostics.Stopwatch watch)
     {
-        LastDirtyUpdateAllocations = LastDirtyUpdateCopies = LastDirtyUpdateLoads =
-            LastDirtyUpdateMaterializations = LastDirtyUpdateCompositions = 0;
-        if (!HasRunnableActiveDirtyWork) { ReleaseActiveDirtySource(); return; }
-        if (activeDirtySource != null && activeDirtySourceGeneration != authoringGeneration) ReleaseActiveDirtySource();
-        var state = ChooseActiveDirtyDestination(out Vector2Int tile);
-        if (state == null) return;
         string committed = TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(settings);
         string overall = TerrainAuthoringStateUtility.GetOverallAuthoringSignature(settings, data);
-        var cache = state.ActiveCache; var texture = cache.HeightCache; var display = activeDisplayIntent;
-        long target = authoringGeneration;
-        if (!DirtyTargetStillCurrent(state, cache, texture, display, target, committed, settings, data, overall)) return;
-        bool contentCommitted = false, liveSliceSafe = true;
-        string error = "";
-        try
+        var first = ChooseActiveDirtyDestination(out Vector2Int groupTile);
+        if (first == null || !PublishedDisplayIsDrawable(settings, committed)) return;
+        var identity = new DirtySourceIdentity(groupTile, committed, settings.GetInstanceID(), settings.HeightTileSamplesPerSide);
+        if (!CanReuseDirtySource(activeDirtySource, activeDirtySourceIdentity, identity)) ReleaseActiveDirtySource();
+        long batchGeneration = authoringGeneration;
+        while (LastDirtyUpdateCompositions < DefaultDirtyCompositionsPerUpdate)
         {
-            if (activeDirtySource == null)
+            var state = ChooseActiveDirtyDestination(out Vector2Int tile);
+            if (state == null || tile != groupTile || !ShouldRunActiveDirtyWork(settings, committed, overall, state, tile)) return;
+            var cache = state.ActiveCache; var texture = cache.HeightCache; var display = activeDisplayIntent;
+            long target = authoringGeneration;
+            if (target != batchGeneration || !DirtyTargetStillCurrent(state, cache, texture, display,
+                target, committed, settings, data, overall)) return;
+            var scratch = state.DirtyScratch;
+            bool needsScratch = scratch == null || !scratch.IsCreated() || scratch.width != state.SamplesPerSide
+                || scratch.height != state.SamplesPerSide || scratch.volumeDepth != 2
+                || scratch.dimension != UnityEngine.Rendering.TextureDimension.Tex2DArray
+                || scratch.format != RenderTextureFormat.RFloat || scratch.antiAliasing != 1
+                || scratch.useMipMap || !scratch.enableRandomWrite;
+            if (!TerrainAuthoringPreviewStreamingPolicy.CanAdmitDirtyRepresentation(LastDirtyUpdateAllocations,
+                LastDirtyUpdateCopies, LastDirtyUpdateMaterializations, LastDirtyUpdateCompositions, needsScratch, state.SampleStride)) return;
+            bool contentCommitted = false, liveSliceSafe = true;
+            string error = "";
+            try
             {
-                LastDirtyUpdateLoads++;
-                if (!TerrainAuthoringPreviewHeightSourceUtility.TryLoadCommittedNativeTile(settings, tile, out activeDirtySource, out error))
-                    throw new InvalidOperationException(error);
-                activeDirtySourceTile = tile; activeDirtySourceGeneration = target;
-                if (watch.Elapsed.TotalMilliseconds >= DefaultSoftWorkBudgetMilliseconds) return;
-            }
-            if (!state.TryEnsureDirtyScratch(out bool allocated, out error)) throw new InvalidOperationException(error);
-            if (allocated) { LastDirtyUpdateAllocations++; CaptureTransitionMemoryEstimate(); }
-            if (allocated && watch.Elapsed.TotalMilliseconds >= DefaultSoftWorkBudgetMilliseconds) return;
-            if (!cache.TryGetCommittedRange(tile, out float low, out float high, out error)) throw new InvalidOperationException(error);
-            LastDirtyUpdateMaterializations++;
-            if (!activeDirtyMaterializer.TryMaterialize(activeDirtySource, state.DirtyScratch, 0,
-                settings.HeightTileSamplesPerSide, state.SamplesPerSide, state.SampleStride, out error))
-                throw new InvalidOperationException(error);
-            LastDirtyUpdateCompositions++;
-            if (!heightCompositor.TryComposeTile(state.DirtyScratch, tile, 0, state.SamplesPerSide,
-                state.SampleSpacing, settings.HeightTileWorldSize, cache.WorldSizeXZ, data,
-                low, high, out float finalLow, out float finalHigh, out error)) throw new InvalidOperationException(error);
-            if (!DirtyTargetStillCurrent(state, cache, texture, display, target, committed, settings, data, overall)) return;
-            bool success = cache.TryCommitCompositeSliceFromScratch(state.DirtyScratch, tile, finalLow, finalHigh,
-                out liveSliceSafe, out int copies, out error);
-            LastDirtyUpdateCopies += copies;
-            if (!success) throw new InvalidOperationException(error);
-            contentCommitted = true;
-            bool regional = state.PendingRegionalTiles.Contains(tile);
-            CompleteDirtyContent(state, tile);
-            dirtyContentBoundary++;
-            if (regional) lastRegionalPublishedCompositeTileCount++;
-            pendingCompositePublication.Add(tile);
-            if (state.Level == 0 && state.SampleStride == 1) pendingNativePublication.Add(tile);
-            bool groupPending = false;
-            foreach (var s in activeHeightStates) if (s.PendingDirtyTiles.Contains(tile)) groupPending = true;
-            if (!groupPending) { diagnosticPendingGeographicDirty.Remove(tile); ReleaseActiveDirtySource(); }
-            AcknowledgeCompletedDisplayAuthoring(committed, overall);
-        }
-        catch (Exception exception)
-        {
-            ReleaseActiveDirtySource();
-            if (contentCommitted)
-            {
-                // A committed composite cannot become a failed composition through bookkeeping.
-                CompleteDirtyContent(state, tile);
-                ReportFollowUpFailure("Height publication", exception.Message);
-            }
-            else if (DirtyTargetStillCurrent(state, cache, texture, display, target, committed, settings, data, overall)
-                || ((!liveSliceSafe || texture == null || !texture.IsCreated()) && activeHeightStates != null
-                    && state.Level < activeHeightStates.Length && ReferenceEquals(activeHeightStates[state.Level], state)
-                    && ReferenceEquals(state.ActiveCache, cache)))
-            {
-                liveSliceSafe &= texture != null && texture.IsCreated();
-                state.RecordDirtyFailure(tile, target, exception.Message, liveSliceSafe);
-                diagnosticPendingGeographicDirty.Add(tile);
-                if (!liveSliceSafe)
+                if (activeDirtySource == null)
                 {
-                    state.WriteFailed = true;
-                    TerrainAuthoringPreviewHeightBindingUtility.Disable(boundHeightRenderers, state.Level);
-                    ClearDisplayTransitionFailureSuppression(); clipmapRebindRequested = true; ScheduleRefresh();
+                    if (LastDirtyUpdateLoads >= DefaultCommittedLoadsPerUpdate) return;
+                    LastDirtyUpdateLoads++;
+                    if (!TerrainAuthoringPreviewHeightSourceUtility.TryLoadCommittedNativeTile(settings, tile, out activeDirtySource, out error))
+                        throw new InvalidOperationException(error);
+                    activeDirtySourceTile = tile; activeDirtySourceIdentity = identity;
+                    if (watch.Elapsed.TotalMilliseconds >= DefaultSoftWorkBudgetMilliseconds) return;
                 }
-                SetStatus(liveSliceSafe ? TerrainAuthoringPreviewStatus.Ready : TerrainAuthoringPreviewStatus.Error,
-                    $"Height update failed at LOD {state.Level}, tile {tile}. "
-                    + (liveSliceSafe ? "Last-good terrain is retained. " : "The unsafe representation requires replacement. ") + exception.Message);
-                Debug.LogWarning($"Resident Height update, LOD {state.Level}, tile {tile}: {exception.Message}");
-                NotifyPreviewStateChanged();
+                if (!CanReuseDirtySource(activeDirtySource, activeDirtySourceIdentity, identity))
+                    throw new InvalidOperationException("The held committed Height source became incompatible.");
+                // Count allocation attempts as work, including unsuccessful attempts.
+                if (needsScratch) LastDirtyUpdateAllocations++;
+                if (!state.TryEnsureDirtyScratch(out bool allocated, out error)) throw new InvalidOperationException(error);
+                if (allocated) CaptureTransitionMemoryEstimate();
+                if (allocated && watch.Elapsed.TotalMilliseconds >= DefaultSoftWorkBudgetMilliseconds) return;
+                if (!cache.TryGetCommittedRange(tile, out float low, out float high, out error)) throw new InvalidOperationException(error);
+                LastDirtyUpdateMaterializations++;
+                if (state.SampleStride == 1) LastDirtyUpdateCopies++;
+                if (!activeDirtyMaterializer.TryMaterialize(activeDirtySource, state.DirtyScratch, 0,
+                    settings.HeightTileSamplesPerSide, state.SamplesPerSide, state.SampleStride, out error))
+                    throw new InvalidOperationException(error);
+                LastDirtyUpdateCompositions++;
+                if (!heightCompositor.TryComposeTile(state.DirtyScratch, tile, 0, state.SamplesPerSide,
+                    state.SampleSpacing, settings.HeightTileWorldSize, cache.WorldSizeXZ, data,
+                    low, high, out float finalLow, out float finalHigh, out error)) throw new InvalidOperationException(error);
+                if (!DirtyTargetStillCurrent(state, cache, texture, display, target, committed, settings, data, overall)) return;
+                bool success = cache.TryCommitCompositeSliceFromScratch(state.DirtyScratch, tile, finalLow, finalHigh,
+                    out liveSliceSafe, out int copies, out error);
+                LastDirtyUpdateCopies += copies;
+                if (!success) throw new InvalidOperationException(error);
+                contentCommitted = true;
+                bool regional = state.PendingRegionalTiles.Contains(tile);
+                CompleteDirtyContent(state, tile);
+                dirtyContentBoundary++;
+                if (regional) lastRegionalPublishedCompositeTileCount++;
+                pendingCompositePublication.Add(tile);
+                if (state.Level == 0 && state.SampleStride == 1) pendingNativePublication.Add(tile);
+                bool groupPending = false;
+                foreach (var owner in activeHeightStates) if (owner.PendingDirtyTiles.Contains(tile)) groupPending = true;
+                if (!groupPending) diagnosticPendingGeographicDirty.Remove(tile);
+                AcknowledgeCompletedDisplayAuthoring(committed, overall);
             }
+            catch (Exception exception)
+            {
+                ReleaseActiveDirtySource();
+                if (contentCommitted)
+                {
+                    CompleteDirtyContent(state, tile);
+                    ReportFollowUpFailure("Height publication", exception.Message);
+                }
+                else if (DirtyTargetStillCurrent(state, cache, texture, display, target, committed, settings, data, overall)
+                    || ((!liveSliceSafe || texture == null || !texture.IsCreated()) && activeHeightStates != null
+                        && state.Level < activeHeightStates.Length && ReferenceEquals(activeHeightStates[state.Level], state)
+                        && ReferenceEquals(state.ActiveCache, cache)))
+                {
+                    liveSliceSafe &= texture != null && texture.IsCreated();
+                    state.RecordDirtyFailure(tile, target, exception.Message, liveSliceSafe);
+                    diagnosticPendingGeographicDirty.Add(tile);
+                    if (!liveSliceSafe)
+                    {
+                        state.WriteFailed = true;
+                        TerrainAuthoringPreviewHeightBindingUtility.Disable(boundHeightRenderers, state.Level);
+                        ClearDisplayTransitionFailureSuppression(); clipmapRebindRequested = true; ScheduleRefresh();
+                    }
+                    SetStatus(liveSliceSafe ? TerrainAuthoringPreviewStatus.Ready : TerrainAuthoringPreviewStatus.Error,
+                        $"Height update failed at LOD {state.Level}, tile {tile}. "
+                        + (liveSliceSafe ? "Last-good terrain is retained. " : "The unsafe representation requires replacement. ") + exception.Message);
+                    Debug.LogWarning($"Resident Height update, LOD {state.Level}, tile {tile}: {exception.Message}");
+                    activeDirtyMaterializer.ReleaseTextureBindings(); heightCompositor.ReleaseTextureBindings();
+                    NotifyPreviewStateChanged();
+                }
+                if (!contentCommitted) return;
+            }
+            finally
+            {
+                activeDirtyMaterializer.ReleaseTextureBindings();
+                heightCompositor.ReleaseTextureBindings();
+            }
+            QueueBoundsFollowUp();
+            TryAdvancePreviewFollowUps(settings, data, committed, overall);
+            ScheduleRefresh(); NotifyPreviewStateChanged(); RepaintEditorViews();
+            // Observers may invalidate authoring, replace ownership, or dispose live storage.
+            if (!DirtyTargetStillCurrent(state, cache, texture, display, target, committed, settings, data, overall)
+                || activeDirtySource == null) return;
+            if (!ShouldRetainActiveDirtySource(settings, committed)) { ReleaseActiveDirtySource(); return; }
+            if (watch.Elapsed.TotalMilliseconds >= DefaultSoftWorkBudgetMilliseconds) return;
         }
-        finally
-        {
-            activeDirtyMaterializer.ReleaseTextureBindings();
-            heightCompositor.ReleaseTextureBindings();
-        }
-        if (!contentCommitted) return;
-        QueueBoundsFollowUp();
-        TryAdvancePreviewFollowUps(settings, data, committed, overall);
-        ScheduleRefresh(); NotifyPreviewStateChanged(); RepaintEditorViews();
     }
 
     private static void PublishCompletedDisplayDirtyTiles(string committed, string overall)
     {
         if (activeHeightStates == null) return;
-        var native = activeHeightStates[0];
+        long target = authoringGeneration;
+        long ownership = TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration;
+        var states = activeHeightStates; var display = activeDisplayIntent;
+        var native = states[0];
         if (native.SampleStride == 1 && StateContentIsCurrent(native, committed, overall) && pendingNativePublication.Count > 0)
         {
             var tiles = new List<Vector2Int>(pendingNativePublication); SortWorldTilesRowMajor(tiles);
             TryRunAnalysisFollowUp(() => PublishNativeTerrainAnalysisCompositeUpdate(tiles));
         }
+        var settings = LoadWorldSettings();
+        if (!CanRunEditorPreviewWork || target != authoringGeneration || !ReferenceEquals(states, activeHeightStates)
+            || !ReferenceEquals(display, activeDisplayIntent) || settings == null
+            || display == null || display.OwnershipGeneration != ownership
+            || ownership != TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration
+            || !PublishedDisplayIsDrawable(settings, committed)) return;
         var completed = new List<Vector2Int>();
+        var dropped = new List<Vector2Int>();
         foreach (var tile in pendingCompositePublication)
         {
-            bool current = true;
-            foreach (var s in activeHeightStates)
-                if (s.ActiveCache.GetSliceIndex(tile.x, tile.y) >= 0 && !StateContentIsCurrent(s, committed, overall)) current = false;
+            bool current = IsGeographicDirtyTileCurrent(states, committed, target, tile, dirtyCompositeTiles,
+                IsWorldTilePendingRegionalElevationRecomposition(settings, tile), out bool hasOwner);
             if (current) completed.Add(tile);
+            else if (!hasOwner) dropped.Add(tile);
         }
+        foreach (var tile in dropped) pendingCompositePublication.Remove(tile);
         if (completed.Count == 0) return;
         SortWorldTilesRowMajor(completed);
         foreach (var tile in completed) pendingCompositePublication.Remove(tile);
@@ -995,6 +1192,7 @@ public static partial class TerrainAuthoringPreviewService
     // Observability only; maintained alongside existing bounded dirty projection.
     private static readonly HashSet<Vector2Int> diagnosticPendingGeographicDirty = new HashSet<Vector2Int>();
 }
+
 
 
 

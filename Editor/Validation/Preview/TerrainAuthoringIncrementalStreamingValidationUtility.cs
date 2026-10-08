@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 public static class TerrainAuthoringIncrementalStreamingValidationUtility
 {
@@ -86,6 +87,8 @@ public static class TerrainAuthoringIncrementalStreamingValidationUtility
             else AddFail("Resumable Height cache set worker", setDetail);
             ValidateHeightSetPolicy();
             ValidateDirtyFailureProgress();
+            ValidateDirtyPriorityAndAdmission();
+            ValidateCommittedSourceReuse();
             ValidatePostCommitFollowUps();
             ValidateBoundedWorkBudgets();
             ValidateCursorResume();
@@ -1009,6 +1012,162 @@ public static class TerrainAuthoringIncrementalStreamingValidationUtility
         finally { fine.Dispose(); coarse?.Dispose(); }
     }
 
+    private static void ValidateDirtyPriorityAndAdmission()
+    {
+        const string name = "Interactive dirty priority and bounded admission";
+        if (!TerrainAuthoringPreviewCacheValidationUtility.TryCreateDirtyFixtureState(0, 1,
+            out var fine, out var settings, out var data, out string error, out bool blocked))
+        { if (blocked) AddBlocked(name, error); else AddFail(name, error); return; }
+        TerrainAuthoringPreviewLodState coarse = null;
+        try
+        {
+            if (!TerrainAuthoringPreviewCacheValidationUtility.TryCreateDirtyFixtureState(1, 2,
+                out coarse, out _, out _, out error, out blocked))
+            { if (blocked) AddBlocked(name, error); else AddFail(name, error); return; }
+            var first = fine.ActiveCache.CacheOriginTile;
+            fine.ActiveCache.TryGetTileCoordinate(1, out var outer);
+            RestrictFineFixtureWindow(fine, settings, data, first);
+            var states = new[] { fine, coarse };
+            fine.PendingDirtyTiles.Add(first);
+            coarse.PendingDirtyTiles.Add(first); coarse.PendingDirtyTiles.Add(outer);
+            var latest = new HashSet<Vector2Int> { outer };
+            var chosen = TerrainAuthoringPreviewService.ChooseDirtyDestination(states, true, first, true, latest.Contains, out var tile);
+            bool valid = fine.ActiveCache.GetSliceIndex(outer.x, outer.y) < 0 && ReferenceEquals(chosen, coarse) && tile == outer;
+            latest.Clear();
+            chosen = TerrainAuthoringPreviewService.ChooseDirtyDestination(states, true, outer, true, latest.Contains, out tile);
+            valid &= ReferenceEquals(chosen, fine) && tile == first;
+            fine.ActiveRequiredWindow = default;
+            chosen = TerrainAuthoringPreviewService.ChooseDirtyDestination(states, true, first, false, out tile);
+            valid &= ReferenceEquals(chosen, coarse);
+            chosen = TerrainAuthoringPreviewService.ChooseDirtyDestination(states, true, outer, false, out tile);
+            valid &= ReferenceEquals(chosen, coarse) && tile == outer;
+            coarse.RecordDirtyFailure(outer, 1, "Isolated coarse failure", true);
+            chosen = TerrainAuthoringPreviewService.ChooseDirtyDestination(states, true, outer, false, out tile);
+            valid &= ReferenceEquals(chosen, coarse) && tile == first;
+            coarse.RecordDirtyFailure(first, 1, "Isolated required failure", true);
+            valid &= !TerrainAuthoringPreviewService.HasRunnableDirtyWork(states, true)
+                && TerrainAuthoringPreviewService.HasRunnableDirtyWork(states, false);
+
+            valid &= TerrainAuthoringPreviewStreamingPolicy.FineDirtyPriority
+                    < TerrainAuthoringPreviewStreamingPolicy.GetHeightPreparationPriority(false, true, true, true)
+                && TerrainAuthoringPreviewStreamingPolicy.GetHeightPreparationPriority(false, true, true, true)
+                    < TerrainAuthoringPreviewStreamingPolicy.RequiredDirtyPriority
+                && TerrainAuthoringPreviewStreamingPolicy.GetHeightPreparationPriority(true, false, false, true)
+                    < TerrainAuthoringPreviewStreamingPolicy.InteractiveDirtyPriority
+                && TerrainAuthoringPreviewStreamingPolicy.GetHeightPreparationPriority(false, true, false, true) == int.MaxValue
+                && TerrainAuthoringPreviewStreamingPolicy.GetHeightPreparationPriority(false, true, false, false)
+                    > TerrainAuthoringPreviewStreamingPolicy.GuardDirtyPriority;
+            valid &= !TerrainAuthoringPreviewStreamingPolicy.ShouldDeferHeightRequestRestart(
+                    TerrainAuthoringPreviewCachePublication.DisplayHeightSet, true, false, true)
+                && TerrainAuthoringPreviewStreamingPolicy.ShouldDeferHeightRequestRestart(
+                    TerrainAuthoringPreviewCachePublication.DisplayHeightSet, true, false, false);
+            valid &= TerrainAuthoringPreviewService.DefaultDirtyCompositionsPerUpdate == 2
+                && TerrainAuthoringPreviewService.DefaultCompositionsPerUpdate == 1
+                && TerrainAuthoringPreviewStreamingPolicy.CanAdmitDirtyRepresentation(1, 4, 1, 1, false, 1)
+                && !TerrainAuthoringPreviewStreamingPolicy.CanAdmitDirtyRepresentation(1, 5, 1, 1, false, 1)
+                && !TerrainAuthoringPreviewStreamingPolicy.CanAdmitDirtyRepresentation(1, 0, 0, 0, true, 2)
+                && !TerrainAuthoringPreviewStreamingPolicy.CanAdmitDirtyRepresentation(0, 0, 0, 2, false, 2)
+                && TerrainAuthoringPreviewStreamingPolicy.CanAdmitDirtyRepresentation(1, 5, 1, 1, false, 2);
+            if (valid) AddPass(name, "An outer resident owner wins the latest edit; fine/required work defeats coarse/guard affinity. Mandatory coverage, live analysis, deferred background and recovery-copy reservations retain bounded order.");
+            else AddFail(name, "Priority, actual tile ownership, guard membership or callback admission was incorrect.");
+        }
+        finally { fine.Dispose(); coarse?.Dispose(); }
+    }
+
+    private static void RestrictFineFixtureWindow(TerrainAuthoringPreviewLodState state,
+        WorldSettings settings, TerrainAuthoringData data, Vector2Int tile)
+    {
+        var window = new TerrainHeightCacheWindow(tile, Vector2Int.one);
+        var cache = new TerrainAuthoringPreviewCache();
+        Texture2D seed = null;
+        try
+        {
+            if (!cache.TryInitializeStagingWindow(settings, data, window, state.SampleStride, out string error))
+                throw new InvalidOperationException(error);
+            seed = new Texture2D(state.SamplesPerSide, state.SamplesPerSide, TextureFormat.RFloat, false, true)
+                { hideFlags = HideFlags.HideAndDontSave };
+            var values = new float[state.SamplesPerSide * state.SamplesPerSide];
+            for (int i = 0; i < values.Length; i++) values[i] = 5f;
+            seed.SetPixelData(values, 0); seed.Apply(false, false);
+            Graphics.CopyTexture(seed, 0, 0, cache.HeightCache, 0, 0);
+            if (!cache.TryCommitFinalCompositeTile(tile, 5f, 5f, out error)
+                || !cache.TryFinalizeStagingForActivation(TerrainAuthoringStateUtility.GetOverallAuthoringSignature(settings, data), out error))
+                throw new InvalidOperationException(error);
+            state.ActiveCache.Dispose(); state.ActiveCache = cache; cache = null;
+            state.ActiveRequiredWindow = window;
+        }
+        finally { cache?.Dispose(); if (seed != null) UnityEngine.Object.DestroyImmediate(seed); }
+    }
+
+    private static void ValidateCommittedSourceReuse()
+    {
+        const string name = "Committed source reuse across dirty representations";
+        if (!SystemInfo.supportsAsyncGPUReadback)
+        { AddBlocked(name, "GPU readback is required for explicit lattice verification."); return; }
+        if (!TerrainAuthoringPreviewCacheValidationUtility.TryCreateDirtyFixtureState(0, 1,
+            out var state, out var settings, out _, out string error, out bool blocked))
+        { if (blocked) AddBlocked(name, error); else AddFail(name, error); return; }
+        Texture2D source = null, disposable = null;
+        RenderTexture native = null;
+        var materializer = new TerrainAuthoringPreviewHeightMaterializer();
+        try
+        {
+            var tile = state.ActiveCache.CacheOriginTile;
+            string committed = state.ActiveCache.SourceCommittedHeightfieldSignature;
+            int samples = settings.HeightTileSamplesPerSide, settingsId = settings.GetInstanceID();
+            if (!TerrainAuthoringPreviewHeightSourceUtility.TryLoadCommittedNativeTile(settings, tile, out source, out error))
+                throw new InvalidOperationException(error);
+            var key = new TerrainAuthoringPreviewService.DirtySourceIdentity(tile, committed, settingsId, samples);
+            bool valid = true;
+            for (long generation = 1; generation <= 4; generation++)
+            {
+                state.DirtyTargetGeneration = generation;
+                valid &= TerrainAuthoringPreviewService.CanReuseDirtySource(source, key,
+                    new TerrainAuthoringPreviewService.DirtySourceIdentity(tile, committed, settingsId, samples));
+            }
+            valid &= !TerrainAuthoringPreviewService.CanReuseDirtySource(source, key,
+                    new TerrainAuthoringPreviewService.DirtySourceIdentity(tile, committed + " changed", settingsId, samples))
+                && !TerrainAuthoringPreviewService.CanReuseDirtySource(source, key,
+                    new TerrainAuthoringPreviewService.DirtySourceIdentity(tile + Vector2Int.one, committed, settingsId, samples))
+                && !TerrainAuthoringPreviewService.CanReuseDirtySource(source, key,
+                    new TerrainAuthoringPreviewService.DirtySourceIdentity(tile, committed, settingsId + 1, samples))
+                && !TerrainAuthoringPreviewService.CanReuseDirtySource(source, key,
+                    new TerrainAuthoringPreviewService.DirtySourceIdentity(tile, committed, settingsId, samples + 1));
+            native = new RenderTexture(samples, samples, 0, RenderTextureFormat.RFloat, RenderTextureReadWrite.Linear)
+            {
+                dimension = TextureDimension.Tex2DArray, volumeDepth = 1, antiAliasing = 1,
+                enableRandomWrite = true, useMipMap = false, hideFlags = HideFlags.HideAndDontSave
+            };
+            if (!native.Create()) throw new InvalidOperationException("The native Height validation array could not be created.");
+            if (!state.TryEnsureDirtyScratch(out _, out error)) throw new InvalidOperationException(error);
+            if (!materializer.TryMaterialize(source, native, 0, samples, samples, 1, out error)
+                || !materializer.TryMaterialize(source, state.DirtyScratch, 0, samples,
+                    state.SamplesPerSide, state.SampleStride, out error)) throw new InvalidOperationException(error);
+            materializer.ReleaseTextureBindings();
+            var nativeRead = AsyncGPUReadback.Request(native, 0); nativeRead.WaitForCompletion();
+            var coarseRead = AsyncGPUReadback.Request(state.DirtyScratch, 0); coarseRead.WaitForCompletion();
+            if (nativeRead.hasError || coarseRead.hasError) throw new InvalidOperationException("Committed source fixture GPU readback failed.");
+            var nativeValues = nativeRead.GetData<float>(); var coarseValues = coarseRead.GetData<float>();
+            for (int z = 0; z < state.SamplesPerSide; z++)
+                for (int x = 0; x < state.SamplesPerSide; x++)
+                    valid &= nativeValues[z * state.SampleStride * samples + x * state.SampleStride]
+                        == coarseValues[z * state.SamplesPerSide + x];
+            disposable = new Texture2D(2, 2, TextureFormat.RFloat, false, true) { hideFlags = HideFlags.HideAndDontSave };
+            var temporaryKey = new TerrainAuthoringPreviewService.DirtySourceIdentity(tile, committed, settingsId, 2);
+            valid &= TerrainAuthoringPreviewService.CanReuseDirtySource(disposable, temporaryKey, temporaryKey);
+            UnityEngine.Object.DestroyImmediate(disposable);
+            valid &= !TerrainAuthoringPreviewService.CanReuseDirtySource(disposable, temporaryKey, temporaryKey);
+            if (valid) AddPass(name, "One borrowed committed tile materialized native and coarse lattices. Modifier targets preserve reuse; base, tile, settings, dimensions and object lifetime invalidate it.");
+            else AddFail(name, "Source identity or exact shared native-lattice extraction was incorrect.");
+        }
+        finally
+        {
+            materializer.ReleaseTextureBindings(); state.Dispose(); source = null;
+            if (native != null) { native.Release(); UnityEngine.Object.DestroyImmediate(native); }
+            if (disposable != null) UnityEngine.Object.DestroyImmediate(disposable);
+        }
+    }
+
     private static void ValidatePostCommitFollowUps()
     {
         var state = new TerrainAuthoringPreviewLodState(0, 1, 9, 1);
@@ -1212,4 +1371,5 @@ public static class TerrainAuthoringIncrementalStreamingValidationUtility
         }
     }
 }
+
 

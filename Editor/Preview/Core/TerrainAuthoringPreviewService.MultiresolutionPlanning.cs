@@ -7,6 +7,7 @@ public static partial class TerrainAuthoringPreviewService
 {
     private static TerrainAuthoringPreviewResidencyPlan latestMultiresolutionResidencyPlan;
     private static TerrainAuthoringPreviewDisplayIntent latestDisplayIntent;
+    private static bool displayPreparationDeferredForInteractiveEdit;
     private static TerrainAuthoringPreviewDisplayIntent activeDisplayIntent;
     private static int nextMultiresolutionResidencyGeneration = 1;
     private static long nextPlacementGeneration;
@@ -59,6 +60,7 @@ public static partial class TerrainAuthoringPreviewService
     internal static void ClearMultiresolutionResidencyIntent()
     {
         latestDisplayIntent = null; latestMultiresolutionResidencyPlan = null; lastMultiresolutionPlanningError = "";
+        displayPreparationDeferredForInteractiveEdit = false; ClearInteractiveDirtyHint();
     }
 
     public static bool HasDrawableHeightPreview
@@ -193,7 +195,11 @@ public static partial class TerrainAuthoringPreviewService
             if (!TryCommitDisplayHeight(null, intent, activeHeightStates, out error)) return false;
         // Placement can reuse valid allocations while their content converges.
         // Optional expansion waits; a genuinely missing destination does not.
-        if (covered && HasPendingActiveDirtyWork) return true;
+        if (covered && HasPendingActiveDirtyWork)
+        {
+            if (HasActiveInteractiveTerrainAuthoringEdit) displayPreparationDeferredForInteractiveEdit = true;
+            return true;
+        }
         bool current = covered && ActiveHeightContentIsCurrent(settings, data);
         var targets = new TerrainHeightCacheWindow[snapshot.LevelCount]; var expansions = new bool[snapshot.LevelCount];
         bool needsWork = !current; bool critical = !current;
@@ -208,7 +214,16 @@ public static partial class TerrainAuthoringPreviewService
             if (TerrainAuthoringPreviewStreamingPolicy.TryCalculateHeightSetPrefetchTarget(active, p, grid, out var expanded))
             { targets[i] = expanded; expansions[i] = true; needsWork = true; }
         }
-        if (!needsWork) return true;
+        if (!needsWork) { displayPreparationDeferredForInteractiveEdit = false; return true; }
+        bool mandatory = rebuildCommitted || !covered || !PublishedDisplayIsDrawable(settings, committed);
+        if (TerrainAuthoringPreviewStreamingPolicy.ShouldDeferHeightRequestRestart(
+            TerrainAuthoringPreviewCachePublication.DisplayHeightSet, HasActiveInteractiveTerrainAuthoringEdit,
+            HasLiveTerrainAnalysisDemand, mandatory))
+        { displayPreparationDeferredForInteractiveEdit = true; return true; }
+        var occupied = TransitionInProgress ? currentCacheSetTransition : pendingCacheSetTransition;
+        if (!mandatory && (occupied?.Publication == TerrainAuthoringPreviewCachePublication.NativeAnalysis
+            || HasLiveTerrainAnalysisDemand && IsTerrainAnalysisPreparationRunnable(committed, overall))) return true;
+        displayPreparationDeferredForInteractiveEdit = false;
         var request = CreateCacheSetRequest(settings, snapshot, targets, expansions,
             TerrainAuthoringPreviewCachePublication.DisplayHeightSet, committed, overall, rebuildCommitted);
         request.DisplayCritical = critical; request.AcceptDisplayIntent(intent, request.RequestGeneration);
@@ -240,6 +255,7 @@ public static partial class TerrainAuthoringPreviewService
     private static void ReleaseActiveHeightCacheSet()
     {
         ReleaseBinding(); ReleaseActiveDirtySource(); heightCompositor.ReleaseTextureBindings();
+        ClearInteractiveDirtyHint(); displayPreparationDeferredForInteractiveEdit = false;
         var states = activeHeightStates; activeHeightStates = null; activeHeightView = null; activeDisplayIntent = null;
         if (states != null) foreach (var s in states) s.Dispose();
         if (retiringHeightStates != null) foreach (var s in retiringHeightStates) s.Dispose();
@@ -247,4 +263,5 @@ public static partial class TerrainAuthoringPreviewService
         pendingCompositePublication.Clear(); pendingNativePublication.Clear(); diagnosticPendingGeographicDirty.Clear();
     }
 }
+
 

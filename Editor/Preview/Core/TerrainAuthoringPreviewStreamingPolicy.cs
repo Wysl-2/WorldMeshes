@@ -422,10 +422,36 @@ internal static class TerrainAuthoringPreviewStreamingPolicy
     }
 
     internal static bool ShouldDeferHeightRequestRestart(TerrainAuthoringPreviewCachePublication purpose,
-        bool interactiveEdit, bool requiresLiveAnalysis)
+        bool interactiveEdit, bool requiresLiveAnalysis, bool mandatoryDisplay = false)
     {
-        return interactiveEdit && (purpose != TerrainAuthoringPreviewCachePublication.NativeAnalysis
+        return interactiveEdit && !mandatoryDisplay && (purpose != TerrainAuthoringPreviewCachePublication.NativeAnalysis
             || !requiresLiveAnalysis);
+    }
+
+    internal const int MandatoryDisplayPriority = 1;
+    internal const int InteractiveDirtyPriority = 2;
+    internal const int FineDirtyPriority = 3;
+    internal const int LiveAnalysisPriority = 4;
+    internal const int RequiredDirtyPriority = 5;
+    internal const int GuardDirtyPriority = 6;
+    internal const int BackgroundPreparationPriority = 7;
+
+    internal static int GetHeightPreparationPriority(bool mandatoryDisplay, bool nativeAnalysis,
+        bool liveAnalysis, bool interactive)
+    {
+        if (mandatoryDisplay) return MandatoryDisplayPriority;
+        if (nativeAnalysis && liveAnalysis) return LiveAnalysisPriority;
+        return interactive ? int.MaxValue : BackgroundPreparationPriority;
+    }
+
+    internal static bool CanAdmitDirtyRepresentation(int allocations, int copies, int materializations,
+        int compositions, bool needsAllocation, int stride)
+    {
+        int reservedCopies = stride == 1 ? 4 : 3;
+        return (!needsAllocation || allocations < 1)
+            && copies + reservedCopies <= TerrainAuthoringPreviewService.DefaultRetainedCopiesPerUpdate
+            && materializations < TerrainAuthoringPreviewService.DefaultMaterializationsPerUpdate
+            && compositions < TerrainAuthoringPreviewService.DefaultDirtyCompositionsPerUpdate;
     }
 
 }

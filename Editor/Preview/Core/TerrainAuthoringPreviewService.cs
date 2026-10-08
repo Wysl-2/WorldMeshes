@@ -603,7 +603,9 @@ public static partial class TerrainAuthoringPreviewService
         int tileZ
     )
     {
+        PrepareInteractiveDirtyHint(true);
         var tile = new Vector2Int(tileX, tileZ);
+        if (HasActiveInteractiveTerrainAuthoringEdit) latestInteractiveDirtyTiles.Add(tile);
         RearmDirtyTile(activeHeightStates, tile);
         dirtyCompositeTiles.Add(tile);
 
@@ -618,6 +620,8 @@ public static partial class TerrainAuthoringPreviewService
         Vector2Int tileCoordinate
     )
     {
+        PrepareInteractiveDirtyHint(true);
+        if (HasActiveInteractiveTerrainAuthoringEdit) latestInteractiveDirtyTiles.Add(tileCoordinate);
         RearmDirtyTile(activeHeightStates, tileCoordinate);
         dirtyCompositeTiles.Add(tileCoordinate);
 
@@ -637,11 +641,14 @@ public static partial class TerrainAuthoringPreviewService
             return;
         }
 
+        PrepareInteractiveDirtyHint(true);
+
         foreach (
             Vector2Int coordinate
             in tileCoordinates
         )
         {
+            if (HasActiveInteractiveTerrainAuthoringEdit) latestInteractiveDirtyTiles.Add(coordinate);
             RearmDirtyTile(activeHeightStates, coordinate);
             dirtyCompositeTiles.Add(coordinate);
         }
@@ -663,6 +670,7 @@ public static partial class TerrainAuthoringPreviewService
         IEnumerable<Vector2Int> tileCoordinates
     )
     {
+        PrepareInteractiveDirtyHint(tileCoordinates != null);
         ClearTransitionFailureSuppression();
 
         if (tileCoordinates != null)
@@ -672,6 +680,7 @@ public static partial class TerrainAuthoringPreviewService
                 in tileCoordinates
             )
             {
+                if (HasActiveInteractiveTerrainAuthoringEdit) latestInteractiveDirtyTiles.Add(coordinate);
                 RearmDirtyTile(activeHeightStates, coordinate);
                 dirtyCompositeTiles.Add(coordinate);
             }
@@ -1061,7 +1070,7 @@ public static partial class TerrainAuthoringPreviewService
                 }
             }
         }
-        // Whole-representation publication remains eligible only after convergence.
+        // Geographic composites use local freshness; native analysis retains its own complete-source gate.
         // Internal analysis failure is independent of composite observers.
         string completionBoundary = FollowUpBoundary;
         if ((pendingCompositePublication.Count > 0 || pendingNativePublication.Count > 0)
@@ -1421,5 +1430,6 @@ public static partial class TerrainAuthoringPreviewService
     }
 
 }
+
 
 

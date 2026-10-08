@@ -57,6 +57,9 @@ public static partial class TerrainAuthoringPreviewService
         TerrainRegionalElevationInvalidationScope scope
     )
     {
+        PrepareInteractiveDirtyHint(scope.Kind != TerrainRegionalElevationInvalidationKind.None);
+        if (HasActiveInteractiveTerrainAuthoringEdit && scope.Kind != TerrainRegionalElevationInvalidationKind.None)
+            latestInteractiveRegionalScope = scope;
         RearmRegionalDirtyFailures(activeHeightStates, LoadWorldSettings(), scope);
         if (
             scope.Kind !=

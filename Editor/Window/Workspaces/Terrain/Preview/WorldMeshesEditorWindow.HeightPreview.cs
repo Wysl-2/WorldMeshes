@@ -73,14 +73,17 @@ public partial class WorldMeshesEditorWindow :
         EditorGUILayout.LabelField("Streaming State", snapshot.StreamingState.ToString());
         DrawHeightWorker("Running", snapshot.Worker);
         DrawHeightWorker("Queued", snapshot.QueuedWorker);
-        EditorGUILayout.LabelField("Callback Caps: Allocate / Load / Copy / Materialize / Compose",
+        EditorGUILayout.LabelField("Staging Caps: Allocate / Load / Copy / Materialize / Compose",
             $"1 / {TerrainAuthoringPreviewService.StreamingCommittedLoadsPerUpdate} / {TerrainAuthoringPreviewService.StreamingRetainedCopiesPerUpdate} / {TerrainAuthoringPreviewService.StreamingMaterializationsPerUpdate} / {TerrainAuthoringPreviewService.StreamingCompositionsPerUpdate}");
+        EditorGUILayout.LabelField("Dirty Caps: Allocate / Load / Copy / Materialize / Compose",
+            $"1 / {TerrainAuthoringPreviewService.StreamingCommittedLoadsPerUpdate} / {TerrainAuthoringPreviewService.StreamingRetainedCopiesPerUpdate} / {TerrainAuthoringPreviewService.StreamingMaterializationsPerUpdate} / {TerrainAuthoringPreviewService.DirtyCompositionsPerUpdate}");
         EditorGUILayout.LabelField("Soft Callback Budget", $"{TerrainAuthoringPreviewService.StreamingSoftWorkBudgetMilliseconds:R} ms");
         int dirty = 0;
         foreach (var row in snapshot.DisplayLods) dirty += row.PendingDirtyCount;
         EditorGUILayout.LabelField("Pending Dirty: Geographic / Display Jobs", $"{snapshot.PendingGeographicDirtyCount:N0} / {dirty:N0}");
-        EditorGUILayout.LabelField("Last Dirty Callback: Allocate / Load / Copy / Materialize / Compose",
+        EditorGUILayout.LabelField("Last Dirty Callback: Allocate / Load / All Copies / Materialize / Compose",
             $"{snapshot.LastDirtyAllocations} / {snapshot.LastDirtyLoads} / {snapshot.LastDirtyCopies} / {snapshot.LastDirtyMaterializations} / {snapshot.LastDirtyCompositions}");
+        EditorGUILayout.LabelField("Dirty Copies", "Includes native extraction, live backup/publication and recovery attempts.");
         int failures = 0;
         foreach (var row in snapshot.DisplayLods) failures += row.FailedDirtyCount;
         if (failures > 0) EditorGUILayout.HelpBox($"{failures} Height updates are suppressed pending a relevant edit or retry. Safe failures retain last-good terrain.", MessageType.Warning);

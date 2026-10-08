@@ -157,7 +157,8 @@ public static partial class TerrainAuthoringPreviewService
         {
             if (transaction != null)
             {
-                ReleaseActiveDirtySource(); dirtyCompositeTiles.Clear();
+                ReleaseActiveDirtySource(); ClearInteractiveDirtyHint();
+                displayPreparationDeferredForInteractiveEdit = false; dirtyCompositeTiles.Clear();
                 pendingCompositePublication.Clear(); pendingNativePublication.Clear(); diagnosticPendingGeographicDirty.Clear();
                 AcknowledgePendingRegionalElevationAfterActivation(transaction.AuthoringGeneration);
                 if (retiringHeightStates != null) foreach (var s in retiringHeightStates) DetachTerrainAnalysisBorrowing(s.ActiveCache);

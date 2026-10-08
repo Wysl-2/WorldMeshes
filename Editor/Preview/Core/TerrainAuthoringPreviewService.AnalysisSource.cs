@@ -342,6 +342,24 @@ public static partial class TerrainAuthoringPreviewService
     private static bool TerrainAnalysisHeightIsRequired => hasAnalysisSourceDemand && hasAnalysisSourceIntent
         && !TryGetTerrainAnalysisGpuSource(out _, out _);
 
+    private static bool HasLiveTerrainAnalysisDemand => hasAnalysisSourceDemand && hasAnalysisSourceIntent
+        && TerrainAuthoringVisualizationController.RequiresLiveTerrainAnalysisDuringInteractiveEdit;
+
+    private static bool IsNativeAnalysisPreparationSuppressed(string committed, string overall)
+    {
+        var failed = lastFailedAnalysisCacheSetRequest;
+        return failed != null && failed.MatchesContent(committed, overall, authoringGeneration,
+            TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration, false)
+            && failed.AcceptedPlan.Generation == (int)(analysisIntentGeneration % int.MaxValue)
+            && failed.Entries.Length == 1 && failed.Entries[0].Target == analysisRequiredSourceWindow;
+    }
+
+    private static bool IsTerrainAnalysisPreparationRunnable(string committed, string overall)
+    {
+        return TerrainAnalysisHeightIsRequired && !IsNativeAnalysisPreparationSuppressed(committed, overall)
+            && (!analysisFollowUpPending || lastAnalysisFollowUpAttempt != FollowUpBoundary);
+    }
+
     private static void AdmitPendingTerrainAnalysisSource(WorldSettings settings, TerrainAuthoringData data)
     {
         if (!hasAnalysisSourceDemand || !hasAnalysisSourceIntent || settings == null || data == null) return;
@@ -358,7 +376,10 @@ public static partial class TerrainAuthoringPreviewService
             }
             return;
         }
-        if (TransitionInProgress || hasPendingStreamingStart) return;
+        if (TransitionInProgress || hasPendingStreamingStart
+            || TerrainAuthoringPreviewStreamingPolicy.ShouldDeferHeightRequestRestart(
+                TerrainAuthoringPreviewCachePublication.NativeAnalysis, HasActiveInteractiveTerrainAuthoringEdit,
+                HasLiveTerrainAnalysisDemand)) return;
         string committed = TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(settings);
         string overall = TerrainAuthoringStateUtility.GetOverallAuthoringSignature(settings, data);
         if (string.IsNullOrEmpty(committed) || string.IsNullOrEmpty(overall))
@@ -367,6 +388,7 @@ public static partial class TerrainAuthoringPreviewService
             PublishTerrainAnalysisSourceState();
             return;
         }
+        if (IsNativeAnalysisPreparationSuppressed(committed, overall)) return;
         var plan = CreateTerrainAnalysisPlan(settings);
         var request = CreateCacheSetRequest(settings, plan, new[] { analysisRequiredSourceWindow }, new[] { false },
             TerrainAuthoringPreviewCachePublication.NativeAnalysis, committed, overall, false);
@@ -541,4 +563,5 @@ public static partial class TerrainAuthoringPreviewService
         && cache.WorldSizeXZ == TerrainClipmapLayoutUtility.CalculateWorldSizeXZ(analysisSettings);
 
 }
+
 
