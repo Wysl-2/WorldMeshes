@@ -9,6 +9,30 @@ internal enum TerrainAuthoringAnalysisSourceKind
     OwnedNative
 }
 
+internal enum TerrainAuthoringAnalysisWaitingReason
+{
+    None, NoFocus, NoDemand, PreviewSuspended, InvalidContext,
+    NativeCoverageMissing, NativeContentPending, NativeContentFailed,
+    NativePublicationPending, NativePreparationPending, NativePreparationFailed
+}
+
+internal readonly struct TerrainAuthoringNativeAnalysisWindowState
+{
+    internal readonly bool Coverage;
+    internal readonly bool ContentCurrent;
+    internal readonly int PendingCount;
+    internal readonly int FailedCount;
+    internal readonly int PublicationCount;
+    internal bool Ready => Coverage && ContentCurrent && PublicationCount == 0;
+
+    internal TerrainAuthoringNativeAnalysisWindowState(bool coverage, bool current,
+        int pending, int failed, int publication)
+    {
+        Coverage = coverage; ContentCurrent = current;
+        PendingCount = pending; FailedCount = failed; PublicationCount = publication;
+    }
+}
+
 internal readonly struct TerrainAuthoringAnalysisSourceSnapshot
 {
     internal readonly TerrainAuthoringAnalysisSourceKind Kind;
@@ -25,11 +49,18 @@ internal readonly struct TerrainAuthoringAnalysisSourceSnapshot
     internal readonly long ResidencyGeneration;
     internal readonly long CompositeGeneration;
     internal readonly string Message;
+    internal readonly TerrainAuthoringAnalysisWaitingReason WaitingReason;
+    internal readonly int PendingRequiredTileCount;
+    internal readonly int FailedRequiredTileCount;
+    internal readonly int PendingPublicationTileCount;
+    internal readonly long TargetAuthoringGeneration;
 
     internal TerrainAuthoringAnalysisSourceSnapshot(TerrainAuthoringAnalysisSourceKind kind,
         TerrainHeightCacheWindow output, TerrainHeightCacheWindow required, TerrainHeightCacheWindow physical,
         int guard, int samples, float spacing, bool ready, bool failed, long authoring, long owner,
-        long residency, long composite, string message)
+        long residency, long composite, string message,
+        TerrainAuthoringAnalysisWaitingReason waitingReason = TerrainAuthoringAnalysisWaitingReason.None,
+        int pending = 0, int failedTiles = 0, int publication = 0, long target = 0)
     {
         Kind = kind;
         OutputWindow = output;
@@ -45,6 +76,9 @@ internal readonly struct TerrainAuthoringAnalysisSourceSnapshot
         ResidencyGeneration = residency;
         CompositeGeneration = composite;
         Message = message;
+        WaitingReason = waitingReason; PendingRequiredTileCount = pending;
+        FailedRequiredTileCount = failedTiles; PendingPublicationTileCount = publication;
+        TargetAuthoringGeneration = target;
     }
 }
 
@@ -106,19 +140,21 @@ public static partial class TerrainAuthoringPreviewService
             || Application.isPlaying || UnityEditor.EditorApplication.isPlayingOrWillChangePlaymode
             || analysisOwnershipGeneration != TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration)
             return false;
-        long generation = analysisSelectedKind == TerrainAuthoringAnalysisSourceKind.BorrowedNative
-            && ReferenceEquals(analysisSelectedCache, Lod0DisplayCache) ? CurrentNativeDisplayAuthoringGeneration
-            : analysisSelectedKind == TerrainAuthoringAnalysisSourceKind.OwnedNative
-                && ReferenceEquals(analysisSelectedCache, analysisOwnedState?.ActiveCache)
-                && analysisOwnedOwnershipGeneration == analysisOwnershipGeneration
-                    ? analysisOwnedState.ActiveAuthoringGeneration : -1L;
         string committed = TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(settings);
-        string overall = TerrainAuthoringStateUtility.GetOverallAuthoringSignature(settings, data);
-        if (analysisSelectedKind == TerrainAuthoringAnalysisSourceKind.BorrowedNative
-            && (!TryGetCurrentNativeDisplayHeight(settings, data, out var native)
-                || !ReferenceEquals(native, analysisSelectedCache))) return false;
-        if (!IsNativeAnalysisCacheEligible(analysisSelectedCache, settings, generation, authoringGeneration,
-            committed, overall, analysisRequiredSourceWindow, analysisOutputWindow)) return false;
+        if (analysisSelectedKind == TerrainAuthoringAnalysisSourceKind.BorrowedNative)
+        {
+            if (!TryResolveNativeDisplayState(settings, committed, out var native)
+                || !ReferenceEquals(native.ActiveCache, analysisSelectedCache)
+                || !CaptureNativeAnalysisWindow(native, settings, committed).Ready) return false;
+        }
+        else if (analysisSelectedKind != TerrainAuthoringAnalysisSourceKind.OwnedNative
+            || analysisOwnedOwnershipGeneration != analysisOwnershipGeneration
+            || !ReferenceEquals(analysisSelectedCache, analysisOwnedState?.ActiveCache)
+            || !IsNativeAnalysisCacheEligible(analysisSelectedCache, settings,
+                analysisOwnedState.ActiveAuthoringGeneration, authoringGeneration, committed,
+                TerrainAuthoringStateUtility.GetOverallAuthoringSignature(settings, data),
+                analysisRequiredSourceWindow, analysisOutputWindow)) return false;
+
         if (analysisSelectedOwnershipGeneration != analysisOwnershipGeneration
             || analysisSelectedResourceIdentity != analysisSelectedCache.HeightCache.GetInstanceID()
             || analysisSelectedPhysicalWindow != new TerrainHeightCacheWindow(
@@ -202,28 +238,88 @@ public static partial class TerrainAuthoringPreviewService
         EvaluateTerrainAnalysisSource(settings, LoadAuthoringData());
     }
 
+    internal static bool IsNativeAnalysisCacheStructurallyEligible(TerrainAuthoringPreviewCache cache,
+        WorldSettings settings, string committed, TerrainHeightCacheWindow required,
+        TerrainHeightCacheWindow output)
+    {
+        if (cache == null || settings == null || !required.IsValid || !output.IsValid
+            || !TerrainHeightResolutionUtility.IsRepresentationStrideCompatible(settings, 1)
+            || !cache.IsReady || cache.HeightCache == null || !cache.HeightCache.IsCreated()
+            || cache.SampleStride != 1 || string.IsNullOrEmpty(committed)
+            || cache.SourceCommittedHeightfieldSignature != committed
+            || cache.SamplesPerSide != TerrainHeightResolutionUtility.GetSamplesPerSide(settings, 1)
+            || !Mathf.Approximately(cache.SampleSpacing, TerrainHeightResolutionUtility.GetSampleSpacing(settings, 1))
+            || cache.WorldSizeXZ != TerrainClipmapLayoutUtility.CalculateWorldSizeXZ(settings)) return false;
+        var texture = cache.HeightCache;
+        var physical = new TerrainHeightCacheWindow(cache.CacheOriginTile, cache.CacheSize);
+        var grid = new Vector2Int(settings.HeightTileGridWidth, settings.HeightTileGridHeight);
+        return physical.Contains(required) && required.Contains(output)
+            && texture.format == RenderTextureFormat.RFloat
+            && texture.dimension == UnityEngine.Rendering.TextureDimension.Tex2DArray
+            && texture.width == cache.SamplesPerSide && texture.height == cache.SamplesPerSide
+            && texture.volumeDepth == physical.TileCount
+            && TerrainAnalysisWindowUtility.TryCalculateSafeOutputWindow(physical, grid,
+                TerrainAnalysisWindowUtility.CalculateRequiredInteractiveGuardTileCount(settings),
+                out var safe, out _) && safe.Contains(output);
+    }
+
     internal static bool IsNativeAnalysisCacheEligible(TerrainAuthoringPreviewCache cache,
         WorldSettings settings, long cacheGeneration, long currentGeneration,
         string committed, string overall, TerrainHeightCacheWindow required,
         TerrainHeightCacheWindow output)
     {
-        if (cache == null || settings == null || !cache.IsCompleteForActivation
-            || cache.HeightCache == null || !cache.HeightCache.IsCreated() || cache.SampleStride != 1
-            || cache.SamplesPerSide != TerrainHeightResolutionUtility.GetSamplesPerSide(settings, 1)
-            || !Mathf.Approximately(cache.SampleSpacing, TerrainHeightResolutionUtility.GetSampleSpacing(settings, 1))
-            || cache.WorldSizeXZ != TerrainClipmapLayoutUtility.CalculateWorldSizeXZ(settings)
-            || cacheGeneration != currentGeneration || string.IsNullOrEmpty(committed)
-            || string.IsNullOrEmpty(overall) || cache.SourceCommittedHeightfieldSignature != committed
-            || cache.SourceOverallAuthoringSignature != overall) return false;
-        var physical = new TerrainHeightCacheWindow(cache.CacheOriginTile, cache.CacheSize);
-        var grid = new Vector2Int(settings.HeightTileGridWidth, settings.HeightTileGridHeight);
-        return physical.Contains(required) && required.Contains(output)
-            && cache.HeightCache.width == cache.SamplesPerSide
-            && cache.HeightCache.height == cache.SamplesPerSide
-            && cache.HeightCache.volumeDepth == physical.TileCount
-            && TerrainAnalysisWindowUtility.TryCalculateSafeOutputWindow(physical, grid,
-                TerrainAnalysisWindowUtility.CalculateRequiredInteractiveGuardTileCount(settings),
-                out var safe, out _) && safe.Contains(output);
+        return IsNativeAnalysisCacheStructurallyEligible(cache, settings, committed, required, output)
+            && cache.IsCompleteForActivation && cacheGeneration == currentGeneration
+            && !string.IsNullOrEmpty(overall) && cache.SourceOverallAuthoringSignature == overall;
+    }
+
+    internal static TerrainAuthoringNativeAnalysisWindowState EvaluateNativeAnalysisWindow(
+        TerrainAuthoringPreviewLodState state, WorldSettings settings, string committed, long generation,
+        TerrainHeightCacheWindow required, TerrainHeightCacheWindow output,
+        ISet<Vector2Int> unprojected, TerrainRegionalElevationInvalidationScope regional,
+        ISet<Vector2Int> publication)
+    {
+        if (state == null || state.Level != 0 || state.SampleStride != 1 || !state.HasUsableActiveAllocation
+            || state.ActiveCache.SampleStride != state.SampleStride
+            || state.ActiveCache.SamplesPerSide != state.SamplesPerSide
+            || !Mathf.Approximately(state.ActiveCache.SampleSpacing, state.SampleSpacing)
+            || !IsNativeAnalysisCacheStructurallyEligible(state.ActiveCache, settings, committed, required, output))
+            return default;
+        int pending = 0, failed = 0, publishing = 0;
+        for (int z = required.OriginTile.y; z < required.MaximumExclusive.y; z++)
+            for (int x = required.OriginTile.x; x < required.MaximumExclusive.x; x++)
+            {
+                var tile = new Vector2Int(x, z);
+                if (!IsResidentTileContentCurrent(state, committed, generation, tile, unprojected,
+                    TerrainRegionalElevationResidencyPolicy.ScopeAffectsTile(settings, regional, tile))) pending++;
+                if (state.DirtyFailures.ContainsKey(tile)) failed++;
+                if (publication != null && publication.Contains(tile)) publishing++;
+            }
+        return new TerrainAuthoringNativeAnalysisWindowState(true, pending == 0, pending, failed, publishing);
+    }
+
+    private static TerrainAuthoringNativeAnalysisWindowState CaptureNativeAnalysisWindow(
+        TerrainAuthoringPreviewLodState state, WorldSettings settings, string committed)
+    {
+        return EvaluateNativeAnalysisWindow(state, settings, committed, authoringGeneration,
+            analysisRequiredSourceWindow, analysisOutputWindow, dirtyCompositeTiles,
+            hasPendingRegionalElevationInvalidation ? pendingRegionalElevationInvalidation
+                : TerrainRegionalElevationInvalidationScope.None, pendingNativePublication);
+    }
+
+    private static bool TryResolveNativeDisplayState(WorldSettings settings, string committed,
+        out TerrainAuthoringPreviewLodState state)
+    {
+        state = null;
+        if (committedRebuildRequested || activeHeightStates == null || activeHeightStates.Length == 0
+            || activeDisplayIntent == null || activeDisplayIntent.Root == null
+            || activeDisplayIntent.Root != boundClipmapRoot || !activeDisplayIntent.ConfigurationMatches(settings)
+            || activeDisplayIntent.OwnershipGeneration != TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration)
+            return false;
+        var native = activeHeightStates[0];
+        if (native == null || native.Level != 0 || native.SampleStride != 1 || !native.HasUsableActiveAllocation
+            || native.ActiveCache.SourceCommittedHeightfieldSignature != committed) return false;
+        state = native; return true;
     }
 
     private static void EvaluateTerrainAnalysisSource(WorldSettings settings, TerrainAuthoringData data,
@@ -232,29 +328,30 @@ public static partial class TerrainAuthoringPreviewService
         if (!hasAnalysisSourceIntent || settings == null || data == null) return;
         string committed = TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(settings);
         string overall = TerrainAuthoringStateUtility.GetOverallAuthoringSignature(settings, data);
-        if (TryGetCurrentNativeDisplayHeight(settings, data, out var nativeDisplay)
-            && IsNativeAnalysisCacheEligible(nativeDisplay, settings, CurrentNativeDisplayAuthoringGeneration,
-                authoringGeneration, committed, overall, analysisRequiredSourceWindow, analysisOutputWindow))
-        {
-            SelectTerrainAnalysisCache(nativeDisplay, TerrainAuthoringAnalysisSourceKind.BorrowedNative);
-        }
+        var local = TryResolveNativeDisplayState(settings, committed, out var native)
+            ? CaptureNativeAnalysisWindow(native, settings, committed) : default;
+        if (local.Ready)
+            SelectTerrainAnalysisCache(native.ActiveCache, TerrainAuthoringAnalysisSourceKind.BorrowedNative);
         else if (analysisOwnedOwnershipGeneration == analysisOwnershipGeneration
             && IsNativeAnalysisCacheEligible(analysisOwnedState?.ActiveCache, settings,
                 analysisOwnedState?.ActiveAuthoringGeneration ?? -1L, authoringGeneration,
                 committed, overall, analysisRequiredSourceWindow, analysisOutputWindow))
-        {
             SelectTerrainAnalysisCache(analysisOwnedState.ActiveCache, TerrainAuthoringAnalysisSourceKind.OwnedNative);
-        }
-        else if (analysisSelectedCache == null || analysisSelectedCache.HeightCache == null
-            || !analysisSelectedCache.HeightCache.IsCreated()
-            || analysisSelectedCommittedSignature != committed
-            || analysisSelectedOwnershipGeneration != analysisOwnershipGeneration
-            || !analysisSelectedPhysicalWindow.Contains(analysisRequiredSourceWindow)
-            || analysisSelectedOutputWindow != analysisOutputWindow)
+        else
         {
-            SelectTerrainAnalysisCache(null, TerrainAuthoringAnalysisSourceKind.Unavailable);
+            bool selectedOwned = analysisSelectedKind == TerrainAuthoringAnalysisSourceKind.OwnedNative
+                && ReferenceEquals(analysisSelectedCache, analysisOwnedState?.ActiveCache)
+                && analysisOwnedOwnershipGeneration == analysisOwnershipGeneration
+                && analysisOwnedState != null && !analysisOwnedState.WriteFailed;
+            bool selectedNative = analysisSelectedKind == TerrainAuthoringAnalysisSourceKind.BorrowedNative
+                && local.Coverage && ReferenceEquals(analysisSelectedCache, native?.ActiveCache);
+            bool retain = (selectedOwned || selectedNative)
+                && analysisSelectedOwnershipGeneration == analysisOwnershipGeneration
+                && analysisSelectedOutputWindow == analysisOutputWindow
+                && IsNativeAnalysisCacheStructurallyEligible(analysisSelectedCache, settings, committed,
+                    analysisRequiredSourceWindow, analysisOutputWindow);
+            if (!retain) SelectTerrainAnalysisCache(null, TerrainAuthoringAnalysisSourceKind.Unavailable);
         }
-        // Otherwise keep the same structural identity while content is pending.
         if (notifyState) PublishTerrainAnalysisSourceState();
     }
 
@@ -283,44 +380,154 @@ public static partial class TerrainAuthoringPreviewService
         DispatchPreviewObservers(TerrainAnalysisSourceChanged, "Analysis source");
     }
 
-    private static void InvalidateTerrainAnalysisAuthoring()
+    internal static bool TryAcknowledgeOwnedNativeAuthoring(TerrainAuthoringPreviewLodState state,
+        WorldSettings settings, string committed, string overall, long previous, long current,
+        bool contentOnly, bool ownershipCurrent, ISet<Vector2Int> incoming,
+        TerrainRegionalElevationInvalidationScope regional)
     {
-        // This runs before display dirty notifications can be consumed. Owned
-        // Height is rebuilt conservatively even for edits outside display coverage.
+        var cache = state?.ActiveCache;
+        if (!contentOnly || !ownershipCurrent || state == null || !state.CacheReady
+            || state.ActiveAuthoringGeneration != previous || !state.HasUsableActiveAllocation
+            || state.PendingDirtyTiles.Count != 0 || state.PendingRegionalTiles.Count != 0
+            || state.DirtyFailures.Count != 0 || cache.SampleStride != 1
+            || cache.SourceCommittedHeightfieldSignature != committed || string.IsNullOrEmpty(overall)) return false;
+        var physical = new TerrainHeightCacheWindow(cache.CacheOriginTile, cache.CacheSize);
+        for (int z = physical.OriginTile.y; z < physical.MaximumExclusive.y; z++)
+            for (int x = physical.OriginTile.x; x < physical.MaximumExclusive.x; x++)
+            {
+                var tile = new Vector2Int(x, z);
+                if (incoming != null && incoming.Contains(tile)
+                    || TerrainRegionalElevationResidencyPolicy.ScopeAffectsTile(settings, regional, tile)) return false;
+            }
+        cache.MarkOverallAuthoringSignature(overall);
+        state.ActiveAuthoringGeneration = state.DirtyTargetGeneration = current;
+        return true;
+    }
+
+    private static void InvalidateTerrainAnalysisAuthoring(bool contentOnly, long previousGeneration)
+    {
+        var data = LoadAuthoringData();
+        if (analysisOwnedState != null)
+        {
+            string committed = TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(analysisSettings);
+            string overall = TerrainAuthoringStateUtility.GetOverallAuthoringSignature(analysisSettings, data);
+            bool ownedValid = data != null && hasAnalysisSourceIntent && analysisSettings != null
+                && analysisOwnershipGeneration == TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration
+                && analysisOwnedOwnershipGeneration == analysisOwnershipGeneration
+                && IsNativeAnalysisCacheStructurallyEligible(analysisOwnedState.ActiveCache, analysisSettings,
+                    committed, analysisRequiredSourceWindow, analysisOutputWindow);
+            if (!TryAcknowledgeOwnedNativeAuthoring(analysisOwnedState, analysisSettings, committed, overall,
+                previousGeneration, authoringGeneration, contentOnly, ownedValid, dirtyCompositeTiles,
+                hasPendingRegionalElevationInvalidation ? pendingRegionalElevationInvalidation
+                    : TerrainRegionalElevationInvalidationScope.None)) analysisOwnedState.CacheReady = false;
+        }
         analysisSourceError = "";
         lastFailedAnalysisCacheSetRequest = null;
         TryRunAnalysisFollowUp(() =>
         {
-            if (hasAnalysisSourceIntent) EvaluateTerrainAnalysisSource(analysisSettings, LoadAuthoringData());
+            if (hasAnalysisSourceIntent) EvaluateTerrainAnalysisSource(analysisSettings, data);
             PublishTerrainAnalysisSourceState();
         });
     }
 
-    private static void PublishNativeTerrainAnalysisCompositeUpdate(IReadOnlyList<Vector2Int> tiles)
+    internal static void CollectNativePublicationTiles(TerrainAuthoringPreviewLodState native,
+        WorldSettings settings, string committed, long generation, bool hasIntent,
+        TerrainHeightCacheWindow required, bool windowCurrent, ISet<Vector2Int> markers,
+        ISet<Vector2Int> unprojected, TerrainRegionalElevationInvalidationScope regional,
+        List<Vector2Int> consume, List<Vector2Int> changed)
     {
-        List<Vector2Int> changed = null;
-        long target = authoringGeneration;
-        if (hasAnalysisSourceIntent)
+        foreach (var tile in markers)
         {
-            EvaluateTerrainAnalysisSource(analysisSettings, LoadAuthoringData(), false);
-            if (target != authoringGeneration) return;
-            if (analysisSelectedKind == TerrainAuthoringAnalysisSourceKind.BorrowedNative
-                && TryGetTerrainAnalysisGpuSource(out _, out _) && tiles != null)
+            if (native?.ActiveCache == null || native.ActiveCache.GetSliceIndex(tile.x, tile.y) < 0)
+            { consume.Add(tile); continue; }
+            if (!IsResidentTileContentCurrent(native, committed, generation, tile, unprojected,
+                TerrainRegionalElevationResidencyPolicy.ScopeAffectsTile(settings, regional, tile))) continue;
+            if (!hasIntent || !required.Contains(tile)) consume.Add(tile);
+            else if (windowCurrent) { consume.Add(tile); changed.Add(tile); }
+        }
+        SortWorldTilesRowMajor(consume); SortWorldTilesRowMajor(changed);
+    }
+
+    private static void PublishNativeTerrainAnalysisCompositeUpdate()
+    {
+        if (pendingNativePublication.Count == 0) return;
+        var settings = LoadWorldSettings();
+        string committed = TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(settings);
+        long target = authoringGeneration, owner = TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration;
+        long intent = analysisIntentGeneration;
+        var required = analysisRequiredSourceWindow; var output = analysisOutputWindow;
+        var display = activeDisplayIntent;
+        var native = activeHeightStates != null && activeHeightStates.Length > 0 ? activeHeightStates[0] : null;
+        var cache = native?.ActiveCache; var texture = cache?.HeightCache;
+        bool nativeContext = TryResolveNativeDisplayState(settings, committed, out var resolved)
+            && ReferenceEquals(resolved, native);
+        var local = nativeContext ? CaptureNativeAnalysisWindow(native, settings, committed) : default;
+        bool currentFocus = hasAnalysisSourceIntent && analysisSettings == settings
+            && analysisOwnershipGeneration == owner;
+        // Resolve fallible authoring inputs before consuming any publication intent.
+        var data = currentFocus ? LoadAuthoringData() : null;
+        if (currentFocus && data == null) return;
+        var consume = new List<Vector2Int>(); var changed = new List<Vector2Int>();
+        CollectNativePublicationTiles(native, settings, committed, target, currentFocus,
+            required, local.Coverage && local.ContentCurrent,
+            pendingNativePublication, dirtyCompositeTiles,
+            hasPendingRegionalElevationInvalidation ? pendingRegionalElevationInvalidation
+                : TerrainRegionalElevationInvalidationScope.None, consume, changed);
+        if (consume.Count == 0) return;
+        bool wasBorrowed = analysisSelectedKind == TerrainAuthoringAnalysisSourceKind.BorrowedNative
+            && ReferenceEquals(analysisSelectedCache, cache);
+        long previousComposite = analysisCompositeGeneration, previousResidency = analysisResidencyGeneration;
+        var previousSelected = analysisSelectedCache; var previousKind = analysisSelectedKind;
+        // Publish identity and consume old intent before any observer can query or queue new work.
+        if (changed.Count > 0 && wasBorrowed) analysisCompositeGeneration = NextAnalysisGeneration(analysisCompositeGeneration);
+        long publishedComposite = analysisCompositeGeneration;
+        foreach (var tile in consume) pendingNativePublication.Remove(tile);
+        if (!currentFocus) return;
+        try { EvaluateTerrainAnalysisSource(settings, data, false); }
+        catch
+        {
+            // Internal preparation failed before observers: preserve the bounded retry's work.
+            // If a callback already changed identity, retain its newer intent untouched.
+            if (NativeAnalysisPublicationContextIsCurrent(target, owner, intent, display, native, cache,
+                    texture, required, output)
+                && ReferenceEquals(previousSelected, analysisSelectedCache) && previousKind == analysisSelectedKind
+                && previousResidency == analysisResidencyGeneration && publishedComposite == analysisCompositeGeneration)
             {
-                var unique = new HashSet<Vector2Int>();
-                foreach (var tile in tiles) if (analysisRequiredSourceWindow.Contains(tile)) unique.Add(tile);
-                if (unique.Count > 0)
-                {
-                    changed = new List<Vector2Int>(unique); SortWorldTilesRowMajor(changed);
-                }
+                analysisCompositeGeneration = previousComposite;
+                foreach (var tile in consume) pendingNativePublication.Add(tile);
+            }
+            throw;
+        }
+        if (!NativeAnalysisPublicationContextIsCurrent(target, owner, intent, display, native, cache,
+            texture, required, output)) return;
+        // A source replacement already invalidates derived layers through SourceChanged.
+        if (changed.Count > 0 && wasBorrowed && analysisSelectedKind == TerrainAuthoringAnalysisSourceKind.BorrowedNative
+            && ReferenceEquals(analysisSelectedCache, cache))
+        {
+            var observers = TerrainAnalysisSourceTilesUpdated;
+            if (observers != null) foreach (Action<IReadOnlyList<Vector2Int>> observer in observers.GetInvocationList())
+            {
+                if (!NativeAnalysisPublicationContextIsCurrent(target, owner, intent, display, native, cache,
+                    texture, required, output)) return;
+                DispatchPreviewObservers(observer, (IReadOnlyList<Vector2Int>)changed, "Analysis tiles");
             }
         }
-        if (changed != null) analysisCompositeGeneration = NextAnalysisGeneration(analysisCompositeGeneration);
-        // Consume internal intent before external callbacks; never clear their newly queued work.
-        foreach (var tile in tiles) pendingNativePublication.Remove(tile);
-        if (changed != null) DispatchPreviewObservers(TerrainAnalysisSourceTilesUpdated,
-            (IReadOnlyList<Vector2Int>)changed, "Analysis tiles");
-        PublishTerrainAnalysisSourceState(true);
+        if (NativeAnalysisPublicationContextIsCurrent(target, owner, intent, display, native, cache,
+            texture, required, output))
+            PublishTerrainAnalysisSourceState(true);
+    }
+
+    private static bool NativeAnalysisPublicationContextIsCurrent(long target, long owner, long intent,
+        TerrainAuthoringPreviewDisplayIntent display, TerrainAuthoringPreviewLodState native,
+        TerrainAuthoringPreviewCache cache, RenderTexture texture, TerrainHeightCacheWindow required,
+        TerrainHeightCacheWindow output)
+    {
+        return target == authoringGeneration && owner == TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration
+            && intent == analysisIntentGeneration && required == analysisRequiredSourceWindow && output == analysisOutputWindow
+            && ReferenceEquals(display, activeDisplayIntent) && display != null && display.Root == boundClipmapRoot
+            && display.OwnershipGeneration == owner && ReferenceEquals(cache, native?.ActiveCache)
+            && texture != null && texture.IsCreated() && ReferenceEquals(texture, cache?.HeightCache)
+            && activeHeightStates != null && activeHeightStates.Length > 0 && ReferenceEquals(native, activeHeightStates[0]);
     }
 
     private static TerrainAuthoringPreviewResidencyPlan CreateTerrainAnalysisPlan(WorldSettings settings)
@@ -343,6 +550,8 @@ public static partial class TerrainAuthoringPreviewService
         && !TryGetTerrainAnalysisGpuSource(out _, out _);
 
     private static bool HasLiveTerrainAnalysisDemand => hasAnalysisSourceDemand && hasAnalysisSourceIntent
+        && analysisSettings != null
+        && analysisOwnershipGeneration == TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration
         && TerrainAuthoringVisualizationController.RequiresLiveTerrainAnalysisDuringInteractiveEdit;
 
     private static bool IsNativeAnalysisPreparationSuppressed(string committed, string overall)
@@ -354,9 +563,17 @@ public static partial class TerrainAuthoringPreviewService
             && failed.Entries.Length == 1 && failed.Entries[0].Target == analysisRequiredSourceWindow;
     }
 
+    internal static bool RequiresOwnedNativeAnalysisPreparation(bool heightRequired, bool residentNativeCoverage) =>
+        heightRequired && !residentNativeCoverage;
+
+    private static bool HasResidentNativeAnalysisCoverage(string committed) =>
+        hasAnalysisSourceIntent && TryResolveNativeDisplayState(analysisSettings, committed, out var native)
+            && CaptureNativeAnalysisWindow(native, analysisSettings, committed).Coverage;
+
     private static bool IsTerrainAnalysisPreparationRunnable(string committed, string overall)
     {
-        return TerrainAnalysisHeightIsRequired && !IsNativeAnalysisPreparationSuppressed(committed, overall)
+        return RequiresOwnedNativeAnalysisPreparation(TerrainAnalysisHeightIsRequired,
+                HasResidentNativeAnalysisCoverage(committed)) && !IsNativeAnalysisPreparationSuppressed(committed, overall)
             && (!analysisFollowUpPending || lastAnalysisFollowUpAttempt != FollowUpBoundary);
     }
 
@@ -376,11 +593,17 @@ public static partial class TerrainAuthoringPreviewService
             }
             return;
         }
+        string committed = TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(settings);
+        if (HasResidentNativeAnalysisCoverage(committed))
+        {
+            CancelTerrainAnalysisPreparation("Resident native Height is updating the analysis dependency window.");
+            PublishTerrainAnalysisSourceState();
+            return;
+        }
         if (TransitionInProgress || hasPendingStreamingStart
             || TerrainAuthoringPreviewStreamingPolicy.ShouldDeferHeightRequestRestart(
                 TerrainAuthoringPreviewCachePublication.NativeAnalysis, HasActiveInteractiveTerrainAuthoringEdit,
                 HasLiveTerrainAnalysisDemand)) return;
-        string committed = TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(settings);
         string overall = TerrainAuthoringStateUtility.GetOverallAuthoringSignature(settings, data);
         if (string.IsNullOrEmpty(committed) || string.IsNullOrEmpty(overall))
         {
@@ -388,7 +611,8 @@ public static partial class TerrainAuthoringPreviewService
             PublishTerrainAnalysisSourceState();
             return;
         }
-        if (IsNativeAnalysisPreparationSuppressed(committed, overall)) return;
+        if (!RequiresOwnedNativeAnalysisPreparation(TerrainAnalysisHeightIsRequired,
+            HasResidentNativeAnalysisCoverage(committed)) || IsNativeAnalysisPreparationSuppressed(committed, overall)) return;
         var plan = CreateTerrainAnalysisPlan(settings);
         var request = CreateCacheSetRequest(settings, plan, new[] { analysisRequiredSourceWindow }, new[] { false },
             TerrainAuthoringPreviewCachePublication.NativeAnalysis, committed, overall, false);
@@ -477,52 +701,95 @@ public static partial class TerrainAuthoringPreviewService
 
     internal static TerrainAuthoringAnalysisSourceSnapshot GetTerrainAnalysisSourceSnapshot()
     {
-        bool displayConfigurationCurrent = analysisSelectedKind == TerrainAuthoringAnalysisSourceKind.BorrowedNative
-            && activeDisplayIntent != null && activeDisplayIntent.OwnershipGeneration == TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration
-            && activeDisplayIntent.Root == boundClipmapRoot && activeDisplayIntent.ConfigurationMatches(activeDisplayIntent.Settings);
+        bool displayConfigurationCurrent = activeDisplayIntent != null
+            && activeDisplayIntent.OwnershipGeneration == TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration
+            && activeDisplayIntent.Root != null && activeDisplayIntent.Root == boundClipmapRoot
+            && activeDisplayIntent.ConfigurationMatches(analysisSettings);
         return CaptureAnalysisSourceMetadata(displayConfigurationCurrent);
     }
 
-    internal static TerrainAuthoringAnalysisSourceSnapshot CaptureAnalysisSourceMetadata(bool displayConfigurationCurrent)
+    internal static TerrainAuthoringAnalysisSourceSnapshot CaptureAnalysisSourceMetadata(bool displayConfigurationCurrent,
+        string committed = null)
     {
-        // Observational state only. The GPU source query retains full eligibility
-        // checks; this projection does not load assets or rebuild signatures.
+        // Metadata only: no authoring signature construction, allocation or activation audit.
         long owner = TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration;
         bool borrowed = analysisSelectedKind == TerrainAuthoringAnalysisSourceKind.BorrowedNative;
-        var state = borrowed ? activeHeightStates != null && activeHeightStates.Length > 0
-            ? activeHeightStates[0] : null : analysisOwnedState;
+        var native = activeHeightStates != null && activeHeightStates.Length > 0 ? activeHeightStates[0] : null;
+        var state = borrowed ? native : analysisOwnedState;
         var cache = state?.ActiveCache;
+        committed = committed ?? (!string.IsNullOrEmpty(analysisSelectedCommittedSignature)
+            ? analysisSelectedCommittedSignature : native?.ActiveCache?.SourceCommittedHeightfieldSignature ?? "");
         bool nativeSettingsValid = TerrainHeightResolutionUtility.IsRepresentationStrideCompatible(analysisSettings, 1);
-        int nativeSamples = nativeSettingsValid ? TerrainHeightResolutionUtility.GetSamplesPerSide(analysisSettings, 1) : 0;
-        float nativeSpacing = nativeSettingsValid ? TerrainHeightResolutionUtility.GetSampleSpacing(analysisSettings, 1) : 0f;
-        bool nativeGeometryCurrent = NativeCacheGeometryCurrentForDiagnostics(cache, nativeSamples, nativeSpacing);
-        bool configurationCurrent = nativeGeometryCurrent && (borrowed ? displayConfigurationCurrent
-            : analysisOwnedOwnershipGeneration == owner);
-        bool ready = Enabled && hasAnalysisSourceIntent && analysisOwnershipGeneration == owner
-            && !Application.isPlaying && !UnityEditor.EditorApplication.isPlayingOrWillChangePlaymode
-            && StateCurrentForDiagnostics(state, configurationCurrent) && cache.SampleStride == 1
+        int samples = nativeSettingsValid ? TerrainHeightResolutionUtility.GetSamplesPerSide(analysisSettings, 1) : 0;
+        float spacing = nativeSettingsValid ? TerrainHeightResolutionUtility.GetSampleSpacing(analysisSettings, 1) : 0f;
+        bool context = Enabled && hasAnalysisSourceIntent && analysisSettings != null
+            && analysisOwnershipGeneration == owner && !Application.isPlaying
+            && !UnityEditor.EditorApplication.isPlayingOrWillChangePlaymode;
+        var local = context && displayConfigurationCurrent && !committedRebuildRequested
+            ? CaptureNativeAnalysisWindow(native, analysisSettings, committed) : default;
+        bool ownedCurrent = context && analysisOwnedOwnershipGeneration == owner
+            && StateCurrentForDiagnostics(analysisOwnedState,
+                NativeCacheGeometryCurrentForDiagnostics(analysisOwnedState?.ActiveCache, samples, spacing))
+            && IsNativeAnalysisCacheStructurallyEligible(analysisOwnedState?.ActiveCache, analysisSettings,
+                committed, analysisRequiredSourceWindow, analysisOutputWindow);
+        bool identity = cache != null && cache.HeightCache != null && cache.HeightCache.IsCreated()
             && ReferenceEquals(cache, analysisSelectedCache) && analysisSelectedOwnershipGeneration == owner
             && cache.HeightCache.GetInstanceID() == analysisSelectedResourceIdentity
             && analysisSelectedOutputWindow == analysisOutputWindow
-            && analysisSelectedPhysicalWindow == new TerrainHeightCacheWindow(cache.CacheOriginTile, cache.CacheSize)
-            && analysisSelectedPhysicalWindow.Contains(analysisRequiredSourceWindow)
-            && analysisRequiredSourceWindow.Contains(analysisOutputWindow);
-        string message = ready ? "Current native Height is available for bounded terrain analysis."
-            : !string.IsNullOrEmpty(analysisSourceError) ? analysisSourceError
-            : !hasAnalysisSourceIntent ? "No native terrain analysis focus is available."
-            : !hasAnalysisSourceDemand ? "Native terrain analysis has not requested Height."
-            : !CanRunEditorPreviewWork ? "Native terrain analysis is suspended with the editor preview."
-            : "Waiting for current native Height for analysis output " + analysisOutputWindow
-                + "; dependency source " + analysisRequiredSourceWindow + ".";
+            && analysisSelectedPhysicalWindow == new TerrainHeightCacheWindow(cache.CacheOriginTile, cache.CacheSize);
+        bool ready = context && identity && (borrowed ? local.Ready :
+            analysisSelectedKind == TerrainAuthoringAnalysisSourceKind.OwnedNative && ownedCurrent);
+        bool preparationFailed = lastFailedAnalysisCacheSetRequest != null
+            && lastFailedAnalysisCacheSetRequest.AuthoringGeneration == authoringGeneration
+            && lastFailedAnalysisCacheSetRequest.OwnershipGeneration == owner
+            && lastFailedAnalysisCacheSetRequest.AcceptedPlan.Generation == (int)(analysisIntentGeneration % int.MaxValue);
+        var reason = ready ? TerrainAuthoringAnalysisWaitingReason.None
+            : !hasAnalysisSourceIntent ? TerrainAuthoringAnalysisWaitingReason.NoFocus
+            : !CanRunEditorPreviewWork ? TerrainAuthoringAnalysisWaitingReason.PreviewSuspended
+            : !context ? TerrainAuthoringAnalysisWaitingReason.InvalidContext
+            : !hasAnalysisSourceDemand ? TerrainAuthoringAnalysisWaitingReason.NoDemand
+            : local.FailedCount > 0 ? TerrainAuthoringAnalysisWaitingReason.NativeContentFailed
+            : local.Coverage && !local.ContentCurrent ? TerrainAuthoringAnalysisWaitingReason.NativeContentPending
+            : local.Coverage && local.PublicationCount > 0 ? TerrainAuthoringAnalysisWaitingReason.NativePublicationPending
+            : preparationFailed ? TerrainAuthoringAnalysisWaitingReason.NativePreparationFailed
+            : HasNativeAnalysisPreparation ? TerrainAuthoringAnalysisWaitingReason.NativePreparationPending
+            : TerrainAuthoringAnalysisWaitingReason.NativeCoverageMissing;
+        string message = AnalysisWaitingMessage(reason, local);
+        if (preparationFailed && reason == TerrainAuthoringAnalysisWaitingReason.NativePreparationFailed
+            && !string.IsNullOrEmpty(analysisSourceError)) message += " " + analysisSourceError;
         return new TerrainAuthoringAnalysisSourceSnapshot(analysisSelectedKind, analysisOutputWindow,
-            analysisRequiredSourceWindow, analysisSelectedPhysicalWindow, analysisGuardTileCount,
-            nativeSamples, nativeSpacing,
-            ready, lastFailedAnalysisCacheSetRequest != null
-                || (!hasAnalysisSourceIntent && !string.IsNullOrEmpty(analysisSourceError)),
+            analysisRequiredSourceWindow, analysisSelectedPhysicalWindow, analysisGuardTileCount, samples, spacing,
+            ready, reason == TerrainAuthoringAnalysisWaitingReason.NativeContentFailed
+                || reason == TerrainAuthoringAnalysisWaitingReason.NativePreparationFailed
+                || !hasAnalysisSourceIntent && !string.IsNullOrEmpty(analysisSourceError),
             state?.ActiveAuthoringGeneration ?? 0L, analysisOwnershipGeneration,
-            analysisResidencyGeneration, analysisCompositeGeneration, message);
+            analysisResidencyGeneration, analysisCompositeGeneration, message, reason,
+            local.PendingCount, local.FailedCount, local.PublicationCount, authoringGeneration);
     }
 
+    private static bool HasNativeAnalysisPreparation =>
+        TransitionInProgress && currentCacheSetTransition.Publication == TerrainAuthoringPreviewCachePublication.NativeAnalysis
+        || hasPendingStreamingStart && pendingCacheSetTransition.Publication == TerrainAuthoringPreviewCachePublication.NativeAnalysis;
+
+    private static string AnalysisWaitingMessage(TerrainAuthoringAnalysisWaitingReason reason,
+        TerrainAuthoringNativeAnalysisWindowState local)
+    {
+        switch (reason)
+        {
+            case TerrainAuthoringAnalysisWaitingReason.None: return "Current native Height is available for bounded terrain analysis.";
+            case TerrainAuthoringAnalysisWaitingReason.NoFocus: return string.IsNullOrEmpty(analysisSourceError)
+                ? "No native terrain analysis focus is available." : analysisSourceError;
+            case TerrainAuthoringAnalysisWaitingReason.NoDemand: return "Native terrain analysis has not requested Height.";
+            case TerrainAuthoringAnalysisWaitingReason.PreviewSuspended: return "Native terrain analysis is paused with the editor preview.";
+            case TerrainAuthoringAnalysisWaitingReason.InvalidContext: return "Native terrain analysis is waiting for current settings and Scene View ownership.";
+            case TerrainAuthoringAnalysisWaitingReason.NativeContentFailed: return $"Native analysis dependency has {local.FailedCount} failed Height update(s). Safe last-good terrain remains active; retry the affected update.";
+            case TerrainAuthoringAnalysisWaitingReason.NativeContentPending: return $"Waiting for {local.PendingCount} current native Height dependency tile(s) in {analysisRequiredSourceWindow}.";
+            case TerrainAuthoringAnalysisWaitingReason.NativePublicationPending: return "Native Height is prepared; waiting for its analysis source publication.";
+            case TerrainAuthoringAnalysisWaitingReason.NativePreparationFailed: return "The required owned native Height preparation failed.";
+            case TerrainAuthoringAnalysisWaitingReason.NativePreparationPending: return "Preparing owned native Height for analysis dependencies " + analysisRequiredSourceWindow + ".";
+            default: return "Waiting for native Height coverage of analysis dependencies " + analysisRequiredSourceWindow + ".";
+        }
+    }
 
     private static void PublishTerrainAnalysisSourceState(bool forceBoundary = false)
     {
@@ -538,24 +805,7 @@ public static partial class TerrainAuthoringPreviewService
     {
         return current < long.MaxValue ? current + 1 : long.MaxValue;
     }
-    private static long CurrentNativeDisplayAuthoringGeneration => activeHeightStates != null
-        && activeHeightStates.Length > 0 && activeHeightStates[0].SampleStride == 1
-            ? activeHeightStates[0].ActiveAuthoringGeneration : -1L;
 
-    private static bool TryGetCurrentNativeDisplayHeight(WorldSettings settings, TerrainAuthoringData data,
-        out TerrainAuthoringPreviewCache cache)
-    {
-        cache = null;
-        if (activeHeightStates == null || activeHeightStates.Length == 0 || activeDisplayIntent == null
-            || activeDisplayIntent.Root == null || activeDisplayIntent.Root != boundClipmapRoot
-            || !activeDisplayIntent.ConfigurationMatches(settings) || data == null
-            || activeDisplayIntent.OwnershipGeneration != TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration) return false;
-        var state = activeHeightStates[0];
-        if (state.SampleStride != 1 || !StateContentIsCurrent(state,
-            TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(settings),
-            TerrainAuthoringStateUtility.GetOverallAuthoringSignature(settings, data))) return false;
-        cache = state.ActiveCache; return true;
-    }
 
     private static bool NativeCacheGeometryCurrentForDiagnostics(TerrainAuthoringPreviewCache cache, int samples, float spacing) =>
         samples > 1 && analysisSettings != null && cache != null && cache.SampleStride == 1

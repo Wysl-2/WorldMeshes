@@ -136,6 +136,7 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
             RunMultiresolutionResidencyPlanValidation();
             RunMultiresolutionBoundedScalingValidation();
             RunDiagnosticsProjectionValidation();
+            RunOperationalFeedbackValidation();
             RunDirtyScratchOwnershipValidation();
             RunLivePreviewValidation();
         }
@@ -1828,6 +1829,32 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
         finally { state.Dispose(); }
     }
 
+    private static void RunOperationalFeedbackValidation()
+    {
+        var loading = TerrainAuthoringPreviewFeedbackKind.ResidencyLoading;
+        var updating = TerrainAuthoringPreviewFeedbackKind.Updating;
+        var failure = TerrainAuthoringPreviewFeedbackKind.DirtyFailure;
+        bool valid = TerrainAuthoringPreviewFeedbackPolicy.SelectFeedbackKind(true, true, true, false, false, true, false, true) == updating
+            && TerrainAuthoringPreviewFeedbackPolicy.SelectFeedbackKind(true, true, true, false, false, true, true, true) == failure
+            && TerrainAuthoringPreviewFeedbackPolicy.SelectFeedbackKind(true, true, true, true, false, true, true, true) == loading
+            && TerrainAuthoringPreviewFeedbackPolicy.SelectFeedbackKind(true, true, true, true, true, true, true, true)
+                == TerrainAuthoringPreviewFeedbackKind.ResidencyFailure
+            && TerrainAuthoringPreviewFeedbackPolicy.SelectFeedbackKind(true, true, false, false, false, true, false, true)
+                == TerrainAuthoringPreviewFeedbackKind.Paused
+            && TerrainAuthoringPreviewFeedbackPolicy.SelectFeedbackKind(false, true, true, true, false, true, false, true)
+                == TerrainAuthoringPreviewFeedbackKind.None
+            && TerrainAuthoringPreviewFeedbackPolicy.SelectFeedbackKind(true, false, true, true, false, true, false, true)
+                == TerrainAuthoringPreviewFeedbackKind.None
+            && TerrainAuthoringPreviewFeedbackPolicy.SelectFeedbackKind(true, true, true, false, false, true, false, false)
+                == TerrainAuthoringPreviewFeedbackKind.None
+            && !TerrainAuthoringPreviewFeedbackPolicy.HasDisplayProgress(default)
+            && !TerrainAuthoringPreviewFeedbackPolicy.ShouldShowLoading(true, 0.1, 0.2)
+            && TerrainAuthoringPreviewFeedbackPolicy.ShouldShowLoading(true, 0.3, 0.2)
+            && !TerrainAuthoringPreviewFeedbackPolicy.ShouldShowFailure(true, false);
+        AddResult("Operational feedback distinguishes residency and authoring", valid ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+            "Resident updates/failures have no residency progress; required display failure, suspension and controlling ownership retain precedence.");
+    }
+
     private static void RunDiagnosticsProjectionValidation()
     {
         var required = new TerrainHeightCacheWindow(new Vector2Int(5, 6), Vector2Int.one);
@@ -1851,13 +1878,18 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
                 running.Entries[0], null, false);
             var missing = TerrainAuthoringPreviewService.CaptureDisplayLodMetadata(0, null, plan,
                 null, running.Entries[0], false);
-            var rows = new[] { row, missing };
+            display.RecordDirtyFailure(required.OriginTile, 4, "Isolated copied failure", true, 1);
+            display.RecordDirtyFailure(required.OriginTile + Vector2Int.one, 4, "Later copied failure", true, 2);
+            var failedRow = TerrainAuthoringPreviewService.CaptureDisplayLodMetadata(0, display, plan, null, null, false);
+            var heldSource = new TerrainAuthoringPreviewDirtySourceSnapshot(true, required.OriginTile,
+                "committed", 123, 9, 456, 9L * 9 * sizeof(float));
+            var rows = new[] { row, missing, failedRow };
             var snapshot = new TerrainAuthoringPreviewDiagnosticsSnapshot(
-                enabled: default,
+                enabled: true,
                 cacheReady: default,
-                drawable: default,
-                latestCoverageCurrent: default,
-                placementCurrent: default,
+                drawable: true,
+                latestCoverageCurrent: true,
+                placementCurrent: true,
                 readyForLatestIntent: default,
                 previewStatus: default,
                 previewStatusMessage: default,
@@ -1896,19 +1928,34 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
                 lastDirtyMaterializations: default,
                 lastDirtyCompositions: default,
                 cancellationReason: default,
-                displayLods: rows);
+                displayLods: rows,
+                heldDirtySource: heldSource,
+                latestPlacementGeneration: 7);
             rows[0] = default;
+            rows[2] = default;
+            heldSource = default;
             plan.SampleStride = 4;
-            display.PendingDirtyTiles.Add(required.OriginTile);
-            display.RecordDirtyFailure(required.OriginTile, 4, "Isolated copied failure", true);
-            var failedRow = TerrainAuthoringPreviewService.CaptureDisplayLodMetadata(0, display, plan, null, null, false);
             display.DirtyFailures.Clear();
-            bool failureCopied = failedRow.FailedDirtyCount == 1 && failedRow.DirtyFailure.Present
-                && failedRow.DirtyFailure.Tile == required.OriginTile && failedRow.DirtyFailure.AttemptedGeneration == 4
+            display.PendingDirtyTiles.Clear();
+            bool failureCopied = failedRow.FailedDirtyCount == 2 && failedRow.DirtyFailure.Present
+                && failedRow.PendingDirtyCount == 2 && failedRow.DirtyFailure.AttemptSequence == 2
+                && failedRow.DirtyFailure.Level == 0
+                && failedRow.DirtyFailure.Tile == required.OriginTile + Vector2Int.one && failedRow.DirtyFailure.AttemptedGeneration == 4
                 && failedRow.DirtyFailure.LastGoodAvailable && failedRow.DirtyScratchBytes == 0;
             AddResult("Dirty diagnostics are copied values", failureCopied ? ValidationOutcome.Pass : ValidationOutcome.Fail,
                 "Clearing authoritative suppression after capture leaves its representative tile/generation/message unchanged.");
-            bool copied = snapshot.DisplayLods.Count == 2 && snapshot.DisplayLods[0].PlannedRepresentation.Stride == 2
+            var laterAttempt = new TerrainAuthoringPreviewDirtyFailureSnapshot(required.OriginTile,
+                new TerrainAuthoringPreviewDirtyFailure(3, "Later attempt at an older target", true, 3), 2);
+            bool aggregate = !snapshot.CacheReady && snapshot.Drawable && snapshot.LatestCoverageCurrent && snapshot.PlacementCurrent
+                && snapshot.PendingRepresentationCount == 2 && snapshot.FailedRepresentationCount == 2
+                && snapshot.AuthoringConvergencePending && snapshot.MostRecentDirtyFailure.AttemptSequence == 2
+                && snapshot.LatestPlacementGeneration == 7 && snapshot.HeldDirtySource.Present
+                && snapshot.HeldDirtySource.Tile == required.OriginTile && snapshot.HeldDirtySource.TextureId == 456
+                && snapshot.HeldDirtySource.ApproximatePayloadBytes == 9L * 9 * sizeof(float)
+                && TerrainAuthoringPreviewService.IsNewerDirtyFailure(laterAttempt, snapshot.MostRecentDirtyFailure);
+            AddResult("Convergence aggregates preserve residency and borrowed metadata", aggregate ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+                "Failures are counted within pending representations; later attempts outrank older targets; held-source values own no resource.");
+            bool copied = snapshot.DisplayLods.Count == 3 && snapshot.DisplayLods[0].PlannedRepresentation.Stride == 2
                 && snapshot.DisplayLods[0].Active.Present && !snapshot.DisplayLods[0].Active.HasTexture
                 && snapshot.DisplayLods[0].Staging.Present && !snapshot.DisplayLods[0].Staging.HasTexture
                 && !snapshot.DisplayLods[1].Active.Present && snapshot.DisplayLods[1].HasLatestPlan
@@ -1923,7 +1970,9 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
                 && borrowed.DisplayActiveCount == 1 && borrowed.DisplayStagingCount == 1
                 && borrowed.AnalysisActiveCount == 0 && borrowed.AnalysisStagingCount == 0
                 && owned.AnalysisActiveCount == 1 && owned.RetiringCount == 0
-                && owned.AllocatedArrayCount == 0 && owned.TotalBytes == 0;
+                && owned.AllocatedArrayCount == 0 && owned.TotalBytes == 0
+                && TerrainAuthoringPreviewFeedbackPolicy.HasDisplayProgress(TerrainAuthoringPreviewService.CaptureWorkerMetadata(running))
+                && !TerrainAuthoringPreviewFeedbackPolicy.HasDisplayProgress(TerrainAuthoringPreviewService.CaptureWorkerMetadata(queued));
             AddResult("Copied diagnostics preserve queued and changing representations", copied ? ValidationOutcome.Pass : ValidationOutcome.Fail,
                 "Caller rows, source plans and dirty queues were mutated after capture; old native allocation and new coarse intent remain distinct.");
             AddResult("Borrowed sources and pending metadata add no ownership", classification ? ValidationOutcome.Pass : ValidationOutcome.Fail,

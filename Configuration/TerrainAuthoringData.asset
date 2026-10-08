@@ -20,10 +20,34 @@ MonoBehaviour:
   heightModifiers:
   - rid: 3932701523395477625
   - rid: 3932701805208404037
-  authoringRevision: 2719
+  - rid: 3193052296848080962
+  authoringRevision: 2721
   references:
     version: 2
     RefIds:
+    - rid: 3193052296848080962
+      type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
+      data:
+        stableId: 0af3ac85e364431e98012ca7f3cfe549
+        enabled: 1
+        blendMode: 0
+        stampAsset: {fileID: 11400000, guid: ffeea23aec65944e0b11e3cd9d352afb, type: 2}
+        positionXZ: {x: 15167.655, y: 21117.627}
+        sizeXZ: {x: 2233.4976, y: 1798.4775}
+        rotationDegrees: 0
+        flipX: 0
+        flipZ: 0
+        sourceInputMin: 0
+        sourceInputMax: 1
+        sourceGamma: 1
+        heightDelta: 10
+        targetBaseHeight: 0
+        targetHeightRange: 10
+        falloff: 0.25
+        falloffShape: 0
+        falloffProfile: 0
+        smoothingRadius: 0
+        smoothingStrength: 1
     - rid: 3932701523395477625
       type: {class: TerrainStampModifier, ns: , asm: Assembly-CSharp}
       data:

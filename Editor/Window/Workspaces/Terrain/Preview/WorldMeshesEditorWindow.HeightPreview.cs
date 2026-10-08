@@ -78,15 +78,30 @@ public partial class WorldMeshesEditorWindow :
         EditorGUILayout.LabelField("Dirty Caps: Allocate / Load / Copy / Materialize / Compose",
             $"1 / {TerrainAuthoringPreviewService.StreamingCommittedLoadsPerUpdate} / {TerrainAuthoringPreviewService.StreamingRetainedCopiesPerUpdate} / {TerrainAuthoringPreviewService.StreamingMaterializationsPerUpdate} / {TerrainAuthoringPreviewService.DirtyCompositionsPerUpdate}");
         EditorGUILayout.LabelField("Soft Callback Budget", $"{TerrainAuthoringPreviewService.StreamingSoftWorkBudgetMilliseconds:R} ms");
-        int dirty = 0;
-        foreach (var row in snapshot.DisplayLods) dirty += row.PendingDirtyCount;
-        EditorGUILayout.LabelField("Pending Dirty: Geographic / Display Jobs", $"{snapshot.PendingGeographicDirtyCount:N0} / {dirty:N0}");
+        EditorGUILayout.LabelField("Authoring Convergence", snapshot.AuthoringConvergencePending ? "Pending" : "Complete");
+        EditorGUILayout.LabelField("Pending Dirty: Resident Geographic / Representation Jobs",
+            $"{snapshot.PendingGeographicDirtyCount:N0} / {snapshot.PendingRepresentationCount:N0}");
+        EditorGUILayout.LabelField("Incoming Scope / Geographic Tiles",
+            $"{snapshot.UnprojectedScopePending} / {snapshot.UnprojectedGeographicDirtyCount:N0}");
+        var held = snapshot.HeldDirtySource;
+        EditorGUILayout.LabelField("Held Committed Native Source", held.Present
+            ? $"Tile {held.Tile}; texture {held.TextureId}; {held.NativeSamples} samples; settings {held.SettingsId}" : "None");
+        if (held.Present)
+        {
+            EditorGUILayout.LabelField("Held Source Committed Identity", held.CommittedSignature);
+            EditorGUILayout.LabelField("Borrowed Native Source Payload Estimate", FormatPreviewMemory(held.ApproximatePayloadBytes));
+        }
         EditorGUILayout.LabelField("Last Dirty Callback: Allocate / Load / All Copies / Materialize / Compose",
             $"{snapshot.LastDirtyAllocations} / {snapshot.LastDirtyLoads} / {snapshot.LastDirtyCopies} / {snapshot.LastDirtyMaterializations} / {snapshot.LastDirtyCompositions}");
         EditorGUILayout.LabelField("Dirty Copies", "Includes native extraction, live backup/publication and recovery attempts.");
-        int failures = 0;
-        foreach (var row in snapshot.DisplayLods) failures += row.FailedDirtyCount;
-        if (failures > 0) EditorGUILayout.HelpBox($"{failures} Height updates are suppressed pending a relevant edit or retry. Safe failures retain last-good terrain.", MessageType.Warning);
+        if (snapshot.HasFailedDirtyUpdates)
+        {
+            var recent = snapshot.MostRecentDirtyFailure;
+            EditorGUILayout.HelpBox($"{snapshot.FailedRepresentationCount} Height updates are suppressed pending a relevant edit or retry. "
+                + $"Most recent: LOD {recent.Level}, tile {recent.Tile}, target {recent.AttemptedGeneration}. "
+                + (recent.LastGoodAvailable ? "Last-good terrain is retained. " : "Unsafe storage requires replacement. ")
+                + recent.Message, MessageType.Warning);
+        }
         if (snapshot.BoundsFollowUpPending || snapshot.AnalysisFollowUpPending)
             EditorGUILayout.LabelField("Pending Follow-ups", $"Bounds={snapshot.BoundsFollowUpPending}; Analysis={snapshot.AnalysisFollowUpPending}");
         if (!string.IsNullOrEmpty(snapshot.BoundsFollowUpError)) EditorGUILayout.HelpBox("Bounds repair: " + snapshot.BoundsFollowUpError, MessageType.Warning);
@@ -152,7 +167,11 @@ public partial class WorldMeshesEditorWindow :
             EditorGUILayout.LabelField("Derived Output", analysis.OutputWindow.ToString());
             EditorGUILayout.LabelField("Source Dependency / Guard Tiles", $"{analysis.RequiredSourceWindow} / {analysis.GuardTileCount}");
             EditorGUILayout.LabelField("Selected Physical Storage", analysis.PhysicalWindow.ToString());
-            EditorGUILayout.LabelField("Authoring / Ownership / Residency / Composite", $"{analysis.AuthoringGeneration} / {analysis.OwnershipGeneration} / {analysis.ResidencyGeneration} / {analysis.CompositeGeneration}");
+            EditorGUILayout.LabelField("Whole Cache Acknowledgement / Authoring Target", $"{analysis.AuthoringGeneration} / {analysis.TargetAuthoringGeneration}");
+            EditorGUILayout.LabelField("Ownership / Residency / Composite", $"{analysis.OwnershipGeneration} / {analysis.ResidencyGeneration} / {analysis.CompositeGeneration}");
+            EditorGUILayout.LabelField("Native Waiting Reason", analysis.WaitingReason.ToString());
+            EditorGUILayout.LabelField("Required Tiles: Pending / Failed / Publication",
+                $"{analysis.PendingRequiredTileCount} / {analysis.FailedRequiredTileCount} / {analysis.PendingPublicationTileCount}");
             DrawHeightAllocation("Owned Native Active", snapshot.AnalysisActive);
             DrawHeightAllocation("Native Staging", snapshot.AnalysisStaging);
             if (!string.IsNullOrEmpty(analysis.Message)) EditorGUILayout.HelpBox(analysis.Message, analysis.Failed ? MessageType.Error : MessageType.Info);

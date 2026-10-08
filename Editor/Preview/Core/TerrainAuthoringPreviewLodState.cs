@@ -6,12 +6,13 @@ using UnityEngine.Rendering;
 internal readonly struct TerrainAuthoringPreviewDirtyFailure
 {
     internal readonly long AttemptedGeneration;
+    internal readonly long AttemptSequence;
     internal readonly string Message;
     internal readonly bool LastGoodAvailable;
 
-    internal TerrainAuthoringPreviewDirtyFailure(long generation, string message, bool lastGoodAvailable)
+    internal TerrainAuthoringPreviewDirtyFailure(long generation, string message, bool lastGoodAvailable, long attemptSequence = 0)
     {
-        AttemptedGeneration = generation;
+        AttemptedGeneration = generation; AttemptSequence = attemptSequence;
         Message = message ?? "";
         LastGoodAvailable = lastGoodAvailable;
     }
@@ -177,12 +178,12 @@ internal sealed class TerrainAuthoringPreviewLodState :
     internal bool IsDirtyTileRunnable(Vector2Int tile) =>
         HasUsableActiveAllocation && PendingDirtyTiles.Contains(tile) && !DirtyFailures.ContainsKey(tile);
 
-    internal void RecordDirtyFailure(Vector2Int tile, long generation, string message, bool lastGoodAvailable)
+    internal void RecordDirtyFailure(Vector2Int tile, long generation, string message, bool lastGoodAvailable, long attemptSequence = 0)
     {
         PendingDirtyTiles.Add(tile);
         SuccessfulDirtyTiles.Remove(tile);
         CacheReady = false;
-        DirtyFailures[tile] = new TerrainAuthoringPreviewDirtyFailure(generation, message, lastGoodAvailable);
+        DirtyFailures[tile] = new TerrainAuthoringPreviewDirtyFailure(generation, message, lastGoodAvailable, attemptSequence);
     }
 
     internal bool TryEnsureDirtyScratch(out bool allocated, out string error)

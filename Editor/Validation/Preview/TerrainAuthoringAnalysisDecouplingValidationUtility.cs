@@ -61,6 +61,7 @@ public static class TerrainAuthoringAnalysisDecouplingValidationUtility
             ValidateNativeFocusWindows();
             ValidateAnalysisWorkPolicy();
             ValidateOwnedNativeHeight();
+            ValidateNativeWindowLocality();
             ValidateLiveAnalysisSource();
         }
         catch (Exception exception)
@@ -365,6 +366,9 @@ public static class TerrainAuthoringAnalysisDecouplingValidationUtility
             && !TerrainAuthoringPreviewStreamingPolicy.ShouldDeferHeightRequestRestart(analysis, true, true)
             && TerrainAuthoringPreviewStreamingPolicy.ShouldDeferHeightRequestRestart(analysis, true, false)
             && TerrainAuthoringPreviewStreamingPolicy.ShouldDeferHeightRequestRestart(display, true, true);
+        correct &= !TerrainAuthoringPreviewService.RequiresOwnedNativeAnalysisPreparation(true, true)
+            && TerrainAuthoringPreviewService.RequiresOwnedNativeAnalysisPreparation(true, false)
+            && !TerrainAuthoringPreviewService.RequiresOwnedNativeAnalysisPreparation(false, false);
         Add("Native analysis uses shared priority and interactive restart policy",
             correct ? ValidationOutcome.Pass : ValidationOutcome.Fail,
             "Mandatory display recovery wins; current analysis cannot be repeatedly cancelled by optional work.");
@@ -524,6 +528,172 @@ public static class TerrainAuthoringAnalysisDecouplingValidationUtility
     private static void RequireNativeFixture(bool condition, string detail)
     {
         if (!condition) throw new InvalidOperationException(detail);
+    }
+
+    private static void ValidateNativeWindowLocality()
+    {
+        const string name = "Native dependency locality, publication and owned acknowledgement";
+        var settings = AssetDatabase.LoadAssetAtPath<WorldSettings>(WorldMeshesPaths.WorldSettingsAssetPath);
+        var data = AssetDatabase.LoadAssetAtPath<TerrainAuthoringData>(WorldMeshesPaths.TerrainAuthoringDataAssetPath);
+        if (settings == null || data == null || !SystemInfo.supports2DArrayTextures
+            || !SystemInfo.SupportsRandomWriteOnRenderTextureFormat(RenderTextureFormat.RFloat)
+            || (SystemInfo.copyTextureSupport & (CopyTextureSupport.Basic | CopyTextureSupport.DifferentTypes | CopyTextureSupport.TextureToRT))
+                != (CopyTextureSupport.Basic | CopyTextureSupport.DifferentTypes | CopyTextureSupport.TextureToRT))
+        { Add(name, ValidationOutcome.Blocked, "Committed native Height and RFloat/array copy support are required."); return; }
+        if (!TerrainAuthoringStateUtility.TryValidateCommittedHeightfield(settings, data,
+            TerrainAuthoringHeightfieldValidationMode.Operational, out _, out _, out string error))
+        { Add(name, ValidationOutcome.Blocked, error); return; }
+        int samples = settings.HeightTileSamplesPerSide;
+        int guard = TerrainAnalysisWindowUtility.CalculateRequiredInteractiveGuardTileCount(settings);
+        int width = guard + 2;
+        long bytes = (long)samples * samples * sizeof(float) * (2L * width * width + 1);
+        if (width > settings.HeightTileGridWidth || width > settings.HeightTileGridHeight
+            || width * (long)width > 64 || bytes > 128L * 1024 * 1024)
+        { Add(name, ValidationOutcome.Blocked, "The isolated native fixture needs an extra tile outside its guard and is capped at 64 tiles / 128 MiB."); return; }
+        var physical = new TerrainHeightCacheWindow(Vector2Int.zero, new Vector2Int(width, width));
+        var required = new TerrainHeightCacheWindow(Vector2Int.zero, new Vector2Int(guard + 1, guard + 1));
+        var output = new TerrainHeightCacheWindow(Vector2Int.zero, Vector2Int.one);
+        var native = new TerrainAuthoringPreviewLodState(0, 1, samples,
+            TerrainHeightResolutionUtility.GetSampleSpacing(settings, 1));
+        TerrainAuthoringPreviewLodState incomplete = null;
+        Texture2D seed = null;
+        WorldSettings changedSettings = null;
+        try
+        {
+            native.StagingCache = new TerrainAuthoringPreviewCache();
+            RequireNativeFixture(native.StagingCache.TryInitializeStagingWindow(settings, data, physical, 1, out error), error);
+            seed = new Texture2D(samples, samples, TextureFormat.RFloat, false, true) { hideFlags = HideFlags.HideAndDontSave };
+            var values = new float[samples * samples];
+            for (int i = 0; i < values.Length; i++) values[i] = 5f;
+            seed.SetPixelData(values, 0); seed.Apply(false, false);
+            for (int i = 0; i < physical.TileCount; i++)
+            {
+                Graphics.CopyTexture(seed, 0, 0, native.StagingCache.HeightCache, i, 0);
+                RequireNativeFixture(native.StagingCache.TryGetTileCoordinate(i, out var tile)
+                    && native.StagingCache.TryCommitFinalCompositeTile(tile, 5f, 5f, out error), error);
+            }
+            string committed = native.StagingCache.SourceCommittedHeightfieldSignature;
+            string overall = TerrainAuthoringStateUtility.GetOverallAuthoringSignature(settings, data);
+            RequireNativeFixture(native.StagingCache.TryFinalizeStagingForActivation(overall, out error), error);
+            native.RequestedRequiredWindow = physical; native.StagingAuthoringGeneration = 17;
+            native.PromoteStagingCache(); native.DirtyTargetGeneration = 18;
+            var inside = Vector2Int.zero; var outside = new Vector2Int(width - 1, width - 1);
+            var incoming = new HashSet<Vector2Int>(); var markers = new HashSet<Vector2Int>();
+            Func<TerrainRegionalElevationInvalidationScope, TerrainAuthoringNativeAnalysisWindowState> evaluate = scope =>
+                TerrainAuthoringPreviewService.EvaluateNativeAnalysisWindow(native, settings, committed, 18,
+                    required, output, incoming, scope, markers);
+            native.RecordDirtyFailure(outside, 18, "Isolated distant native failure", true, 1);
+            var local = evaluate(TerrainRegionalElevationInvalidationScope.None);
+            RequireNativeFixture(local.Ready && local.PendingCount == 0 && local.FailedCount == 0 && !native.CacheReady
+                && !TerrainAuthoringPreviewService.IsNativeAnalysisCacheEligible(native.ActiveCache, settings,
+                    17, 18, committed, overall, required, output), "Whole-cache staleness blocked a current native dependency.");
+            incoming.Add(outside);
+            RequireNativeFixture(evaluate(TerrainRegionalElevationInvalidationScope.None).Ready, "Distant unprojected scope blocked native analysis.");
+            incoming.Add(inside);
+            RequireNativeFixture(!evaluate(TerrainRegionalElevationInvalidationScope.None).Ready, "Inside unprojected scope was ignored.");
+            incoming.Clear();
+            native.DirtyFailures.Remove(outside);
+            native.PendingDirtyTiles.Add(inside);
+            var selected = TerrainAuthoringPreviewService.ChooseDirtyDestination(new[] { native }, true, outside, false,
+                null, true, required, out var selectedTile);
+            RequireNativeFixture(ReferenceEquals(selected, native) && selectedTile == inside,
+                "Held distant native work beat the live dependency tie-break.");
+            var latest = new HashSet<Vector2Int> { outside };
+            selected = TerrainAuthoringPreviewService.ChooseDirtyDestination(new[] { native }, true, inside, true,
+                latest.Contains, true, required, out selectedTile);
+            RequireNativeFixture(selectedTile == outside, "Analysis demand displaced the latest visible edit.");
+            native.ActiveRequiredWindow = new TerrainHeightCacheWindow(outside, Vector2Int.one);
+            selected = TerrainAuthoringPreviewService.ChooseDirtyDestination(new[] { native }, true, outside, false,
+                null, true, required, out selectedTile);
+            RequireNativeFixture(selectedTile == inside, "A live analysis dependency in display guard storage was not promoted.");
+            selected = TerrainAuthoringPreviewService.ChooseDirtyDestination(new[] { native }, true, outside, false,
+                null, false, required, out selectedTile);
+            RequireNativeFixture(selectedTile == outside, "Non-demand focus elevated native guard work.");
+            native.RecordDirtyFailure(inside, 18, "Suppressed dependency", true, 2);
+            selected = TerrainAuthoringPreviewService.ChooseDirtyDestination(new[] { native }, true, inside, false,
+                null, true, required, out selectedTile);
+            RequireNativeFixture(selectedTile == outside, "Failed native demand blocked unrelated runnable dirty work.");
+            native.DirtyFailures.Remove(inside); native.PendingDirtyTiles.Remove(inside);
+            native.ActiveRequiredWindow = physical;
+            float size = settings.HeightTileWorldSize;
+            var near = TerrainRegionalElevationInvalidationScope.FromWorldBounds(new Bounds(new Vector3(size * 0.5f, 0, size * 0.5f), Vector3.one));
+            var far = TerrainRegionalElevationInvalidationScope.FromWorldBounds(new Bounds(new Vector3((outside.x + 0.5f) * size, 0, (outside.y + 0.5f) * size), Vector3.one));
+            RequireNativeFixture(!evaluate(near).Ready && evaluate(far).Ready
+                && !evaluate(TerrainRegionalElevationInvalidationScope.WholeWorld).Ready, "Regional dependency locality was incorrect.");
+            native.PendingRegionalTiles.Add(inside);
+            RequireNativeFixture(!evaluate(TerrainRegionalElevationInvalidationScope.None).Ready, "Projected regional work was ignored.");
+            native.PendingRegionalTiles.Clear(); native.RecordDirtyFailure(inside, 18, "Isolated dependency failure", true, 2);
+            RequireNativeFixture(evaluate(TerrainRegionalElevationInvalidationScope.None).FailedCount == 1
+                && !evaluate(TerrainRegionalElevationInvalidationScope.None).Ready, "Required dirty failure was accepted as current.");
+            native.DirtyFailures.Remove(inside); native.PendingDirtyTiles.Remove(inside);
+            markers.Add(inside);
+            local = evaluate(TerrainRegionalElevationInvalidationScope.None);
+            RequireNativeFixture(local.ContentCurrent && !local.Ready && local.PublicationCount == 1,
+                "Committed native bytes could export an old analysis composite identity.");
+            native.DirtyFailures.Remove(outside); native.PendingDirtyTiles.Remove(outside); markers.Add(outside);
+            var consume = new List<Vector2Int>(); var changed = new List<Vector2Int>();
+            TerrainAuthoringPreviewService.CollectNativePublicationTiles(native, settings, committed, 18, true,
+                required, false, markers, incoming, TerrainRegionalElevationInvalidationScope.None, consume, changed);
+            RequireNativeFixture(consume.Count == 1 && consume[0] == outside && changed.Count == 0,
+                "Outside publication waited on the window, or an incomplete window published.");
+            markers.Remove(outside); consume.Clear();
+            TerrainAuthoringPreviewService.CollectNativePublicationTiles(native, settings, committed, 18, true,
+                required, true, markers, incoming, TerrainRegionalElevationInvalidationScope.None, consume, changed);
+            RequireNativeFixture(changed.Count == 1 && changed[0] == inside && consume.Count == 1,
+                "Native tile completion depended on unrelated coarse obligations.");
+            foreach (var tile in consume) markers.Remove(tile);
+            markers.Add(inside); native.PendingDirtyTiles.Add(inside);
+            RequireNativeFixture(markers.Contains(inside) && !evaluate(TerrainRegionalElevationInvalidationScope.None).Ready,
+                "Reentrant authoring was cleared by old publication intent.");
+            markers.Clear(); native.PendingDirtyTiles.Clear();
+            RequireNativeFixture(!TerrainAuthoringPreviewService.EvaluateNativeAnalysisWindow(native, settings, committed + " changed", 18,
+                required, output, incoming, TerrainRegionalElevationInvalidationScope.None, markers).Coverage,
+                "An incompatible committed base was accepted.");
+            native.DirtyTargetGeneration = 19;
+            RequireNativeFixture(!evaluate(TerrainRegionalElevationInvalidationScope.None).Ready, "A mismatched accepted content target was accepted.");
+            native.DirtyTargetGeneration = 18;
+            native.WriteFailed = true;
+            RequireNativeFixture(!evaluate(TerrainRegionalElevationInvalidationScope.None).Coverage, "Unsafe native storage was borrowed.");
+            native.WriteFailed = false;
+            changedSettings = UnityEngine.Object.Instantiate(settings);
+            changedSettings.heightfieldResolutionPerChunk *= 2;
+            RequireNativeFixture(!TerrainAuthoringPreviewService.EvaluateNativeAnalysisWindow(native, changedSettings, committed, 18,
+                required, output, incoming, TerrainRegionalElevationInvalidationScope.None, markers).Coverage,
+                "Foreign native sample geometry was accepted.");
+            incomplete = new TerrainAuthoringPreviewLodState(0, 1, samples, native.SampleSpacing)
+                { ActiveCache = new TerrainAuthoringPreviewCache(), DirtyTargetGeneration = 18 };
+            RequireNativeFixture(incomplete.ActiveCache.TryInitializeStagingWindow(settings, data, physical, 1, out error), error);
+            RequireNativeFixture(!TerrainAuthoringPreviewService.EvaluateNativeAnalysisWindow(incomplete, settings, committed, 18,
+                required, output, incoming, TerrainRegionalElevationInvalidationScope.None, markers).Ready,
+                "Never-composed native slices were accepted.");
+            native.CacheReady = true; native.ActiveAuthoringGeneration = 17;
+            incoming.Add(new Vector2Int(width, width));
+            RequireNativeFixture(TerrainAuthoringPreviewService.TryAcknowledgeOwnedNativeAuthoring(native, settings,
+                committed, overall + " metadata", 17, 18, true, true, incoming, TerrainRegionalElevationInvalidationScope.None)
+                && native.ActiveAuthoringGeneration == 18, "Proven distant owned authoring could not acknowledge metadata.");
+            incoming.Clear(); incoming.Add(outside);
+            RequireNativeFixture(!TerrainAuthoringPreviewService.TryAcknowledgeOwnedNativeAuthoring(native, settings,
+                committed, overall, 18, 19, true, true, incoming, TerrainRegionalElevationInvalidationScope.None),
+                "Owned acknowledgement checked only the current required window, not physical guard storage.");
+            native.CacheReady = false; incoming.Clear();
+            RequireNativeFixture(!TerrainAuthoringPreviewService.TryAcknowledgeOwnedNativeAuthoring(native, settings,
+                committed, overall, 18, 19, true, true, incoming, TerrainRegionalElevationInvalidationScope.None),
+                "A distant edit rescued previously stale owned Height.");
+            native.CacheReady = true;
+            RequireNativeFixture(!TerrainAuthoringPreviewService.TryAcknowledgeOwnedNativeAuthoring(native, settings,
+                committed, overall, 18, 19, false, true, incoming, TerrainRegionalElevationInvalidationScope.None),
+                "Full invalidation used metadata-only acknowledgement.");
+            native.ActiveCache.HeightCache.Release();
+            RequireNativeFixture(!evaluate(TerrainRegionalElevationInvalidationScope.None).Coverage, "Released native texture was accepted.");
+            Add(name, ValidationOutcome.Pass, "Required native scope, failure/publication gating, strict owned identity, guard storage and reentrant intent remain independent from distant work.");
+        }
+        catch (Exception exception) { Add(name, ValidationOutcome.Fail, exception.Message); }
+        finally
+        {
+            native.Dispose(); incomplete?.Dispose();
+            if (seed != null) UnityEngine.Object.DestroyImmediate(seed);
+            if (changedSettings != null) UnityEngine.Object.DestroyImmediate(changedSettings);
+        }
     }
 
     private static void ValidateLiveAnalysisSource()

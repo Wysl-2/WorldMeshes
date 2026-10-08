@@ -64,14 +64,35 @@ internal readonly struct TerrainAuthoringPreviewDirtyFailureSnapshot
 {
     public readonly bool Present;
     public readonly Vector2Int Tile;
+    public readonly int Level;
     public readonly long AttemptedGeneration;
+    public readonly long AttemptSequence;
     public readonly string Message;
     public readonly bool LastGoodAvailable;
 
-    internal TerrainAuthoringPreviewDirtyFailureSnapshot(Vector2Int tile, TerrainAuthoringPreviewDirtyFailure failure)
+    internal TerrainAuthoringPreviewDirtyFailureSnapshot(Vector2Int tile, TerrainAuthoringPreviewDirtyFailure failure, int level = -1)
     {
-        Present = true; Tile = tile; AttemptedGeneration = failure.AttemptedGeneration;
+        Present = true; Tile = tile; Level = level; AttemptedGeneration = failure.AttemptedGeneration;
+        AttemptSequence = failure.AttemptSequence;
         Message = failure.Message; LastGoodAvailable = failure.LastGoodAvailable;
+    }
+}
+
+internal readonly struct TerrainAuthoringPreviewDirtySourceSnapshot
+{
+    public readonly bool Present;
+    public readonly Vector2Int Tile;
+    public readonly string CommittedSignature;
+    public readonly int SettingsId;
+    public readonly int NativeSamples;
+    public readonly int TextureId;
+    public readonly long ApproximatePayloadBytes;
+
+    internal TerrainAuthoringPreviewDirtySourceSnapshot(bool present, Vector2Int tile, string committed,
+        int settings, int samples, int texture, long bytes)
+    {
+        Present = present; Tile = tile; CommittedSignature = committed ?? "";
+        SettingsId = settings; NativeSamples = samples; TextureId = texture; ApproximatePayloadBytes = bytes;
     }
 }
 
@@ -380,10 +401,15 @@ internal readonly struct TerrainAuthoringPreviewDiagnosticsSnapshot
     public readonly string BoundsFollowUpError;
     public readonly string AnalysisFollowUpError;
     public readonly string LastFollowUpError;
-    public bool HasFailedDirtyUpdates
-    {
-        get { foreach (var row in DisplayLods) if (row.FailedDirtyCount > 0) return true; return false; }
-    }
+    public readonly int PendingRepresentationCount;
+    public readonly int FailedRepresentationCount;
+    public readonly bool AuthoringConvergencePending;
+    public readonly bool UnprojectedScopePending;
+    public readonly int UnprojectedGeographicDirtyCount;
+    public readonly TerrainAuthoringPreviewDirtyFailureSnapshot MostRecentDirtyFailure;
+    public readonly TerrainAuthoringPreviewDirtySourceSnapshot HeldDirtySource;
+    public readonly long LatestPlacementGeneration;
+    public bool HasFailedDirtyUpdates => FailedRepresentationCount > 0;
     public readonly int LastDirtyLoads;
     public readonly int LastDirtyMaterializations;
     public readonly int LastDirtyCompositions;
@@ -443,7 +469,11 @@ internal readonly struct TerrainAuthoringPreviewDiagnosticsSnapshot
         bool analysisFollowUpPending = false,
         string boundsFollowUpError = "",
         string analysisFollowUpError = "",
-        string lastFollowUpError = "")
+        string lastFollowUpError = "",
+        bool unprojectedScopePending = false,
+        int unprojectedGeographicDirtyCount = 0,
+        TerrainAuthoringPreviewDirtySourceSnapshot heldDirtySource = default,
+        long latestPlacementGeneration = 0)
     {
         Enabled = enabled;
         CacheReady = cacheReady;
@@ -493,6 +523,19 @@ internal readonly struct TerrainAuthoringPreviewDiagnosticsSnapshot
         LastDirtyCompositions = lastDirtyCompositions;
         CancellationReason = cancellationReason ?? "";
         DisplayLods = Array.AsReadOnly((TerrainAuthoringPreviewLodDiagnosticsSnapshot[])(displayLods ?? Array.Empty<TerrainAuthoringPreviewLodDiagnosticsSnapshot>()).Clone());
+        int pending = 0, failed = 0;
+        var recent = default(TerrainAuthoringPreviewDirtyFailureSnapshot);
+        foreach (var row in DisplayLods)
+        {
+            pending += row.PendingDirtyCount; failed += row.FailedDirtyCount;
+            if (TerrainAuthoringPreviewService.IsNewerDirtyFailure(row.DirtyFailure, recent)) recent = row.DirtyFailure;
+        }
+        PendingRepresentationCount = pending; FailedRepresentationCount = failed;
+        UnprojectedScopePending = unprojectedScopePending;
+        UnprojectedGeographicDirtyCount = unprojectedGeographicDirtyCount;
+        AuthoringConvergencePending = pending > 0 || unprojectedScopePending;
+        MostRecentDirtyFailure = recent; HeldDirtySource = heldDirtySource;
+        LatestPlacementGeneration = latestPlacementGeneration;
     }
 }
 

@@ -65,6 +65,7 @@ public static partial class TerrainAuthoringPreviewService
         bool contentOnly = true
     )
     {
+        long previousGeneration = authoringGeneration;
         authoringGeneration =
             CalculateNextAuthoringGeneration(
                 authoringGeneration
@@ -80,7 +81,7 @@ public static partial class TerrainAuthoringPreviewService
         ClearTransitionFailureSuppression();
         InvalidateActiveHeightContent(contentOnly);
         if (contentOnly && HasActiveInteractiveTerrainAuthoringEdit) interactiveDirtyHintGeneration = authoringGeneration;
-        InvalidateTerrainAnalysisAuthoring();
+        InvalidateTerrainAnalysisAuthoring(contentOnly, previousGeneration);
 
         bool hasStreamingWork =
             hasPendingStreamingStart
@@ -692,6 +693,7 @@ public static partial class TerrainAuthoringPreviewService
     }
     private static readonly HashSet<Vector2Int> pendingCompositePublication = new HashSet<Vector2Int>();
     private static readonly HashSet<Vector2Int> pendingNativePublication = new HashSet<Vector2Int>();
+    private static long dirtyFailureAttemptSequence;
     private static Texture2D activeDirtySource;
     private static Vector2Int activeDirtySourceTile;
     private static DirtySourceIdentity activeDirtySourceIdentity;
@@ -928,7 +930,8 @@ public static partial class TerrainAuthoringPreviewService
     private static TerrainAuthoringPreviewLodState ChooseActiveDirtyDestination(out Vector2Int tile)
     {
         return ChooseDirtyDestination(activeHeightStates, activeDirtySource != null, activeDirtySourceTile,
-            HasActiveInteractiveTerrainAuthoringEdit, latestInteractiveScopeContains, out tile);
+            HasActiveInteractiveTerrainAuthoringEdit, latestInteractiveScopeContains,
+            HasLiveTerrainAnalysisDemand, analysisRequiredSourceWindow, out tile);
     }
 
     internal static TerrainAuthoringPreviewLodState ChooseDirtyDestination(TerrainAuthoringPreviewLodState[] states,
@@ -948,8 +951,18 @@ public static partial class TerrainAuthoringPreviewService
             && !float.IsNaN(low) && !float.IsInfinity(low) && !float.IsNaN(high) && !float.IsInfinity(high) && low <= high;
     }
 
+    internal static bool IsLiveNativeAnalysisTile(TerrainAuthoringPreviewLodState state,
+        Vector2Int tile, bool liveAnalysis, TerrainHeightCacheWindow analysisRequired) =>
+        liveAnalysis && state != null && state.Level == 0 && state.SampleStride == 1
+            && analysisRequired.IsValid && analysisRequired.Contains(tile);
+
     internal static int GetDirtyDestinationPriority(TerrainAuthoringPreviewLodState[] states,
-        TerrainAuthoringPreviewLodState state, Vector2Int tile, bool interactive, Func<Vector2Int, bool> latestScope)
+        TerrainAuthoringPreviewLodState state, Vector2Int tile, bool interactive, Func<Vector2Int, bool> latestScope) =>
+        GetDirtyDestinationPriority(states, state, tile, interactive, latestScope, false, default);
+
+    internal static int GetDirtyDestinationPriority(TerrainAuthoringPreviewLodState[] states,
+        TerrainAuthoringPreviewLodState state, Vector2Int tile, bool interactive, Func<Vector2Int, bool> latestScope,
+        bool liveAnalysis, TerrainHeightCacheWindow analysisRequired)
     {
         if (state == null || !state.IsDirtyTileRunnable(tile) || !IsDirtyLiveSliceUsable(state, tile)) return int.MaxValue;
         int finestStride = int.MaxValue;
@@ -969,13 +982,20 @@ public static partial class TerrainAuthoringPreviewService
         }
         if (latest && ReferenceEquals(finestOwner, state))
             return TerrainAuthoringPreviewStreamingPolicy.InteractiveDirtyPriority;
+        if (IsLiveNativeAnalysisTile(state, tile, liveAnalysis, analysisRequired))
+            return TerrainAuthoringPreviewStreamingPolicy.FineDirtyPriority;
         if (!state.ActiveRequiredWindow.Contains(tile)) return TerrainAuthoringPreviewStreamingPolicy.GuardDirtyPriority;
         return state.SampleStride == 1 || state.SampleStride == finestStride
             ? TerrainAuthoringPreviewStreamingPolicy.FineDirtyPriority : TerrainAuthoringPreviewStreamingPolicy.RequiredDirtyPriority;
     }
 
     internal static TerrainAuthoringPreviewLodState ChooseDirtyDestination(TerrainAuthoringPreviewLodState[] states,
-        bool hasHeldSource, Vector2Int heldTile, bool interactive, Func<Vector2Int, bool> latestScope, out Vector2Int tile)
+        bool hasHeldSource, Vector2Int heldTile, bool interactive, Func<Vector2Int, bool> latestScope, out Vector2Int tile) =>
+        ChooseDirtyDestination(states, hasHeldSource, heldTile, interactive, latestScope, false, default, out tile);
+
+    internal static TerrainAuthoringPreviewLodState ChooseDirtyDestination(TerrainAuthoringPreviewLodState[] states,
+        bool hasHeldSource, Vector2Int heldTile, bool interactive, Func<Vector2Int, bool> latestScope,
+        bool liveAnalysis, TerrainHeightCacheWindow analysisRequired, out Vector2Int tile)
     {
         tile = default;
         if (states == null || states.Length == 0) return null;
@@ -984,15 +1004,18 @@ public static partial class TerrainAuthoringPreviewService
         foreach (var state in states)
             foreach (var candidate in state.PendingDirtyTiles)
             {
-                int priority = GetDirtyDestinationPriority(states, state, candidate, interactive, latestScope);
+                int priority = GetDirtyDestinationPriority(states, state, candidate, interactive, latestScope, liveAnalysis, analysisRequired);
                 if (priority == int.MaxValue) continue;
+                bool candidateAnalysis = IsLiveNativeAnalysisTile(state, candidate, liveAnalysis, analysisRequired);
+                bool chosenAnalysis = IsLiveNativeAnalysisTile(chosen, tile, liveAnalysis, analysisRequired);
                 bool sameRepresentation = chosen != null && state.SampleStride == chosen.SampleStride && state.Level == chosen.Level;
                 bool candidateHeld = hasHeldSource && candidate == heldTile, chosenHeld = hasHeldSource && tile == heldTile;
                 if (chosen == null || priority < chosenPriority
-                    || priority == chosenPriority && (state.SampleStride < chosen.SampleStride
-                        || state.SampleStride == chosen.SampleStride && state.Level < chosen.Level
-                        || sameRepresentation && (candidateHeld && !chosenHeld
-                            || candidateHeld == chosenHeld && (candidate.y < tile.y || candidate.y == tile.y && candidate.x < tile.x))))
+                    || priority == chosenPriority && (candidateAnalysis && !chosenAnalysis
+                        || candidateAnalysis == chosenAnalysis && (state.SampleStride < chosen.SampleStride
+                            || state.SampleStride == chosen.SampleStride && state.Level < chosen.Level
+                            || sameRepresentation && (candidateHeld && !chosenHeld
+                                || candidateHeld == chosenHeld && (candidate.y < tile.y || candidate.y == tile.y && candidate.x < tile.x)))))
                 { chosen = state; tile = candidate; chosenPriority = priority; }
             }
         return chosen;
@@ -1111,7 +1134,8 @@ public static partial class TerrainAuthoringPreviewService
                         && ReferenceEquals(state.ActiveCache, cache)))
                 {
                     liveSliceSafe &= texture != null && texture.IsCreated();
-                    state.RecordDirtyFailure(tile, target, exception.Message, liveSliceSafe);
+                    dirtyFailureAttemptSequence = NextAnalysisGeneration(dirtyFailureAttemptSequence);
+                    state.RecordDirtyFailure(tile, target, exception.Message, liveSliceSafe, dirtyFailureAttemptSequence);
                     diagnosticPendingGeographicDirty.Add(tile);
                     if (!liveSliceSafe)
                     {
@@ -1150,12 +1174,8 @@ public static partial class TerrainAuthoringPreviewService
         long target = authoringGeneration;
         long ownership = TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration;
         var states = activeHeightStates; var display = activeDisplayIntent;
-        var native = states[0];
-        if (native.SampleStride == 1 && StateContentIsCurrent(native, committed, overall) && pendingNativePublication.Count > 0)
-        {
-            var tiles = new List<Vector2Int>(pendingNativePublication); SortWorldTilesRowMajor(tiles);
-            TryRunAnalysisFollowUp(() => PublishNativeTerrainAnalysisCompositeUpdate(tiles));
-        }
+        if (pendingNativePublication.Count > 0)
+            TryRunAnalysisFollowUp(PublishNativeTerrainAnalysisCompositeUpdate);
         var settings = LoadWorldSettings();
         if (!CanRunEditorPreviewWork || target != authoringGeneration || !ReferenceEquals(states, activeHeightStates)
             || !ReferenceEquals(display, activeDisplayIntent) || settings == null

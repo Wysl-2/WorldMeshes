@@ -88,6 +88,7 @@ public static class TerrainAuthoringIncrementalStreamingValidationUtility
             ValidateHeightSetPolicy();
             ValidateDirtyFailureProgress();
             ValidateDirtyPriorityAndAdmission();
+            ValidateNativeDemandSelection();
             ValidateCommittedSourceReuse();
             ValidatePostCommitFollowUps();
             ValidateBoundedWorkBudgets();
@@ -1072,6 +1073,27 @@ public static class TerrainAuthoringIncrementalStreamingValidationUtility
             else AddFail(name, "Priority, actual tile ownership, guard membership or callback admission was incorrect.");
         }
         finally { fine.Dispose(); coarse?.Dispose(); }
+    }
+
+    private static void ValidateNativeDemandSelection()
+    {
+        const string name = "Live native dependency priority context";
+        // The production predicate rejects coarse owners even when their geographic tile is required by analysis.
+        var native = new TerrainAuthoringPreviewLodState(0, 1, 9, 1);
+        var coarse = new TerrainAuthoringPreviewLodState(1, 2, 5, 2);
+        var tile = new Vector2Int(2, 2);
+        var required = new TerrainHeightCacheWindow(tile, Vector2Int.one);
+        try
+        {
+            bool valid = TerrainAuthoringPreviewService.IsLiveNativeAnalysisTile(native, tile, true, required)
+                && !TerrainAuthoringPreviewService.IsLiveNativeAnalysisTile(native, tile, false, required)
+                && !TerrainAuthoringPreviewService.IsLiveNativeAnalysisTile(coarse, tile, true, required)
+                && !TerrainAuthoringPreviewService.IsLiveNativeAnalysisTile(native, tile + Vector2Int.one, true, required)
+                && !TerrainAuthoringPreviewService.RequiresOwnedNativeAnalysisPreparation(true, true);
+            if (valid) AddPass(name, "Only genuine native window demand can elevate dirty work; resident dependency waiting cannot reserve owned preparation.");
+            else AddFail(name, "Demand, native representation or required-window membership was incorrect.");
+        }
+        finally { native.Dispose(); coarse.Dispose(); }
     }
 
     private static void RestrictFineFixtureWindow(TerrainAuthoringPreviewLodState state,

@@ -158,15 +158,34 @@ public static partial class TerrainAuthoringPreviewService
             CaptureDirtyFailure(state), state?.DirtyScratchBytes ?? 0L);
     }
 
+    internal static bool IsNewerDirtyFailure(TerrainAuthoringPreviewDirtyFailureSnapshot candidate,
+        TerrainAuthoringPreviewDirtyFailureSnapshot current)
+    {
+        return candidate.Present && (!current.Present || candidate.AttemptSequence > current.AttemptSequence
+            || candidate.AttemptSequence == current.AttemptSequence && (candidate.AttemptedGeneration > current.AttemptedGeneration
+                || candidate.AttemptedGeneration == current.AttemptedGeneration
+                    && (candidate.Level < current.Level || candidate.Level == current.Level
+                        && (candidate.Tile.y < current.Tile.y || candidate.Tile.y == current.Tile.y && candidate.Tile.x < current.Tile.x))));
+    }
+
     internal static TerrainAuthoringPreviewDirtyFailureSnapshot CaptureDirtyFailure(TerrainAuthoringPreviewLodState state)
     {
         var selected = default(TerrainAuthoringPreviewDirtyFailureSnapshot);
         if (state != null) foreach (var pair in state.DirtyFailures)
-            if (!selected.Present || pair.Value.AttemptedGeneration > selected.AttemptedGeneration
-                || (pair.Value.AttemptedGeneration == selected.AttemptedGeneration
-                    && (pair.Key.y < selected.Tile.y || pair.Key.y == selected.Tile.y && pair.Key.x < selected.Tile.x)))
-                selected = new TerrainAuthoringPreviewDirtyFailureSnapshot(pair.Key, pair.Value);
+        {
+            var candidate = new TerrainAuthoringPreviewDirtyFailureSnapshot(pair.Key, pair.Value, state.Level);
+            if (IsNewerDirtyFailure(candidate, selected)) selected = candidate;
+        }
         return selected;
+    }
+
+    private static TerrainAuthoringPreviewDirtySourceSnapshot CaptureHeldDirtySource()
+    {
+        if (activeDirtySource == null) return default;
+        var key = activeDirtySourceIdentity;
+        return new TerrainAuthoringPreviewDirtySourceSnapshot(true, key.Tile, key.CommittedSignature,
+            key.SettingsId, key.NativeSamples, activeDirtySource.GetInstanceID(),
+            (long)activeDirtySource.width * activeDirtySource.height * sizeof(float));
     }
 
     internal static TerrainAuthoringPreviewResidencySizeHealth AggregateSizeHealth(
@@ -225,7 +244,7 @@ public static partial class TerrainAuthoringPreviewService
         var analysisFailure = CaptureFailure(lastFailedAnalysisCacheSetRequest);
         bool failureRelevant = failure.Present && waiting && latestDisplayIntent != null
             && lastFailedCacheSetRequest.DisplayIntent?.PlacementGeneration == latestDisplayIntent.PlacementGeneration;
-        var analysis = CaptureAnalysisSourceMetadata(configurationCurrent);
+        var analysis = CaptureAnalysisSourceMetadata(configurationCurrent, committed);
         var analysisEntry = currentCacheSetTransition != null && currentCacheSetTransition.InProgress
             && currentCacheSetTransition.Publication == TerrainAuthoringPreviewCachePublication.NativeAnalysis
             ? currentCacheSetTransition.Entries[0] : null;
@@ -254,7 +273,9 @@ public static partial class TerrainAuthoringPreviewService
             TerrainAuthoringSceneViewController.FreezePreview,
             diagnosticPendingGeographicDirty.Count, LastDirtyUpdateLoads, LastDirtyUpdateMaterializations, LastDirtyUpdateCompositions,
             lastStreamingCancellationReason, rows, LastDirtyUpdateAllocations, LastDirtyUpdateCopies,
-            boundsFollowUpPending, analysisFollowUpPending, boundsFollowUpError, analysisFollowUpError, latestFollowUpError);
+            boundsFollowUpPending, analysisFollowUpPending, boundsFollowUpError, analysisFollowUpError, latestFollowUpError,
+            dirtyCompositeTiles.Count > 0 || hasPendingRegionalElevationInvalidation || overallSignatureAcknowledgementRequested,
+            dirtyCompositeTiles.Count, CaptureHeldDirtySource(), latestDisplayIntent?.PlacementGeneration ?? 0L);
     }
 
 }

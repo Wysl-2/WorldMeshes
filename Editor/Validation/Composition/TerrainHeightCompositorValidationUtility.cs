@@ -1573,8 +1573,10 @@ public static class TerrainHeightCompositorValidationUtility
             -
             dirtyCompositorDispatchesBefore;
 
+        var snapshot = TerrainAuthoringPreviewService.GetDiagnosticsSnapshot();
         bool dispatchCorrect =
-            lastDispatchCount <= TerrainAuthoringPreviewService.StreamingCompositionsPerUpdate
+            snapshot.LastDirtyCompositions <= TerrainAuthoringPreviewService.DirtyCompositionsPerUpdate
+            && snapshot.Worker.LastCompositions <= TerrainAuthoringPreviewService.StreamingCompositionsPerUpdate
             && dispatchDelta >= dirtyDisplayJobsExpected;
 
         AddResult(

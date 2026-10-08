@@ -228,7 +228,8 @@ public static partial class TerrainAuthoringPreviewService
         TerrainAuthoringPreviewLodState state, Vector2Int tile)
     {
         int dirtyPriority = GetDirtyDestinationPriority(activeHeightStates, state, tile,
-            HasActiveInteractiveTerrainAuthoringEdit, latestInteractiveScopeContains);
+            HasActiveInteractiveTerrainAuthoringEdit, latestInteractiveScopeContains,
+            HasLiveTerrainAnalysisDemand, analysisRequiredSourceWindow);
         return dirtyPriority < GetActiveHeightPreparationPriority(settings, committed, overall);
     }
 
