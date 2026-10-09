@@ -517,6 +517,7 @@ public static partial class TerrainAuthoringPreviewService
         bool notifyObservers
     )
     {
+        TerrainAuthoringPreviewHeightSourceUtility.ResetTransientFailures();
         EditorApplication.delayCall -=
             ExecuteScheduledRefresh;
 

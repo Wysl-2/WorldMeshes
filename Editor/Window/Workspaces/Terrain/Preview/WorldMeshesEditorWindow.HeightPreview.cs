@@ -84,13 +84,20 @@ public partial class WorldMeshesEditorWindow :
         EditorGUILayout.LabelField("Incoming Scope / Geographic Tiles",
             $"{snapshot.UnprojectedScopePending} / {snapshot.UnprojectedGeographicDirtyCount:N0}");
         var held = snapshot.HeldDirtySource;
-        EditorGUILayout.LabelField("Held Committed Native Source", held.Present
-            ? $"Tile {held.Tile}; texture {held.TextureId}; {held.NativeSamples} samples; settings {held.SettingsId}" : "None");
+        EditorGUILayout.LabelField("Held Committed Source", held.Present
+            ? $"Tile {held.Tile}; stride {held.SourceStride}; texture {held.TextureId}; {(held.Owned ? "Owned derived" : "Borrowed native")}" : "None");
         if (held.Present)
         {
             EditorGUILayout.LabelField("Held Source Committed Identity", held.CommittedSignature);
-            EditorGUILayout.LabelField("Borrowed Native Source Payload Estimate", FormatPreviewMemory(held.ApproximatePayloadBytes));
+            EditorGUILayout.LabelField("Held Source Payload Estimate", FormatPreviewMemory(held.ApproximatePayloadBytes));
         }
+        var sources = snapshot.SourceCache;
+        EditorGUILayout.LabelField("Committed Sources: Native Loads / Derived Hits / Generated",
+            $"{sources.NativeLoads:N0} / {sources.CacheHits:N0} / {sources.GeneratedEntries:N0}");
+        EditorGUILayout.LabelField("Derived Cache: Native Fallbacks / Rejected / Read Failures / Write Failures",
+            $"{sources.NativeFallbacks:N0} / {sources.RejectedEntries:N0} / {sources.ReadFailures:N0} / {sources.WriteFailures:N0}");
+        EditorGUILayout.LabelField("Source Counter Lifetime", "Cumulative for this Editor domain; includes native analysis.");
+        if (!string.IsNullOrEmpty(sources.Warning)) EditorGUILayout.HelpBox(sources.Warning, MessageType.Warning);
         EditorGUILayout.LabelField("Last Dirty Callback: Allocate / Load / All Copies / Materialize / Compose",
             $"{snapshot.LastDirtyAllocations} / {snapshot.LastDirtyLoads} / {snapshot.LastDirtyCopies} / {snapshot.LastDirtyMaterializations} / {snapshot.LastDirtyCompositions}");
         EditorGUILayout.LabelField("Dirty Copies", "Includes native extraction, live backup/publication and recovery attempts.");
@@ -196,6 +203,7 @@ public partial class WorldMeshesEditorWindow :
         if (!worker.Present) return;
         EditorGUILayout.LabelField(label + " Generations: Request / Authoring / Ownership", $"{worker.RequestGeneration} / {worker.AuthoringGeneration} / {worker.OwnershipGeneration}");
         EditorGUILayout.LabelField(label + " Geographic Sources Loaded", $"{worker.LoadedGroupCount:N0} / {worker.SourceGroupCount:N0}");
+        EditorGUILayout.LabelField(label + " Source Acquisitions", $"{worker.SourceAcquisitionCount:N0}");
         EditorGUILayout.LabelField(label + " Representation Pages Materialized / Composed", $"{worker.MaterializedCount:N0} / {worker.ComposedCount:N0} of {worker.RepresentationCount:N0}");
         EditorGUILayout.LabelField(label + " Retained Copies", $"{worker.CopiedCount:N0} / {worker.ReusableCount:N0}");
         EditorGUILayout.LabelField(label + " Last Callback: Allocate / Load / Copy / Materialize / Compose", $"{worker.LastAllocations} / {worker.LastLoads} / {worker.LastCopies} / {worker.LastMaterializations} / {worker.LastCompositions}");
@@ -210,4 +218,5 @@ public partial class WorldMeshesEditorWindow :
     }
 
 }
+
 

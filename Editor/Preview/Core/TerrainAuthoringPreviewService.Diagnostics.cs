@@ -104,9 +104,10 @@ public static partial class TerrainAuthoringPreviewService
         return new TerrainAuthoringPreviewWorkerSnapshot(true, transaction.Publication, transaction.State,
             transaction.RequestGeneration, transaction.AuthoringGeneration, transaction.OwnershipGeneration,
             transaction.TotalWorkUnits > 0 ? UnityEngine.Mathf.Clamp01((float)transaction.CompletedWorkUnits / transaction.TotalWorkUnits) : 0f,
-            transaction.SourceGroups.Count, transaction.SourceLoads, representations, transaction.MaterializedSlices,
+            transaction.SourceGroups.Count, transaction.LoadedSourceGroups, representations, transaction.MaterializedSlices,
             transaction.ComposedSlices, reusable, transaction.RetainedCopies, transaction.LastUpdateAllocations,
-            transaction.LastUpdateLoads, transaction.LastUpdateCopies, transaction.LastUpdateMaterializations, transaction.LastUpdateCompositions);
+            transaction.LastUpdateLoads, transaction.LastUpdateCopies, transaction.LastUpdateMaterializations,
+            transaction.LastUpdateCompositions, transaction.SourceLoads);
     }
 
     private static TerrainAuthoringPreviewFailureSnapshot CaptureFailure(TerrainAuthoringPreviewCacheSetTransition transaction)
@@ -185,7 +186,8 @@ public static partial class TerrainAuthoringPreviewService
         var key = activeDirtySourceIdentity;
         return new TerrainAuthoringPreviewDirtySourceSnapshot(true, key.Tile, key.CommittedSignature,
             key.SettingsId, key.NativeSamples, activeDirtySource.GetInstanceID(),
-            (long)activeDirtySource.width * activeDirtySource.height * sizeof(float));
+            (long)activeDirtySource.width * activeDirtySource.height * sizeof(float),
+            activeDirtySourceLease.SourceStride, activeDirtySourceLease.OwnsTexture);
     }
 
     internal static TerrainAuthoringPreviewResidencySizeHealth AggregateSizeHealth(
@@ -275,9 +277,11 @@ public static partial class TerrainAuthoringPreviewService
             lastStreamingCancellationReason, rows, LastDirtyUpdateAllocations, LastDirtyUpdateCopies,
             boundsFollowUpPending, analysisFollowUpPending, boundsFollowUpError, analysisFollowUpError, latestFollowUpError,
             dirtyCompositeTiles.Count > 0 || hasPendingRegionalElevationInvalidation || overallSignatureAcknowledgementRequested,
-            dirtyCompositeTiles.Count, CaptureHeldDirtySource(), latestDisplayIntent?.PlacementGeneration ?? 0L);
+            dirtyCompositeTiles.Count, CaptureHeldDirtySource(), latestDisplayIntent?.PlacementGeneration ?? 0L,
+            TerrainAuthoringPreviewHeightSourceUtility.CaptureDiagnostics());
     }
 
 }
+
 
 

@@ -563,6 +563,9 @@ public static partial class TerrainAuthoringPreviewService
      */
     public static void NotifyCommittedHeightfieldChanged()
     {
+        TerrainAuthoringPreviewHeightSourceUtility.ResetTransientFailures();
+        currentCacheSetTransition?.ReleaseCurrentSource();
+        ReleaseActiveDirtySource();
         ClearTransitionFailureSuppression();
 
         committedRebuildRequested =

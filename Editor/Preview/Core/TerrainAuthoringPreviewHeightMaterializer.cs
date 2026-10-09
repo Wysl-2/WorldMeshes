@@ -4,8 +4,8 @@ using UnityEngine;
 using UnityEngine.Rendering;
 
 /*
- * GPU-only exact native-lattice extraction into one Height cache slice.
- * Sources remain native and may be reused across destination representations.
+ * GPU-only exact lattice extraction into one Height cache slice.
+ * Native and derived sources supply an explicit native-relative stride.
  * Dispatches use a temporary shader instance so borrowed texture bindings do not
  * remain on the project asset. No temporary textures or source tiles are owned.
  */
@@ -123,12 +123,33 @@ internal sealed class TerrainAuthoringPreviewHeightMaterializer
         return true;
     }
 
+    // Compatibility for native-only callers and existing validator fixtures.
+    internal bool TryMaterialize(Texture2D nativeSource, RenderTexture destinationCache, int destinationSlice,
+        int nativeSamplesPerSide, int destinationSamplesPerSide, int sampleStride, out string errorMessage)
+    {
+        return TryMaterialize(nativeSource, destinationCache, destinationSlice, nativeSamplesPerSide,
+            destinationSamplesPerSide, 1, sampleStride, out errorMessage);
+    }
+
+    internal bool TryMaterialize(TerrainAuthoringPreviewHeightSourceLease source, RenderTexture destinationCache,
+        int destinationSlice, int nativeSamplesPerSide, int destinationSamplesPerSide, int sampleStride, out string errorMessage)
+    {
+        if (source == null || source.NativeSamplesPerSide != nativeSamplesPerSide)
+        {
+            errorMessage = "The committed Height source lease is incompatible.";
+            return false;
+        }
+        return TryMaterialize(source.Texture, destinationCache, destinationSlice, nativeSamplesPerSide,
+            destinationSamplesPerSide, source.SourceStride, sampleStride, out errorMessage);
+    }
+
     internal bool TryMaterialize(
-        Texture2D nativeSource,
+        Texture2D source,
         RenderTexture destinationCache,
         int destinationSlice,
         int nativeSamplesPerSide,
         int destinationSamplesPerSide,
+        int sourceStride,
         int sampleStride,
         out string errorMessage
     )
@@ -136,18 +157,11 @@ internal sealed class TerrainAuthoringPreviewHeightMaterializer
         errorMessage = "";
 
         if (
-            !TerrainAuthoringPreviewHeightSourceUtility.TryValidateNativeSource(
-                nativeSource,
-                nativeSamplesPerSide,
-                out errorMessage
-            )
-        )
-        {
-            return false;
-        }
-
-        if (
-            !TerrainHeightResolutionUtility.IsPowerOfTwo(sampleStride)
+            nativeSamplesPerSide <= 1
+            || !TerrainHeightResolutionUtility.IsPowerOfTwo(sourceStride)
+            || !TerrainHeightResolutionUtility.IsPowerOfTwo(sampleStride)
+            || sourceStride > sampleStride || sampleStride % sourceStride != 0
+            || (nativeSamplesPerSide - 1) % sourceStride != 0
             || (nativeSamplesPerSide - 1) % sampleStride != 0
             || destinationSamplesPerSide <= 1
             || destinationSamplesPerSide !=
@@ -158,6 +172,19 @@ internal sealed class TerrainAuthoringPreviewHeightMaterializer
                 "The Height materialization stride or destination sample count is incompatible with the native lattice.";
             return false;
         }
+
+        int sourceSamples = (nativeSamplesPerSide - 1) / sourceStride + 1;
+        if (source == null || source.width != sourceSamples || source.height != sourceSamples
+            || source.format != TextureFormat.RFloat)
+        {
+            errorMessage = "The committed Height source dimensions or format do not match its actual stride.";
+            return false;
+        }
+        int relativeStride = sampleStride / sourceStride;
+        CopyTextureSupport requiredCopySupport =
+            CopyTextureSupport.DifferentTypes | CopyTextureSupport.TextureToRT;
+        bool directCopy = relativeStride == 1
+            && (SystemInfo.copyTextureSupport & requiredCopySupport) == requiredCopySupport;
 
         if (
             destinationCache == null
@@ -176,52 +203,34 @@ internal sealed class TerrainAuthoringPreviewHeightMaterializer
             return false;
         }
 
-        if (sampleStride == 1)
+        if (!directCopy)
         {
-            CopyTextureSupport requiredCopySupport =
-                CopyTextureSupport.DifferentTypes | CopyTextureSupport.TextureToRT;
-            if (
-                (SystemInfo.copyTextureSupport & requiredCopySupport) != requiredCopySupport
-            )
+            if (!destinationCache.enableRandomWrite
+                || !SystemInfo.SupportsRandomWriteOnRenderTextureFormat(RenderTextureFormat.RFloat))
             {
-                errorMessage =
-                    "The graphics device cannot copy native Height textures into texture arrays.";
+                errorMessage = "The Height destination does not support RFloat random writes.";
                 return false;
             }
-        }
-        else if (
-            !destinationCache.enableRandomWrite
-            || !SystemInfo.SupportsRandomWriteOnRenderTextureFormat(
-                RenderTextureFormat.RFloat
-            )
-        )
-        {
-            errorMessage =
-                "The coarse Height destination does not support RFloat random writes.";
-            return false;
-        }
-        else if (!TryPrepare(out errorMessage))
-        {
-            return false;
+            if (!TryPrepare(out errorMessage)) return false;
         }
 
         try
         {
             using (WorldMeshesProfiler.PreviewCopyTiles.Auto())
             {
-                if (sampleStride == 1)
+                if (directCopy)
                 {
                     Graphics.CopyTexture(
-                        nativeSource, 0, 0, destinationCache, destinationSlice, 0
+                        source, 0, 0, destinationCache, destinationSlice, 0
                     );
                 }
                 else
                 {
-                    computeShader.SetTexture(kernel, NativeHeightSourceId, nativeSource);
+                    computeShader.SetTexture(kernel, NativeHeightSourceId, source);
                     computeShader.SetTexture(kernel, HeightCacheId, destinationCache);
                     computeShader.SetInt(DestinationSliceId, destinationSlice);
                     computeShader.SetInt(DestinationSamplesPerSideId, destinationSamplesPerSide);
-                    computeShader.SetInt(SampleStrideId, sampleStride);
+                    computeShader.SetInt(SampleStrideId, relativeStride);
                     computeShader.Dispatch(
                         kernel,
                         (int)(((long)destinationSamplesPerSide + threadGroupSizeX - 1) / threadGroupSizeX),
@@ -246,3 +255,4 @@ internal sealed class TerrainAuthoringPreviewHeightMaterializer
         return true;
     }
 }
+

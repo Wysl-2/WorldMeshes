@@ -132,6 +132,7 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
             RunWindowFittingValidation();
             RunClipmapStrideValidation();
             RunExactHeightMaterializationValidation();
+            RunDerivedCommittedSourceValidation();
 
             if (
                 !TryValidateCachePrerequisites(
@@ -271,7 +272,7 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
             rejected &= !cache.TryCommitCompositeSliceFromScratch(cache.HeightCache, tile,
                 70f, 70f, out safe, out copies, out _) && safe && copies == 0;
             AssertDirtyFixture(cache, tile, neighbor, 5f, 10f, baseLow, baseHigh);
-            rejected &= !materializer.TryMaterialize(null, state.DirtyScratch, 0,
+            rejected &= !materializer.TryMaterialize((Texture2D)null, state.DirtyScratch, 0,
                 settings.HeightTileSamplesPerSide, state.SamplesPerSide, state.SampleStride, out _);
             if (!compositor.TryPrepare(out error)) throw new InvalidOperationException(error);
             rejected &= !compositor.TryComposeTile(state.DirtyScratch, tile, -1, state.SamplesPerSide,
@@ -1328,6 +1329,117 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
         }
     }
 
+
+    private static void RunDerivedCommittedSourceValidation()
+    {
+        string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "WorldMeshesHeightSource-" + Guid.NewGuid().ToString("N"));
+        Texture2D native = null;
+        TerrainAuthoringPreviewHeightSourceLease owned = null;
+        try
+        {
+            const int nativeSize = 17;
+            const int stride = 4;
+            const int size = 5;
+            var samples = new float[nativeSize * nativeSize];
+            for (int z = 0; z < nativeSize; z++)
+                for (int x = 0; x < nativeSize; x++) samples[x + z * nativeSize] = x + z * 100f;
+            native = new Texture2D(nativeSize, nativeSize, TextureFormat.RFloat, false, true);
+            native.hideFlags = HideFlags.HideAndDontSave;
+            native.SetPixelData(samples, 0);
+            native.Apply(false, false);
+            if (!TerrainAuthoringPreviewDerivedHeightCache.TryExtract(native, nativeSize, stride, out byte[] bytes, out string error))
+                throw new InvalidOperationException(error);
+            for (int z = 0; z < size; z++)
+                for (int x = 0; x < size; x++)
+                    if (BitConverter.ToSingle(bytes, (x + z * size) * sizeof(float)) != samples[x * stride + z * stride * nativeSize])
+                        throw new InvalidOperationException("Derived samples differ from the exact native lattice, including the last edges.");
+
+            // The adjacent native tile begins at the previous tile's last
+            // interval. Its derived first edge must remain exactly shared.
+            var neighbour = new float[nativeSize * nativeSize];
+            for (int z = 0; z < nativeSize; z++)
+                for (int x = 0; x < nativeSize; x++) neighbour[x + z * nativeSize] = x + nativeSize - 1 + z * 100f;
+            native.SetPixelData(neighbour, 0);
+            native.Apply(false, false);
+            if (!TerrainAuthoringPreviewDerivedHeightCache.TryExtract(native, nativeSize, stride, out var neighbourBytes, out error))
+                throw new InvalidOperationException(error);
+            for (int z = 0; z < size; z++)
+                if (BitConverter.ToSingle(bytes, (size - 1 + z * size) * sizeof(float))
+                    != BitConverter.ToSingle(neighbourBytes, z * size * sizeof(float)))
+                    throw new InvalidOperationException("Adjacent derived tiles disagree at their shared native edge.");
+            native.SetPixelData(samples, 0);
+            native.Apply(false, false);
+
+            var identity = new TerrainAuthoringPreviewDerivedHeightCache.EntryIdentity(
+                Hash128.Compute("Validation world topology").ToString(), Hash128.Compute("Validation source").ToString(),
+                new Vector2Int(2, 3), nativeSize, stride);
+            if (TerrainAuthoringPreviewDerivedHeightCache.TryRead(root, identity, out _, out _) != TerrainAuthoringPreviewDerivedHeightCache.ReadResult.Missing)
+                throw new InvalidOperationException("A missing entry was not reported as missing.");
+            if (!TerrainAuthoringPreviewDerivedHeightCache.TryWrite(root, identity, bytes, () => true, out error)
+                || TerrainAuthoringPreviewDerivedHeightCache.TryRead(root, identity, out var read, out error)
+                    != TerrainAuthoringPreviewDerivedHeightCache.ReadResult.Hit)
+                throw new InvalidOperationException("A written entry could not be read: " + error);
+            for (int i = 0; i < bytes.Length; i++)
+                if (read[i] != bytes[i]) throw new InvalidOperationException("The persistent payload changed.");
+
+            var stale = new TerrainAuthoringPreviewDerivedHeightCache.EntryIdentity(identity.Namespace,
+                Hash128.Compute("Changed tile source").ToString(), identity.Tile, nativeSize, stride);
+            if (TerrainAuthoringPreviewDerivedHeightCache.TryRead(root, stale, out _, out _) != TerrainAuthoringPreviewDerivedHeightCache.ReadResult.Rejected)
+                throw new InvalidOperationException("A stale tile-specific source identity was accepted.");
+            if (TerrainAuthoringPreviewDerivedHeightCache.TryWrite(root, identity, bytes, () => false, out _)
+                || TerrainAuthoringPreviewDerivedHeightCache.TryRead(root, identity, out _, out _) != TerrainAuthoringPreviewDerivedHeightCache.ReadResult.Hit)
+                throw new InvalidOperationException("A superseded write replaced the previously valid entry.");
+            if (System.IO.Directory.GetFiles(root, "*.tmp", System.IO.SearchOption.AllDirectories).Length != 0)
+                throw new InvalidOperationException("An interrupted candidate retained a temporary file.");
+
+            string path = TerrainAuthoringPreviewDerivedHeightCache.GetEntryPath(root, identity);
+            byte[] validFile = System.IO.File.ReadAllBytes(path);
+            System.IO.File.WriteAllBytes(path, new byte[7]);
+            if (TerrainAuthoringPreviewDerivedHeightCache.TryRead(root, identity, out _, out _) != TerrainAuthoringPreviewDerivedHeightCache.ReadResult.Rejected)
+                throw new InvalidOperationException("A truncated entry was accepted.");
+            byte[] corrupt = (byte[])validFile.Clone();
+            corrupt[corrupt.Length - 1] ^= 1;
+            System.IO.File.WriteAllBytes(path, corrupt);
+            if (TerrainAuthoringPreviewDerivedHeightCache.TryRead(root, identity, out _, out _) != TerrainAuthoringPreviewDerivedHeightCache.ReadResult.Rejected)
+                throw new InvalidOperationException("Same-length payload corruption was accepted.");
+            corrupt = (byte[])validFile.Clone();
+            corrupt[4] ^= 1; // unsupported schema
+            System.IO.File.WriteAllBytes(path, corrupt);
+            if (TerrainAuthoringPreviewDerivedHeightCache.TryRead(root, identity, out _, out _) != TerrainAuthoringPreviewDerivedHeightCache.ReadResult.Rejected)
+                throw new InvalidOperationException("An incompatible format was accepted.");
+            if (!TerrainAuthoringPreviewDerivedHeightCache.TryWrite(root, identity, bytes, () => true, out error))
+                throw new InvalidOperationException("A corrupt entry could not be regenerated: " + error);
+
+            string unavailableRoot = System.IO.Path.Combine(root, "unavailable");
+            System.IO.File.WriteAllText(unavailableRoot, "This is a file, not a directory.");
+            if (TerrainAuthoringPreviewDerivedHeightCache.TryWrite(unavailableRoot, identity, bytes, () => true, out _))
+                throw new InvalidOperationException("An unavailable cache directory was reported as writable.");
+
+            if (!TerrainAuthoringPreviewDerivedHeightCache.TryCreateTexture(bytes, size, out var derived, out error))
+                throw new InvalidOperationException(error);
+            owned = new TerrainAuthoringPreviewHeightSourceLease(derived, stride, nativeSize, true, identity);
+            if (!owned.CanMaterializeAt(stride) || !owned.CanMaterializeAt(8) || owned.CanMaterializeAt(2))
+                throw new InvalidOperationException("A lease accepted incompatible source/destination strides.");
+            owned.Dispose();
+            owned.Dispose();
+            if (owned.Texture != null || derived != null) throw new InvalidOperationException("An owned derived source survived disposal.");
+            using (var borrowed = new TerrainAuthoringPreviewHeightSourceLease(native, 1, nativeSize, false)) { }
+            if (native == null) throw new InvalidOperationException("Disposing a borrowed lease destroyed the native asset.");
+            AddResult("Persistent committed Height sources", ValidationOutcome.Pass,
+                "Exact lattice/edges, warm file read, stale identity, truncated/corrupt/obsolete entries, atomic rejection, unavailable directory and lease disposal.");
+        }
+        catch (Exception exception)
+        {
+            AddResult("Persistent committed Height sources", ValidationOutcome.Fail, exception.Message);
+        }
+        finally
+        {
+            owned?.Dispose();
+            if (native != null) UnityEngine.Object.DestroyImmediate(native);
+            if (System.IO.Directory.Exists(root)) System.IO.Directory.Delete(root, true);
+        }
+    }
+
     private static void RunExactHeightMaterializationValidation()
     {
         if (
@@ -1370,7 +1482,7 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
             source.name = "Height Representation Validation Native Source";
             source.hideFlags = HideFlags.HideAndDontSave;
             source.SetPixelData(nativeSamples, 0);
-            source.Apply(false, true);
+            source.Apply(false, false);
 
             TerrainAuthoringPreviewHeightMaterializer materializer =
                 new TerrainAuthoringPreviewHeightMaterializer();
@@ -1494,6 +1606,36 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
                     );
                 }
 
+
+                if (stride >= 2)
+                {
+                    if (!TerrainAuthoringPreviewDerivedHeightCache.TryExtract(source, nativeSize, 2,
+                        out byte[] derivedBytes, out string sourceError)
+                        || !TerrainAuthoringPreviewDerivedHeightCache.TryCreateTexture(derivedBytes, 9, out var derived, out sourceError))
+                        throw new InvalidOperationException(sourceError);
+                    using (var lease = new TerrainAuthoringPreviewHeightSourceLease(derived, 2, nativeSize, true))
+                    {
+                        if (materializer.TryMaterialize(lease, destination, 1, nativeSize, size, 1, out _)
+                            || !materializer.TryMaterialize(lease, destination, 1, nativeSize, size, stride, out sourceError))
+                            throw new InvalidOperationException("Source-relative materialization failed: " + sourceError);
+                        var derivedReadback = AsyncGPUReadback.Request(destination, 0);
+                        derivedReadback.WaitForCompletion();
+                        if (derivedReadback.hasError || derivedReadback.layerCount != 2)
+                            throw new InvalidOperationException("Derived-source GPU readback failed.");
+                        var derivedSamples = derivedReadback.GetData<float>(1);
+                        var untouchedSamples = derivedReadback.GetData<float>(0);
+                        for (int z = 0; z < size; z++)
+                            for (int x = 0; x < size; x++)
+                            {
+                                int index = x + z * size;
+                                if (derivedSamples[index] != nativeSamples[x * stride + z * stride * nativeSize]
+                                    || untouchedSamples[index] != untouchedValue)
+                                    throw new InvalidOperationException("Source-relative extraction changed the lattice or another slice.");
+                            }
+                    }
+                    AddResult($"Derived source stride 2 to destination stride {stride}", ValidationOutcome.Pass,
+                        "Verified GPU source-relative extraction, same-stride copy, last edges and no coarse-to-fine upsampling.");
+                }
                 destination.Release();
                 UnityEngine.Object.DestroyImmediate(destination);
                 destination = null;
@@ -1558,7 +1700,7 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
         {
             Vector2Int firstTile = testWindow.OriginTile;
             bool rejected = !validationCache.TryMaterializeCommittedBaseTile(
-                null, materializer, firstTile, out _
+                (Texture2D)null, materializer, firstTile, out _
             );
             bool failureSafe = rejected
                 && validationCache.GetSliceReadiness(firstTile) ==
@@ -2442,5 +2584,6 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
             tolerance;
     }
 }
+
 
 

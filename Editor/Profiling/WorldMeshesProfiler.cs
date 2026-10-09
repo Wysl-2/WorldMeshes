@@ -29,6 +29,13 @@ public static class WorldMeshesProfiler
     public static readonly ProfilerMarker PreviewValidateCommitted =
         new("WorldMeshes.Preview.ValidateCommitted");
 
+    public static readonly ProfilerMarker PreviewDerivedHeightRead =
+        new ProfilerMarker("WorldMeshes.Preview.DerivedHeight.Read");
+    public static readonly ProfilerMarker PreviewDerivedHeightGenerate =
+        new ProfilerMarker("WorldMeshes.Preview.DerivedHeight.Generate");
+    public static readonly ProfilerMarker PreviewDerivedHeightWrite =
+        new ProfilerMarker("WorldMeshes.Preview.DerivedHeight.Write");
+
     public static readonly ProfilerMarker PreviewLoadTiles =
         new("WorldMeshes.Preview.LoadTiles");
 

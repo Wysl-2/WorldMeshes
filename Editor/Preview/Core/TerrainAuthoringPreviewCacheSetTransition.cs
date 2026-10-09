@@ -52,6 +52,8 @@ internal sealed class TerrainAuthoringPreviewCacheSetTransition : IDisposable
         internal readonly List<Entry> Destinations = new List<Entry>();
         internal int Cursor;
         internal float Distance;
+        internal bool RequiresNative;
+        internal bool SourceAcquired;
     }
 
     internal readonly Entry[] Entries;
@@ -75,7 +77,10 @@ internal sealed class TerrainAuthoringPreviewCacheSetTransition : IDisposable
     internal TerrainAuthoringPreviewTransitionState State = TerrainAuthoringPreviewTransitionState.Preparing;
     internal int PreparationCursor;
     internal int GroupCursor;
-    internal Texture2D CurrentSource;
+    internal TerrainAuthoringPreviewHeightSourceLease CurrentSourceLease;
+    internal Texture2D CurrentSource => CurrentSourceLease?.Texture;
+    internal Texture2D GenerationNativeSource; // borrowed, one current geographic group
+    internal int LoadedSourceGroups;
     internal readonly TerrainAuthoringPreviewHeightMaterializer Materializer =
         new TerrainAuthoringPreviewHeightMaterializer();
     internal int SourceLoads;
@@ -172,6 +177,7 @@ internal sealed class TerrainAuthoringPreviewCacheSetTransition : IDisposable
         foreach (var group in SourceGroups)
         {
             group.Destinations.Sort((a, b) => a.Plan.Level.CompareTo(b.Plan.Level));
+            group.RequiresNative = group.Destinations.Exists(e => e.Plan.SampleStride == 1);
             var first = group.Destinations[0];
             var delta = new Vector2((group.Tile.x + 0.5f) * tileWorldSize, (group.Tile.y + 0.5f) * tileWorldSize) -
                 new Vector2(first.Plan.Anchor.x, first.Plan.Anchor.z);
@@ -245,10 +251,17 @@ internal sealed class TerrainAuthoringPreviewCacheSetTransition : IDisposable
         return result;
     }
 
-    internal void ReleaseCurrentSource()
+    internal void ReleaseCurrentRepresentationSource()
     {
         Materializer.ReleaseTextureBindings();
-        CurrentSource = null;
+        CurrentSourceLease?.Dispose();
+        CurrentSourceLease = null;
+    }
+
+    internal void ReleaseCurrentSource()
+    {
+        ReleaseCurrentRepresentationSource();
+        GenerationNativeSource = null;
     }
 
     public void Dispose()
@@ -267,3 +280,4 @@ internal sealed class TerrainAuthoringPreviewCacheSetTransition : IDisposable
     internal Vector2Int FailedTile;
     internal TerrainHeightCacheWindow FailedWindow;
 }
+

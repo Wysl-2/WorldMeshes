@@ -492,9 +492,27 @@ public sealed partial class TerrainAuthoringPreviewCache
         );
     }
 
-    // The loaded native source can feed several independent representations.
-    internal bool TryMaterializeCommittedBaseTile(
+    internal bool TryMaterializeCommittedBaseTile(TerrainAuthoringPreviewHeightSourceLease source,
+        TerrainAuthoringPreviewHeightMaterializer materializer, Vector2Int worldTile, out string errorMessage)
+    {
+        if (source == null || source.NativeSamplesPerSide != nativeSamplesPerSide)
+        {
+            errorMessage = "The committed Height source lease is incompatible.";
+            return false;
+        }
+        return TryMaterializeCommittedBaseTile(source.Texture, source.SourceStride, materializer, worldTile, out errorMessage);
+    }
+
+    // Compatibility for the native-only cache and validator pathways.
+    internal bool TryMaterializeCommittedBaseTile(Texture2D nativeSource,
+        TerrainAuthoringPreviewHeightMaterializer materializer, Vector2Int worldTile, out string errorMessage)
+    {
+        return TryMaterializeCommittedBaseTile(nativeSource, 1, materializer, worldTile, out errorMessage);
+    }
+
+    private bool TryMaterializeCommittedBaseTile(
         Texture2D nativeSource,
+        int sourceStride,
         TerrainAuthoringPreviewHeightMaterializer materializer,
         Vector2Int worldTile,
         out string errorMessage
@@ -550,6 +568,7 @@ public sealed partial class TerrainAuthoringPreviewCache
                 slice,
                 nativeSamplesPerSide,
                 samplesPerSide,
+                sourceStride,
                 sampleStride,
                 out errorMessage
             )
@@ -1084,4 +1103,5 @@ public sealed partial class TerrainAuthoringPreviewCache
             readiness;
     }
 }
+
 

@@ -694,7 +694,8 @@ public static partial class TerrainAuthoringPreviewService
     private static readonly HashSet<Vector2Int> pendingCompositePublication = new HashSet<Vector2Int>();
     private static readonly HashSet<Vector2Int> pendingNativePublication = new HashSet<Vector2Int>();
     private static long dirtyFailureAttemptSequence;
-    private static Texture2D activeDirtySource;
+    private static TerrainAuthoringPreviewHeightSourceLease activeDirtySourceLease;
+    private static Texture2D activeDirtySource => activeDirtySourceLease?.Texture;
     private static Vector2Int activeDirtySourceTile;
     private static DirtySourceIdentity activeDirtySourceIdentity;
     private static readonly HashSet<Vector2Int> latestInteractiveDirtyTiles = new HashSet<Vector2Int>();
@@ -784,7 +785,9 @@ public static partial class TerrainAuthoringPreviewService
 
     private static void ReleaseActiveDirtySource()
     {
-        activeDirtyMaterializer.ReleaseTextureBindings(); activeDirtySource = null; activeDirtySourceIdentity = default;
+        activeDirtyMaterializer.ReleaseTextureBindings();
+        activeDirtySourceLease?.Dispose(); activeDirtySourceLease = null;
+        activeDirtySourceIdentity = default;
     }
 
     private static void ClearInteractiveDirtyHint()
@@ -823,9 +826,27 @@ public static partial class TerrainAuthoringPreviewService
                 || TerrainRegionalElevationResidencyPolicy.ScopeAffectsTile(settings, latestInteractiveRegionalScope, tile));
     }
 
+    private static bool CanReuseActiveDirtySource(WorldSettings settings, DirtySourceIdentity target)
+    {
+        var held = activeDirtySourceIdentity;
+        return activeDirtySourceLease != null && activeDirtySource != null
+            && held.Tile == target.Tile && held.SettingsId == target.SettingsId && held.NativeSamples == target.NativeSamples
+            && !string.IsNullOrEmpty(target.CommittedSignature) && held.CommittedSignature == target.CommittedSignature
+            && (activeDirtySourceLease.HasIdentity
+                ? TerrainAuthoringPreviewHeightSourceUtility.IsCurrent(settings, activeDirtySourceLease)
+                : TerrainAuthoringPreviewHeightSourceUtility.TryValidateNativeSource(activeDirtySource, target.NativeSamples, out _));
+    }
+
+    private static bool DirtyGroupNeedsNativeSource(Vector2Int tile)
+    {
+        if (activeHeightStates != null) foreach (var state in activeHeightStates)
+            if (state.SampleStride == 1 && state.PendingDirtyTiles.Contains(tile)) return true;
+        return false;
+    }
+
     private static bool ShouldRetainActiveDirtySource(WorldSettings settings, string committed)
     {
-        if (settings == null || !CanReuseDirtySource(activeDirtySource, activeDirtySourceIdentity,
+        if (settings == null || !CanReuseActiveDirtySource(settings,
             new DirtySourceIdentity(activeDirtySourceTile, committed, settings.GetInstanceID(), settings.HeightTileSamplesPerSide))
             || !PublishedDisplayIsDrawable(settings, committed) || activeDisplayIntent.OwnershipGeneration
                 != TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration) return false;
@@ -1055,7 +1076,7 @@ public static partial class TerrainAuthoringPreviewService
         var first = ChooseActiveDirtyDestination(out Vector2Int groupTile);
         if (first == null || !PublishedDisplayIsDrawable(settings, committed)) return;
         var identity = new DirtySourceIdentity(groupTile, committed, settings.GetInstanceID(), settings.HeightTileSamplesPerSide);
-        if (!CanReuseDirtySource(activeDirtySource, activeDirtySourceIdentity, identity)) ReleaseActiveDirtySource();
+        if (!CanReuseActiveDirtySource(settings, identity)) ReleaseActiveDirtySource();
         long batchGeneration = authoringGeneration;
         while (LastDirtyUpdateCompositions < DefaultDirtyCompositionsPerUpdate)
         {
@@ -1077,16 +1098,21 @@ public static partial class TerrainAuthoringPreviewService
             string error = "";
             try
             {
+                int sourceStride = DirtyGroupNeedsNativeSource(tile) ? 1 : state.SampleStride;
+                if (activeDirtySourceLease != null && !activeDirtySourceLease.CanMaterializeAt(sourceStride))
+                    ReleaseActiveDirtySource();
                 if (activeDirtySource == null)
                 {
                     if (LastDirtyUpdateLoads >= DefaultCommittedLoadsPerUpdate) return;
                     LastDirtyUpdateLoads++;
-                    if (!TerrainAuthoringPreviewHeightSourceUtility.TryLoadCommittedNativeTile(settings, tile, out activeDirtySource, out error))
+                    Texture2D native = null;
+                    if (!TerrainAuthoringPreviewHeightSourceUtility.TryAcquireCommittedSource(settings, tile, sourceStride,
+                        ref native, false, out activeDirtySourceLease, out error))
                         throw new InvalidOperationException(error);
                     activeDirtySourceTile = tile; activeDirtySourceIdentity = identity;
                     if (watch.Elapsed.TotalMilliseconds >= DefaultSoftWorkBudgetMilliseconds) return;
                 }
-                if (!CanReuseDirtySource(activeDirtySource, activeDirtySourceIdentity, identity))
+                if (!CanReuseActiveDirtySource(settings, identity))
                     throw new InvalidOperationException("The held committed Height source became incompatible.");
                 // Count allocation attempts as work, including unsuccessful attempts.
                 if (needsScratch) LastDirtyUpdateAllocations++;
@@ -1096,14 +1122,15 @@ public static partial class TerrainAuthoringPreviewService
                 if (!cache.TryGetCommittedRange(tile, out float low, out float high, out error)) throw new InvalidOperationException(error);
                 LastDirtyUpdateMaterializations++;
                 if (state.SampleStride == 1) LastDirtyUpdateCopies++;
-                if (!activeDirtyMaterializer.TryMaterialize(activeDirtySource, state.DirtyScratch, 0,
+                if (!activeDirtyMaterializer.TryMaterialize(activeDirtySourceLease, state.DirtyScratch, 0,
                     settings.HeightTileSamplesPerSide, state.SamplesPerSide, state.SampleStride, out error))
                     throw new InvalidOperationException(error);
                 LastDirtyUpdateCompositions++;
                 if (!heightCompositor.TryComposeTile(state.DirtyScratch, tile, 0, state.SamplesPerSide,
                     state.SampleSpacing, settings.HeightTileWorldSize, cache.WorldSizeXZ, data,
                     low, high, out float finalLow, out float finalHigh, out error)) throw new InvalidOperationException(error);
-                if (!DirtyTargetStillCurrent(state, cache, texture, display, target, committed, settings, data, overall)) return;
+                if (!DirtyTargetStillCurrent(state, cache, texture, display, target, committed, settings, data, overall)
+                    || !CanReuseActiveDirtySource(settings, identity)) return;
                 bool success = cache.TryCommitCompositeSliceFromScratch(state.DirtyScratch, tile, finalLow, finalHigh,
                     out liveSliceSafe, out int copies, out error);
                 LastDirtyUpdateCopies += copies;
@@ -1212,6 +1239,7 @@ public static partial class TerrainAuthoringPreviewService
     // Observability only; maintained alongside existing bounded dirty projection.
     private static readonly HashSet<Vector2Int> diagnosticPendingGeographicDirty = new HashSet<Vector2Int>();
 }
+
 
 
 

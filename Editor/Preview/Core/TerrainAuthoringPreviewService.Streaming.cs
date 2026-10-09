@@ -303,7 +303,7 @@ public static partial class TerrainAuthoringPreviewService
         bool readyOnEntry = t.State == TerrainAuthoringPreviewTransitionState.ReadyToActivate;
         bool advanced = AdvanceHeightCacheSet(t, settings, data, heightCompositor, watch,
             DefaultSoftWorkBudgetMilliseconds, DefaultMaterializationsPerUpdate,
-            TerrainAuthoringPreviewHeightSourceUtility.TryLoadCommittedNativeTile, out error);
+            null, out error);
         if (!ReferenceEquals(t, currentCacheSetTransition)) return;
         if (!ValidateCacheSetTransaction(t, settings, data, out reason))
         { CancelCurrentStreamingTransition(reason, false); ScheduleRefresh(); return; }
@@ -417,24 +417,44 @@ public static partial class TerrainAuthoringPreviewService
                 if (t.GroupCursor < t.SourceGroups.Count)
                 {
                     var group = t.SourceGroups[t.GroupCursor];
+                    var next = group.Destinations[group.Cursor];
+                    int requestedStride = group.RequiresNative ? 1 : next.Plan.SampleStride;
+                    if (t.CurrentSourceLease != null && !t.CurrentSourceLease.CanMaterializeAt(requestedStride))
+                        t.ReleaseCurrentRepresentationSource();
                     if (t.CurrentSource == null && t.LastUpdateLoads < DefaultCommittedLoadsPerUpdate)
                     {
                         performedOperation = true;
-                        if (!loadSource(settings, group.Tile, out t.CurrentSource, out error))
-                            return WorkerFailure(t, group.Destinations[0], group.Tile, "native source load", error, out error);
-                        t.SourceLoads++;
                         t.LastUpdateLoads++;
-                        group.Destinations[0].Transition.CommittedSourceLoadCount++;
-                        t.CompletedWorkUnits++;
+                        if (loadSource != null)
+                        {
+                            if (!loadSource(settings, group.Tile, out var native, out error))
+                                return WorkerFailure(t, next, group.Tile, "native source load", error, out error);
+                            t.CurrentSourceLease = new TerrainAuthoringPreviewHeightSourceLease(native, 1,
+                                settings.HeightTileSamplesPerSide, false);
+                        }
+                        else if (!TerrainAuthoringPreviewHeightSourceUtility.TryAcquireCommittedSource(settings,
+                            group.Tile, requestedStride, ref t.GenerationNativeSource, true, out t.CurrentSourceLease, out error))
+                            return WorkerFailure(t, next, group.Tile, "committed source acquisition", error, out error);
+                        t.SourceLoads++;
+                        next.Transition.CommittedSourceLoadCount++;
+                        if (!group.SourceAcquired)
+                        {
+                            group.SourceAcquired = true;
+                            t.LoadedSourceGroups++;
+                            t.CompletedWorkUnits++;
+                        }
                         t.State = TerrainAuthoringPreviewTransitionState.LoadingSourceTiles;
                         continue;
                     }
                     if (t.CurrentSource != null && t.LastUpdateMaterializations < Math.Max(1, materializationLimit))
                     {
-                        var e = group.Destinations[group.Cursor];
+                        var e = next;
                         performedOperation = true;
+                        if (t.CurrentSourceLease.HasIdentity
+                            && !TerrainAuthoringPreviewHeightSourceUtility.IsCurrent(settings, t.CurrentSourceLease))
+                            return WorkerFailure(t, e, group.Tile, "source freshness", "The committed Height source changed.", out error);
                         if (!e.Destination.StagingCache.TryMaterializeCommittedBaseTile(
-                            t.CurrentSource, t.Materializer, group.Tile, out error))
+                            t.CurrentSourceLease, t.Materializer, group.Tile, out error))
                             return WorkerFailure(t, e, group.Tile, "materialization", error, out error);
                         t.Materializer.ReleaseTextureBindings();
                         e.Transition.SetState(TerrainAuthoringPreviewTransitionState.LoadingSourceTiles);
@@ -605,6 +625,7 @@ public static partial class TerrainAuthoringPreviewService
         RepaintEditorViews();
     }
 }
+
 
 
 

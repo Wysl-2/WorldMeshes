@@ -78,6 +78,20 @@ internal readonly struct TerrainAuthoringPreviewDirtyFailureSnapshot
     }
 }
 
+internal readonly struct TerrainAuthoringPreviewSourceCacheSnapshot
+{
+    public readonly int NativeLoads, CacheHits, GeneratedEntries, NativeFallbacks;
+    public readonly int RejectedEntries, ReadFailures, WriteFailures;
+    public readonly string Warning;
+    internal TerrainAuthoringPreviewSourceCacheSnapshot(int nativeLoads, int cacheHits, int generated,
+        int fallbacks, int rejected, int readFailures, int writeFailures, string warning)
+    {
+        NativeLoads = nativeLoads; CacheHits = cacheHits; GeneratedEntries = generated;
+        NativeFallbacks = fallbacks; RejectedEntries = rejected; ReadFailures = readFailures;
+        WriteFailures = writeFailures; Warning = warning ?? "";
+    }
+}
+
 internal readonly struct TerrainAuthoringPreviewDirtySourceSnapshot
 {
     public readonly bool Present;
@@ -85,14 +99,17 @@ internal readonly struct TerrainAuthoringPreviewDirtySourceSnapshot
     public readonly string CommittedSignature;
     public readonly int SettingsId;
     public readonly int NativeSamples;
+    public readonly int SourceStride;
+    public readonly bool Owned;
     public readonly int TextureId;
     public readonly long ApproximatePayloadBytes;
 
     internal TerrainAuthoringPreviewDirtySourceSnapshot(bool present, Vector2Int tile, string committed,
-        int settings, int samples, int texture, long bytes)
+        int settings, int samples, int texture, long bytes, int sourceStride = 1, bool owned = false)
     {
         Present = present; Tile = tile; CommittedSignature = committed ?? "";
         SettingsId = settings; NativeSamples = samples; TextureId = texture; ApproximatePayloadBytes = bytes;
+        SourceStride = sourceStride; Owned = owned;
     }
 }
 
@@ -206,6 +223,7 @@ internal readonly struct TerrainAuthoringPreviewWorkerSnapshot
     public readonly float Progress;
     public readonly int SourceGroupCount;
     public readonly int LoadedGroupCount;
+    public readonly int SourceAcquisitionCount;
     public readonly int RepresentationCount;
     public readonly int MaterializedCount;
     public readonly int ComposedCount;
@@ -236,7 +254,8 @@ internal readonly struct TerrainAuthoringPreviewWorkerSnapshot
         int lastLoads,
         int lastCopies,
         int lastMaterializations,
-        int lastCompositions)
+        int lastCompositions,
+        int sourceAcquisitionCount = -1)
     {
         Present = present;
         Purpose = purpose;
@@ -247,6 +266,7 @@ internal readonly struct TerrainAuthoringPreviewWorkerSnapshot
         Progress = progress;
         SourceGroupCount = sourceGroupCount;
         LoadedGroupCount = loadedGroupCount;
+        SourceAcquisitionCount = sourceAcquisitionCount < 0 ? loadedGroupCount : sourceAcquisitionCount;
         RepresentationCount = representationCount;
         MaterializedCount = materializedCount;
         ComposedCount = composedCount;
@@ -408,6 +428,7 @@ internal readonly struct TerrainAuthoringPreviewDiagnosticsSnapshot
     public readonly int UnprojectedGeographicDirtyCount;
     public readonly TerrainAuthoringPreviewDirtyFailureSnapshot MostRecentDirtyFailure;
     public readonly TerrainAuthoringPreviewDirtySourceSnapshot HeldDirtySource;
+    public readonly TerrainAuthoringPreviewSourceCacheSnapshot SourceCache;
     public readonly long LatestPlacementGeneration;
     public bool HasFailedDirtyUpdates => FailedRepresentationCount > 0;
     public readonly int LastDirtyLoads;
@@ -473,7 +494,8 @@ internal readonly struct TerrainAuthoringPreviewDiagnosticsSnapshot
         bool unprojectedScopePending = false,
         int unprojectedGeographicDirtyCount = 0,
         TerrainAuthoringPreviewDirtySourceSnapshot heldDirtySource = default,
-        long latestPlacementGeneration = 0)
+        long latestPlacementGeneration = 0,
+        TerrainAuthoringPreviewSourceCacheSnapshot sourceCache = default)
     {
         Enabled = enabled;
         CacheReady = cacheReady;
@@ -535,7 +557,9 @@ internal readonly struct TerrainAuthoringPreviewDiagnosticsSnapshot
         UnprojectedGeographicDirtyCount = unprojectedGeographicDirtyCount;
         AuthoringConvergencePending = pending > 0 || unprojectedScopePending;
         MostRecentDirtyFailure = recent; HeldDirtySource = heldDirtySource;
+        SourceCache = sourceCache;
         LatestPlacementGeneration = latestPlacementGeneration;
     }
 }
+
 
