@@ -133,6 +133,7 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
             RunClipmapStrideValidation();
             RunExactHeightMaterializationValidation();
             RunDerivedCommittedSourceValidation();
+            RunSharedHeightPageValidation();
 
             if (
                 !TryValidateCachePrerequisites(
@@ -1329,6 +1330,178 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
         }
     }
 
+
+    private static TerrainAuthoringPreviewGeographicDemandPlan CreateSharedHeightValidationDemand(
+        WorldSettings settings, TerrainAuthoringPreviewQualitySnapshot policy, int stride, long generation)
+    {
+        var tile = new Vector2Int(1, 1);
+        return new TerrainAuthoringPreviewGeographicDemandPlan(settings, policy,
+            new TerrainAuthoringPreviewFocus(settings, Vector3.zero, TerrainAuthoringPreviewFocusKind.Canonical, 1),
+            tile, new TerrainHeightCacheWindow(tile, Vector2Int.one), 1, 1, generation,
+            new[]
+            {
+                new TerrainAuthoringPreviewGeographicTileDemand(tile, 1, stride, true,
+                    TerrainAuthoringPreviewDisplayRequirement.Geometry, TerrainAuthoringPreviewNativeWorkingReason.None),
+                new TerrainAuthoringPreviewGeographicTileDemand(new Vector2Int(2, 1), 4, 4, false,
+                    TerrainAuthoringPreviewDisplayRequirement.SamplingDependency, TerrainAuthoringPreviewNativeWorkingReason.None),
+                new TerrainAuthoringPreviewGeographicTileDemand(new Vector2Int(3, 2), 0, 0, false,
+                    TerrainAuthoringPreviewDisplayRequirement.None, TerrainAuthoringPreviewNativeWorkingReason.Analysis)
+            });
+    }
+
+    private static void RequireSharedHeightValidation(bool condition, string message)
+    {
+        if (!condition) throw new InvalidOperationException(message);
+    }
+
+    private static void PrepareSharedHeightValidationPage(TerrainAuthoringPreviewSharedHeightCache cache,
+        TerrainAuthoringPreviewHeightPageHandle handle, long authoringGeneration, float value)
+    {
+        Texture2D source = null;
+        RenderTexture array = null;
+        try
+        {
+            RequireSharedHeightValidation(cache.TryGetWritableCandidate(handle, out var writer, out string error), error);
+            using (writer)
+            {
+                array = writer.Array;
+                source = new Texture2D(array.width, array.height, TextureFormat.RFloat, false, true)
+                    { hideFlags = HideFlags.HideAndDontSave };
+                float[] data = new float[array.width * array.height];
+                for (int i = 0; i < data.Length; i++) data[i] = value;
+                source.SetPixelData(data, 0); source.Apply(false, false);
+                Graphics.CopyTexture(source, 0, 0, array, writer.Slice, 0);
+            }
+            // This explicit isolated validation boundary also keeps the source alive through CopyTexture.
+            var readback = AsyncGPUReadback.Request(array, 0); readback.WaitForCompletion();
+            RequireSharedHeightValidation(!readback.hasError, "Shared Height fixture readback failed.");
+            var pixels = readback.GetData<float>(handle.Slice);
+            RequireSharedHeightValidation(pixels.Length == array.width * array.height, "Shared Height fixture dimensions changed.");
+            for (int i = 0; i < pixels.Length; i++)
+                RequireSharedHeightValidation(pixels[i] == value, "Shared Height fixture slice pixels changed.");
+            RequireSharedHeightValidation(cache.TryMarkCommittedBase(handle, "Shared Height fixture", 1, out error), error);
+            RequireSharedHeightValidation(!cache.TryMarkFinalComposite(handle, authoringGeneration + 1, value, value, out _)
+                && !cache.TryMarkFinalComposite(handle, authoringGeneration, float.NaN, value, out _)
+                && !cache.TryMarkFinalComposite(handle, authoringGeneration, value + 1, value, out _),
+                "Shared Height accepted stale authoring or invalid height bounds.");
+            RequireSharedHeightValidation(cache.TryMarkFinalComposite(handle, authoringGeneration, value, value, out error), error);
+        }
+        finally
+        {
+            if (source != null)
+            {
+                if (array != null && array.IsCreated())
+                { var releaseBoundary = AsyncGPUReadback.Request(array, 0); releaseBoundary.WaitForCompletion(); }
+                UnityEngine.Object.DestroyImmediate(source);
+            }
+        }
+    }
+
+    private static void RunSharedHeightPageValidation()
+    {
+        if (!TerrainAuthoringPreviewHeightPagePool.TryValidateDevice(17, 2, out string featureError)
+            || !SystemInfo.SupportsTextureFormat(TextureFormat.RFloat)
+            || (SystemInfo.copyTextureSupport & CopyTextureSupport.DifferentTypes) == 0)
+        {
+            AddResult("Shared Height page residency", ValidationOutcome.Blocked,
+                string.IsNullOrEmpty(featureError) ? "The isolated fixture requires RFloat source textures and cross-type CopyTexture." : featureError);
+            return;
+        }
+        WorldSettings settings = null;
+        TerrainAuthoringPreviewSharedHeightCache cache = null;
+        TerrainAuthoringPreviewHeightPageMap oldMap = null, newMap = null;
+        try
+        {
+            settings = ScriptableObject.CreateInstance<WorldSettings>(); settings.hideFlags = HideFlags.HideAndDontSave;
+            settings.gridWidth = 7; settings.gridHeight = 5; settings.chunkSize = 16;
+            settings.heightTileChunkSpan = 2; settings.heightfieldResolutionPerChunk = 8;
+            var policy = new TerrainAuthoringPreviewQualitySnapshot(1, 4, gpuBudgetMiB: 1);
+            var demand = CreateSharedHeightValidationDemand(settings, policy, 1, 1);
+            RequireSharedHeightValidation(demand.TryValidate(settings, out string error), error);
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightCache.TryCreate(settings, policy, demand,
+                1, "Shared Height fixture", 1, out cache, out error), error);
+            RequireSharedHeightValidation(cache.AllocatedBytes == 0, "Shared Height allocated before admission.");
+            RequireSharedHeightValidation(!TerrainAuthoringPreviewHeightPagePool.TryEstimateBytes(int.MaxValue, int.MaxValue, out _)
+                && !TerrainAuthoringPreviewHeightPagePool.TryValidateDevice(17, int.MaxValue, out _),
+                "Shared Height accepted overflowing byte arithmetic or impossible array depth.");
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightCache.TryCreate(settings, policy, demand,
+                2, "Shared Height fixture", 1, out var overBudget, out error,
+                new Dictionary<int, int> { { 1, int.MaxValue } }), error);
+            using (overBudget)
+                RequireSharedHeightValidation(!overBudget.TryReservePage(new Vector2Int(1, 1), 1, 1, 1, out _, out _)
+                    && overBudget.AllocatedBytes == 0 && overBudget.PeakAllocatedBytes == 0,
+                    "Shared Height allocated capacity beyond its budget.");
+            var tile = new Vector2Int(1, 1);
+            RequireSharedHeightValidation(!cache.TryReservePage(new Vector2Int(3, 2), 1, 1, 1, out _, out _)
+                && !cache.TryReservePage(tile, 3, 1, 1, out _, out _), "Shared Height admitted native-only/invalid-stride display.");
+            RequireSharedHeightValidation(cache.TryReservePage(tile, 1, 1, 1, out var a, out error), error);
+            RequireSharedHeightValidation(!cache.TryCommitPage(a, out _), "Shared Height published uninitialized output.");
+            var foreign = new TerrainAuthoringPreviewHeightPageHandle(a.OwnerId, a.ResourceGeneration + 1,
+                a.AllocationGeneration, a.PageGeneration, a.RequestToken, a.DemandGeneration, a.Tile, a.Stride, a.PoolIndex, a.Slice);
+            RequireSharedHeightValidation(!cache.TryGetWritableCandidate(foreign, out _, out _)
+                && !cache.ReleaseCandidate(foreign, out _) && !cache.TryCommitPage(foreign, out _),
+                "Shared Height accepted an incompatible resource generation.");
+            PrepareSharedHeightValidationPage(cache, a, 1, 12.5f);
+            RequireSharedHeightValidation(cache.TryCommitPage(a, out error), error);
+            RequireSharedHeightValidation(!cache.TryCommitPage(a, out _) && !cache.TryGetWritableCandidate(a, out _, out _),
+                "Shared Height accepted duplicate publication or wrote into a displayed page.");
+            RequireSharedHeightValidation(cache.TryCreateRenderMapSnapshot(out oldMap, out error), error);
+            RequireSharedHeightValidation(oldMap.Entries.Count == 2 && !oldMap.TryGetEntry(new Vector2Int(3, 2), out _)
+                && oldMap.TryGetEntry(new Vector2Int(2, 1), out var missing) && !missing.IsValid && missing.Slice == -1 && missing.PoolIndex == -1,
+                "Shared Height sparse map fabricated a missing/native page.");
+            RequireSharedHeightValidation(oldMap.TryGetPoolTexture(a.PoolIndex, out var array, out error), error);
+            RequireSharedHeightValidation(array.format == RenderTextureFormat.RFloat && array.dimension == TextureDimension.Tex2DArray
+                && array.width == 17 && array.volumeDepth == 2 && array.enableRandomWrite && !array.useMipMap
+                && cache.AllocatedBytes == 17L * 17 * 2 * sizeof(float), "Shared Height array format/capacity accounting changed.");
+            long epoch = oldMap.MappingEpoch;
+            demand = CreateSharedHeightValidationDemand(settings, policy, 4, 2);
+            RequireSharedHeightValidation(cache.TryAcceptDemand(demand, "Shared Height fixture", 2, out error), error);
+            RequireSharedHeightValidation(cache.TryReservePage(tile, 4, 2, 2, out var b, out error), error);
+            RequireSharedHeightValidation(cache.ReleaseCandidate(b, out error), error);
+            RequireSharedHeightValidation(cache.TryGetPublishedPage(tile, out var lastGood, out bool current)
+                && lastGood.Handle.Equals(a) && !current, "Cancelled replacement lost last-good Height.");
+            RequireSharedHeightValidation(cache.TryReservePage(tile, 4, 3, 2, out b, out error), error);
+            PrepareSharedHeightValidationPage(cache, b, 2, -3.25f);
+            RequireSharedHeightValidation(cache.TryCommitPage(b, out error), error);
+            RequireSharedHeightValidation(cache.TryCreateRenderMapSnapshot(out newMap, out error), error);
+            RequireSharedHeightValidation(newMap.MappingEpoch > epoch && newMap.TryGetEntry(tile, out var changed)
+                && changed.IsCurrent && changed.Page.Handle.Equals(b) && changed.Page.SamplesPerSide == 5
+                && oldMap.TryGetEntry(tile, out var retained) && retained.Page.Handle.Equals(a) && retained.IsCurrent
+                && cache.CapturePoolInventory()[a.PoolIndex].RetiringCount == 1,
+                "Shared Height replacement mutated/recycled a retained map.");
+            demand = CreateSharedHeightValidationDemand(settings, policy, 1, 3);
+            RequireSharedHeightValidation(cache.TryAcceptDemand(demand, "Shared Height fixture", 3, out error), error);
+            RequireSharedHeightValidation(cache.TryReservePage(tile, 1, 4, 3, out var c, out error) && c.Slice != a.Slice, error);
+            RequireSharedHeightValidation(!cache.TryReservePage(tile, 1, 5, 3, out _, out _)
+                && cache.ReleaseCandidate(c, out error), "Shared Height exhausted-pool admission replaced a valid pending page.");
+            RequireSharedHeightValidation(cache.TryReservePage(tile, 1, 5, 3, out var d, out error) && d.Slice != a.Slice, error);
+            RequireSharedHeightValidation(!cache.TryGetWritableCandidate(c, out _, out _) && !cache.TryCommitPage(a, out _),
+                "Shared Height accepted stale/recycled tokens.");
+            RequireSharedHeightValidation(cache.ReleaseCandidate(d, out error), error);
+            oldMap.Dispose(); oldMap = null;
+            var boundary = AsyncGPUReadback.Request(array, 0); boundary.WaitForCompletion(); cache.CollectRetiredPages();
+            RequireSharedHeightValidation(cache.CapturePoolInventory()[a.PoolIndex].RetiringCount == 0,
+                "Shared Height retained a slice after its reader/GPU boundary completed.");
+            RequireSharedHeightValidation(cache.PeakAllocatedBytes == (17L * 17 * 2 + 5L * 5 * 2) * sizeof(float)
+                && cache.FailedAdmissions >= 3, "Shared Height peak/admission accounting changed.");
+            newMap.Dispose(); newMap = null; cache.Dispose(); cache.Dispose();
+            RequireSharedHeightValidation(cache.WaitForRelease(out error) && cache.ReleaseComplete && cache.AllocatedBytes == 0, error);
+            AddResult("Shared Height page residency", ValidationOutcome.Pass,
+                "Isolated partial-world fixture checked lazy arrays, exact pixels, invalid/native map rows, stride replacement, retained readers, stale tokens, fixed capacity and release. Live preview was not bound.");
+        }
+        catch (Exception exception)
+        { AddResult("Shared Height page residency", ValidationOutcome.Fail, exception.ToString()); }
+        finally
+        {
+            oldMap?.Dispose(); newMap?.Dispose();
+            if (cache != null)
+            {
+                cache.Dispose();
+                if (!cache.WaitForRelease(out string error)) AddResult("Shared Height fixture release", ValidationOutcome.Fail, error);
+            }
+            if (settings != null) UnityEngine.Object.DestroyImmediate(settings);
+        }
+    }
 
     private static void RunDerivedCommittedSourceValidation()
     {
@@ -2584,6 +2757,7 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
             tolerance;
     }
 }
+
 
 
 
