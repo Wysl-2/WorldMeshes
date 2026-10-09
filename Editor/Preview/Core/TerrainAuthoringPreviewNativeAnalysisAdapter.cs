@@ -28,6 +28,8 @@ internal sealed class TerrainAuthoringPreviewNativeAnalysisAdapter : IDisposable
     internal int NativeCompositionCount { get; private set; }
     internal int BlockedAdmissionCount { get; private set; }
     internal string Error { get; private set; } = "";
+    internal int AllocatedArrayCount
+    { get { int count = active?.Texture != null ? 1 : 0; if (candidate?.Texture != null) count++; foreach (var frame in retiring) if (frame.Texture != null) count++; return count; } }
     internal bool HasLastGood => active != null && active.Texture != null;
     internal bool CandidateReady => candidate != null && candidate.Ready && Current(candidate);
     internal bool ReleaseComplete { get { CollectRelease(); return disposed && retiring.Count == 0; } }
@@ -171,16 +173,42 @@ internal sealed class TerrainAuthoringPreviewNativeAnalysisAdapter : IDisposable
         if (disposed || active == null || !active.Ready || !Current(active)
             || active.Output != requestedOutput || active.Physical != requestedPhysical) return false;
         var world = active.Source.Settings;
-        string signature = active.Source.CommittedSignature + ":" + active.Source.AuthoringGeneration
-            + ":" + cache.ResourceGeneration + ":" + active.Source.Demand.Generation + ":" + active.Source.Demand.OwnershipGeneration
+        string signature = active.Source.CommittedSignature + ":" + active.PixelAuthoringGeneration
+            + ":" + cache.ResourceGeneration + ":" + active.PixelDemandGeneration + ":" + active.Source.Demand.OwnershipGeneration
             + ":" + active.Physical + ":" + active.Output + ":" + active.Publication;
         source = new TerrainAnalysisGpuSource(active.Texture, active.Physical,
             new Vector2Int(world.HeightTileGridWidth, world.HeightTileGridHeight), world.HeightTileSamplesPerSide,
             TerrainHeightResolutionUtility.GetSampleSpacing(world, 1), TerrainClipmapLayoutUtility.CalculateWorldSizeXZ(world),
-            signature, active.Texture.GetInstanceID(), active.Publication, active.Source.AuthoringGeneration);
+            signature, active.Texture.GetInstanceID(), active.Publication, active.PixelAuthoringGeneration);
         if (!source.IsValid) { source = default; return false; }
         output = active.Output; error = ""; return true;
     }
+    // Rebase a complete immutable pixel window only when exact scope evidence
+    // excludes every native dependency. No composition or resource identity change.
+    internal bool TryAcceptCurrentTarget(TerrainAuthoringPreviewCommittedSourceContext source,
+        TerrainAuthoringPreviewGeographicAuthoringProjection projection, TerrainHeightCacheWindow output,
+        TerrainHeightCacheWindow physical, out string error)
+    {
+        RequireThread(); error = "The completed native pixels cannot acknowledge this target.";
+        if (disposed || candidate != null || active == null || !active.Ready || active.Texture == null || !active.Texture.IsCreated()
+            || !TerrainAuthoringPreviewSharedHeightComposer.TargetCurrent(cache, source) || output != active.Output || physical != active.Physical
+            || source.Settings != active.Source.Settings || source.Data != active.Source.Data || source.CommittedSignature != active.Source.CommittedSignature
+            || source.Demand.OwnershipGeneration != active.Source.Demand.OwnershipGeneration) return false;
+        if (source.AuthoringGeneration != active.Source.AuthoringGeneration)
+        {
+            if (projection == null || !projection.CanProveUntouched || projection.OwnerId != cache.OwnerId
+                || projection.ResourceGeneration != cache.ResourceGeneration || projection.PreviousGeneration != active.Source.AuthoringGeneration
+                || projection.TargetGeneration != source.AuthoringGeneration || projection.CommittedSignature != source.CommittedSignature) return false;
+            for (int z = physical.OriginTile.y; z < physical.MaximumExclusive.y; z++)
+                for (int x = physical.OriginTile.x; x < physical.MaximumExclusive.x; x++) if (projection.Affects(new Vector2Int(x, z))) return false;
+        }
+        else if (!active.Source.IsCurrent) return false;
+        for (int z = physical.OriginTile.y; z < physical.MaximumExclusive.y; z++)
+            for (int x = physical.OriginTile.x; x < physical.MaximumExclusive.x; x++)
+                if (!source.Demand.TryGetTile(new Vector2Int(x, z), out var row) || !row.NativeWorkingRequired) return false;
+        active.Source = source; requestedOutput = output; requestedPhysical = physical; error = ""; return true;
+    }
+
     internal void CancelCandidate()
     { RequireThread(); if (candidate == null) return; Retire(candidate); candidate = null; }
     private bool Current(Frame frame) => frame.Texture != null && frame.Texture.IsCreated()
@@ -211,7 +239,8 @@ internal sealed class TerrainAuthoringPreviewNativeAnalysisAdapter : IDisposable
     private sealed class Frame : IDisposable
     {
         private readonly TerrainAuthoringPreviewNativeAnalysisAdapter owner;
-        internal readonly TerrainAuthoringPreviewCommittedSourceContext Source;
+        internal TerrainAuthoringPreviewCommittedSourceContext Source;
+        internal readonly long PixelAuthoringGeneration, PixelDemandGeneration;
         internal readonly TerrainHeightCacheWindow Output, Physical;
         internal RenderTexture Texture { get; private set; }
         private TerrainAuthoringPreviewHeightPageMap map;
@@ -228,7 +257,7 @@ internal sealed class TerrainAuthoringPreviewNativeAnalysisAdapter : IDisposable
         internal Frame(TerrainAuthoringPreviewNativeAnalysisAdapter owner, TerrainAuthoringPreviewCommittedSourceContext source,
             TerrainHeightCacheWindow output, TerrainHeightCacheWindow physical, RenderTexture texture,
             TerrainAuthoringPreviewHeightPageMap map, IDisposable charge, long bytes)
-        { this.owner = owner; Source = source; Output = output; Physical = physical; Texture = texture; this.map = map; this.charge = charge; this.bytes = bytes; }
+        { this.owner = owner; Source = source; PixelAuthoringGeneration = source.AuthoringGeneration; PixelDemandGeneration = source.Demand.Generation; Output = output; Physical = physical; Texture = texture; this.map = map; this.charge = charge; this.bytes = bytes; }
         internal void Progress()
         {
             if (Ready) return;

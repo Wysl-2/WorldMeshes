@@ -131,6 +131,10 @@ public static partial class TerrainAuthoringPreviewService
 
     internal static bool TryGetTerrainAnalysisGpuSource(out TerrainAnalysisGpuSource source,
         out TerrainHeightCacheWindow outputWindow)
+    { return TryGetSharedAnalysisSource(out source, out outputWindow); }
+
+    private static bool TryGetLegacyTerrainAnalysisSource(out TerrainAnalysisGpuSource source,
+        out TerrainHeightCacheWindow outputWindow)
     {
         source = default;
         outputWindow = default;
@@ -323,6 +327,10 @@ public static partial class TerrainAuthoringPreviewService
     }
 
     private static void EvaluateTerrainAnalysisSource(WorldSettings settings, TerrainAuthoringData data,
+        bool notifyState = true)
+    { RequestGeographicDemandRefresh(); if (notifyState) PublishTerrainAnalysisSourceState(); }
+
+    private static void EvaluateLegacyAnalysisSource(WorldSettings settings, TerrainAuthoringData data,
         bool notifyState = true)
     {
         if (!hasAnalysisSourceIntent || settings == null || data == null) return;
@@ -600,7 +608,7 @@ public static partial class TerrainAuthoringPreviewService
             PublishTerrainAnalysisSourceState();
             return;
         }
-        if (TransitionInProgress || hasPendingStreamingStart
+        if (LegacyTransitionInProgress || hasPendingStreamingStart
             || TerrainAuthoringPreviewStreamingPolicy.ShouldDeferHeightRequestRestart(
                 TerrainAuthoringPreviewCachePublication.NativeAnalysis, HasActiveInteractiveTerrainAuthoringEdit,
                 HasLiveTerrainAnalysisDemand)) return;
@@ -659,7 +667,8 @@ public static partial class TerrainAuthoringPreviewService
 
     private static void CancelTerrainAnalysisPreparation(string reason)
     {
-        if ((TransitionInProgress && currentCacheSetTransition.Publication == TerrainAuthoringPreviewCachePublication.NativeAnalysis)
+        CancelSharedNativeCandidate();
+        if ((LegacyTransitionInProgress && currentCacheSetTransition.Publication == TerrainAuthoringPreviewCachePublication.NativeAnalysis)
             || (hasPendingStreamingStart && pendingCacheSetTransition.Publication == TerrainAuthoringPreviewCachePublication.NativeAnalysis))
             CancelCurrentStreamingTransition(reason, false);
     }
@@ -676,8 +685,9 @@ public static partial class TerrainAuthoringPreviewService
 
     private static void ReleaseTerrainAnalysisSource(bool notifyObservers)
     {
+        DetachSharedAnalysisSource(notifyObservers); RetireSharedNativeOwners();
         var owned = analysisOwnedState;
-        bool hadSource = analysisSelectedResourceIdentity != 0 || hasAnalysisSourceIntent || hasAnalysisSourceDemand;
+        bool hadSource = analysisSelectedResourceIdentity != 0;
         analysisOwnedState = null;
         analysisSelectedCache = null;
         analysisSelectedKind = TerrainAuthoringAnalysisSourceKind.Unavailable;
@@ -709,6 +719,10 @@ public static partial class TerrainAuthoringPreviewService
     }
 
     internal static TerrainAuthoringAnalysisSourceSnapshot CaptureAnalysisSourceMetadata(bool displayConfigurationCurrent,
+        string committed = null)
+    { return CaptureSharedAnalysisMetadata(); }
+
+    private static TerrainAuthoringAnalysisSourceSnapshot CaptureLegacyAnalysisMetadata(bool displayConfigurationCurrent,
         string committed = null)
     {
         // Metadata only: no authoring signature construction, allocation or activation audit.
@@ -768,7 +782,7 @@ public static partial class TerrainAuthoringPreviewService
     }
 
     private static bool HasNativeAnalysisPreparation =>
-        TransitionInProgress && currentCacheSetTransition.Publication == TerrainAuthoringPreviewCachePublication.NativeAnalysis
+        LegacyTransitionInProgress && currentCacheSetTransition.Publication == TerrainAuthoringPreviewCachePublication.NativeAnalysis
         || hasPendingStreamingStart && pendingCacheSetTransition.Publication == TerrainAuthoringPreviewCachePublication.NativeAnalysis;
 
     private static string AnalysisWaitingMessage(TerrainAuthoringAnalysisWaitingReason reason,

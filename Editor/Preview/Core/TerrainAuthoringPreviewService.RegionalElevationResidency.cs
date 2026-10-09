@@ -57,6 +57,7 @@ public static partial class TerrainAuthoringPreviewService
         TerrainRegionalElevationInvalidationScope scope
     )
     {
+        BeginSharedAuthoringScope(true); CaptureSharedRegionalScope(scope);
         PrepareInteractiveDirtyHint(scope.Kind != TerrainRegionalElevationInvalidationKind.None);
         if (HasActiveInteractiveTerrainAuthoringEdit && scope.Kind != TerrainRegionalElevationInvalidationKind.None)
             latestInteractiveRegionalScope = scope;

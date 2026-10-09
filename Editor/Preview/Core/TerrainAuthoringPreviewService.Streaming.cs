@@ -81,18 +81,18 @@ public static partial class TerrainAuthoringPreviewService
     }
     public static float StreamingProgress => Mathf.Clamp01(streamingProgress);
     public static long StreamingRequestGeneration => streamingRequestGeneration;
-    public static int StreamingRetainedTileCount => SumSetTiles(0);
-    public static int StreamingRetainedCopiedCount => currentCacheSetTransition?.RetainedCopies ?? 0;
-    public static int StreamingSourceTileCount => SumSetTiles(1);
-    public static int StreamingSourceGroupCount => currentCacheSetTransition?.SourceGroups.Count ?? 0;
-    public static int StreamingSourceLoadedCount => currentCacheSetTransition?.SourceLoads ?? 0;
-    public static int StreamingSourceMaterializedCount => currentCacheSetTransition?.MaterializedSlices ?? 0;
-    public static int StreamingSourceComposedCount => currentCacheSetTransition?.ComposedSlices ?? 0;
-    public static int StreamingRetainedCopiesPerUpdate => DefaultRetainedCopiesPerUpdate;
+    public static int StreamingRetainedTileCount => sharedTargetRetained;
+    public static int StreamingRetainedCopiedCount => 0;
+    public static int StreamingSourceTileCount => sharedTargetJobs;
+    public static int StreamingSourceGroupCount => sharedTargetJobs;
+    public static int StreamingSourceLoadedCount => sharedTargetLoads;
+    public static int StreamingSourceMaterializedCount => sharedTargetLoads;
+    public static int StreamingSourceComposedCount => sharedDisplayWork?.Display?.DisplayCompositionCount ?? 0;
+    public static int StreamingRetainedCopiesPerUpdate => 0;
     public static int StreamingCommittedLoadsPerUpdate => DefaultCommittedLoadsPerUpdate;
     public static int StreamingCompositionsPerUpdate => DefaultCompositionsPerUpdate;
-    public static int DirtyCompositionsPerUpdate => DefaultDirtyCompositionsPerUpdate;
-    public static int StreamingMaterializationsPerUpdate => DefaultMaterializationsPerUpdate;
+    public static int DirtyCompositionsPerUpdate => 1;
+    public static int StreamingMaterializationsPerUpdate => 1;
     public static double StreamingSoftWorkBudgetMilliseconds => DefaultSoftWorkBudgetMilliseconds;
     public static string StreamingCoverageLabel
     {
@@ -131,7 +131,7 @@ public static partial class TerrainAuthoringPreviewService
             && !pendingStreamingCommittedRebuild)
         {
             ClearPendingStreamingStart();
-            if (!TransitionInProgress) SetStreamingState(TerrainAuthoringPreviewStreamingState.Idle,
+            if (!LegacyTransitionInProgress) SetStreamingState(TerrainAuthoringPreviewStreamingState.Idle,
                 "Queued prefetch was cancelled because active residency is comfortably sufficient.");
         }
     }
@@ -167,7 +167,7 @@ public static partial class TerrainAuthoringPreviewService
     private static bool QueueCacheSetRequest(TerrainAuthoringPreviewCacheSetTransition request, out string error)
     {
         error = "";
-        var occupied = TransitionInProgress ? currentCacheSetTransition : pendingCacheSetTransition;
+        var occupied = LegacyTransitionInProgress ? currentCacheSetTransition : pendingCacheSetTransition;
         if (TerrainAuthoringPreviewStreamingPolicy.ShouldDeferForNativeAnalysis(request.Publication,
             IsMandatoryDisplayWork(request, LoadWorldSettings(), request.CommittedSignature),
             HasLiveTerrainAnalysisDemand && IsTerrainAnalysisPreparationRunnable(request.CommittedSignature, request.OverallSignature), occupied?.Publication))
@@ -214,7 +214,7 @@ public static partial class TerrainAuthoringPreviewService
 
     private static int GetActiveHeightPreparationPriority(WorldSettings settings, string committed, string overall)
     {
-        var work = TransitionInProgress ? currentCacheSetTransition : pendingCacheSetTransition;
+        var work = LegacyTransitionInProgress ? currentCacheSetTransition : pendingCacheSetTransition;
         bool interactive = HasActiveInteractiveTerrainAuthoringEdit;
         int priority = work == null ? int.MaxValue : TerrainAuthoringPreviewStreamingPolicy.GetHeightPreparationPriority(
             IsMandatoryDisplayWork(work, settings, committed), work.Publication == TerrainAuthoringPreviewCachePublication.NativeAnalysis,
@@ -234,6 +234,14 @@ public static partial class TerrainAuthoringPreviewService
     }
 
     private static void OnStreamingEditorUpdate()
+    {
+        CollectSharedRetirement();
+        if (!CanRunEditorPreviewWork) return;
+        DispatchPreviewObservers(PreviewStreamingUpdatePreparing, "Streaming preparation");
+        if (CanRunEditorPreviewWork) AdvanceSharedHeightPreview();
+    }
+
+    private static void AdvanceLegacyStreamingForValidation()
     {
         if (!CanRunEditorPreviewWork || displayCommitInProgress || retiringHeightStates != null || retiringAnalysisState != null) return;
         LastDirtyUpdateAllocations = LastDirtyUpdateCopies = LastDirtyUpdateLoads =
@@ -257,7 +265,7 @@ public static partial class TerrainAuthoringPreviewService
         TryAdvancePreviewFollowUps(settings, data, committed, overall);
         if (!CanRunEditorPreviewWork || followUpGeneration != authoringGeneration
             || !ReferenceEquals(followUpStates, activeHeightStates) || !ReferenceEquals(followUpDisplay, activeDisplayIntent)) return;
-        if (TransitionInProgress && !ValidateCacheSetTransaction(currentCacheSetTransition, settings, data, out string stale))
+        if (LegacyTransitionInProgress && !ValidateCacheSetTransaction(currentCacheSetTransition, settings, data, out string stale))
         { CancelCurrentStreamingTransition(stale, false); ScheduleRefresh(); }
         if (!CanRunEditorPreviewWork || followUpGeneration != authoringGeneration) return;
         var dirty = ChooseActiveDirtyDestination(out Vector2Int dirtyTile);
@@ -267,7 +275,7 @@ public static partial class TerrainAuthoringPreviewService
             currentCacheSetTransition?.ReleaseCurrentSource();
             AdvanceActiveDisplayDirty(settings, data, watch); return;
         }
-        var work = TransitionInProgress ? currentCacheSetTransition : pendingCacheSetTransition;
+        var work = LegacyTransitionInProgress ? currentCacheSetTransition : pendingCacheSetTransition;
         bool mandatoryDisplay = IsMandatoryDisplayWork(work, settings, committed);
         if (!mandatoryDisplay && HasLiveTerrainAnalysisDemand && IsTerrainAnalysisPreparationRunnable(committed, overall) && work != null
             && work.Publication == TerrainAuthoringPreviewCachePublication.DisplayHeightSet)
@@ -275,7 +283,7 @@ public static partial class TerrainAuthoringPreviewService
         TryRunAnalysisFollowUp(() => AdmitPendingTerrainAnalysisSource(settings, data));
         if (!CanRunEditorPreviewWork || followUpGeneration != authoringGeneration
             || !ReferenceEquals(followUpStates, activeHeightStates) || !ReferenceEquals(followUpDisplay, activeDisplayIntent)) return;
-        work = TransitionInProgress ? currentCacheSetTransition : pendingCacheSetTransition;
+        work = LegacyTransitionInProgress ? currentCacheSetTransition : pendingCacheSetTransition;
         dirty = ChooseActiveDirtyDestination(out dirtyTile);
         if (dirty != null && ShouldRunActiveDirtyWork(settings, committed, overall, dirty, dirtyTile))
         {
@@ -290,13 +298,13 @@ public static partial class TerrainAuthoringPreviewService
             work.ReleaseCurrentSource();
             return;
         }
-        if (!TransitionInProgress && hasPendingStreamingStart)
+        if (!LegacyTransitionInProgress && hasPendingStreamingStart)
         {
             ReleaseActiveDirtySource(); ReleaseStagingCacheOnly();
             currentCacheSetTransition = pendingCacheSetTransition; pendingCacheSetTransition = null;
             BeginTransitionMemoryTracking();
         }
-        if (!TransitionInProgress) return;
+        if (!LegacyTransitionInProgress) return;
         ReleaseActiveDirtySource(); var t = currentCacheSetTransition;
         if (!ValidateCacheSetTransaction(t, settings, data, out string reason))
         { CancelCurrentStreamingTransition(reason, false); ScheduleRefresh(); return; }

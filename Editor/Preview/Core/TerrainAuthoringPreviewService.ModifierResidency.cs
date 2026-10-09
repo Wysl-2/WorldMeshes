@@ -52,7 +52,7 @@ public static partial class TerrainAuthoringPreviewService
         {
             if (!HasActiveInteractiveTerrainAuthoringEdit) return false;
             if (displayPreparationDeferredForInteractiveEdit) return true;
-            var work = TransitionInProgress ? currentCacheSetTransition : pendingCacheSetTransition;
+            var work = LegacyTransitionInProgress ? currentCacheSetTransition : pendingCacheSetTransition;
             var settings = LoadWorldSettings();
             return work != null && TerrainAuthoringPreviewStreamingPolicy.ShouldDeferHeightRequestRestart(work.Publication,
                 true, HasLiveTerrainAnalysisDemand, IsMandatoryDisplayWork(work, settings,
@@ -61,6 +61,17 @@ public static partial class TerrainAuthoringPreviewService
     }
 
     private static void RegisterPreviewAuthoringInvalidation(
+        string reason,
+        bool contentOnly = true
+    )
+    {
+        authoringGeneration = CalculateNextAuthoringGeneration(authoringGeneration);
+        lastAuthoringGenerationReason = string.IsNullOrEmpty(reason) ? "Preview-affecting authoring state changed." : reason;
+        if (contentOnly && HasActiveInteractiveTerrainAuthoringEdit) interactiveDirtyHintGeneration = authoringGeneration;
+        RegisterSharedAuthoringInvalidation(contentOnly);
+    }
+
+    private static void RegisterLegacyAuthoringInvalidationForValidation(
         string reason,
         bool contentOnly = true
     )
@@ -89,7 +100,7 @@ public static partial class TerrainAuthoringPreviewService
             (
                 currentCacheSetTransition != null
                 &&
-                TransitionInProgress
+                LegacyTransitionInProgress
             );
 
         if (hasStreamingWork)
@@ -374,17 +385,7 @@ public static partial class TerrainAuthoringPreviewService
 
     private static TerrainAuthoringPreviewReadiness EvaluateWorldTileReadiness(WorldSettings settings,
         Vector2Int tile, bool previewAvailable, string committed)
-    {
-        if (settings == null || tile.x < 0 || tile.y < 0 || tile.x >= settings.HeightTileGridWidth || tile.y >= settings.HeightTileGridHeight)
-            return TerrainAuthoringPreviewReadiness.OutsideWorld;
-        var state = FindFinestResidentDisplayState(tile);
-        var cache = state?.ActiveCache;
-        bool usable = IsStateTileDrawable(state, settings, committed, tile);
-        bool pending = !IsStateTileContentCurrent(state, settings, committed, tile);
-        return TerrainAuthoringPreviewReadinessPolicy.EvaluateTile(previewAvailable, true, cache != null,
-            cache != null && cache.SourceCommittedHeightfieldSignature == committed, cache != null,
-            usable, pending);
-    }
+    { return EvaluateSharedTileReadiness(settings, tile, previewAvailable); }
 
     private static bool IsStateTileDrawable(TerrainAuthoringPreviewLodState state,
         WorldSettings settings, string committed, Vector2Int tile)
@@ -464,14 +465,7 @@ public static partial class TerrainAuthoringPreviewService
 
     private static TerrainAuthoringPreviewInteractionReadiness EvaluateWorldTileInteractionReadiness(
         WorldSettings settings, Vector2Int tile, bool available, string committed)
-    {
-        bool inside = tile.x >= 0 && tile.y >= 0 && tile.x < settings.HeightTileGridWidth && tile.y < settings.HeightTileGridHeight;
-        var state = inside ? FindFinestResidentDisplayState(tile) : null;
-        var cache = state?.ActiveCache;
-        return TerrainAuthoringPreviewReadinessPolicy.EvaluateInteractionTile(available, inside,
-            cache != null, cache != null && cache.SourceCommittedHeightfieldSignature == committed, cache != null,
-            IsStateTileDrawable(state, settings, committed, tile), !IsStateTileContentCurrent(state, settings, committed, tile));
-    }
+    { return EvaluateSharedInteractionReadiness(settings, tile, available); }
 
     public static TerrainAuthoringPreviewInteractionReadiness GetWorldBoundsInteractionReadiness(
         Bounds bounds, int samplePadding = 1)

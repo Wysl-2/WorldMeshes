@@ -1442,6 +1442,19 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
 
     private static void RunLivePreviewValidation()
     {
+        var sharedSnapshot = TerrainAuthoringPreviewService.GetDiagnosticsSnapshot();
+        if (sharedSnapshot.SharedHeight.Present)
+        {
+            RunSharedLivePreviewValidation(sharedSnapshot);
+            var sharedSettings = AssetDatabase.LoadAssetAtPath<WorldSettings>(WorldMeshesPaths.WorldSettingsAssetPath);
+            var sharedData = AssetDatabase.LoadAssetAtPath<TerrainAuthoringData>(WorldMeshesPaths.TerrainAuthoringDataAssetPath);
+            if (sharedSettings != null && sharedData != null)
+                RunPersistentStateSafetyValidation(sharedSettings, sharedData, sharedData.authoringRevision,
+                    TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(sharedSettings),
+                    TerrainAuthoringStateUtility.GetOverallAuthoringSignature(sharedSettings, sharedData));
+            return;
+        }
+
         var snapshot = TerrainAuthoringPreviewService.GetDiagnosticsSnapshot();
         var ownership = snapshot.Ownership;
         bool ownersValid = ownership.OwnedCacheCount == ownership.DisplayActiveCount + ownership.AnalysisActiveCount
@@ -1511,6 +1524,46 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
                 TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(settings),
                 TerrainAuthoringStateUtility.GetOverallAuthoringSignature(settings, data));
         else AddResult("Live authoring prerequisites", ValidationOutcome.Blocked, "WorldSettings or TerrainAuthoringData is unavailable.");
+    }
+
+    private static void RunSharedLivePreviewValidation(TerrainAuthoringPreviewDiagnosticsSnapshot snapshot)
+    {
+        var shared = snapshot.SharedHeight;
+        bool valid = shared.Current + shared.Stale + shared.Missing == shared.Demanded && shared.Required <= shared.Demanded
+            && shared.Failed <= shared.Backlog && snapshot.DisplayLods.Count == 0
+            && snapshot.Ownership.TotalBytes == TerrainAuthoringPreviewService.ApproximateTotalResidentGpuMemoryBytes;
+        AddResult("Shared geographic ownership and convergence", valid ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+            $"Demanded={shared.Demanded}, required={shared.Required}, current/stale/missing={shared.Current}/{shared.Stale}/{shared.Missing}; failed={shared.Failed}.");
+        if (!TerrainAuthoringPreviewService.TryCaptureSharedDisplayForValidation(out var map, out string error))
+        { AddResult("Retained shared display inspection", ValidationOutcome.Blocked, error); return; }
+        try
+        {
+            var settings = AssetDatabase.LoadAssetAtPath<WorldSettings>(WorldMeshesPaths.WorldSettingsAssetPath);
+            if (settings == null) { AddResult("Shared page representations", ValidationOutcome.Blocked, "WorldSettings is unavailable."); return; }
+            long bytes = 0; valid = map.IsAlive && map.Pools.Count <= TerrainAuthoringPreviewSharedHeightBindingData.MaximumPoolCount;
+            foreach (var pool in map.Pools) bytes += pool.AllocatedBytes;
+            foreach (var entry in map.Entries)
+            {
+                bool required = map.Demand.TryGetTile(entry.Tile, out var row) && row.DisplayRequired;
+                if (!entry.IsValid) { valid &= !required || !snapshot.CacheReady; continue; }
+                var page = entry.Page;
+                valid &= page.SamplesPerSide == TerrainHeightResolutionUtility.GetSamplesPerSide(settings, page.Handle.Stride)
+                    && Mathf.Approximately(page.SampleSpacing, TerrainHeightResolutionUtility.GetSampleSpacing(settings, page.Handle.Stride))
+                    && !float.IsNaN(page.MinimumHeight) && !float.IsInfinity(page.MinimumHeight) && !float.IsNaN(page.MaximumHeight)
+                    && !float.IsInfinity(page.MaximumHeight) && page.MinimumHeight <= page.MaximumHeight;
+                if (snapshot.CacheReady && required) valid &= entry.IsCurrent;
+            }
+            valid &= bytes == shared.PoolBytes && shared.PoolBytes + shared.LookupBytes + shared.NativeBytes
+                <= (long)TerrainAuthoringPreviewQualityPolicy.GetSnapshot(settings).GpuMemoryBudgetMiB * 1024 * 1024;
+            AddResult("Shared page representations and combined budget", valid ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+                $"Pools={shared.PoolBytes}, lookup={shared.LookupBytes}, native={shared.NativeBytes}, retiring owners={shared.RetiringBytes} bytes.");
+            bool native = !snapshot.Analysis.Ready || TerrainAuthoringPreviewService.TryGetTerrainAnalysisGpuSource(out var source, out var output)
+                && source.IsValid && source.SamplesPerSide == settings.HeightTileSamplesPerSide && source.SourceWindow.Contains(snapshot.Analysis.RequiredSourceWindow)
+                && output == snapshot.Analysis.OutputWindow;
+            AddResult("Shared display and native analysis separation", native ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+                "Analysis keeps a complete exact-native guarded row-major source independently of display stride.");
+        }
+        finally { map.Dispose(); }
     }
 
     // =====================================================

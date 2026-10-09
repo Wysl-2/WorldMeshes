@@ -87,12 +87,12 @@ internal static class TerrainAuthoringPreviewStreamingOverlay
                 var failure = snapshot.MostRecentDirtyFailure;
                 string preservation = failure.LastGoodAvailable && snapshot.Drawable
                     ? "Previous terrain remains active." : "Unsafe Height storage requires replacement.";
-                DrawMessage(sceneView, $"Height update failed at LOD {failure.Level}, tile {failure.Tile}.\n{preservation}\n"
+                DrawMessage(sceneView, $"Height update failed at tile {failure.Tile}.\n{preservation}\n"
                     + $"{Math.Max(0, snapshot.PendingRepresentationCount - snapshot.FailedRepresentationCount):N0} other update(s) pending. "
                     + $"Retry through Height Preview or a relevant edit.\n{failure.Message}",
                     failure.LastGoodAvailable ? MessageType.Warning : MessageType.Error, 124f); break;
             case TerrainAuthoringPreviewFeedbackKind.Updating:
-                DrawMessage(sceneView, $"Updating terrain preview — {snapshot.PendingRepresentationCount:N0} representation update(s), "
+                DrawMessage(sceneView, $"Updating terrain preview — {snapshot.PendingRepresentationCount:N0} display tile update(s), "
                     + $"{snapshot.PendingGeographicDirtyCount:N0} resident tile(s) pending."
                     + (snapshot.UnprojectedScopePending ? " New authoring scope is awaiting projection." : ""), MessageType.Info, 56f); break;
             case TerrainAuthoringPreviewFeedbackKind.Paused:

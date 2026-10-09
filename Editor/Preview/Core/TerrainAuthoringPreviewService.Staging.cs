@@ -13,15 +13,16 @@ public static partial class TerrainAuthoringPreviewService
     private static string lastTransitionFailureMessage = "";
 
 
-    public static bool TransitionInProgress => currentCacheSetTransition != null && currentCacheSetTransition.InProgress;
-    public static bool HasTransitionDiagnostics => currentCacheSetTransition != null || hasTransitionFailure;
-    public static string TransitionStateLabel => currentCacheSetTransition != null
-        ? currentCacheSetTransition.State.ToString() : hasTransitionFailure ? "Failed" : "Idle";
-    public static bool HasTransitionFailure => hasTransitionFailure;
-    public static string LastTransitionFailureMessage => lastTransitionFailureMessage;
+    private static bool LegacyTransitionInProgress => currentCacheSetTransition != null && currentCacheSetTransition.InProgress;
+    public static bool TransitionInProgress => sharedQueue.Count > 0 || sharedRunningTile.HasValue;
 
-    public static int LastTransitionRetainedTileCount => SumSetTiles(2);
-    public static int LastTransitionEnteringTileCount => SumSetTiles(3);
+    public static bool HasTransitionDiagnostics => sharedHeight != null || !string.IsNullOrEmpty(sharedFailedTarget);
+    public static string TransitionStateLabel => StreamingStateLabel;
+    public static bool HasTransitionFailure => !string.IsNullOrEmpty(sharedFailedTarget);
+    public static string LastTransitionFailureMessage => sharedError;
+
+    public static int LastTransitionRetainedTileCount => sharedTargetRetained;
+    public static int LastTransitionEnteringTileCount => sharedTargetJobs;
     public static int LastTransitionLeavingTileCount => SumSetTiles(4);
     public static int LastTransitionReusableRetainedTileCount => StreamingRetainedTileCount;
     public static int LastTransitionRetainedGpuCopyCount => StreamingRetainedCopiedCount;
@@ -233,6 +234,7 @@ public static partial class TerrainAuthoringPreviewService
 
     private static void ReleaseAllPreviewCaches(bool notifyObservers = true)
     {
+        ReleaseSharedHeightPreview(notifyObservers);
         ReleaseBinding(); ReleaseActiveDirtySource(); ReleaseStagingCacheOnly(); ClearPendingStreamingStart();
         ReleaseTerrainAnalysisSource(notifyObservers); retiringAnalysisState?.Dispose(); retiringAnalysisState = null;
         ReleaseActiveHeightCacheSet(); currentCacheSetTransition = null;
@@ -242,9 +244,20 @@ public static partial class TerrainAuthoringPreviewService
     }
     private static long EstimatePublishedHeightMemory() => CaptureHeightOwnership().ActiveBytes;
 
-    internal static TerrainAuthoringPreviewOwnershipSnapshot CaptureHeightOwnership() =>
-        CaptureHeightOwnership(activeHeightStates, analysisOwnedState, currentCacheSetTransition,
-            pendingCacheSetTransition, retiringHeightStates, retiringAnalysisState);
+    internal static TerrainAuthoringPreviewOwnershipSnapshot CaptureHeightOwnership()
+    {
+        var legacy = CaptureHeightOwnership(activeHeightStates, analysisOwnedState, currentCacheSetTransition, pendingCacheSetTransition, retiringHeightStates, retiringAnalysisState);
+        long display = (sharedHeight?.AllocatedBytes ?? 0) + (sharedHeight?.LookupAllocatedBytes ?? 0);
+        long native = sharedHeight?.AnalysisAllocatedBytes ?? 0, retired = 0; int arrays = 0;
+        if (sharedHeight != null) foreach (var pool in sharedHeight.CapturePoolInventory()) if (pool.IsAllocated) arrays++;
+        foreach (var cache in sharedRetiringCaches)
+        { retired += cache.AllocatedBytes + cache.LookupAllocatedBytes + cache.AnalysisAllocatedBytes;
+          foreach (var pool in cache.CapturePoolInventory()) if (pool.IsAllocated) arrays++; }
+        arrays += (sharedNativeWork?.Native?.AllocatedArrayCount ?? 0) + (sharedPublishedNative?.Native?.AllocatedArrayCount ?? 0);
+        foreach (var work in sharedRetiringWork) arrays += work.Native?.AllocatedArrayCount ?? 0;
+        return new TerrainAuthoringPreviewOwnershipSnapshot(display, native, 0, 0, retired + legacy.TotalBytes, 0,
+            sharedHeight == null ? 0 : 1, arrays, sharedHeight == null ? 0 : 1, native > 0 ? 1 : 0, 0, 0, sharedRetiringCaches.Count);
+    }
 
     internal static TerrainAuthoringPreviewOwnershipSnapshot CaptureHeightOwnership(TerrainAuthoringPreviewLodState[] display,
         TerrainAuthoringPreviewLodState analysis, TerrainAuthoringPreviewCacheSetTransition running,

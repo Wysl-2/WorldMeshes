@@ -77,14 +77,15 @@ public static partial class TerrainAuthoringPreviewService
     {
         get
         {
+            if (sharedHeight != null && !sharedHeight.IsDisposed) return true;
             if (activeHeightStates != null) foreach (var state in activeHeightStates)
                 if (state.ActiveCache != null && state.ActiveCache.IsReady) return true;
             return false;
         }
     }
 
-    internal static bool HasLifecycleStagingCache =>
-        currentCacheSetTransition != null && TransitionInProgress;
+    internal static bool HasLifecycleStagingCache => sharedQueue.Count > 0 || sharedRunningTile.HasValue ||
+        currentCacheSetTransition != null && LegacyTransitionInProgress;
 
     /*
      * Scene View placement can still operate when Height Preview is disabled,
@@ -561,7 +562,7 @@ public static partial class TerrainAuthoringPreviewService
             (
                 currentCacheSetTransition != null
                 &&
-                TransitionInProgress
+                LegacyTransitionInProgress
             );
 
         bool preserveCommittedRebuild =
@@ -600,7 +601,7 @@ public static partial class TerrainAuthoringPreviewService
         if (
             currentCacheSetTransition != null
             &&
-            !TransitionInProgress
+            !LegacyTransitionInProgress
         )
         {
             currentCacheSetTransition =
@@ -817,6 +818,7 @@ public static partial class TerrainAuthoringPreviewService
             "Editor preview lifecycle is shutting down.",
             false
         );
+            DrainSharedRetirementForShutdown();
     }
 }
 

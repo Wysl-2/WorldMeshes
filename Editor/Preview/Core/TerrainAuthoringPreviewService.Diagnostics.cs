@@ -209,6 +209,9 @@ public static partial class TerrainAuthoringPreviewService
     }
 
     internal static TerrainAuthoringPreviewDiagnosticsSnapshot GetDiagnosticsSnapshot()
+    { return CaptureSharedServiceDiagnostics(LoadWorldSettings()); }
+
+    private static TerrainAuthoringPreviewDiagnosticsSnapshot CaptureLegacyServiceDiagnostics()
     {
         var settings = LoadWorldSettings();
         string committed = TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(settings);

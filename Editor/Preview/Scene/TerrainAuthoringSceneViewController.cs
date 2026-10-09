@@ -1778,6 +1778,7 @@ public static partial class TerrainAuthoringSceneViewController
         string path
     )
     {
+        TerrainAuthoringPreviewService.RestoreSharedMaterialsForSceneSave();
         if (
             Application.isPlaying
             ||
@@ -1806,6 +1807,7 @@ public static partial class TerrainAuthoringSceneViewController
         Scene scene
     )
     {
+        TerrainAuthoringPreviewService.ResumeSharedDisplayAfterSceneSave();
         if (
             !scene.IsValid()
             ||

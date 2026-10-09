@@ -429,6 +429,7 @@ internal readonly struct TerrainAuthoringPreviewDiagnosticsSnapshot
     public readonly TerrainAuthoringPreviewDirtyFailureSnapshot MostRecentDirtyFailure;
     public readonly TerrainAuthoringPreviewDirtySourceSnapshot HeldDirtySource;
     public readonly TerrainAuthoringPreviewSourceCacheSnapshot SourceCache;
+    internal readonly TerrainAuthoringPreviewSharedHeightSnapshot SharedHeight;
     public readonly long LatestPlacementGeneration;
     public bool HasFailedDirtyUpdates => FailedRepresentationCount > 0;
     public readonly int LastDirtyLoads;
@@ -495,7 +496,8 @@ internal readonly struct TerrainAuthoringPreviewDiagnosticsSnapshot
         int unprojectedGeographicDirtyCount = 0,
         TerrainAuthoringPreviewDirtySourceSnapshot heldDirtySource = default,
         long latestPlacementGeneration = 0,
-        TerrainAuthoringPreviewSourceCacheSnapshot sourceCache = default)
+        TerrainAuthoringPreviewSourceCacheSnapshot sourceCache = default,
+        TerrainAuthoringPreviewSharedHeightSnapshot sharedHeight = default)
     {
         Enabled = enabled;
         CacheReady = cacheReady;
@@ -552,6 +554,8 @@ internal readonly struct TerrainAuthoringPreviewDiagnosticsSnapshot
             pending += row.PendingDirtyCount; failed += row.FailedDirtyCount;
             if (TerrainAuthoringPreviewService.IsNewerDirtyFailure(row.DirtyFailure, recent)) recent = row.DirtyFailure;
         }
+        if (sharedHeight.Present) { pending = sharedHeight.Backlog; failed = sharedHeight.Failed; recent = sharedHeight.Failure; }
+        SharedHeight = sharedHeight;
         PendingRepresentationCount = pending; FailedRepresentationCount = failed;
         UnprojectedScopePending = unprojectedScopePending;
         UnprojectedGeographicDirtyCount = unprojectedGeographicDirtyCount;

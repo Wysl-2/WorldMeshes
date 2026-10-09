@@ -15,7 +15,7 @@ public partial class WorldMeshesEditorWindow :
         DrawHeightPreviewDiagnostics(snapshot);
         if (TerrainAuthoringPreviewService.TryGetLatestGeographicalHeightDemand(out var demand))
         {
-            EditorGUILayout.LabelField("Planned Height Demand", "Not yet used by the active renderer");
+            EditorGUILayout.LabelField("Geographical Height Demand", "Selected display pages shared by all mesh levels");
             EditorGUILayout.LabelField("Policy / Demand Generation", $"{demand.PolicyGeneration} / {demand.Generation}");
             EditorGUILayout.LabelField("Editable Focus / Window", $"{demand.FocusTile} / {demand.EditableWindow}");
             EditorGUILayout.LabelField("Planned Required / Optional Display", $"{demand.RequiredDisplayCount} / {demand.OptionalDisplayCount}");
@@ -48,7 +48,7 @@ public partial class WorldMeshesEditorWindow :
                 TerrainAuthoringPreviewService.RetryFailedDirtyUpdates();
             EditorGUI.EndDisabledGroup();
         }
-        EditorGUILayout.HelpBox("The published display set stays bound while a complete replacement is prepared. Source loads count geographic tiles; composition counts representation pages. Dirty updates prepare one scratch candidate per callback, then capture recovery and publish with two copies (three if restoration is required). Work caps apply to the whole editor callback. Height memory is an RFloat array payload estimate, excluding compositor buffers, committed texture assets and driver overhead.", MessageType.Info);
+        EditorGUILayout.HelpBox("The previous shared display stays bound until required pages and sampling dependencies are current. Each changed display tile uses one selected stride and one composition. One display job and one independent native-analysis step progress per callback; GPU boundaries are polled. Memory counts allocated pool capacity, retained lookups and native arrays, excluding compositor buffers, source assets and driver overhead.", MessageType.Info);
         GUILayout.EndVertical();
     }
 
@@ -84,6 +84,20 @@ public partial class WorldMeshesEditorWindow :
         EditorGUILayout.LabelField("Authoring / Request Generation", $"{snapshot.AuthoringGeneration} / {snapshot.StreamingRequestGeneration}");
         if (!string.IsNullOrEmpty(snapshot.PreviewStatusMessage))
             EditorGUILayout.HelpBox(snapshot.PreviewStatusMessage, snapshot.PreviewStatus == TerrainAuthoringPreviewStatus.Error ? MessageType.Error : MessageType.Info);
+        if (snapshot.SharedHeight.Present)
+        {
+            var shared = snapshot.SharedHeight;
+            EditorGUILayout.LabelField("Demanded / Required", $"{shared.Demanded} / {shared.Required}");
+            EditorGUILayout.LabelField("Current / Stale / Missing", $"{shared.Current} / {shared.Stale} / {shared.Missing}");
+            EditorGUILayout.LabelField("Stride: Tile Count", shared.Strides);
+            EditorGUILayout.LabelField("Pending / Failed", $"{shared.Backlog} / {shared.Failed}");
+            EditorGUILayout.LabelField("Pool Capacity / Lookup Payload", $"{FormatPreviewMemory(shared.PoolBytes)} / {FormatPreviewMemory(shared.LookupBytes)}");
+            EditorGUILayout.LabelField("Native / Retiring Owner Payload", $"{FormatPreviewMemory(shared.NativeBytes)} / {FormatPreviewMemory(shared.RetiringBytes)}");
+            EditorGUILayout.LabelField("Physical Compositions", TerrainAuthoringPreviewService.TotalIncrementalSliceUpdates.ToString("N0"));
+            if (shared.Failure.Present) EditorGUILayout.HelpBox($"Tile {shared.Failure.Tile}: {shared.Failure.Message}", MessageType.Warning);
+            if (!snapshot.Analysis.Ready) EditorGUILayout.HelpBox(snapshot.Analysis.Message, snapshot.Analysis.Failed ? MessageType.Warning : MessageType.Info);
+            return;
+        }
         EditorGUILayout.LabelField("Streaming State", snapshot.StreamingState.ToString());
         DrawHeightWorker("Running", snapshot.Worker);
         DrawHeightWorker("Queued", snapshot.QueuedWorker);

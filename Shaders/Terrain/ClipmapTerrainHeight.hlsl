@@ -196,23 +196,81 @@ float4 SharedHeightPoolInfo(int pool)
     return 0.0;
 }
 
-float LoadSharedHeightTexel(int pool, int2 texel, int slice)
+// Select the physical pool once for all four bilinear taps. Repeating the
+// pool switch for each tap multiplies the translated vertex program.
+float SampleSharedHeightBilinear(int pool, int2 low, int2 high, int slice, float2 fraction)
 {
+    float4 taps = 0.0;
     switch (pool)
     {
-        case 0: return LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool0, texel, slice).r;
-        case 1: return LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool1, texel, slice).r;
-        case 2: return LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool2, texel, slice).r;
-        case 3: return LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool3, texel, slice).r;
-        case 4: return LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool4, texel, slice).r;
-        case 5: return LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool5, texel, slice).r;
-        case 6: return LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool6, texel, slice).r;
-        case 7: return LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool7, texel, slice).r;
-        case 8: return LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool8, texel, slice).r;
-        case 9: return LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool9, texel, slice).r;
-        case 10: return LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool10, texel, slice).r;
+        case 0:
+            taps = float4(LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool0, low, slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool0, int2(high.x, low.y), slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool0, int2(low.x, high.y), slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool0, high, slice).r);
+            break;
+        case 1:
+            taps = float4(LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool1, low, slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool1, int2(high.x, low.y), slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool1, int2(low.x, high.y), slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool1, high, slice).r);
+            break;
+        case 2:
+            taps = float4(LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool2, low, slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool2, int2(high.x, low.y), slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool2, int2(low.x, high.y), slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool2, high, slice).r);
+            break;
+        case 3:
+            taps = float4(LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool3, low, slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool3, int2(high.x, low.y), slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool3, int2(low.x, high.y), slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool3, high, slice).r);
+            break;
+        case 4:
+            taps = float4(LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool4, low, slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool4, int2(high.x, low.y), slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool4, int2(low.x, high.y), slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool4, high, slice).r);
+            break;
+        case 5:
+            taps = float4(LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool5, low, slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool5, int2(high.x, low.y), slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool5, int2(low.x, high.y), slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool5, high, slice).r);
+            break;
+        case 6:
+            taps = float4(LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool6, low, slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool6, int2(high.x, low.y), slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool6, int2(low.x, high.y), slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool6, high, slice).r);
+            break;
+        case 7:
+            taps = float4(LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool7, low, slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool7, int2(high.x, low.y), slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool7, int2(low.x, high.y), slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool7, high, slice).r);
+            break;
+        case 8:
+            taps = float4(LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool8, low, slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool8, int2(high.x, low.y), slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool8, int2(low.x, high.y), slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool8, high, slice).r);
+            break;
+        case 9:
+            taps = float4(LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool9, low, slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool9, int2(high.x, low.y), slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool9, int2(low.x, high.y), slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool9, high, slice).r);
+            break;
+        case 10:
+            taps = float4(LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool10, low, slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool10, int2(high.x, low.y), slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool10, int2(low.x, high.y), slice).r,
+                LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool10, high, slice).r);
+            break;
     }
-    return 0.0; // Only reachable with valid == 0; never a drawable fallback.
+    return lerp(lerp(taps.x, taps.y, fraction.x), lerp(taps.z, taps.w, fraction.x), fraction.y);
 }
 
 struct SharedHeightPage
@@ -243,19 +301,15 @@ SharedHeightPage LookupSharedHeightPage(int2 tile)
     return p;
 }
 
-float SampleSharedHeightPage(SharedHeightPage page, float2 point)
+float SampleSharedHeightPage(SharedHeightPage page, float2 sampleWorldXZ)
 {
     float4 info = SharedHeightPoolInfo(page.pool);
-    float2 coordinate = clamp((ClampTerrainWorldXZ(point) - (float2)page.tile * _EditorSharedHeightTopology.x)
+    float2 coordinate = clamp((ClampTerrainWorldXZ(sampleWorldXZ) - (float2)page.tile * _EditorSharedHeightTopology.x)
         / page.spacing, 0.0, info.x - 1.0);
     int2 low = (int2)floor(coordinate);
     int2 high = min(low + 1, (int)info.x - 1);
     float2 fraction = coordinate - (float2)low;
-    float a = LoadSharedHeightTexel(page.pool, low, page.slice);
-    float b = LoadSharedHeightTexel(page.pool, int2(high.x, low.y), page.slice);
-    float c = LoadSharedHeightTexel(page.pool, int2(low.x, high.y), page.slice);
-    float d = LoadSharedHeightTexel(page.pool, high, page.slice);
-    return lerp(lerp(a, b, fraction.x), lerp(c, d, fraction.x), fraction.y);
+    return SampleSharedHeightBilinear(page.pool, low, high, page.slice, fraction);
 }
 
 // Coarsest wins. Fixed Z/X iteration makes ties independent of tile/traversal direction.
@@ -294,27 +348,33 @@ float SampleEditorSharedTerrainHeight(float2 worldXZ, out float valid)
     if (_EditorSharedHeightEnabled < 0.5 || TerrainWorldBoundsAreReady() < 0.5
         || _EditorSharedHeightTopology.x <= 0.0 || _EditorSharedHeightTopology.y < 1.0
         || any(_EditorSharedHeightMapWindow.zw < 1.0) || !all(isfinite(worldXZ))) return 0.0;
-    float2 point = ClampTerrainWorldXZ(worldXZ);
-    int2 tile = min((int2)floor(point / _EditorSharedHeightTopology.x), (int2)_EditorSharedHeightTopology.zw - 1);
-    SharedHeightPage pages[9];
-    [unroll] for (int z = 0; z < 3; z++)
-        [unroll] for (int x = 0; x < 3; x++)
-            pages[x + z * 3] = LookupSharedHeightPage(tile + int2(x - 1, z - 1));
-    if (pages[4].valid < 0.5) return 0.0;
-    SharedHeightPage bl = PickSharedHeightCorner(pages[0], pages[1], pages[3], pages[4]);
-    SharedHeightPage br = PickSharedHeightCorner(pages[1], pages[2], pages[4], pages[5]);
-    SharedHeightPage tl = PickSharedHeightCorner(pages[3], pages[4], pages[6], pages[7]);
-    SharedHeightPage tr = PickSharedHeightCorner(pages[4], pages[5], pages[7], pages[8]);
+    float2 sampleWorldXZ = ClampTerrainWorldXZ(worldXZ);
+    int2 tile = min((int2)floor(sampleWorldXZ / _EditorSharedHeightTopology.x), (int2)_EditorSharedHeightTopology.zw - 1);
+    // Explicit neighbours avoid a temporary array of structs in cross-compilers.
+    SharedHeightPage pageBL = LookupSharedHeightPage(tile + int2(-1, -1));
+    SharedHeightPage pageB = LookupSharedHeightPage(tile + int2(0, -1));
+    SharedHeightPage pageBR = LookupSharedHeightPage(tile + int2(1, -1));
+    SharedHeightPage pageL = LookupSharedHeightPage(tile + int2(-1, 0));
+    SharedHeightPage pageC = LookupSharedHeightPage(tile + int2(0, 0));
+    SharedHeightPage pageR = LookupSharedHeightPage(tile + int2(1, 0));
+    SharedHeightPage pageTL = LookupSharedHeightPage(tile + int2(-1, 1));
+    SharedHeightPage pageT = LookupSharedHeightPage(tile + int2(0, 1));
+    SharedHeightPage pageTR = LookupSharedHeightPage(tile + int2(1, 1));
+    if (pageC.valid < 0.5) return 0.0;
+    SharedHeightPage bl = PickSharedHeightCorner(pageBL, pageB, pageL, pageC);
+    SharedHeightPage br = PickSharedHeightCorner(pageB, pageBR, pageC, pageR);
+    SharedHeightPage tl = PickSharedHeightCorner(pageL, pageC, pageTL, pageT);
+    SharedHeightPage tr = PickSharedHeightCorner(pageC, pageR, pageT, pageTR);
     float size = _EditorSharedHeightTopology.x;
-    float2 origin = (float2)tile * size, local = point - origin;
+    float2 origin = (float2)tile * size, local = sampleWorldXZ - origin;
     float2 unit = saturate(local / size);
     // Corner spacings on each edge have the same endpoints on both neighbouring tiles.
     // Width never exceeds one tile, so opposing weights sum to at most one.
-    float baseSpacing = pages[4].spacing;
-    bool blendBL = SharedHeightCornerNeedsBlend(pages[0], pages[1], pages[3], pages[4]);
-    bool blendBR = SharedHeightCornerNeedsBlend(pages[1], pages[2], pages[4], pages[5]);
-    bool blendTL = SharedHeightCornerNeedsBlend(pages[3], pages[4], pages[6], pages[7]);
-    bool blendTR = SharedHeightCornerNeedsBlend(pages[4], pages[5], pages[7], pages[8]);
+    float baseSpacing = pageC.spacing;
+    bool blendBL = SharedHeightCornerNeedsBlend(pageBL, pageB, pageL, pageC);
+    bool blendBR = SharedHeightCornerNeedsBlend(pageB, pageBR, pageC, pageR);
+    bool blendTL = SharedHeightCornerNeedsBlend(pageL, pageC, pageTL, pageT);
+    bool blendTR = SharedHeightCornerNeedsBlend(pageC, pageR, pageT, pageTR);
     // Equal-resolution compatible corners have zero-width bands. Widths interpolate
     // between identical corner endpoints on both sides, including mixed junctions.
     // Thus equal neighbourhoods preserve all original lattice/edge samples.
@@ -326,44 +386,55 @@ float SampleEditorSharedTerrainHeight(float2 worldXZ, out float valid)
     float top = SharedHeightBandWeight(size - local.y, lerp(cornerSpacing.z, cornerSpacing.w, unit.x));
     float interiorX = max(0.0, 1.0 - left - right), interiorZ = max(0.0, 1.0 - bottom - top);
     float height = 0.0;
-    if (interiorX * interiorZ > 0.0) height += interiorX * interiorZ * SampleSharedHeightPage(pages[4], point);
-    SharedHeightPage edge;
-    if (left * interiorZ > 0.0)
-    { edge = PickSharedHeightProfile(pages[3], pages[4]); if (edge.valid < 0.5) return 0.0;
-      height += left * interiorZ * SampleSharedHeightPage(edge, float2(origin.x, point.y)); }
-    if (right * interiorZ > 0.0)
-    { edge = PickSharedHeightProfile(pages[4], pages[5]); if (edge.valid < 0.5) return 0.0;
-      height += right * interiorZ * SampleSharedHeightPage(edge, float2(origin.x + size, point.y)); }
-    if (bottom * interiorX > 0.0)
-    { edge = PickSharedHeightProfile(pages[1], pages[4]); if (edge.valid < 0.5) return 0.0;
-      height += bottom * interiorX * SampleSharedHeightPage(edge, float2(point.x, origin.y)); }
-    if (top * interiorX > 0.0)
-    { edge = PickSharedHeightProfile(pages[4], pages[7]); if (edge.valid < 0.5) return 0.0;
-      height += top * interiorX * SampleSharedHeightPage(edge, float2(point.x, origin.y + size)); }
-    if (left * bottom > 0.0)
-    { if (bl.valid < 0.5) return 0.0; height += left * bottom * SampleSharedHeightPage(bl, origin); }
-    if (right * bottom > 0.0)
-    { if (br.valid < 0.5) return 0.0; height += right * bottom * SampleSharedHeightPage(br, origin + float2(size, 0)); }
-    if (left * top > 0.0)
-    { if (tl.valid < 0.5) return 0.0; height += left * top * SampleSharedHeightPage(tl, origin + float2(0, size)); }
-    if (right * top > 0.0)
-    { if (tr.valid < 0.5) return 0.0; height += right * top * SampleSharedHeightPage(tr, origin + size); }
+    // Preserve the centre/edge/corner contribution order while keeping one
+    // rolled texture-sampling body. Normals call this sampler at four positions.
+    [loop] for (int contribution = 0; contribution < 9; contribution++)
+    {
+        SharedHeightPage profile = pageC;
+        float weight = 0.0;
+        float2 profileWorldXZ = sampleWorldXZ;
+        switch (contribution)
+        {
+            case 0: weight = interiorX * interiorZ; break;
+            case 1:
+                weight = left * interiorZ; profile = PickSharedHeightProfile(pageL, pageC);
+                profileWorldXZ = float2(origin.x, sampleWorldXZ.y); break;
+            case 2:
+                weight = right * interiorZ; profile = PickSharedHeightProfile(pageC, pageR);
+                profileWorldXZ = float2(origin.x + size, sampleWorldXZ.y); break;
+            case 3:
+                weight = bottom * interiorX; profile = PickSharedHeightProfile(pageB, pageC);
+                profileWorldXZ = float2(sampleWorldXZ.x, origin.y); break;
+            case 4:
+                weight = top * interiorX; profile = PickSharedHeightProfile(pageC, pageT);
+                profileWorldXZ = float2(sampleWorldXZ.x, origin.y + size); break;
+            case 5: weight = left * bottom; profile = bl; profileWorldXZ = origin; break;
+            case 6: weight = right * bottom; profile = br; profileWorldXZ = origin + float2(size, 0); break;
+            case 7: weight = left * top; profile = tl; profileWorldXZ = origin + float2(0, size); break;
+            case 8: weight = right * top; profile = tr; profileWorldXZ = origin + size; break;
+        }
+        if (weight > 0.0)
+        {
+            if (profile.valid < 0.5) return 0.0;
+            height += weight * SampleSharedHeightPage(profile, profileWorldXZ);
+        }
+    }
     valid = isfinite(height) ? 1.0 : 0.0;
     return valid > 0.5 ? height : 0.0;
 }
 
 float ResolveSharedHeightNormalSpacing(float2 worldXZ, float requested)
 {
-    float2 point = ClampTerrainWorldXZ(worldXZ);
+    float2 sampleWorldXZ = ClampTerrainWorldXZ(worldXZ);
     float size = _EditorSharedHeightTopology.x;
-    int2 tile = min((int2)floor(point / size), (int2)_EditorSharedHeightTopology.zw - 1);
+    int2 tile = min((int2)floor(sampleWorldXZ / size), (int2)_EditorSharedHeightTopology.zw - 1);
     float spacing = requested;
-    [unroll] for (int z = -1; z <= 1; z++)
-        [unroll] for (int x = -1; x <= 1; x++)
+    [loop] for (int z = -1; z <= 1; z++)
+        [loop] for (int x = -1; x <= 1; x++)
         {
             SharedHeightPage p = LookupSharedHeightPage(tile + int2(x, z));
             float2 minimum = (float2)p.tile * size;
-            float2 distance = max(max(minimum - point, point - (minimum + size)), 0.0);
+            float2 distance = max(max(minimum - sampleWorldXZ, sampleWorldXZ - (minimum + size)), 0.0);
             if (p.valid > 0.5 && max(distance.x, distance.y) <= p.spacing) spacing = max(spacing, p.spacing);
         }
     return spacing;

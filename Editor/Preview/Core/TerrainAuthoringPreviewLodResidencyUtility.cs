@@ -15,7 +15,8 @@ internal static class TerrainAuthoringPreviewLodResidencyUtility
         TerrainClipmapLayout layout,
         int generation,
         out TerrainAuthoringPreviewResidencyPlan plan,
-        out string errorMessage
+        out string errorMessage,
+        bool requireStreamingPolicy = true
     )
     {
         plan =
@@ -109,7 +110,7 @@ internal static class TerrainAuthoringPreviewLodResidencyUtility
             }
 
             if (
-                !TerrainHeightStreamingPyramidPolicy
+                requireStreamingPolicy && !TerrainHeightStreamingPyramidPolicy
                     .IsHeightRepresentationStrideSupported(
                         worldSettings,
                         sampleStride
@@ -183,7 +184,7 @@ internal static class TerrainAuthoringPreviewLodResidencyUtility
                 }
 
                 if (
-                    !TerrainHeightStreamingPyramidPolicy
+                    requireStreamingPolicy && !TerrainHeightStreamingPyramidPolicy
                         .IsHeightRepresentationStrideSupported(
                             worldSettings,
                             coarseSampleStride
@@ -413,6 +414,17 @@ internal static class TerrainAuthoringPreviewLodResidencyUtility
             AddGeographicFootprint(settings, rows, outerMin - Vector2.one * margin, outerMax + Vector2.one * margin,
                 holeMin + Vector2.one * margin, holeMax - Vector2.one * margin, true, stride,
                 TerrainAuthoringPreviewDisplayRequirement.SamplingDependency);
+        }
+        var geometryTiles = new List<Vector2Int>();
+        foreach (var pair in rows) if ((pair.Value.Display & TerrainAuthoringPreviewDisplayRequirement.Geometry) != 0) geometryTiles.Add(pair.Key);
+        int coarsest = 1; while (coarsest <= int.MaxValue / 2 && TerrainHeightResolutionUtility.IsRepresentationStrideCompatible(settings, coarsest * 2)) coarsest *= 2;
+        int halo = Mathf.Min(2, Mathf.Max(1, Mathf.CeilToInt(2 * TerrainHeightResolutionUtility.GetSampleSpacing(settings, coarsest) / settings.HeightTileWorldSize)));
+        foreach (var tile in geometryTiles) for (int z = -halo; z <= halo; z++) for (int x = -halo; x <= halo; x++)
+        {
+            var neighbour = tile + new Vector2Int(x, z);
+            if (neighbour.x < 0 || neighbour.y < 0 || neighbour.x >= settings.HeightTileGridWidth || neighbour.y >= settings.HeightTileGridHeight) continue;
+            if (!rows.TryGetValue(neighbour, out var row)) row = new GeographicTileAccumulator { Stride = coarsest };
+            row.Display |= TerrainAuthoringPreviewDisplayRequirement.SamplingDependency; rows[neighbour] = row;
         }
         if (nativeWorking != null)
             foreach (var working in nativeWorking)

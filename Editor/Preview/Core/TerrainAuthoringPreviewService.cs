@@ -19,9 +19,9 @@ public enum TerrainAuthoringPreviewStatus
  * Final edit-mode streamed height-preview ownership model.
  *
  * Persistent/global authoring state is authoritative independently of GPU
- * residency. activeHeightStates own the published per-LOD GPU sources;
- * one disposable cache-set transaction owns any replacement under construction
- * until the complete layout and renderer bindings publish synchronously.
+ * residency. A shared geographical cache owns display pages; retained binding
+ * snapshots keep the last complete layout alive while replacement content
+ * passes the complete coverage and renderer publication gate.
  *
  * Scene View/canonical placement publishes residency intent. PreviewService
  * owns cache loading, composition, binding, transition lifetime, and resource
@@ -254,7 +254,7 @@ public static partial class TerrainAuthoringPreviewService
     {
         get
         {
-            int count = dirtyCompositeTiles.Count;
+            int count = sharedQueue.Count + sharedTileFailures.Count + (sharedRunningTile.HasValue ? 1 : 0);
             if (activeHeightStates != null) foreach (var s in activeHeightStates) count += s.PendingDirtyTiles.Count;
             return count;
         }
@@ -262,12 +262,12 @@ public static partial class TerrainAuthoringPreviewService
 
     public static int LastIncrementalSliceCount
     {
-        get { int count = 0; if (activeHeightStates != null) foreach (var s in activeHeightStates) count += s.ActiveCache?.LastIncrementalSliceCount ?? 0; return count; }
+        get { int count = LastDirtyUpdateCompositions; if (activeHeightStates != null) foreach (var s in activeHeightStates) count += s.ActiveCache?.LastIncrementalSliceCount ?? 0; return count; }
     }
 
     public static long TotalIncrementalSliceUpdates
     {
-        get { long count = 0; if (activeHeightStates != null) foreach (var s in activeHeightStates) count += s.ActiveCache?.TotalIncrementalSliceUpdates ?? 0L; return count; }
+        get { long count = sharedCompositionCount; if (activeHeightStates != null) foreach (var s in activeHeightStates) count += s.ActiveCache?.TotalIncrementalSliceUpdates ?? 0L; return count; }
     }
 
     public static long FullCommittedBuildCount
@@ -298,7 +298,7 @@ public static partial class TerrainAuthoringPreviewService
         get
         {
             return
-                heightCompositor.IsPrepared;
+                (sharedDisplayWork?.Compositor ?? heightCompositor).IsPrepared;
         }
     }
 
@@ -317,7 +317,7 @@ public static partial class TerrainAuthoringPreviewService
         get
         {
             return
-                heightCompositor
+                (sharedDisplayWork?.Compositor ?? heightCompositor)
                     .LastDispatchTileCount;
         }
     }
@@ -327,41 +327,41 @@ public static partial class TerrainAuthoringPreviewService
         get
         {
             return
-                heightCompositor
+                (sharedDisplayWork?.Compositor ?? heightCompositor)
                     .TotalDispatchTileCount;
         }
     }
 
     public static int LastCompositeModifierConsideredCount =>
-        heightCompositor
+        (sharedDisplayWork?.Compositor ?? heightCompositor)
             .LastModifierConsideredCount;
 
     public static long TotalCompositeModifierConsideredCount =>
-        heightCompositor
+        (sharedDisplayWork?.Compositor ?? heightCompositor)
             .TotalModifierConsideredCount;
 
     public static int LastCompositeModifierDispatchCount =>
-        heightCompositor
+        (sharedDisplayWork?.Compositor ?? heightCompositor)
             .LastModifierDispatchCount;
 
     public static long TotalCompositeModifierDispatchCount =>
-        heightCompositor
+        (sharedDisplayWork?.Compositor ?? heightCompositor)
             .TotalModifierDispatchCount;
 
     public static int LastCompositeComputeDispatchCount =>
-        heightCompositor
+        (sharedDisplayWork?.Compositor ?? heightCompositor)
             .LastComputeDispatchCount;
 
     public static long TotalCompositeComputeDispatchCount =>
-        heightCompositor
+        (sharedDisplayWork?.Compositor ?? heightCompositor)
             .TotalComputeDispatchCount;
 
     public static int LastRegionalElevationDispatchCount =>
-        heightCompositor
+        (sharedDisplayWork?.Compositor ?? heightCompositor)
             .LastRegionalElevationDispatchCount;
 
     public static long TotalRegionalElevationDispatchCount =>
-        heightCompositor
+        (sharedDisplayWork?.Compositor ?? heightCompositor)
             .TotalRegionalElevationDispatchCount;
 
 
@@ -380,26 +380,14 @@ public static partial class TerrainAuthoringPreviewService
 
 
     internal static bool TryGetCompositeSliceRange(int tileX, int tileZ, out float minimumHeight, out float maximumHeight)
-    {
-        minimumHeight = maximumHeight = 0;
-        var tile = new Vector2Int(tileX, tileZ);
-        var settings = LoadWorldSettings();
-        if (!TryResolveReadinessContext(settings, out string committed)) return false;
-        var state = FindFinestResidentDisplayState(tile);
-        if (!IsStateTileContentCurrent(state, settings, committed, tile)) return false;
-        return state.ActiveCache.TryGetCompositeSliceRange(tileX, tileZ, out minimumHeight, out maximumHeight);
-    }
+    { minimumHeight = maximumHeight = 0;
+        if (!TryGetSharedDrawablePage(new Vector2Int(tileX, tileZ), out var page, out bool current) || !current) return false;
+        minimumHeight = page.MinimumHeight; maximumHeight = page.MaximumHeight; return true; }
 
     internal static bool TryGetDrawableCompositeSliceRange(int tileX, int tileZ, out float minimumHeight, out float maximumHeight)
-    {
-        minimumHeight = maximumHeight = 0;
-        var settings = LoadWorldSettings();
-        if (!TryResolveReadinessContext(settings, out string committed)) return false;
-        var tile = new Vector2Int(tileX, tileZ);
-        var state = FindFinestResidentDisplayState(tile);
-        if (!IsStateTileDrawable(state, settings, committed, tile)) return false;
-        return state.ActiveCache.TryGetCompositeSliceRange(tileX, tileZ, out minimumHeight, out maximumHeight);
-    }
+    { minimumHeight = maximumHeight = 0;
+        if (!TryGetSharedDrawablePage(new Vector2Int(tileX, tileZ), out var page, out _)) return false;
+        minimumHeight = page.MinimumHeight; maximumHeight = page.MaximumHeight; return true; }
 
     /*
      * Monotonic editor-session count used only to prove that
@@ -437,6 +425,8 @@ public static partial class TerrainAuthoringPreviewService
     {
         if (output == null) return;
         var unique = new HashSet<Vector2Int>(dirtyCompositeTiles);
+        unique.UnionWith(sharedQueue); unique.UnionWith(sharedTileFailures.Keys);
+        if (sharedRunningTile.HasValue) unique.Add(sharedRunningTile.Value);
         if (activeHeightStates != null) foreach (var s in activeHeightStates) unique.UnionWith(s.PendingDirtyTiles);
         foreach (var tile in unique) output.Add(tile);
     }
@@ -461,7 +451,7 @@ public static partial class TerrainAuthoringPreviewService
 
         if (!DisplayLodTileCurrentForValidation(level, tileX, tileZ, out var cache))
         {
-            errorMessage = "The selected display LOD slice is unavailable, stale or outside residency.";
+            errorMessage = "Per-LOD slice inspection is unavailable for the shared preview. Inspect the retained geographic display map.";
             return false;
         }
 
@@ -606,8 +596,10 @@ public static partial class TerrainAuthoringPreviewService
         int tileZ
     )
     {
+        BeginSharedAuthoringScope(true);
         PrepareInteractiveDirtyHint(true);
         var tile = new Vector2Int(tileX, tileZ);
+        CaptureSharedAuthoringTile(tile);
         if (HasActiveInteractiveTerrainAuthoringEdit) latestInteractiveDirtyTiles.Add(tile);
         RearmDirtyTile(activeHeightStates, tile);
         dirtyCompositeTiles.Add(tile);
@@ -623,6 +615,7 @@ public static partial class TerrainAuthoringPreviewService
         Vector2Int tileCoordinate
     )
     {
+        BeginSharedAuthoringScope(true); CaptureSharedAuthoringTile(tileCoordinate);
         PrepareInteractiveDirtyHint(true);
         if (HasActiveInteractiveTerrainAuthoringEdit) latestInteractiveDirtyTiles.Add(tileCoordinate);
         RearmDirtyTile(activeHeightStates, tileCoordinate);
@@ -640,9 +633,8 @@ public static partial class TerrainAuthoringPreviewService
     )
     {
         if (tileCoordinates == null)
-        {
-            return;
-        }
+        { NotifyCompositeAuthoringStateChanged(null); return; }
+        BeginSharedAuthoringScope(true);
 
         PrepareInteractiveDirtyHint(true);
 
@@ -651,6 +643,7 @@ public static partial class TerrainAuthoringPreviewService
             in tileCoordinates
         )
         {
+            CaptureSharedAuthoringTile(coordinate);
             if (HasActiveInteractiveTerrainAuthoringEdit) latestInteractiveDirtyTiles.Add(coordinate);
             RearmDirtyTile(activeHeightStates, coordinate);
             dirtyCompositeTiles.Add(coordinate);
@@ -673,6 +666,7 @@ public static partial class TerrainAuthoringPreviewService
         IEnumerable<Vector2Int> tileCoordinates
     )
     {
+        BeginSharedAuthoringScope(tileCoordinates != null);
         PrepareInteractiveDirtyHint(tileCoordinates != null);
         ClearTransitionFailureSuppression();
 
@@ -683,7 +677,8 @@ public static partial class TerrainAuthoringPreviewService
                 in tileCoordinates
             )
             {
-                if (HasActiveInteractiveTerrainAuthoringEdit) latestInteractiveDirtyTiles.Add(coordinate);
+                CaptureSharedAuthoringTile(coordinate);
+            if (HasActiveInteractiveTerrainAuthoringEdit) latestInteractiveDirtyTiles.Add(coordinate);
                 RearmDirtyTile(activeHeightStates, coordinate);
                 dirtyCompositeTiles.Add(coordinate);
             }
@@ -710,6 +705,7 @@ public static partial class TerrainAuthoringPreviewService
         int samplePadding = 1
     )
     {
+        if (!SharedFiniteBounds(worldBounds)) { NotifyCompositeAuthoringStateChanged(null); return; }
         WorldSettings worldSettings =
             LoadWorldSettings();
 
@@ -755,6 +751,7 @@ public static partial class TerrainAuthoringPreviewService
      */
     public static void RetryFailedDirtyUpdates()
     {
+        RetrySharedHeightFailures();
         RearmAllDirtyFailures(activeHeightStates);
         ReleaseActiveDirtySource(); heightCompositor.ReleaseTextureBindings();
         lastBoundsFollowUpAttempt = lastAnalysisFollowUpAttempt = lastCompletionFollowUpFailure = "";
@@ -946,7 +943,7 @@ public static partial class TerrainAuthoringPreviewService
         }
         if (!TerrainWorldSceneUtility.TryFindActiveClipmapRoot(out Transform root, out string error) || root == null)
         {
-            ReleaseBinding(); SetStatus(TerrainAuthoringPreviewStatus.ClipmapUnavailable,
+            ReleaseAllPreviewCaches(); SetStatus(TerrainAuthoringPreviewStatus.ClipmapUnavailable,
                 "WorldRoot/Clipmap is unavailable. " + error); return;
         }
         string committed = TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(settings);
@@ -956,8 +953,7 @@ public static partial class TerrainAuthoringPreviewService
             ReleaseAllPreviewCaches(); SetStatus(TerrainAuthoringPreviewStatus.AuthoringUnavailable,
                 "The current authoring signatures are unavailable."); return;
         }
-        if (!TryProjectPendingDisplayAuthoring(settings, committed, overall, out error))
-        { SetStatus(TerrainAuthoringPreviewStatus.Error, error); return; }
+        RequestGeographicDemandRefresh();
         if (latestDisplayIntent == null || latestDisplayIntent.Root != root || !latestDisplayIntent.ConfigurationMatches(settings)
             || latestDisplayIntent.OwnershipGeneration != TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration)
         {
@@ -968,12 +964,12 @@ public static partial class TerrainAuthoringPreviewService
         if (!RequestPreparedHeightCacheSet(settings, data, latestDisplayIntent.Plan, committedRebuildRequested, out error))
         {
             SetStatus(HasDrawableHeightPreview ? TerrainAuthoringPreviewStatus.Ready : TerrainAuthoringPreviewStatus.Error,
-                "The requested multiresolution Height display is unavailable. " + error); return;
+                "The requested shared Height display is unavailable. " + error); return;
         }
         SetStatus(HasDrawableHeightPreview ? TerrainAuthoringPreviewStatus.Ready : TerrainAuthoringPreviewStatus.Preparing,
-            HasPendingActiveDirtyWork ? "Updating resident Height representations incrementally."
-                : IsWaitingForStreamingCoverage ? "Waiting for complete multiresolution Height coverage."
-                : "The complete multiresolution Height preview is active.");
+            HasPendingActiveDirtyWork ? "Updating shared geographic Height tiles."
+                : IsWaitingForStreamingCoverage ? "Waiting for complete required shared Height coverage."
+                : "The complete shared Height preview is active.");
         NotifyHeightCacheCoverageIfChanged(); NotifyPreviewStateChanged(); RepaintEditorViews();
     }
 
@@ -982,11 +978,7 @@ public static partial class TerrainAuthoringPreviewService
     // =====================================================
 
     private static bool BindPreviewToClipmap(Transform root, out string errorMessage)
-    {
-        errorMessage = "";
-        return latestDisplayIntent != null && root == latestDisplayIntent.Root
-            && TryCommitDisplayHeight(null, latestDisplayIntent, activeHeightStates, out errorMessage);
-    }
+    { errorMessage = ""; return latestDisplayIntent != null && root == latestDisplayIntent.Root && TryPublishSharedDisplay(latestDisplayIntent, out errorMessage); }
 
     private static bool ApplyCurrentPreviewBounds(Transform root, out string errorMessage)
     {
@@ -1198,11 +1190,12 @@ public static partial class TerrainAuthoringPreviewService
 
     private static void ReleaseBinding()
     {
-        ClearPreviewFollowUps();
-        TerrainAuthoringPreviewHeightBindingUtility.Disable(boundHeightRenderers); boundHeightRenderers.Clear();
+        bool shared = sharedRendererOriginals.Count > 0;
         var controller = boundClipmapRoot != null ? boundClipmapRoot.GetComponent<TerrainClipmapBoundsController>() : null;
         if (controller != null) controller.RestoreConfiguredBounds();
-        boundClipmapRoot = null;
+        RestoreSharedRendererReferences(); ClearPreviewFollowUps();
+        if (!shared) TerrainAuthoringPreviewHeightBindingUtility.Disable(boundHeightRenderers);
+        boundHeightRenderers.Clear(); boundClipmapRoot = null;
     }
 
     private static void ReleaseCache()
@@ -1305,10 +1298,11 @@ public static partial class TerrainAuthoringPreviewService
         {
             stamp.Append(activeDisplayIntent.PlacementGeneration).Append(':').Append(activeDisplayIntent.OwnershipGeneration)
                 .Append(':').Append(activeDisplayIntent.Root.GetInstanceID());
-            foreach (var s in activeHeightStates)
-                stamp.Append('|').Append(s.Level).Append(':').Append(s.SampleStride).Append(':')
-                    .Append(new TerrainHeightCacheWindow(s.ActiveCache.CacheOriginTile, s.ActiveCache.CacheSize))
-                    .Append(':').Append(s.ActiveRequiredWindow);
+            // Coverage describes the published geographical map and placement;
+            // content-only replacements do not change this observer contract.
+            stamp.Append('|').Append(sharedBinding.Window);
+            foreach (var row in sharedPublishedDemand.Tiles)
+                if (row.DisplayRequired) stamp.Append('|').Append(row.Tile);
         }
         string next = stamp.ToString();
         if (hasPublishedHeightCacheCoverage == hasCoverage && publishedHeightCoverageStamp == next) return;

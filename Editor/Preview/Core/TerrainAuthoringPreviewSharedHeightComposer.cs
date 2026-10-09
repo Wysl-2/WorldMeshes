@@ -64,6 +64,7 @@ internal sealed class TerrainAuthoringPreviewSharedHeightComposer : IDisposable
     private bool disposed;
     internal int DisplayCompositionCount { get; private set; }
     internal int BlockedAdmissionCount { get; private set; }
+    internal bool HasRetiringWork { get { CollectRelease(); return retiring.Count > 0; } }
     internal bool ReleaseComplete { get { CollectRelease(); return disposed && retiring.Count == 0; } }
 
     private TerrainAuthoringPreviewSharedHeightComposer(TerrainAuthoringPreviewSharedHeightCache cache,

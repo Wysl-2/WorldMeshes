@@ -84,11 +84,11 @@ Shader "Hidden/WorldMeshes/TerrainSharedHeightSamplingValidation"
             Varyings vert(Attributes input)
             {
                 Varyings output;
-                float3 point = ApplyClipmapTransitionOffset(float3(input.probeXZ.x, 999.0, input.probeXZ.y), input.transition.x);
+                float3 probePositionWS = ApplyClipmapTransitionOffset(float3(input.probeXZ.x, 999.0, input.probeXZ.y), input.transition.x);
                 float3 normal;
-                float valid = ApplyTerrainHeightDisplacement(point, normal, input.transition.x);
+                float valid = ApplyTerrainHeightDisplacement(probePositionWS, normal, input.transition.x);
                 output.positionHCS = float4(input.positionOS.xy, 0.0, 1.0);
-                output.value = float4(point.y, valid, normal.x, normal.z); output.worldXZ = point.xz;
+                output.value = float4(probePositionWS.y, valid, normal.x, normal.z); output.worldXZ = probePositionWS.xz;
                 return output;
             }
             float4 frag(Varyings input) : SV_Target

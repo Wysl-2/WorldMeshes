@@ -37,7 +37,7 @@ public static partial class TerrainAuthoringPreviewService
         error = "";
         if (!CanRunEditorPreviewWork || displayCommitInProgress) return true;
         if (!TerrainAuthoringPreviewLodResidencyUtility.TryBuildPlan(settings, layout,
-            nextMultiresolutionResidencyGeneration, out var plan, out error)
+            nextMultiresolutionResidencyGeneration, out var plan, out error, false)
             || !TerrainWorldSceneUtility.TryFindActiveClipmapRoot(out Transform root, out error) || root == null)
         { lastMultiresolutionPlanningError = error; return false; }
         bool samePlan = TerrainAuthoringPreviewStreamingPolicy.AreMultiresolutionResidencyPlansEquivalent(latestMultiresolutionResidencyPlan, plan);
@@ -82,6 +82,9 @@ public static partial class TerrainAuthoringPreviewService
     }
 
     private static bool PublishedDisplayIsDrawable(WorldSettings settings, string committed)
+    { return SharedDisplayIsDrawable(settings, committed); }
+
+    private static bool LegacyPublishedDisplayIsDrawable(WorldSettings settings, string committed)
     {
         if (!Enabled || Application.isPlaying || UnityEditor.EditorApplication.isPlayingOrWillChangePlaymode
             || activeDisplayIntent == null || !activeDisplayIntent.ConfigurationMatches(settings)
@@ -123,6 +126,9 @@ public static partial class TerrainAuthoringPreviewService
     }
 
     private static bool ActiveHeightContentIsCurrent(WorldSettings settings, TerrainAuthoringData data)
+    { return SharedRequiredContentIsCurrent(settings); }
+
+    private static bool LegacyActiveHeightContentIsCurrent(WorldSettings settings, TerrainAuthoringData data)
     {
         if (committedRebuildRequested || activeHeightStates == null || settings == null || data == null) return false;
         string committed = TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(settings);
@@ -168,15 +174,17 @@ public static partial class TerrainAuthoringPreviewService
     }
 
     private static bool LatestDisplayCoverageIsCurrent(WorldSettings settings, string committed)
-    {
-        return latestDisplayIntent != null && latestDisplayIntent.Root == boundClipmapRoot
+    { return latestDisplayIntent != null && latestDisplayIntent.Root == boundClipmapRoot
+            && sharedPublishedDemand != null && latestGeographicDemand != null && sharedPublishedDemand.IsEquivalentTo(latestGeographicDemand)
             && latestDisplayIntent.ConfigurationMatches(settings)
             && latestDisplayIntent.OwnershipGeneration == TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration
-            && PublishedDisplayIsDrawable(settings, committed)
-            && HasActiveBaseCoverage(latestDisplayIntent.Plan, settings, committed);
-    }
+            && PublishedDisplayIsDrawable(settings, committed); }
 
     internal static bool RequestPreparedHeightCacheSet(WorldSettings settings, TerrainAuthoringData data,
+        TerrainAuthoringPreviewResidencyPlan plan, bool rebuildCommitted, out string error)
+    { return RequestSharedHeightPreview(settings, data, out error); }
+
+    private static bool RequestLegacyHeightCacheSetForValidation(WorldSettings settings, TerrainAuthoringData data,
         TerrainAuthoringPreviewResidencyPlan plan, bool rebuildCommitted, out string error)
     {
         error = ""; var intent = latestDisplayIntent;
@@ -228,7 +236,7 @@ public static partial class TerrainAuthoringPreviewService
             TerrainAuthoringPreviewCachePublication.DisplayHeightSet, HasActiveInteractiveTerrainAuthoringEdit,
             HasLiveTerrainAnalysisDemand, mandatory))
         { displayPreparationDeferredForInteractiveEdit = true; return true; }
-        var occupied = TransitionInProgress ? currentCacheSetTransition : pendingCacheSetTransition;
+        var occupied = LegacyTransitionInProgress ? currentCacheSetTransition : pendingCacheSetTransition;
         if (!mandatory && (occupied?.Publication == TerrainAuthoringPreviewCachePublication.NativeAnalysis
             || HasLiveTerrainAnalysisDemand && IsTerrainAnalysisPreparationRunnable(committed, overall))) return true;
         displayPreparationDeferredForInteractiveEdit = false;
@@ -289,7 +297,7 @@ public static partial class TerrainAuthoringPreviewService
         latestGeographicDemand = null; hasGeographicFocus = false; geographicFocus = default; geographicDemandError = "";
     }
 
-    // A dormant planning update never schedules legacy cache work or changes authoring content.
+    // Intent construction records demand without admitting GPU or legacy cache work.
     internal static void RequestGeographicDemandRefresh()
     {
         var intent = latestDisplayIntent;
@@ -307,7 +315,7 @@ public static partial class TerrainAuthoringPreviewService
         { latestGeographicDemand = null; geographicDemandError = error; return; }
         // Only explicitly active native analysis is known to require exact working data.
         // Modifier and elevation composition already work at the destination representation.
-        bool analysis = HasLiveTerrainAnalysisDemand && analysisSettings == settings;
+        bool analysis = TryCaptureSharedNativeWorkingRequirement(settings, intent.OwnershipGeneration, out var requirement);
         long working = analysis ? analysisIntentGeneration : 0;
         var previous = latestGeographicDemand;
         if (previous != null && previous.ConfigurationMatches(settings) && previous.PolicyGeneration == policy.Generation
@@ -316,8 +324,7 @@ public static partial class TerrainAuthoringPreviewService
             && previous.FocusKind == geographicFocus.Kind && previous.FocusTile == focusTile
             && previous.EditableWindow == window && previous.NativeWorkingGeneration == working) return;
         TerrainAuthoringPreviewNativeWorkingDemand[] native = analysis
-            ? new[] { new TerrainAuthoringPreviewNativeWorkingDemand(analysisRequiredSourceWindow,
-                TerrainAuthoringPreviewNativeWorkingReason.Analysis) } : null;
+            ? new[] { requirement } : null;
         long next = geographicDemandGeneration + 1;
         if (!TerrainAuthoringPreviewLodResidencyUtility.TryBuildGeographicDemand(settings, intent.Layout, policy,
             geographicFocus, native, intent.PlacementGeneration, working, next, out var planned, out error))

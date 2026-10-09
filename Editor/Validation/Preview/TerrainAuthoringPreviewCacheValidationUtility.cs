@@ -137,6 +137,7 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
             RunSharedHeightSamplingValidation();
             RunGeographicAuthoringScopeValidation();
             RunSharedGeographicAuthoringValidation();
+            RunSharedPreviewActivationValidation();
 
             if (
                 !TryValidateCachePrerequisites(
@@ -2182,6 +2183,139 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
         RequireSharedHeightValidation(adapter.CandidateReady, "Bounded native analysis fixture did not finish its GPU stages.");
     }
 
+
+    // Isolated activation uses the same fallible renderer transaction as the live
+    // service. It never installs a second scheduler or changes user terrain assets.
+    private static void RunSharedPreviewActivationValidation()
+    {
+        if (!TerrainAuthoringPreviewSharedHeightBindingData.TryValidateDevice(out string featureError)
+            || !TerrainAuthoringPreviewHeightPagePool.TryValidateDevice(17, 18, out featureError)
+            || !SystemInfo.SupportsTextureFormat(TextureFormat.RFloat))
+        { AddResult("Shared preview activation", ValidationOutcome.Blocked, featureError); return; }
+        WorldSettings settings = null; TerrainAuthoringData authoring = null;
+        Material original = null, variant = null;
+        TerrainAuthoringPreviewSharedHeightCache cache = null;
+        TerrainAuthoringPreviewSharedHeightComposer worker = null, changedWorker = null;
+        TerrainAuthoringPreviewNativeAnalysisAdapter adapter = null;
+        TerrainHeightCompositor compositor = null, changedCompositor = null, nativeCompositor = null;
+        var payloads = new List<TerrainAuthoringPreviewSharedHeightBindingData>();
+        var maps = new List<TerrainAuthoringPreviewHeightPageMap>();
+        var objects = new List<GameObject>(); var renderers = new List<TerrainClipmapRendererBinding>();
+        try
+        {
+            settings = CreateGeographicAuthoringFixtureWorld(); settings.gridWidth = settings.gridHeight = 7;
+            settings.chunkSize = 16; settings.clipmapLevelCount = 3; settings.clipmapCenterResolution = 8;
+            settings.clipmapBaseSampleStep = 1; settings.clipmapLODOuterResolutions = new[] { 8, 8 };
+            authoring = ScriptableObject.CreateInstance<TerrainAuthoringData>(); authoring.hideFlags = HideFlags.HideAndDontSave;
+            original = new Material(Shader.Find("Custom/ClipmapTerrain")) { hideFlags = HideFlags.HideAndDontSave };
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightBindingData.TryCreateMaterial(original, out variant, out string error), error);
+            var quality = new TerrainAuthoringPreviewQualitySnapshot(3, 4, gpuBudgetMiB: 8);
+            var layout = new TerrainClipmapLayout(); var position = new Vector3(56, 0, 56);
+            RequireSharedHeightValidation(TerrainClipmapLayoutUtility.TryCalculateLayout(settings, position, 0, layout, out error), error);
+            var focus = new TerrainAuthoringPreviewFocus(settings, position, TerrainAuthoringPreviewFocusKind.Canonical, 1);
+            RequireSharedHeightValidation(TerrainAuthoringPreviewLodResidencyUtility.TryBuildGeographicDemand(settings,
+                layout, quality, focus, new[] { new TerrainAuthoringPreviewNativeWorkingDemand(
+                    new TerrainHeightCacheWindow(Vector2Int.zero, new Vector2Int(4, 4)), TerrainAuthoringPreviewNativeWorkingReason.Analysis) },
+                1, 1, 1, out var demand, out error), error);
+            var source = new GeographicHeightFixtureSource(settings, authoring, demand, 1);
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightCache.TryCreate(settings, quality, demand,
+                1, source.CommittedSignature, 1, out cache, out error), error);
+            var selected = new Dictionary<MeshRenderer, Material>();
+            for (int i = 0; i < 5; i++)
+            {
+                var go = new GameObject("Shared activation fixture") { hideFlags = HideFlags.HideAndDontSave }; objects.Add(go);
+                var renderer = go.AddComponent<MeshRenderer>(); renderer.enabled = false; renderer.sharedMaterial = original;
+                TerrainClipmapRendererRole role;
+                if (i == 0) role = TerrainClipmapRendererRole.CreateCenter();
+                else if (i < 3) TerrainClipmapRendererRole.TryCreateRing(i, out role);
+                else TerrainClipmapRendererRole.TryCreateStitch(i - 3, i - 2, out role);
+                renderers.Add(new TerrainClipmapRendererBinding(renderer, role)); selected.Add(renderer, variant);
+                var marker = new MaterialPropertyBlock(); marker.SetFloat(Shader.PropertyToID("_AuthoringVisualizationMode"), 73); renderer.SetPropertyBlock(marker);
+            }
+            RequireSharedHeightValidation(cache.TryCreateRenderMapSnapshot(out var map, out error), error); maps.Add(map);
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightBindingData.TryCreate(settings, map, out var empty, out error), error); payloads.Add(empty);
+            RequireSharedHeightValidation(empty.RequiredMissingCount > 0
+                && !TerrainAuthoringPreviewService.TryApplySharedRendererTransaction(settings, quality, layout, demand, empty,
+                    renderers, renderers, selected, () => true, () => true, () => true, () => true, out _),
+                "Missing mandatory pages activated a display.");
+            compositor = new TerrainHeightCompositor(); var materializer = new TerrainAuthoringPreviewHeightMaterializer();
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightComposer.TryCreate(cache, source,
+                compositor, materializer, out worker, out error), error);
+            foreach (var row in demand.Tiles) if (row.HasDisplay)
+            { DriveGeographicFixtureTile(worker, row.Tile); worker.RetireResult(row.Tile); }
+            RequireSharedHeightValidation(cache.TryCreateRenderMapSnapshot(out map, out error), error); maps.Add(map);
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightBindingData.TryCreate(settings, map, out var complete, out error), error); payloads.Add(complete);
+            RequireSharedHeightValidation(!TerrainAuthoringPreviewService.TryApplySharedRendererTransaction(settings, quality, layout, demand, complete,
+                renderers, renderers, selected, () => true, () => true, () => true, () => false, out _),
+                "Late ownership failure committed a candidate.");
+            var block = new MaterialPropertyBlock();
+            foreach (var binding in renderers)
+            {
+                binding.Renderer.GetPropertyBlock(block);
+                RequireSharedHeightValidation(binding.Renderer.sharedMaterial == original && !binding.Renderer.enabled
+                    && block.GetFloat(Shader.PropertyToID("_AuthoringVisualizationMode")) == 73
+                    && block.GetTexture(TerrainAuthoringPreviewSharedHeightBindingData.MapId) == null,
+                    "Failed activation did not restore material, MPB and renderer state.");
+            }
+            RequireSharedHeightValidation(TerrainAuthoringPreviewService.TryApplySharedRendererTransaction(settings, quality, layout, demand, complete,
+                renderers, renderers, selected, () => true, () => true, () => true, () => true, out error), error);
+            Vector2Int changed = default; bool picked = false; int displayCount = 0;
+            foreach (var row in demand.Tiles) if (row.HasDisplay) { displayCount++; if (!picked) { changed = row.Tile; picked = true; } }
+            RequireSharedHeightValidation(worker.DisplayCompositionCount == displayCount, "Display composed more than one selected representation per tile.");
+            RequireSharedHeightValidation(TerrainAuthoringPreviewGeographicAuthoringProjection.TryProject(settings, demand, cache, 1, 2,
+                source.CommittedSignature, new[] { changed }, Array.Empty<Vector2Int>(), TerrainRegionalElevationInvalidationScope.None,
+                out var projection, out error), error);
+            RequireSharedHeightValidation(projection.DisplayJobCount == 1, "One edit projected multiple display jobs.");
+            RequireSharedHeightValidation(cache.TryAcceptAuthoringProjection(projection, out var proof, out error), error);
+            foreach (var row in demand.Tiles) if (row.HasDisplay && row.Tile != changed)
+                RequireSharedHeightValidation(cache.TryAcknowledgeUnchangedPage(row.Tile, proof, out error), error);
+            RequireSharedHeightValidation(cache.TryCreateRenderMapSnapshot(out map, out error), error); maps.Add(map);
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightBindingData.TryCreate(settings, map, out var stale, out error), error); payloads.Add(stale);
+            RequireSharedHeightValidation(!TerrainAuthoringPreviewService.TryApplySharedRendererTransaction(settings, quality, layout, demand, stale,
+                renderers, renderers, selected, () => true, () => true, () => true, () => true, out _), "Stale required page passed activation.");
+            renderers[0].Renderer.GetPropertyBlock(block);
+            RequireSharedHeightValidation(block.GetTexture(TerrainAuthoringPreviewSharedHeightBindingData.MapId) == complete.Lookup,
+                "Required-page failure removed the last-good binding.");
+            var changedSource = new GeographicHeightFixtureSource(settings, authoring, demand, 2);
+            changedCompositor = new TerrainHeightCompositor();
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightComposer.TryCreate(cache, changedSource,
+                changedCompositor, new TerrainAuthoringPreviewHeightMaterializer(), out changedWorker, out error), error);
+            DriveGeographicFixtureTile(changedWorker, changed);
+            RequireSharedHeightValidation(changedWorker.DisplayCompositionCount == 1, "One-tile edit composed duplicate display representations.");
+            nativeCompositor = new TerrainHeightCompositor();
+            RequireSharedHeightValidation(TerrainAuthoringPreviewNativeAnalysisAdapter.TryCreate(cache, nativeCompositor,
+                new TerrainAuthoringPreviewHeightMaterializer(), 1024 * 1024, out adapter, out error), error);
+            var physical = new TerrainHeightCacheWindow(Vector2Int.zero, new Vector2Int(4, 4));
+            var output = new TerrainHeightCacheWindow(Vector2Int.one, Vector2Int.one);
+            RequireSharedHeightValidation(adapter.TryBeginBuild(changedSource, output, physical, out error), error);
+            DriveGeographicFixtureAdapter(adapter);
+            RequireSharedHeightValidation(adapter.TryPublishCandidate(out var native, out error) && native.IsValid
+                && native.SamplesPerSide == settings.HeightTileSamplesPerSide && native.SourceWindow == physical,
+                "Shared activation changed the ordinary complete exact-native source contract: " + error);
+            RequireSharedHeightValidation(!original.IsKeywordEnabled(TerrainAuthoringPreviewSharedHeightBindingData.ShaderKeyword),
+                "Shared activation modified the source material keyword.");
+            AddResult("Shared preview activation", ValidationOutcome.Pass,
+                "Required halo, one selected display composition, dirty proof, rollback/last-good, transient materials and independent whole-window native source passed.");
+        }
+        catch (Exception exception) { AddResult("Shared preview activation", ValidationOutcome.Fail, exception.Message); }
+        finally
+        {
+            foreach (var binding in renderers) if (binding.Renderer != null)
+            { binding.Renderer.sharedMaterial = original; binding.Renderer.SetPropertyBlock(new MaterialPropertyBlock()); }
+            if (adapter != null) { adapter.Dispose(); if (!adapter.WaitForRelease(out string error)) AddResult("Activation native release", ValidationOutcome.Fail, error); }
+            if (worker != null) { worker.Dispose(); if (!worker.WaitForRelease(out string error)) AddResult("Activation worker release", ValidationOutcome.Fail, error); }
+            if (changedWorker != null) { changedWorker.Dispose(); if (!changedWorker.WaitForRelease(out string error)) AddResult("Activation dirty release", ValidationOutcome.Fail, error); }
+            foreach (var payload in payloads) { payload.Dispose(); if (!payload.WaitForRelease(out string error)) AddResult("Activation lookup release", ValidationOutcome.Fail, error); }
+            foreach (var map in maps) map.Dispose();
+            if (cache != null) { cache.Dispose(); if (!cache.WaitForRelease(out string error)) AddResult("Activation page release", ValidationOutcome.Fail, error); }
+            compositor?.Dispose(); changedCompositor?.Dispose(); nativeCompositor?.Dispose();
+            foreach (var go in objects) UnityEngine.Object.DestroyImmediate(go);
+            if (variant != null) UnityEngine.Object.DestroyImmediate(variant);
+            if (original != null) UnityEngine.Object.DestroyImmediate(original);
+            if (authoring != null) UnityEngine.Object.DestroyImmediate(authoring);
+            if (settings != null) UnityEngine.Object.DestroyImmediate(settings);
+        }
+    }
 
     private static void RunDerivedCommittedSourceValidation()
     {
