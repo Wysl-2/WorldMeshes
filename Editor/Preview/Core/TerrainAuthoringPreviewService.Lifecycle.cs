@@ -260,6 +260,7 @@ public static partial class TerrainAuthoringPreviewService
 
         if (temporarilySuspended)
         {
+            ClearGeographicDemandIntent();
             /*
              * Preserve active/staging resources. Only execution is suspended.
              * Current Scene View intent must be refreshed before work resumes.

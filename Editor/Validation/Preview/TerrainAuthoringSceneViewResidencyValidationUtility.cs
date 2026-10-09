@@ -134,6 +134,7 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
             RunSmallWorldValidation();
             RunBoundedScalingValidation();
             RunMultiresolutionResidencyPlanValidation();
+            RunGeographicDemandValidation();
             RunMultiresolutionBoundedScalingValidation();
             RunDiagnosticsProjectionValidation();
             RunOperationalFeedbackValidation();
@@ -750,6 +751,65 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
     // =====================================================
     // MULTIRESOLUTION RESIDENCY PLAN
     // =====================================================
+
+    private static void RunGeographicDemandValidation()
+    {
+        var settings = CreateSyntheticSettings(256, 256);
+        try
+        {
+            var layout = new TerrainClipmapLayout();
+            Vector3 center = TerrainClipmapLayoutUtility.CalculateWorldCenterPosition(settings, 0f);
+            if (!TerrainClipmapLayoutUtility.TryCalculateLayout(settings, center, 0f, layout, out string error))
+                throw new InvalidOperationException(error);
+            var policy = new TerrainAuthoringPreviewQualitySnapshot(1, 128);
+            var focus = new TerrainAuthoringPreviewFocus(settings, center, TerrainAuthoringPreviewFocusKind.Following, 1);
+            var working = new[] { new TerrainAuthoringPreviewNativeWorkingDemand(
+                new TerrainHeightCacheWindow(Vector2Int.zero, Vector2Int.one), TerrainAuthoringPreviewNativeWorkingReason.Analysis) };
+            if (!TerrainAuthoringPreviewLodResidencyUtility.TryBuildGeographicDemand(settings, layout, policy,
+                focus, working, 1, 1, 1, out var plan, out error)) throw new InvalidOperationException(error);
+            bool mapping = TerrainAuthoringPreviewLodResidencyUtility.TryCalculateEditableWindow(settings, policy,
+                new Vector2(-1, -1), out var negative, out _, out _)
+                && negative == Vector2Int.zero
+                && TerrainAuthoringPreviewLodResidencyUtility.TryCalculateEditableWindow(settings, policy,
+                    new Vector2(settings.HeightTileWorldSize, settings.HeightTileWorldSize), out var edge, out _, out _)
+                && edge == Vector2Int.one
+                && TerrainAuthoringPreviewLodResidencyUtility.TryCalculateEditableWindow(settings, policy,
+                    TerrainClipmapLayoutUtility.CalculateWorldSizeXZ(settings), out var maximum, out var clipped, out _)
+                && maximum == new Vector2Int(settings.HeightTileGridWidth - 1, settings.HeightTileGridHeight - 1)
+                && clipped.Size == Vector2Int.one;
+            AddResult("Geographical focus uses canonical tile boundaries", mapping ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+                "Negative, interior shared edge and exact world maximum map to bounded canonical tiles.");
+            bool independent = plan.TryGetTile(Vector2Int.zero, out var nativeOnly) && nativeOnly.NativeWorkingRequired
+                && !nativeOnly.HasDisplay && nativeOnly.SelectedDisplayStride == 0
+                && plan.TryGetTile(plan.FocusTile, out var editable) && editable.SelectedDisplayStride == editable.FinestGeometryStride;
+            foreach (var row in plan.Tiles)
+                if (row.HasDisplay && !row.IsEditable) independent &= row.SelectedDisplayStride == Mathf.Max(row.FinestGeometryStride, 128);
+            AddResult("One geographical display stride with independent native demand", independent && plan.TryValidate(settings, out _)
+                ? ValidationOutcome.Pass : ValidationOutcome.Fail, "Context can exceed the runtime pyramid cap; native-only demand has no fake display page.");
+            var allEditable = new TerrainAuthoringPreviewQualitySnapshot(4095, 128);
+            bool geometry = TerrainAuthoringPreviewLodResidencyUtility.TryBuildGeographicDemand(settings, layout, allEditable,
+                focus, null, 1, 0, 1, out var all, out _)
+                && all.TryGetTile(plan.FocusTile + new Vector2Int(1, 0), out var coarse)
+                && coarse.FinestGeometryStride == 2 && coarse.SelectedDisplayStride == 2;
+            if (all != null)
+                foreach (var row in all.Tiles) geometry &= row.SelectedDisplayStride == row.FinestGeometryStride;
+            AddResult("Editable geography follows contributing center, rings and stitches", geometry ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+                "A nearby coarse-only tile keeps stride 2; an all-visible editable window does not force native stride.");
+            var subTile = new TerrainAuthoringPreviewFocus(settings, center + new Vector3(1, 0, 1), TerrainAuthoringPreviewFocusKind.Following, 1);
+            var nextTile = new TerrainAuthoringPreviewFocus(settings, center + new Vector3(settings.HeightTileWorldSize, 0, 0),
+                TerrainAuthoringPreviewFocusKind.Following, 1);
+            bool stable = TerrainAuthoringPreviewLodResidencyUtility.TryBuildGeographicDemand(settings, layout, policy,
+                subTile, working, 1, 1, 2, out var same, out _) && plan.IsEquivalentTo(same)
+                && TerrainAuthoringPreviewLodResidencyUtility.TryBuildGeographicDemand(settings, layout, policy,
+                    nextTile, working, 1, 1, 2, out var changed, out _) && !plan.IsEquivalentTo(changed);
+            var unpinned = new TerrainAuthoringPreviewQualitySnapshot(1, 128, TerrainAuthoringPreviewEditFocusMode.PinnedFocus);
+            stable &= TerrainAuthoringPreviewLodResidencyUtility.TryCalculateEditableWindow(settings, unpinned,
+                new Vector2(center.x, center.z), out var fallback, out _, out _) && fallback == plan.FocusTile;
+            AddResult("Geographical equivalence tracks focus independently of layout", stable ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+                "Sub-tile drift is equivalent; tile-crossing focus changes demand with the same layout; absent pins use current focus.");
+        }
+        finally { UnityEngine.Object.DestroyImmediate(settings); }
+    }
 
     private static void RunMultiresolutionResidencyPlanValidation()
     {
@@ -1987,5 +2047,6 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
     }
 
 }
+
 
 

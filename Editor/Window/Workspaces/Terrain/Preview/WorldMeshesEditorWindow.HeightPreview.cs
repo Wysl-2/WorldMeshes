@@ -13,6 +13,20 @@ public partial class WorldMeshesEditorWindow :
         if (EditorGUI.EndChangeCheck()) TerrainAuthoringPreviewService.Enabled = enabled;
         var snapshot = TerrainAuthoringPreviewService.GetDiagnosticsSnapshot();
         DrawHeightPreviewDiagnostics(snapshot);
+        if (TerrainAuthoringPreviewService.TryGetLatestGeographicalHeightDemand(out var demand))
+        {
+            EditorGUILayout.LabelField("Planned Height Demand", "Not yet used by the active renderer");
+            EditorGUILayout.LabelField("Policy / Demand Generation", $"{demand.PolicyGeneration} / {demand.Generation}");
+            EditorGUILayout.LabelField("Editable Focus / Window", $"{demand.FocusTile} / {demand.EditableWindow}");
+            EditorGUILayout.LabelField("Planned Required / Optional Display", $"{demand.RequiredDisplayCount} / {demand.OptionalDisplayCount}");
+            EditorGUILayout.LabelField("Planned Editable / Contextual / Native Working", $"{demand.EditableDisplayCount} / {demand.ContextualDisplayCount} / {demand.NativeWorkingCount}");
+            EditorGUILayout.LabelField("Planned Stride: Tile Count", demand.SelectedStrideDistribution);
+        }
+        if (!string.IsNullOrEmpty(TerrainAuthoringPreviewQualityPolicy.LastValidationMessage))
+            EditorGUILayout.HelpBox("Planned quality preferences: " + TerrainAuthoringPreviewQualityPolicy.LastValidationMessage, MessageType.Info);
+        if (!string.IsNullOrEmpty(TerrainAuthoringPreviewService.LastGeographicDemandError))
+            EditorGUILayout.HelpBox("Planned Height demand: " + TerrainAuthoringPreviewService.LastGeographicDemandError, MessageType.Info);
+
         if (snapshot.Enabled)
         {
             EditorGUILayout.LabelField("Modifier Logical Dirty Tiles", TerrainAuthoringPreviewService.PendingGlobalDirtyTileCount.ToString("N0"));

@@ -193,6 +193,8 @@ public static partial class TerrainAuthoringSceneViewController
                 value
             );
 
+            TerrainAuthoringPreviewService.ClearGeographicDemandIntent();
+
             if (!value)
             {
                 freezePreview =
@@ -876,7 +878,10 @@ public static partial class TerrainAuthoringSceneViewController
             {
                 TerrainAuthoringPreviewService.RecordTerrainAnalysisFocus(worldSettings, clampedTarget);
                 if (!TerrainAuthoringPreviewService.RecordMultiresolutionResidencyIntent(
-                    worldSettings, candidateLayout, out errorMessage)) return FollowTargetApplyResult.Failed;
+                    worldSettings, candidateLayout,
+                    new TerrainAuthoringPreviewFocus(worldSettings, clampedTarget,
+                        freezePreview ? TerrainAuthoringPreviewFocusKind.Frozen : TerrainAuthoringPreviewFocusKind.Following,
+                        SceneViewOwnershipGeneration), out errorMessage)) return FollowTargetApplyResult.Failed;
             }
             // Placement belongs to the service's synchronous publication handoff.
             return TerrainAuthoringPreviewService.IsDisplayLayoutPublished(candidateLayout)
@@ -1142,7 +1147,9 @@ public static partial class TerrainAuthoringSceneViewController
         {
             TerrainAuthoringPreviewService.RecordTerrainAnalysisFocus(worldSettings, target);
             if (!TerrainAuthoringPreviewService.RecordMultiresolutionResidencyIntent(worldSettings,
-                canonicalResidencyLayout, out errorMessage)) return false;
+                canonicalResidencyLayout,
+                new TerrainAuthoringPreviewFocus(worldSettings, target, TerrainAuthoringPreviewFocusKind.Canonical,
+                    SceneViewOwnershipGeneration), out errorMessage)) return false;
         }
         waitingForResidency = !TerrainAuthoringPreviewService.IsDisplayLayoutPublished(canonicalResidencyLayout);
         return true;
@@ -2039,3 +2046,4 @@ public static partial class TerrainAuthoringSceneViewController
         }
     }
 }
+

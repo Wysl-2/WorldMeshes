@@ -742,6 +742,7 @@ public static partial class TerrainAuthoringPreviewService
      */
     public static void NotifyClipmapHierarchyChanged()
     {
+        ClearGeographicDemandIntent();
         boundsHierarchyBoundary++;
         clipmapRebindRequested =
             true;
@@ -1216,6 +1217,7 @@ public static partial class TerrainAuthoringPreviewService
     private static void OnHierarchyChanged()
     {
         if (displayCommitInProgress) return;
+        ClearGeographicDemandIntent();
         clipmapRebindRequested = true;
         boundsHierarchyBoundary++;
         ScheduleRefresh();

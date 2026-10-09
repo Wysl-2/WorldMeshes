@@ -32,7 +32,7 @@ public static partial class TerrainAuthoringPreviewService
 
     // SceneGUI records snapshots only. Resource work and binding occur later.
     internal static bool RecordMultiresolutionResidencyIntent(WorldSettings settings,
-        TerrainClipmapLayout layout, out string error)
+        TerrainClipmapLayout layout, TerrainAuthoringPreviewFocus focus, out string error)
     {
         error = "";
         if (!CanRunEditorPreviewWork || displayCommitInProgress) return true;
@@ -47,11 +47,18 @@ public static partial class TerrainAuthoringPreviewService
         bool samePlacement = latestDisplayIntent != null && latestDisplayIntent.Root == root
             && latestDisplayIntent.ConfigurationMatches(settings) && latestDisplayIntent.OwnershipGeneration == owner
             && TerrainAuthoringPreviewDisplayIntent.PlacementMatches(latestDisplayIntent.Layout, layout);
-        if (samePlan && samePlacement) return true;
+        if (samePlan && samePlacement)
+        {
+            geographicFocus = focus; hasGeographicFocus = true;
+            RequestGeographicDemandRefresh();
+            return true;
+        }
         latestMultiresolutionResidencyPlan = plan.CreateSnapshot();
         latestDisplayIntent = new TerrainAuthoringPreviewDisplayIntent(settings, root, plan, layout,
             CalculateNextAuthoringGeneration(nextPlacementGeneration), owner);
         nextPlacementGeneration = latestDisplayIntent.PlacementGeneration;
+        geographicFocus = focus; hasGeographicFocus = true;
+        RequestGeographicDemandRefresh();
         lastMultiresolutionPlanningError = "";
         ScheduleRefresh();
         return true;
@@ -59,6 +66,7 @@ public static partial class TerrainAuthoringPreviewService
 
     internal static void ClearMultiresolutionResidencyIntent()
     {
+        ClearGeographicDemandIntent();
         latestDisplayIntent = null; latestMultiresolutionResidencyPlan = null; lastMultiresolutionPlanningError = "";
         displayPreparationDeferredForInteractiveEdit = false; ClearInteractiveDirtyHint();
     }
@@ -262,6 +270,62 @@ public static partial class TerrainAuthoringPreviewService
         retiringHeightStates = null; aggregateMinimumHeight = aggregateMaximumHeight = 0;
         pendingCompositePublication.Clear(); pendingNativePublication.Clear(); diagnosticPendingGeographicDirty.Clear();
     }
+    private static TerrainAuthoringPreviewGeographicDemandPlan latestGeographicDemand;
+    private static TerrainAuthoringPreviewFocus geographicFocus;
+    private static bool hasGeographicFocus;
+    private static long geographicDemandGeneration;
+    private static string geographicDemandError = "";
+    internal static string LastGeographicDemandError => geographicDemandError;
+
+    internal static bool TryGetLatestGeographicalHeightDemand(out TerrainAuthoringPreviewGeographicDemandPlan snapshot)
+    {
+        RequestGeographicDemandRefresh();
+        snapshot = latestGeographicDemand?.CreateSnapshot();
+        return snapshot != null;
+    }
+
+    internal static void ClearGeographicDemandIntent()
+    {
+        latestGeographicDemand = null; hasGeographicFocus = false; geographicFocus = default; geographicDemandError = "";
+    }
+
+    // A dormant planning update never schedules legacy cache work or changes authoring content.
+    internal static void RequestGeographicDemandRefresh()
+    {
+        var intent = latestDisplayIntent;
+        if (!CanRunEditorPreviewWork || !hasGeographicFocus || intent == null || intent.Root == null || intent.Settings == null
+            || intent.OwnershipGeneration != TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration
+            || geographicFocus.OwnershipGeneration != intent.OwnershipGeneration
+            || geographicFocus.WorldIdentity != intent.Settings.GetInstanceID()
+            || !intent.ConfigurationMatches(LoadWorldSettings())
+            || !TerrainWorldSceneUtility.TryFindActiveClipmapRoot(out Transform root, out _) || root != intent.Root)
+        { ClearGeographicDemandIntent(); return; }
+        var settings = intent.Settings;
+        var policy = TerrainAuthoringPreviewQualityPolicy.GetSnapshot(settings);
+        if (!TerrainAuthoringPreviewLodResidencyUtility.TryCalculateEditableWindow(settings, policy,
+            geographicFocus.PositionXZ, out var focusTile, out var window, out string error))
+        { latestGeographicDemand = null; geographicDemandError = error; return; }
+        // Only explicitly active native analysis is known to require exact working data.
+        // Modifier and elevation composition already work at the destination representation.
+        bool analysis = HasLiveTerrainAnalysisDemand && analysisSettings == settings;
+        long working = analysis ? analysisIntentGeneration : 0;
+        var previous = latestGeographicDemand;
+        if (previous != null && previous.ConfigurationMatches(settings) && previous.PolicyGeneration == policy.Generation
+            && previous.PlacementGeneration == intent.PlacementGeneration
+            && previous.OwnershipGeneration == geographicFocus.OwnershipGeneration
+            && previous.FocusKind == geographicFocus.Kind && previous.FocusTile == focusTile
+            && previous.EditableWindow == window && previous.NativeWorkingGeneration == working) return;
+        TerrainAuthoringPreviewNativeWorkingDemand[] native = analysis
+            ? new[] { new TerrainAuthoringPreviewNativeWorkingDemand(analysisRequiredSourceWindow,
+                TerrainAuthoringPreviewNativeWorkingReason.Analysis) } : null;
+        long next = geographicDemandGeneration + 1;
+        if (!TerrainAuthoringPreviewLodResidencyUtility.TryBuildGeographicDemand(settings, intent.Layout, policy,
+            geographicFocus, native, intent.PlacementGeneration, working, next, out var planned, out error))
+        { latestGeographicDemand = null; geographicDemandError = error; return; }
+        latestGeographicDemand = planned; geographicDemandGeneration = next; geographicDemandError = "";
+    }
+
 }
+
 
 

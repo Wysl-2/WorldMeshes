@@ -292,6 +292,8 @@ public static partial class TerrainAuthoringSceneViewController
         controllingSceneViewInstanceId =
             nextInstanceId;
 
+        TerrainAuthoringPreviewService.ClearGeographicDemandIntent();
+
         sceneViewOwnershipGeneration =
             CalculateNextSceneViewOwnershipGeneration(
                 sceneViewOwnershipGeneration
