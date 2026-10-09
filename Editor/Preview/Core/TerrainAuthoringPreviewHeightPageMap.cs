@@ -103,19 +103,40 @@ internal sealed class TerrainAuthoringPreviewHeightPageMap : IDisposable
     internal long OwnershipGeneration { get; }
     internal long MappingEpoch { get; }
     internal long DemandGeneration { get; }
+    internal TerrainAuthoringPreviewGeographicDemandPlan Demand { get; }
+    internal string CommittedTarget { get; }
+    internal long AuthoringTarget { get; }
     internal IReadOnlyList<TerrainAuthoringPreviewHeightPageMapEntry> Entries { get; }
     internal IReadOnlyList<TerrainAuthoringPreviewHeightPoolSnapshot> Pools { get; }
     internal bool IsAlive => owner != null && !owner.IsDisposed;
     private readonly HashSet<int> gpuUsedPools = new HashSet<int>();
+    private bool bindingClaimed;
 
     internal TerrainAuthoringPreviewHeightPageMap(TerrainAuthoringPreviewSharedHeightCache owner,
         TerrainAuthoringPreviewHeightPageMapEntry[] entries, TerrainAuthoringPreviewHeightPoolSnapshot[] pools,
-        long epoch, long demand, long ownership)
+        long epoch, TerrainAuthoringPreviewGeographicDemandPlan demand, long ownership, string committedTarget, long authoringTarget)
     {
         this.owner = owner; OwnerId = owner.OwnerId; ResourceGeneration = owner.ResourceGeneration;
-        MappingEpoch = epoch; DemandGeneration = demand; OwnershipGeneration = ownership;
+        MappingEpoch = epoch; Demand = demand; DemandGeneration = demand.Generation; OwnershipGeneration = ownership;
+        CommittedTarget = committedTarget; AuthoringTarget = authoringTarget;
         this.entries = (TerrainAuthoringPreviewHeightPageMapEntry[])entries.Clone();
         Entries = Array.AsReadOnly(this.entries); Pools = Array.AsReadOnly((TerrainAuthoringPreviewHeightPoolSnapshot[])pools.Clone());
+    }
+
+    internal bool ConfigurationMatches(WorldSettings settings) => IsAlive && owner.MapConfigurationMatches(this, settings);
+    internal bool PolicyMatches(TerrainAuthoringPreviewQualitySnapshot policy) => IsAlive && owner.MapPolicyMatches(this, policy);
+    internal bool TargetsAreCurrent => IsAlive && owner.MapTargetsAreCurrent(this);
+    internal bool TryClaimBinding(out string error)
+    {
+        error = "The Height map is retired or already owned by a binding payload.";
+        if (!IsAlive || bindingClaimed) return false;
+        owner.RequireOwnerThread(); bindingClaimed = true; error = ""; return true;
+    }
+    internal void ReleaseFailedBindingClaim() { if (IsAlive) { owner.RequireOwnerThread(); bindingClaimed = false; } }
+    internal bool TryReserveLookupBytes(long bytes, out IDisposable allocation, out string error)
+    {
+        allocation = null; error = "The Height page map has been retired.";
+        return IsAlive && owner.TryReserveLookupBytes(this, bytes, out allocation, out error);
     }
 
     internal bool TryGetEntry(Vector2Int tile, out TerrainAuthoringPreviewHeightPageMapEntry entry)

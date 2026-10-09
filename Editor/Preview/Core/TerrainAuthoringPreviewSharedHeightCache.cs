@@ -38,11 +38,13 @@ internal sealed class TerrainAuthoringPreviewSharedHeightCache : IDisposable
     internal long MappingEpoch { get; private set; } = 1;
     internal long AllocatedBytes { get; private set; }
     internal long PeakAllocatedBytes { get; private set; }
+    internal long LookupAllocatedBytes { get; private set; }
+    internal long PeakCombinedAllocatedBytes { get; private set; }
     internal long GpuBudgetBytes { get; }
     internal long AdmissionAttempts { get; private set; }
     internal long FailedAdmissions { get; private set; }
     internal bool IsDisposed { get; private set; }
-    internal bool ReleaseComplete => IsDisposed && AllocatedBytes == 0;
+    internal bool ReleaseComplete => IsDisposed && AllocatedBytes == 0 && LookupAllocatedBytes == 0;
 
     private TerrainAuthoringPreviewSharedHeightCache(WorldSettings settings,
         TerrainAuthoringPreviewQualitySnapshot policy, TerrainAuthoringPreviewGeographicDemandPlan plan,
@@ -183,12 +185,13 @@ internal sealed class TerrainAuthoringPreviewSharedHeightCache : IDisposable
         {
             int samples = TerrainHeightResolutionUtility.GetSamplesPerSide(settings, stride);
             if (!TerrainAuthoringPreviewHeightPagePool.TryEstimateBytes(samples, capacities[index], out long bytes)
-                || bytes > GpuBudgetBytes - AllocatedBytes)
+                || bytes > GpuBudgetBytes - AllocatedBytes - LookupAllocatedBytes)
             { error = "Shared Height allocated capacity would exceed its GPU budget or byte arithmetic limits."; return false; }
             if (!TerrainAuthoringPreviewHeightPagePool.TryCreate(stride, index, samples,
                 TerrainHeightResolutionUtility.GetSampleSpacing(settings, stride), capacities[index], ++nextAllocation,
                 ReleasedBytes, out var pool, out error)) return false;
             pools[index] = pool; AllocatedBytes += bytes; PeakAllocatedBytes = Math.Max(PeakAllocatedBytes, AllocatedBytes);
+            PeakCombinedAllocatedBytes = Math.Max(PeakCombinedAllocatedBytes, AllocatedBytes + LookupAllocatedBytes);
         }
         var physical = pools[index];
         long pageGeneration = ++nextPage;
@@ -318,9 +321,41 @@ internal sealed class TerrainAuthoringPreviewSharedHeightCache : IDisposable
         }
         var inventory = CapturePoolInventory(); var poolSnapshots = new TerrainAuthoringPreviewHeightPoolSnapshot[inventory.Count];
         for (int i = 0; i < inventory.Count; i++) poolSnapshots[i] = inventory[i];
-        map = new TerrainAuthoringPreviewHeightPageMap(this, entries.ToArray(), poolSnapshots, MappingEpoch, demand.Generation, ownership);
+        map = new TerrainAuthoringPreviewHeightPageMap(this, entries.ToArray(), poolSnapshots, MappingEpoch, demand, ownership, committedTarget, authoringTarget);
         foreach (var entry in entries) if (entry.IsValid) pools[entry.PoolIndex].AddReader(entry.Page.Handle);
         maps.Add(map); return true;
+    }
+    internal bool MapConfigurationMatches(TerrainAuthoringPreviewHeightPageMap map, WorldSettings world) =>
+        CheckAlive(out _) && maps.Contains(map) && topology.ConfigurationMatches(world);
+    internal bool MapPolicyMatches(TerrainAuthoringPreviewHeightPageMap map, TerrainAuthoringPreviewQualitySnapshot quality) =>
+        CheckAlive(out _) && maps.Contains(map) && policy.HasSameValues(quality) && policy.Generation == quality.Generation;
+    internal bool MapTargetsAreCurrent(TerrainAuthoringPreviewHeightPageMap map) =>
+        CheckAlive(out _) && maps.Contains(map) && demand.Generation == map.DemandGeneration && demand.IsEquivalentTo(map.Demand)
+        && committedTarget == map.CommittedTarget && authoringTarget == map.AuthoringTarget;
+
+    // The upload owns/destroys its lookup. This lease only charges its allocation for the
+    // complete GPU lifetime, alongside page capacity, without a second residency registry.
+    internal bool TryReserveLookupBytes(TerrainAuthoringPreviewHeightPageMap map, long bytes,
+        out IDisposable allocation, out string error)
+    {
+        allocation = null;
+        if (!CheckAlive(out error)) return false;
+        if (!maps.Contains(map) || bytes <= 0 || bytes > GpuBudgetBytes - AllocatedBytes - LookupAllocatedBytes)
+        { error = "Shared Height lookup capacity exceeds the remaining GPU budget or belongs to a retired map."; return false; }
+        LookupAllocatedBytes += bytes;
+        PeakCombinedAllocatedBytes = Math.Max(PeakCombinedAllocatedBytes, AllocatedBytes + LookupAllocatedBytes);
+        allocation = new LookupAllocation(this, bytes); return true;
+    }
+    private sealed class LookupAllocation : IDisposable
+    {
+        private TerrainAuthoringPreviewSharedHeightCache owner;
+        private readonly long bytes;
+        internal LookupAllocation(TerrainAuthoringPreviewSharedHeightCache owner, long bytes) { this.owner = owner; this.bytes = bytes; }
+        public void Dispose()
+        {
+            if (owner == null) return;
+            owner.RequireOwnerThread(); owner.LookupAllocatedBytes -= bytes; owner = null;
+        }
     }
     internal bool TryResolveMapPool(TerrainAuthoringPreviewHeightPageMap map, int index, out RenderTexture texture, out string error)
     {
@@ -368,6 +403,7 @@ internal sealed class TerrainAuthoringPreviewSharedHeightCache : IDisposable
         if (!IsDisposed) { error = "Dispose Shared Height storage before waiting for release."; return false; }
         bool complete = true; foreach (var pool in pools) if (pool != null && !pool.WaitForRelease()) complete = false;
         if (!complete) error = "Shared Height GPU release is still pending; close writers and collect after the graphics boundary completes.";
-        return complete && AllocatedBytes == 0;
+        if (LookupAllocatedBytes != 0) error = "Retire owned shared Height binding lookups before completing cache release.";
+        return complete && AllocatedBytes == 0 && LookupAllocatedBytes == 0;
     }
 }

@@ -134,6 +134,7 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
             RunExactHeightMaterializationValidation();
             RunDerivedCommittedSourceValidation();
             RunSharedHeightPageValidation();
+            RunSharedHeightSamplingValidation();
 
             if (
                 !TryValidateCachePrerequisites(
@@ -1499,6 +1500,348 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
                 cache.Dispose();
                 if (!cache.WaitForRelease(out string error)) AddResult("Shared Height fixture release", ValidationOutcome.Fail, error);
             }
+            if (settings != null) UnityEngine.Object.DestroyImmediate(settings);
+        }
+    }
+
+    private static int SharedProbeStride(Vector2Int tile) => tile.y < 2 ? tile.x < 2 ? 1 : 4 : tile.x < 2 ? 2 : 8;
+    private static float SharedProbeBias(int stride) => stride == 1 ? 0 : stride == 2 ? -10 : stride == 4 ? 20 : 35;
+    private static float SharedProbeHeight(float x, float z, float bias) => x * x * 0.01f + z * z * 0.02f + bias;
+    private static float SharedProbeBilinear(Vector2 point, float spacing, float bias)
+    {
+        float x = Mathf.FloorToInt(point.x / spacing) * spacing, z = Mathf.FloorToInt(point.y / spacing) * spacing;
+        float tx = (point.x - x) / spacing, tz = (point.y - z) / spacing;
+        float a = SharedProbeHeight(x, z, bias), b = SharedProbeHeight(x + spacing, z, bias);
+        float c = SharedProbeHeight(x, z + spacing, bias), d = SharedProbeHeight(x + spacing, z + spacing, bias);
+        return (a + (b - a) * tx) * (1 - tz) + (c + (d - c) * tx) * tz;
+    }
+    private static TerrainAuthoringPreviewGeographicDemandPlan CreateSharedSamplingDemand(WorldSettings settings,
+        TerrainAuthoringPreviewQualitySnapshot quality, long generation, bool nativeReplacement = false, bool sparse = false, int uniformStride = 0)
+    {
+        var rows = new List<TerrainAuthoringPreviewGeographicTileDemand>();
+        var editable = new TerrainHeightCacheWindow(Vector2Int.zero, new Vector2Int(3, 3));
+        for (int z = 0; z < 4; z++) for (int x = 0; x < 4; x++)
+        {
+            var tile = new Vector2Int(x, z);
+            if (sparse && (x < 1 || x > 2 || z < 1 || z > 2)) continue;
+            int stride = uniformStride > 0 ? uniformStride : nativeReplacement && x == 2 && z == 1 ? 1 : SharedProbeStride(tile);
+            rows.Add(new TerrainAuthoringPreviewGeographicTileDemand(tile, 1, stride, editable.Contains(tile),
+                TerrainAuthoringPreviewDisplayRequirement.Geometry, TerrainAuthoringPreviewNativeWorkingReason.None));
+        }
+        if (sparse) rows.Add(new TerrainAuthoringPreviewGeographicTileDemand(new Vector2Int(3, 3), 0, 0, false,
+            TerrainAuthoringPreviewDisplayRequirement.None, TerrainAuthoringPreviewNativeWorkingReason.Analysis));
+        return new TerrainAuthoringPreviewGeographicDemandPlan(settings, quality,
+            new TerrainAuthoringPreviewFocus(settings, Vector3.zero, TerrainAuthoringPreviewFocusKind.Canonical, 1),
+            new Vector2Int(1, 1), editable, 1, 1, generation, rows.ToArray());
+    }
+    private static void FillSharedSamplingPage(WorldSettings settings, TerrainAuthoringPreviewSharedHeightCache cache,
+        TerrainAuthoringPreviewHeightPageHandle handle, long authoring, float bias)
+    {
+        Texture2D source = null; RenderTexture array = null;
+        try
+        {
+            RequireSharedHeightValidation(cache.TryGetWritableCandidate(handle, out var writer, out string error), error);
+            float minimum = float.MaxValue, maximum = float.MinValue;
+            using (writer)
+            {
+                array = writer.Array; int samples = array.width;
+                float spacing = TerrainHeightResolutionUtility.GetSampleSpacing(settings, handle.Stride);
+                float[] pixels = new float[samples * samples];
+                for (int z = 0; z < samples; z++) for (int x = 0; x < samples; x++)
+                {
+                    float value = SharedProbeHeight(handle.Tile.x * settings.HeightTileWorldSize + x * spacing,
+                        handle.Tile.y * settings.HeightTileWorldSize + z * spacing, bias);
+                    pixels[x + z * samples] = value; minimum = Math.Min(minimum, value); maximum = Math.Max(maximum, value);
+                }
+                source = new Texture2D(samples, samples, TextureFormat.RFloat, false, true) { hideFlags = HideFlags.HideAndDontSave };
+                source.SetPixelData(pixels, 0); source.Apply(false, false); Graphics.CopyTexture(source, 0, 0, array, handle.Slice, 0);
+            }
+            var boundary = AsyncGPUReadback.Request(array, 0); boundary.WaitForCompletion();
+            RequireSharedHeightValidation(!boundary.hasError, "Shared sampling page upload readback failed.");
+            RequireSharedHeightValidation(cache.TryMarkCommittedBase(handle, "Shared sampling fixture", 1, out string metadataError)
+                && cache.TryMarkFinalComposite(handle, authoring, minimum, maximum, out metadataError)
+                && cache.TryCommitPage(handle, out metadataError), metadataError);
+        }
+        finally
+        {
+            if (source != null)
+            {
+                if (array != null && array.IsCreated()) { var boundary = AsyncGPUReadback.Request(array, 0); boundary.WaitForCompletion(); }
+                UnityEngine.Object.DestroyImmediate(source);
+            }
+        }
+    }
+    private static Color[] DrawSharedSamplingProbes(Material material, MaterialPropertyBlock block, Vector2[] points, float weight = 1)
+    {
+        Mesh mesh = null; RenderTexture target = null; CommandBuffer commands = null;
+        try
+        {
+            int count = points.Length; var vertices = new Vector3[count * 4]; var uv = new Vector2[count * 4];
+            var transition = new Vector2[count * 4]; var triangles = new int[count * 6];
+            for (int i = 0; i < count; i++)
+            {
+                float left = -1 + 2f * i / count, right = -1 + 2f * (i + 1) / count; int v = i * 4;
+                vertices[v] = new Vector3(left, -1, 0); vertices[v + 1] = new Vector3(right, -1, 0);
+                vertices[v + 2] = new Vector3(right, 1, 0); vertices[v + 3] = new Vector3(left, 1, 0);
+                for (int n = 0; n < 4; n++) { uv[v + n] = points[i]; transition[v + n] = new Vector2(weight, 0); }
+                int t = i * 6; triangles[t] = v; triangles[t + 1] = v + 1; triangles[t + 2] = v + 2;
+                triangles[t + 3] = v; triangles[t + 4] = v + 2; triangles[t + 5] = v + 3;
+            }
+            mesh = new Mesh { hideFlags = HideFlags.HideAndDontSave, vertices = vertices, uv = uv, uv2 = transition, triangles = triangles };
+            target = new RenderTexture(count, 1, 0, RenderTextureFormat.ARGBFloat, RenderTextureReadWrite.Linear)
+            { hideFlags = HideFlags.HideAndDontSave, filterMode = FilterMode.Point, useMipMap = false, antiAliasing = 1 };
+            RequireSharedHeightValidation(target.Create() && target.IsCreated(), "Shared sampling probe render target creation failed.");
+            commands = new CommandBuffer { name = "Terrain shared Height sampling probes" };
+            commands.SetRenderTarget(target); commands.SetViewport(new Rect(0, 0, count, 1));
+            commands.ClearRenderTarget(false, true, new Color(-999, -999, -999, -999));
+            commands.DrawMesh(mesh, Matrix4x4.identity, material, 0, 0, block); Graphics.ExecuteCommandBuffer(commands);
+            var request = AsyncGPUReadback.Request(target, 0); request.WaitForCompletion();
+            RequireSharedHeightValidation(!request.hasError, "Shared sampling shader readback failed.");
+            return request.GetData<Color>().ToArray();
+        }
+        finally
+        {
+            commands?.Release();
+            if (target != null) { if (target.IsCreated()) target.Release(); UnityEngine.Object.DestroyImmediate(target); }
+            if (mesh != null) UnityEngine.Object.DestroyImmediate(mesh);
+        }
+    }
+    private static void ValidateHighestSharedHeightPool(Material probeMaterial)
+    {
+        WorldSettings settings = null; TerrainAuthoringPreviewSharedHeightCache cache = null;
+        TerrainAuthoringPreviewHeightPageMap map = null; TerrainAuthoringPreviewSharedHeightBindingData data = null;
+        try
+        {
+            settings = ScriptableObject.CreateInstance<WorldSettings>(); settings.hideFlags = HideFlags.HideAndDontSave;
+            settings.gridWidth = settings.gridHeight = 7; settings.chunkSize = 16;
+            settings.heightTileChunkSpan = 2; settings.heightfieldResolutionPerChunk = 512;
+            settings.clipmapLevelCount = 3; settings.clipmapCenterResolution = 8; settings.clipmapBaseSampleStep = 1;
+            settings.clipmapLODOuterResolutions = new[] { 8, 8 };
+            var quality = new TerrainAuthoringPreviewQualitySnapshot(3, 4, gpuBudgetMiB: 1);
+            var demand = CreateSharedSamplingDemand(settings, quality, 1, uniformStride: 1024);
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightCache.TryCreate(settings, quality, demand, 1,
+                "Shared sampling fixture", 1, out cache, out string error), error);
+            long token = 0;
+            foreach (var row in demand.Tiles)
+            {
+                RequireSharedHeightValidation(cache.TryReservePage(row.Tile, row.SelectedDisplayStride, ++token,
+                    demand.Generation, out var page, out error), error);
+                FillSharedSamplingPage(settings, cache, page, 1, 0);
+            }
+            RequireSharedHeightValidation(cache.TryCreateRenderMapSnapshot(out map, out error), error);
+            RequireSharedHeightValidation(map.Pools.Count == 11
+                && TerrainAuthoringPreviewSharedHeightBindingData.TryCreate(settings, map, out data, out error), error);
+            var block = new MaterialPropertyBlock(); data.Apply(block);
+            block.SetVector(Shader.PropertyToID("_WorldSizeXZ"), new Vector4(112, 112, 0, 0));
+            block.SetFloat(Shader.PropertyToID("_WorldBoundsReady"), 1);
+            block.SetFloat(Shader.PropertyToID("_HeightNormalSampleSpacingFine"), 1);
+            block.SetFloat(Shader.PropertyToID("_HeightNormalSampleSpacingCoarse"), 1);
+            var pixels = DrawSharedSamplingProbes(probeMaterial, block, new[] { new Vector2(16.5f, 16.5f) });
+            RequireSharedHeightValidation(pixels[0].g > 0.99f
+                && Mathf.Abs(pixels[0].r - SharedProbeBilinear(new Vector2(16.5f, 16.5f), 32, 0)) < 0.002f,
+                "The highest supported pool slot/stride did not sample correctly on this graphics backend.");
+            data.Dispose(); RequireSharedHeightValidation(data.WaitForRelease(out error), error);
+            cache.Dispose(); RequireSharedHeightValidation(cache.WaitForRelease(out error), error);
+            data = null; map = null; cache = null;
+            // A world requiring a twelfth slot must reject upload explicitly, even
+            // when none of its physical arrays has yet been allocated.
+            settings.heightfieldResolutionPerChunk = 1024;
+            demand = CreateSharedSamplingDemand(settings, quality, 1);
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightCache.TryCreate(settings, quality, demand, 1,
+                "Shared sampling fixture", 1, out cache, out error), error);
+            RequireSharedHeightValidation(cache.TryCreateRenderMapSnapshot(out map, out error), error);
+            RequireSharedHeightValidation(map.Pools.Count == 12
+                && !TerrainAuthoringPreviewSharedHeightBindingData.TryCreate(settings, map, out _, out _)
+                && cache.LookupAllocatedBytes == 0, "Unsupported twelfth pool was silently clamped or uploaded.");
+        }
+        finally
+        {
+            string releaseError = null;
+            if (data != null) { data.Dispose(); if (!data.WaitForRelease(out string error)) releaseError = error; }
+            map?.Dispose();
+            if (cache != null) { cache.Dispose(); if (!cache.WaitForRelease(out string error)) releaseError = error; }
+            if (settings != null) UnityEngine.Object.DestroyImmediate(settings);
+            if (releaseError != null) throw new InvalidOperationException(releaseError);
+        }
+    }
+    private static void RunSharedHeightSamplingValidation()
+    {
+        if (!TerrainAuthoringPreviewSharedHeightBindingData.TryValidateDevice(out string featureError)
+            || !TerrainAuthoringPreviewHeightPagePool.TryValidateDevice(17, 8, out featureError)
+            || !SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.ARGBFloat)
+            || (SystemInfo.copyTextureSupport & CopyTextureSupport.DifferentTypes) == 0)
+        { AddResult("Shared Height shader sampling", ValidationOutcome.Blocked, string.IsNullOrEmpty(featureError) ? "The probe requires float render targets and cross-type CopyTexture." : featureError); return; }
+        WorldSettings settings = null; TerrainAuthoringPreviewSharedHeightCache cache = null;
+        Material sourceMaterial = null, sharedMaterial = null, probeSource = null, probeMaterial = null;
+        var payloads = new List<TerrainAuthoringPreviewSharedHeightBindingData>();
+        var objects = new List<GameObject>(); var bindings = new List<TerrainClipmapRendererBinding>();
+        var unclaimedMaps = new List<TerrainAuthoringPreviewHeightPageMap>();
+        try
+        {
+            var terrainShader = Shader.Find("Custom/ClipmapTerrain"); var probeShader = Shader.Find("Hidden/WorldMeshes/TerrainSharedHeightSamplingValidation");
+            RequireSharedHeightValidation(terrainShader != null && probeShader != null, "Shared terrain/probe shader assets are missing.");
+            sourceMaterial = new Material(terrainShader) { hideFlags = HideFlags.HideAndDontSave };
+            probeSource = new Material(probeShader) { hideFlags = HideFlags.HideAndDontSave };
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightBindingData.TryCreateMaterial(sourceMaterial, out sharedMaterial, out string error), error);
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightBindingData.TryCreateMaterial(probeSource, out probeMaterial, out error), error);
+            RequireSharedHeightValidation(!sourceMaterial.IsKeywordEnabled(TerrainAuthoringPreviewSharedHeightBindingData.ShaderKeyword), "Shared variant changed the source material.");
+            settings = ScriptableObject.CreateInstance<WorldSettings>(); settings.hideFlags = HideFlags.HideAndDontSave;
+            settings.gridWidth = settings.gridHeight = 7; settings.chunkSize = 16;
+            settings.heightTileChunkSpan = 2; settings.heightfieldResolutionPerChunk = 8;
+            settings.clipmapLevelCount = 3; settings.clipmapCenterResolution = 8; settings.clipmapBaseSampleStep = 1;
+            settings.clipmapLODOuterResolutions = new[] { 8, 8 };
+            var quality = new TerrainAuthoringPreviewQualitySnapshot(3, 4, gpuBudgetMiB: 1);
+            var demand = CreateSharedSamplingDemand(settings, quality, 1);
+            var layout = new TerrainClipmapLayout();
+            RequireSharedHeightValidation(TerrainClipmapLayoutUtility.TryCalculateLayout(settings, new Vector3(56, 0, 56), 0, layout, out error), error);
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightCache.TryCreate(settings, quality, demand, 1,
+                "Shared sampling fixture", 1, out cache, out error), error);
+            long token = 0;
+            foreach (var row in demand.Tiles)
+            {
+                RequireSharedHeightValidation(cache.TryReservePage(row.Tile, row.SelectedDisplayStride, ++token, demand.Generation, out var page, out error), error);
+                FillSharedSamplingPage(settings, cache, page, 1, SharedProbeBias(row.SelectedDisplayStride));
+            }
+            for (int i = 0; i < 5; i++)
+            {
+                var go = new GameObject("Shared Height fixture") { hideFlags = HideFlags.HideAndDontSave }; objects.Add(go);
+                var renderer = go.AddComponent<MeshRenderer>(); renderer.enabled = false; renderer.sharedMaterial = sharedMaterial;
+                TerrainClipmapRendererRole role;
+                if (i == 0) role = TerrainClipmapRendererRole.CreateCenter();
+                else if (i < 3) TerrainClipmapRendererRole.TryCreateRing(i, out role);
+                else TerrainClipmapRendererRole.TryCreateStitch(i - 3, i - 2, out role);
+                bindings.Add(new TerrainClipmapRendererBinding(renderer, role));
+                var marker = new MaterialPropertyBlock(); marker.SetFloat(Shader.PropertyToID("_AuthoringVisualizationMode"), 73); renderer.SetPropertyBlock(marker);
+            }
+            RequireSharedHeightValidation(cache.TryCreateRenderMapSnapshot(out var map, out error), error); unclaimedMaps.Add(map);
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightBindingData.TryCreate(settings, map, out var data, out error), error); payloads.Add(data);
+            RequireSharedHeightValidation(cache.LookupAllocatedBytes == 4 * 4 * 16 && data.DrawableCount == 16 && data.CurrentCount == 16,
+                "Shared lookup byte/currentness accounting changed.");
+            RequireSharedHeightValidation(!TerrainAuthoringPreviewSharedHeightBindingData.TryCreate(settings, map, out _, out _), "One map was transferred to two binding owners.");
+            RequireSharedHeightValidation(TerrainAuthoringPreviewHeightBindingUtility.TryBindShared(settings, quality, layout, demand, data, bindings, false, out error), error);
+            var block = new MaterialPropertyBlock(); bindings[0].Renderer.GetPropertyBlock(block);
+            RequireSharedHeightValidation(block.GetFloat(Shader.PropertyToID("_AuthoringVisualizationMode")) == 73, "Shared binding overwrote visualization state.");
+            var interior = new[] { new Vector2(16, 16), new Vector2(16.5f, 16.5f), new Vector2(80.5f, 16.5f), new Vector2(112, 112), new Vector2(120, 120) };
+            var pixels = DrawSharedSamplingProbes(probeMaterial, block, interior);
+            var expected = new[] { SharedProbeHeight(16, 16, 0), SharedProbeBilinear(interior[1], 2, 0), SharedProbeBilinear(interior[2], 8, 20), SharedProbeHeight(112, 112, 35), SharedProbeHeight(112, 112, 35) };
+            for (int i = 0; i < pixels.Length; i++) RequireSharedHeightValidation(pixels[i].g > 0.99f && Mathf.Abs(pixels[i].r - expected[i]) < 0.002f,
+                "Shared exact/bilinear/world-edge sample failed at probe " + i + ".");
+            var equalEdges = new[] { new Vector2(32, 1), new Vector2(1, 32), new Vector2(32, 2), new Vector2(2, 32) };
+            pixels = DrawSharedSamplingProbes(probeMaterial, block, equalEdges);
+            for (int i = 0; i < equalEdges.Length; i++)
+                RequireSharedHeightValidation(pixels[i].g > 0.99f
+                    && Mathf.Abs(pixels[i].r - SharedProbeBilinear(equalEdges[i], 2, 0)) < 0.002f,
+                    "Equal-resolution compatible edge/lattice samples were deformed near a corner.");
+            const float epsilon = 0.002f;
+            var seams = new[] { new Vector2(64 - epsilon, 48), new Vector2(64, 48), new Vector2(64 + epsilon, 48),
+                new Vector2(48, 64 - epsilon), new Vector2(48, 64), new Vector2(48, 64 + epsilon),
+                new Vector2(64 - epsilon, 64 - epsilon), new Vector2(64 + epsilon, 64 - epsilon),
+                new Vector2(64 - epsilon, 64 + epsilon), new Vector2(64 + epsilon, 64 + epsilon), new Vector2(64, 64),
+                new Vector2(32 - epsilon, 16), new Vector2(32 + epsilon, 16) };
+            pixels = DrawSharedSamplingProbes(probeMaterial, block, seams);
+            foreach (var pixel in pixels) RequireSharedHeightValidation(pixel.g > 0.99f, "A resident shared seam was classified invalid.");
+            foreach (var pair in new[] { new Vector2Int(0, 2), new Vector2Int(3, 5), new Vector2Int(6, 10), new Vector2Int(7, 10), new Vector2Int(8, 10), new Vector2Int(9, 10), new Vector2Int(11, 12) })
+                RequireSharedHeightValidation(Mathf.Abs(pixels[pair.x].r - pixels[pair.y].r) < 0.04f
+                    && Mathf.Abs(pixels[pair.x].b - pixels[pair.y].b) < 0.004f && Mathf.Abs(pixels[pair.x].a - pixels[pair.y].a) < 0.004f,
+                    "Shared edge/corner height or normal continuity failed.");
+            foreach (var binding in bindings)
+            {
+                binding.Renderer.GetPropertyBlock(block);
+                pixels = DrawSharedSamplingProbes(probeMaterial, block, new[] { interior[2] });
+                RequireSharedHeightValidation(Mathf.Abs(pixels[0].r - expected[2]) < 0.002f, "Different mesh roles sampled different published pages.");
+            }
+            block.SetVector(Shader.PropertyToID("_ClipmapTransitionOffset"), new Vector4(2, 0, -2, 0));
+            foreach (float weight in new[] { 0f, 0.5f, 1f })
+            {
+                pixels = DrawSharedSamplingProbes(probeMaterial, block, new[] { interior[1] }, weight);
+                RequireSharedHeightValidation(Mathf.Abs(pixels[0].r - SharedProbeBilinear(interior[1] + new Vector2(2, -2) * weight, 2, 0)) < 0.002f,
+                    "Shared stitch transition did not sample displaced world coordinates.");
+                var crossing = new Vector2(63, 48);
+                var shifted = DrawSharedSamplingProbes(probeMaterial, block, new[] { crossing }, weight);
+                block.SetVector(Shader.PropertyToID("_ClipmapTransitionOffset"), Vector4.zero);
+                var reference = DrawSharedSamplingProbes(probeMaterial, block, new[] { crossing + new Vector2(2, -2) * weight }, weight);
+                RequireSharedHeightValidation(shifted[0].g > 0.99f && reference[0].g > 0.99f
+                    && Mathf.Abs(shifted[0].r - reference[0].r) < 0.002f,
+                    "A stitch crossing the mixed tile boundary sampled before its world-space offset.");
+                block.SetVector(Shader.PropertyToID("_ClipmapTransitionOffset"), new Vector4(2, 0, -2, 0));
+            }
+            block.SetVector(Shader.PropertyToID("_ClipmapTransitionOffset"), Vector4.zero);
+            block.SetFloat(Shader.PropertyToID("_SharedHeightProbeClipWorld"), 1);
+            pixels = DrawSharedSamplingProbes(probeMaterial, block, new[] { interior[3], interior[4] });
+            RequireSharedHeightValidation(pixels[0].g > 0.99f && pixels[1].g == -999, "Shared exact logical-world clipping changed.");
+            block.SetFloat(Shader.PropertyToID("_SharedHeightProbeClipWorld"), 0);
+            demand = CreateSharedSamplingDemand(settings, quality, 2, true);
+            RequireSharedHeightValidation(cache.TryAcceptDemand(demand, "Shared sampling fixture", 2, out error), error);
+            RequireSharedHeightValidation(cache.TryCreateRenderMapSnapshot(out map, out error), error); unclaimedMaps.Add(map);
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightBindingData.TryCreate(settings, map, out var lastGood, out error), error); payloads.Add(lastGood);
+            RequireSharedHeightValidation(!TerrainAuthoringPreviewHeightBindingUtility.TryPreflightShared(settings, quality, layout, demand, lastGood, bindings, false, out _)
+                && TerrainAuthoringPreviewHeightBindingUtility.TryBindShared(settings, quality, layout, demand, lastGood, bindings, true, out error), error);
+            bindings[0].Renderer.GetPropertyBlock(block); pixels = DrawSharedSamplingProbes(probeMaterial, block, new[] { new Vector2(80.5f, 40.5f) });
+            RequireSharedHeightValidation(Mathf.Abs(pixels[0].r - SharedProbeBilinear(new Vector2(80.5f, 40.5f), 8, 20)) < 0.002f,
+                "Last-good shared sampling used requested rather than published stride.");
+            var changedTile = new Vector2Int(2, 1); RequireSharedHeightValidation(cache.ReleaseTile(changedTile, out error), error);
+            RequireSharedHeightValidation(cache.TryCreateRenderMapSnapshot(out map, out error), error); unclaimedMaps.Add(map);
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightBindingData.TryCreate(settings, map, out var missing, out error), error); payloads.Add(missing);
+            RequireSharedHeightValidation(missing.RequiredMissingCount == 1
+                && !TerrainAuthoringPreviewHeightBindingUtility.TryPreflightShared(settings, quality, layout, demand, missing, bindings, true, out _),
+                "Shared preflight declared missing required coverage ready.");
+            missing.Apply(block); pixels = DrawSharedSamplingProbes(probeMaterial, block, new[] { new Vector2(80.5f, 40.5f) });
+            RequireSharedHeightValidation(pixels[0].g == 0 && pixels[0].r == 999, "A missing shared page fabricated valid flat terrain.");
+            lastGood.Apply(block); pixels = DrawSharedSamplingProbes(probeMaterial, block, new[] { new Vector2(80.5f, 40.5f) });
+            RequireSharedHeightValidation(pixels[0].g > 0.99f, "A retained old map lost its retired physical page before rendering.");
+            RequireSharedHeightValidation(cache.TryReservePage(changedTile, 1, ++token, demand.Generation, out var replacement, out error), error);
+            FillSharedSamplingPage(settings, cache, replacement, 2, 100);
+            RequireSharedHeightValidation(cache.TryCreateRenderMapSnapshot(out map, out error), error); unclaimedMaps.Add(map);
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightBindingData.TryCreate(settings, map, out var updated, out error), error); payloads.Add(updated);
+            RequireSharedHeightValidation(updated.Map.TryGetEntry(changedTile, out var replacedEntry) && replacedEntry.IsCurrent
+                && replacedEntry.Page.Handle.Stride == 1, "Replacement did not publish its new stride/current content.");
+            updated.Apply(block); pixels = DrawSharedSamplingProbes(probeMaterial, block, new[] { new Vector2(80.5f, 40.5f) });
+            RequireSharedHeightValidation(Mathf.Abs(pixels[0].r - SharedProbeBilinear(new Vector2(80.5f, 40.5f), 2, 100)) < 0.002f,
+                "New mapping did not sample its newly published page.");
+            lastGood.Apply(block); pixels = DrawSharedSamplingProbes(probeMaterial, block, new[] { new Vector2(80.5f, 40.5f) });
+            RequireSharedHeightValidation(Mathf.Abs(pixels[0].r - SharedProbeBilinear(new Vector2(80.5f, 40.5f), 8, 20)) < 0.002f,
+                "Replacement reused a page still referenced by an old GPU map.");
+            // Leave an explicit sparse invalid cell after checking both epoch views.
+            RequireSharedHeightValidation(cache.ReleaseTile(changedTile, out error), error);
+            demand = CreateSharedSamplingDemand(settings, quality, 3, true, true);
+            RequireSharedHeightValidation(cache.TryAcceptDemand(demand, "Shared sampling fixture", 2, out error), error);
+            RequireSharedHeightValidation(cache.TryCreateRenderMapSnapshot(out map, out error), error); unclaimedMaps.Add(map);
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightBindingData.TryCreate(settings, map, out var sparse, out error), error); payloads.Add(sparse);
+            RequireSharedHeightValidation(sparse.Window.OriginTile == new Vector2Int(1, 1) && sparse.Window.Size == new Vector2Int(2, 2) && map.Entries.Count == 4,
+                "Shared local lookup included native-only rows or lost non-zero origin.");
+            var lookupRead = AsyncGPUReadback.Request(sparse.Lookup, 0); lookupRead.WaitForCompletion();
+            RequireSharedHeightValidation(!lookupRead.hasError && lookupRead.GetData<Color>()[1].r == 0
+                && lookupRead.GetData<Color>()[1].g == -1 && lookupRead.GetData<Color>()[1].b == -1, "Shared GPU sparse invalid cell encoding changed.");
+            // The disabled shared branch must execute the exact legacy lattice sampler.
+            block.SetFloat(TerrainAuthoringPreviewSharedHeightBindingData.EnabledId, 0);
+            RequireSharedHeightValidation(data.Map.TryGetPoolTexture(0, out var nativePool, out error), error);
+            block.SetTexture(Shader.PropertyToID("_HeightCache"), nativePool);
+            block.SetVector(Shader.PropertyToID("_HeightCacheOriginTile"), new Vector4(0, 0, 0, 0));
+            block.SetVector(Shader.PropertyToID("_HeightCacheSize"), new Vector4(1, 1, 0, 0));
+            block.SetFloat(Shader.PropertyToID("_HeightTileSamplesPerSide"), 17); block.SetFloat(Shader.PropertyToID("_HeightSampleSpacing"), 2);
+            block.SetFloat(Shader.PropertyToID("_HeightCacheReady"), 1);
+            pixels = DrawSharedSamplingProbes(probeMaterial, block, new[] { interior[1] });
+            RequireSharedHeightValidation(pixels[0].g > 0.99f && Mathf.Abs(pixels[0].r - SharedProbeHeight(16, 16, 0)) < 0.002f,
+                "Disabled shared mode changed legacy nearest-lattice sampling.");
+            TerrainAuthoringPreviewHeightBindingUtility.DisableShared(bindings);
+            foreach (var payload in payloads) { payload.Dispose(); RequireSharedHeightValidation(payload.WaitForRelease(out error), error); }
+            RequireSharedHeightValidation(cache.LookupAllocatedBytes == 0, "Shared lookup budget leases leaked after GPU retirement.");
+            ValidateHighestSharedHeightPool(probeMaterial);
+            AddResult("Shared Height shader sampling", ValidationOutcome.Pass,
+                "Controlled draws checked published-stride bilinear sampling, mixed/equal edges and corners, normals, all renderer roles/stitch weights, sparse invalid cells, last-good readers, legacy branch and world clipping. No live renderer was changed.");
+        }
+        catch (Exception exception) { AddResult("Shared Height shader sampling", ValidationOutcome.Fail, exception.ToString()); }
+        finally
+        {
+            TerrainAuthoringPreviewHeightBindingUtility.DisableShared(bindings);
+            foreach (var payload in payloads) { payload.Dispose(); if (!payload.WaitForRelease(out string error)) AddResult("Shared sampling lookup release", ValidationOutcome.Fail, error); }
+            foreach (var map in unclaimedMaps) map.Dispose();
+            if (cache != null) { cache.Dispose(); if (!cache.WaitForRelease(out string error)) AddResult("Shared sampling cache release", ValidationOutcome.Fail, error); }
+            foreach (var go in objects) UnityEngine.Object.DestroyImmediate(go);
+            if (sourceMaterial != null) UnityEngine.Object.DestroyImmediate(sourceMaterial);
+            if (sharedMaterial != null) UnityEngine.Object.DestroyImmediate(sharedMaterial);
+            if (probeSource != null) UnityEngine.Object.DestroyImmediate(probeSource);
+            if (probeMaterial != null) UnityEngine.Object.DestroyImmediate(probeMaterial);
             if (settings != null) UnityEngine.Object.DestroyImmediate(settings);
         }
     }

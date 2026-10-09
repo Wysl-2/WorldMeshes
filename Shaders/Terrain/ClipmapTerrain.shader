@@ -202,6 +202,38 @@ Shader "Custom/ClipmapTerrain"
         ) = 0
 
         // =================================================
+        // TRANSIENT EDITOR SHARED HEIGHT
+        // =================================================
+
+        // Explicitly selected transient Editor shared-page material variant.
+        [HideInInspector] _EditorSharedHeightEnabled("Editor Shared Height Enabled", Float) = 0
+        [HideInInspector] _EditorSharedHeightMap("Editor Shared Height Map", 2D) = "black" {}
+        [HideInInspector] _EditorSharedHeightMapWindow("Editor Shared Height Map Window", Vector) = (0,0,0,0)
+        [HideInInspector] _EditorSharedHeightTopology("Editor Shared Height Topology", Vector) = (0,0,0,0)
+        [HideInInspector] _EditorSharedHeightPool0("Editor Shared Height Pool 0", 2DArray) = "" {}
+        [HideInInspector] _EditorSharedHeightPoolInfo0("Editor Shared Height Pool Info 0", Vector) = (0,0,0,0)
+        [HideInInspector] _EditorSharedHeightPool1("Editor Shared Height Pool 1", 2DArray) = "" {}
+        [HideInInspector] _EditorSharedHeightPoolInfo1("Editor Shared Height Pool Info 1", Vector) = (0,0,0,0)
+        [HideInInspector] _EditorSharedHeightPool2("Editor Shared Height Pool 2", 2DArray) = "" {}
+        [HideInInspector] _EditorSharedHeightPoolInfo2("Editor Shared Height Pool Info 2", Vector) = (0,0,0,0)
+        [HideInInspector] _EditorSharedHeightPool3("Editor Shared Height Pool 3", 2DArray) = "" {}
+        [HideInInspector] _EditorSharedHeightPoolInfo3("Editor Shared Height Pool Info 3", Vector) = (0,0,0,0)
+        [HideInInspector] _EditorSharedHeightPool4("Editor Shared Height Pool 4", 2DArray) = "" {}
+        [HideInInspector] _EditorSharedHeightPoolInfo4("Editor Shared Height Pool Info 4", Vector) = (0,0,0,0)
+        [HideInInspector] _EditorSharedHeightPool5("Editor Shared Height Pool 5", 2DArray) = "" {}
+        [HideInInspector] _EditorSharedHeightPoolInfo5("Editor Shared Height Pool Info 5", Vector) = (0,0,0,0)
+        [HideInInspector] _EditorSharedHeightPool6("Editor Shared Height Pool 6", 2DArray) = "" {}
+        [HideInInspector] _EditorSharedHeightPoolInfo6("Editor Shared Height Pool Info 6", Vector) = (0,0,0,0)
+        [HideInInspector] _EditorSharedHeightPool7("Editor Shared Height Pool 7", 2DArray) = "" {}
+        [HideInInspector] _EditorSharedHeightPoolInfo7("Editor Shared Height Pool Info 7", Vector) = (0,0,0,0)
+        [HideInInspector] _EditorSharedHeightPool8("Editor Shared Height Pool 8", 2DArray) = "" {}
+        [HideInInspector] _EditorSharedHeightPoolInfo8("Editor Shared Height Pool Info 8", Vector) = (0,0,0,0)
+        [HideInInspector] _EditorSharedHeightPool9("Editor Shared Height Pool 9", 2DArray) = "" {}
+        [HideInInspector] _EditorSharedHeightPoolInfo9("Editor Shared Height Pool Info 9", Vector) = (0,0,0,0)
+        [HideInInspector] _EditorSharedHeightPool10("Editor Shared Height Pool 10", 2DArray) = "" {}
+        [HideInInspector] _EditorSharedHeightPoolInfo10("Editor Shared Height Pool Info 10", Vector) = (0,0,0,0)
+
+        // =================================================
         // RUNTIME SURFACE MASK CACHE
         // =================================================
 
@@ -497,6 +529,7 @@ Shader "Custom/ClipmapTerrain"
 
             #pragma target 3.5
             #pragma require 2darray
+            #pragma shader_feature_local _ WORLDMESHES_EDITOR_SHARED_HEIGHT
 
             // ---------------------------------------------
             // URP lighting variants
@@ -558,6 +591,9 @@ Shader "Custom/ClipmapTerrain"
                 half fogFactor :
                     TEXCOORD3;
 
+#if defined(WORLDMESHES_EDITOR_SHARED_HEIGHT)
+                float sharedHeightValid : TEXCOORD5;
+#endif
                 float surfaceTransitionWeight :
                     TEXCOORD4;
             };
@@ -688,6 +724,22 @@ Shader "Custom/ClipmapTerrain"
                 float _WorldBoundsReady;
 
                 float _HeightCacheReady;
+
+                float _EditorSharedHeightEnabled;
+                float4 _EditorSharedHeightMapWindow;
+                float4 _EditorSharedHeightTopology;
+                float4 _EditorSharedHeightPoolInfo0;
+                float4 _EditorSharedHeightPoolInfo1;
+                float4 _EditorSharedHeightPoolInfo2;
+                float4 _EditorSharedHeightPoolInfo3;
+                float4 _EditorSharedHeightPoolInfo4;
+                float4 _EditorSharedHeightPoolInfo5;
+                float4 _EditorSharedHeightPoolInfo6;
+                float4 _EditorSharedHeightPoolInfo7;
+                float4 _EditorSharedHeightPoolInfo8;
+                float4 _EditorSharedHeightPoolInfo9;
+                float4 _EditorSharedHeightPoolInfo10;
+
 
                 float4 _ClipmapTransitionOffset;
 
@@ -976,11 +1028,15 @@ Shader "Custom/ClipmapTerrain"
 
                 float3 normalWS;
 
-                ApplyTerrainHeightDisplacement(
+                float heightValid = ApplyTerrainHeightDisplacement(
                     positionWS,
                     normalWS,
                     IN.clipmapData.x
                 );
+
+#if defined(WORLDMESHES_EDITOR_SHARED_HEIGHT)
+                OUT.sharedHeightValid = _EditorSharedHeightEnabled > 0.5 ? heightValid : 1.0;
+#endif
 
                 OUT.positionWS =
                     positionWS;
@@ -1033,6 +1089,11 @@ Shader "Custom/ClipmapTerrain"
                 ClipTerrainFragmentToWorld(
                     IN.positionWS.xz
                 );
+
+#if defined(WORLDMESHES_EDITOR_SHARED_HEIGHT)
+                // A shared missing-page vertex must not become a valid flat triangle.
+                if (_EditorSharedHeightEnabled > 0.5) clip(IN.sharedHeightValid - 0.99999);
+#endif
 
                 /*
                  * Wireframe Only keeps the source terrain renderers,

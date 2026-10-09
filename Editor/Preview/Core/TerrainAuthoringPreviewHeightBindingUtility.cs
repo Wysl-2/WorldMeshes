@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -86,6 +87,7 @@ internal static class TerrainAuthoringPreviewHeightBindingUtility
             float coarse = binding.Role.Kind == TerrainClipmapRendererKind.Stitch
                 ? caches[binding.Role.CoarseLevel].SampleSpacing : c.SampleSpacing;
             binding.Renderer.GetPropertyBlock(block);
+            TerrainAuthoringPreviewSharedHeightBindingData.Clear(block);
             if (surface != null) TerrainSurfaceSettingsBindingUtility.TryApplyToPropertyBlock(block, surface, out _);
             block.SetTexture(TextureId, c.HeightCache);
             block.SetVector(OriginId, new Vector4(c.ResidentWindow.OriginTile.x, c.ResidentWindow.OriginTile.y, 0, 0));
@@ -109,8 +111,135 @@ internal static class TerrainAuthoringPreviewHeightBindingUtility
         {
             if (binding.Renderer == null || (ownerLevel >= 0 && binding.Role.HeightOwnerLevel != ownerLevel)) continue;
             binding.Renderer.GetPropertyBlock(block);
+            TerrainAuthoringPreviewSharedHeightBindingData.Clear(block);
             block.SetTexture(TextureId, null);
             block.SetFloat(ReadyId, 0);
+            binding.Renderer.SetPropertyBlock(block);
+        }
+    }
+
+    internal static bool TryPreflightShared(WorldSettings settings, TerrainAuthoringPreviewQualitySnapshot quality,
+        TerrainClipmapLayout layout, TerrainAuthoringPreviewGeographicDemandPlan demand,
+        TerrainAuthoringPreviewSharedHeightBindingData data, IReadOnlyList<TerrainClipmapRendererBinding> bindings,
+        bool allowLastGood, out string error)
+    {
+        error = "";
+        if (!TerrainAuthoringPreviewSharedHeightBindingData.TryValidateDevice(out error)) return false;
+        if (settings == null || demand == null || !demand.TryValidate(settings, out error) || data == null
+            || !data.Matches(settings, demand) || !data.Map.PolicyMatches(quality) || layout == null || !layout.IsValid
+            || bindings == null || bindings.Count != 2 * layout.LevelCount - 1
+            || layout.LevelCount != settings.clipmapLevelCount || demand.PolicyGeneration != quality?.Generation)
+        { if (string.IsNullOrEmpty(error)) error = "Shared Height requires matching world, demand/map epoch, layout, quality and semantic renderers."; return false; }
+        if (!allowLastGood && !data.Map.TargetsAreCurrent)
+        { error = "The captured shared Height content/demand targets are older than their owner; explicitly allow last-good or upload a current snapshot."; return false; }
+        if (data.RequiredMissingCount != 0 || data.DrawableCount == 0)
+        { error = "Required shared Height pages are missing; a lookup allocation alone is not ready coverage."; return false; }
+        foreach (var row in demand.Tiles)
+        {
+            if (!row.DisplayRequired) continue;
+            if (!data.Map.TryGetEntry(row.Tile, out var page) || !page.IsValid || !allowLastGood && !page.IsCurrent)
+            { error = "Required shared Height coverage is absent or stale at " + row.Tile + "."; return false; }
+        }
+        // Reuse the geographical planner for the supplied actual layout, including world
+        // clamping, ring holes, stitch offsets and normal-sampling dependencies.
+        Vector2 size = TerrainClipmapLayoutUtility.CalculateWorldSizeXZ(settings);
+        Vector3 focusPosition = new Vector3(Mathf.Min(size.x, (demand.FocusTile.x + 0.5f) * settings.HeightTileWorldSize), 0,
+            Mathf.Min(size.y, (demand.FocusTile.y + 0.5f) * settings.HeightTileWorldSize));
+        var focus = new TerrainAuthoringPreviewFocus(settings, focusPosition, demand.FocusKind, demand.OwnershipGeneration);
+        if (!TerrainAuthoringPreviewLodResidencyUtility.TryBuildGeographicDemand(settings, layout, quality, focus, null,
+            demand.PlacementGeneration, demand.NativeWorkingGeneration, demand.Generation, out var coverage, out error)) return false;
+        foreach (var row in coverage.Tiles)
+            if (row.DisplayRequired && (!demand.TryGetTile(row.Tile, out var requested) || !requested.DisplayRequired
+                || !data.Map.TryGetEntry(row.Tile, out var page) || !page.IsValid))
+            { error = "Shared Height demand does not cover the actual centre/ring/stitch sampling layout at " + row.Tile + "."; return false; }
+        // The original planner's normal halo uses geometry spacing. Coarse shared
+        // pages also need their wider normal step and one boundary-profile band.
+        // Check a conservative tile halo without adding demand or producing pages.
+        float pageSpacing = 0, normalSpacing = 0;
+        foreach (var entry in data.Map.Entries) if (entry.IsValid) pageSpacing = Mathf.Max(pageSpacing, entry.Page.SampleSpacing);
+        for (int i = 0; i < layout.LevelCount; i++) normalSpacing = Mathf.Max(normalSpacing, layout.GetSpacing(i));
+        int halo = Mathf.CeilToInt((Mathf.Max(pageSpacing, normalSpacing) + pageSpacing) / settings.HeightTileWorldSize);
+        if (halo > 2) { error = "Shared Height sampling exceeds the bounded two-tile normal/boundary halo."; return false; }
+        var checkedTiles = new HashSet<Vector2Int>();
+        foreach (var row in coverage.Tiles)
+        {
+            if ((row.DisplayRequirement & TerrainAuthoringPreviewDisplayRequirement.Geometry) == 0) continue;
+            for (int z = -halo; z <= halo; z++) for (int x = -halo; x <= halo; x++)
+            {
+                var tile = row.Tile + new Vector2Int(x, z);
+                if (tile.x < 0 || tile.y < 0 || tile.x >= settings.HeightTileGridWidth || tile.y >= settings.HeightTileGridHeight
+                    || !checkedTiles.Add(tile)) continue;
+                if (!data.Map.TryGetEntry(tile, out var page) || !page.IsValid || !allowLastGood && !page.IsCurrent)
+                { error = "Shared Height needs drawable/current coarse-normal and boundary halo coverage at " + tile + "."; return false; }
+            }
+        }
+        var renderers = new HashSet<MeshRenderer>(); var rings = new HashSet<int>(); var stitches = new HashSet<int>(); int centers = 0;
+        foreach (var binding in bindings)
+        {
+            var role = binding.Role; int owner = role.HeightOwnerLevel;
+            if (!binding.IsValid || !renderers.Add(binding.Renderer) || owner < 0 || owner >= layout.LevelCount)
+            { error = "A shared Height renderer role is invalid or duplicated."; return false; }
+            if (role.Kind == TerrainClipmapRendererKind.Center) centers++;
+            else if (role.Kind == TerrainClipmapRendererKind.Ring)
+            { if (!rings.Add(owner)) { error = "A shared Height ring role is duplicated."; return false; } }
+            else if (role.Kind == TerrainClipmapRendererKind.Stitch)
+            {
+                if (role.CoarseLevel >= layout.LevelCount || !stitches.Add(role.FineLevel)
+                    || !Mathf.Approximately(layout.GetSpacing(role.CoarseLevel), layout.GetSpacing(owner) * 2f))
+                { error = "A shared Height stitch lacks its adjacent coarse geometry."; return false; }
+            }
+            else { error = "An unknown shared Height renderer role was supplied."; return false; }
+            var material = binding.Renderer.sharedMaterial;
+            if (material == null || EditorUtility.IsPersistent(material) || !material.IsKeywordEnabled(TerrainAuthoringPreviewSharedHeightBindingData.ShaderKeyword)
+                || !material.shader.isSupported || ShaderUtil.ShaderHasError(material.shader)
+                || !TerrainAuthoringPreviewSharedHeightBindingData.MaterialHasProperties(material))
+            { error = "Shared Height requires a supported, explicitly selected temporary material variant; shared assets must not be changed."; return false; }
+            foreach (int id in RequiredProperties)
+                if (!material.HasProperty(id)) { error = "The shared terrain material lacks the preserved legacy/world/normal properties."; return false; }
+        }
+        if (centers != 1 || rings.Count != layout.LevelCount - 1 || stitches.Count != layout.LevelCount - 1)
+        { error = "The complete semantic shared Height hierarchy is required."; return false; }
+        return true;
+    }
+
+    internal static bool TryBindShared(WorldSettings settings, TerrainAuthoringPreviewQualitySnapshot quality,
+        TerrainClipmapLayout layout, TerrainAuthoringPreviewGeographicDemandPlan demand,
+        TerrainAuthoringPreviewSharedHeightBindingData data, IReadOnlyList<TerrainClipmapRendererBinding> bindings,
+        bool allowLastGood, out string error)
+    {
+        if (!TryPreflightShared(settings, quality, layout, demand, data, bindings, allowLastGood, out error)) return false;
+        var original = new MaterialPropertyBlock[bindings.Count]; var prepared = new MaterialPropertyBlock[bindings.Count];
+        try
+        {
+            for (int i = 0; i < bindings.Count; i++)
+            {
+                original[i] = new MaterialPropertyBlock(); prepared[i] = new MaterialPropertyBlock();
+                var binding = bindings[i]; binding.Renderer.GetPropertyBlock(original[i]); binding.Renderer.GetPropertyBlock(prepared[i]);
+                data.Apply(prepared[i]);
+                float fine = layout.GetSpacing(binding.Role.HeightOwnerLevel);
+                float coarse = binding.Role.Kind == TerrainClipmapRendererKind.Stitch ? layout.GetSpacing(binding.Role.CoarseLevel) : fine;
+                prepared[i].SetFloat(FineId, fine); prepared[i].SetFloat(CoarseId, coarse);
+                prepared[i].SetVector(WorldId, new Vector4(data.WorldSize.x, data.WorldSize.y, 0, 0)); prepared[i].SetFloat(WorldReadyId, 1);
+            }
+            for (int i = 0; i < bindings.Count; i++) bindings[i].Renderer.SetPropertyBlock(prepared[i]);
+            return true;
+        }
+        catch (System.Exception exception)
+        {
+            for (int i = 0; i < bindings.Count; i++) if (bindings[i].Renderer != null && original[i] != null) bindings[i].Renderer.SetPropertyBlock(original[i]);
+            error = "Shared Height binding failed: " + exception.Message; return false;
+        }
+    }
+
+    // Caller must stop/clear future draws before retiring the payload and its map.
+    internal static void DisableShared(IReadOnlyList<TerrainClipmapRendererBinding> bindings)
+    {
+        if (bindings == null) return;
+        var block = new MaterialPropertyBlock();
+        foreach (var binding in bindings)
+        {
+            if (binding.Renderer == null) continue;
+            binding.Renderer.GetPropertyBlock(block); TerrainAuthoringPreviewSharedHeightBindingData.Clear(block);
             binding.Renderer.SetPropertyBlock(block);
         }
     }
