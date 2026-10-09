@@ -148,6 +148,17 @@ internal sealed class TerrainAuthoringPreviewHeightPagePool : IDisposable
         return !slot.FencePending;
     }
 
+    internal bool TryPollWrite(TerrainAuthoringPreviewHeightPageHandle handle, out bool complete, out string error)
+    {
+        complete = false; error = "";
+        if (!Matches(handle, out int i) || slots[i].State != TerrainAuthoringPreviewHeightSlotState.Reserved
+            || !slots[i].WasWritten)
+        { error = "The Height candidate does not have a submitted reserved write."; return false; }
+        complete = GpuComplete(slots[i]);
+        if (slots[i].CompletionFailed) { error = "Height candidate GPU completion failed."; return false; }
+        return true;
+    }
+
     internal bool CanPublish(TerrainAuthoringPreviewHeightPageHandle handle, out string error)
     {
         error = "";

@@ -135,6 +135,8 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
             RunDerivedCommittedSourceValidation();
             RunSharedHeightPageValidation();
             RunSharedHeightSamplingValidation();
+            RunGeographicAuthoringScopeValidation();
+            RunSharedGeographicAuthoringValidation();
 
             if (
                 !TryValidateCachePrerequisites(
@@ -1845,6 +1847,341 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
             if (settings != null) UnityEngine.Object.DestroyImmediate(settings);
         }
     }
+
+    // Transient committed-height provider for isolated integration. The production
+    // context uses the validated manifest and source utility; fixtures never generate
+    // disk entries or mutate committed/authoring assets.
+    private sealed class GeographicHeightFixtureSource : TerrainAuthoringPreviewCommittedSourceContext
+    {
+        public WorldSettings Settings { get; }
+        public TerrainAuthoringData Data { get; }
+        public TerrainAuthoringPreviewGeographicDemandPlan Demand { get; }
+        public string CommittedSignature => "Transient committed Height";
+        public long AuthoringGeneration { get; }
+        internal bool Current = true, MissingNative;
+        public bool IsCurrent => Current && Settings != null && Data != null && Demand.ConfigurationMatches(Settings);
+        internal GeographicHeightFixtureSource(WorldSettings settings, TerrainAuthoringData data,
+            TerrainAuthoringPreviewGeographicDemandPlan demand, long generation)
+        { Settings = settings; Data = data; Demand = demand; AuthoringGeneration = generation; }
+        public bool TryAcquire(Vector2Int tile, int stride, out TerrainAuthoringPreviewHeightSourceLease lease, out string error)
+        {
+            lease = null; error = "The transient native Height dependency is deliberately missing.";
+            if (!IsCurrent || MissingNative && stride == 1) return false;
+            int samples = TerrainHeightResolutionUtility.GetSamplesPerSide(Settings, stride);
+            var texture = new Texture2D(samples, samples, TextureFormat.RFloat, false, true)
+            { name = "Transient committed Height", hideFlags = HideFlags.HideAndDontSave, filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp };
+            var values = new float[samples * samples];
+            for (int z = 0; z < samples; z++) for (int x = 0; x < samples; x++)
+                values[x + z * samples] = tile.x * 3f + tile.y * 9f + x * stride * 0.1f + z * stride * 0.2f;
+            texture.SetPixelData(values, 0); texture.Apply(false, false);
+            lease = new TerrainAuthoringPreviewHeightSourceLease(texture, stride, Settings.HeightTileSamplesPerSide,
+                true, committedSignature: CommittedSignature); error = ""; return true;
+        }
+        public bool LeaseIsCurrent(TerrainAuthoringPreviewHeightSourceLease lease) => IsCurrent && lease != null
+            && lease.Texture != null && lease.CommittedSignature == CommittedSignature;
+        public bool TryGetRange(Vector2Int tile, out float low, out float high, out string error)
+        { low = tile.x * 3f + tile.y * 9f; high = low + (Settings.HeightTileSamplesPerSide - 1) * 0.3f; error = ""; return IsCurrent; }
+    }
+
+    private static WorldSettings CreateGeographicAuthoringFixtureWorld()
+    {
+        var settings = ScriptableObject.CreateInstance<WorldSettings>(); settings.hideFlags = HideFlags.HideAndDontSave;
+        settings.gridWidth = settings.gridHeight = 6; settings.chunkSize = 256;
+        settings.heightTileChunkSpan = 2; settings.heightfieldResolutionPerChunk = 8;
+        return settings;
+    }
+    private static TerrainAuthoringPreviewGeographicDemandPlan CreateGeographicAuthoringFixtureDemand(
+        WorldSettings settings, TerrainAuthoringPreviewQualitySnapshot policy)
+    {
+        var rows = new List<TerrainAuthoringPreviewGeographicTileDemand>();
+        for (int z = 0; z < 3; z++) for (int x = 0; x < 3; x++)
+        {
+            bool display = z == 0 && x < 2;
+            rows.Add(new TerrainAuthoringPreviewGeographicTileDemand(new Vector2Int(x, z), display ? 1 : 0,
+                display ? x == 0 ? 1 : 4 : 0, x == 0 && z == 0,
+                display ? TerrainAuthoringPreviewDisplayRequirement.Geometry : TerrainAuthoringPreviewDisplayRequirement.None,
+                TerrainAuthoringPreviewNativeWorkingReason.Analysis));
+        }
+        return new TerrainAuthoringPreviewGeographicDemandPlan(settings, policy,
+            new TerrainAuthoringPreviewFocus(settings, Vector3.zero, TerrainAuthoringPreviewFocusKind.Canonical, 1),
+            Vector2Int.zero, new TerrainHeightCacheWindow(Vector2Int.zero, Vector2Int.one), 1, 1, 1, rows.ToArray());
+    }
+    private static void RunGeographicAuthoringScopeValidation()
+    {
+        WorldSettings settings = null; TerrainAuthoringPreviewSharedHeightCache cache = null;
+        try
+        {
+            settings = CreateGeographicAuthoringFixtureWorld();
+            var policy = new TerrainAuthoringPreviewQualitySnapshot(1, 4, gpuBudgetMiB: 1);
+            var plan = CreateGeographicAuthoringFixtureDemand(settings, policy);
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightCache.TryCreate(settings, policy, plan,
+                1, "Transient committed Height", 1, out cache, out string error), error);
+            var previous = new[] { Vector2Int.zero, new Vector2Int(2, 2) }; var next = new[] { new Vector2Int(1, 0) };
+            RequireSharedHeightValidation(TerrainAuthoringPreviewGeographicAuthoringProjection.TryProject(settings, plan, cache,
+                1, 7, "Transient committed Height", previous, next, TerrainRegionalElevationInvalidationScope.None,
+                out var local, out error), error);
+            previous[0] = new Vector2Int(1, 1);
+            RequireSharedHeightValidation(local.CanProveUntouched && local.DisplayJobCount == 2 && local.NativeChangedCount == 3
+                && local.Affects(Vector2Int.zero) && !local.Affects(new Vector2Int(1, 1)), "Old/new footprint union is not immutable or geographical.");
+            RequireSharedHeightValidation(TerrainAuthoringPreviewGeographicAuthoringProjection.TryProject(settings, plan, cache,
+                1, 7, "Transient committed Height", null, next, TerrainRegionalElevationInvalidationScope.None,
+                out var unknown, out error) && !unknown.CanProveUntouched && unknown.Targets.Count == 9 && unknown.DisplayJobCount == 2,
+                "Incomplete scope must invalidate only requested geography: " + error);
+            RequireSharedHeightValidation(TerrainAuthoringPreviewGeographicAuthoringProjection.TryProject(settings, plan, cache,
+                1, 7, "Transient committed Height", Array.Empty<Vector2Int>(), Array.Empty<Vector2Int>(),
+                TerrainRegionalElevationInvalidationScope.WholeWorld, out var global, out error)
+                && !global.CanProveUntouched && global.NativeChangedCount == 9 && cache.AllocatedBytes == 0,
+                "Global scope must be conservative without allocating/enumerating the world: " + error);
+            var bounds = new Bounds(new Vector3(800, 0, 20), Vector3.one);
+            RequireSharedHeightValidation(TerrainAuthoringPreviewGeographicAuthoringProjection.TryProject(settings, plan, cache,
+                1, 7, "Transient committed Height", Array.Empty<Vector2Int>(), Array.Empty<Vector2Int>(),
+                TerrainRegionalElevationInvalidationScope.FromWorldBounds(bounds), out var regional, out error)
+                && regional.CanProveUntouched && regional.Affects(new Vector2Int(1, 0)) && !regional.Affects(Vector2Int.zero),
+                "Regional scope must use the established bounded policy: " + error);
+            RequireSharedHeightValidation(!TerrainAuthoringPreviewGeographicAuthoringProjection.TryProject(settings, plan, cache,
+                1, 7, "Transient committed Height", new[] { new Vector2Int(-1, 0) }, next,
+                TerrainRegionalElevationInvalidationScope.None, out _, out _), "Invalid authoritative coordinates were accepted.");
+            AddResult("Geographical authoring scope", ValidationOutcome.Pass, "Immutable old/new, unknown/global and bounded regional intent; no GPU allocation.");
+        }
+        catch (Exception exception) { AddResult("Geographical authoring scope", ValidationOutcome.Fail, exception.Message); }
+        finally { cache?.Dispose(); if (settings != null) UnityEngine.Object.DestroyImmediate(settings); }
+    }
+
+    private static void SetGeographicFixtureField(object value, string name, object fieldValue)
+    {
+        var field = value.GetType().GetField(name, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        if (field == null) throw new InvalidOperationException("The transient authoring fixture field is unavailable: " + name);
+        field.SetValue(value, fieldValue);
+    }
+    private static void DriveGeographicFixtureTile(TerrainAuthoringPreviewSharedHeightComposer worker, Vector2Int tile)
+    {
+        RequireSharedHeightValidation(worker.TryBeginTile(tile, out var job, out string error), error);
+        for (int step = 0; step < 8 && !job.IsTerminal; step++)
+        {
+            RequireSharedHeightValidation(worker.TryStep(tile, out _, out error), error);
+            if (job.Destination != null) { var boundary = AsyncGPUReadback.Request(job.Destination, 0); boundary.WaitForCompletion(); }
+        }
+        RequireSharedHeightValidation(job.Result.Succeeded, job.Error);
+    }
+    private static RenderTexture CreateGeographicFixtureArray(int samples, int slices)
+    {
+        var texture = new RenderTexture(samples, samples, 0, RenderTextureFormat.RFloat, RenderTextureReadWrite.Linear)
+        { hideFlags = HideFlags.HideAndDontSave, dimension = TextureDimension.Tex2DArray, volumeDepth = slices,
+          antiAliasing = 1, enableRandomWrite = true, useMipMap = false, autoGenerateMips = false,
+          filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp };
+        if (!texture.Create()) { UnityEngine.Object.DestroyImmediate(texture); throw new InvalidOperationException("Transient reference array allocation failed."); }
+        return texture;
+    }
+    private static void CompareGeographicFixtureReference(GeographicHeightFixtureSource source,
+        TerrainHeightCompositor compositor, TerrainAuthoringPreviewHeightMaterializer materializer,
+        Vector2Int tile, int stride, RenderTexture actual, int actualSlice, float minimum, float maximum)
+    {
+        RenderTexture reference = null; TerrainAuthoringPreviewHeightSourceLease lease = null;
+        try
+        {
+            int samples = TerrainHeightResolutionUtility.GetSamplesPerSide(source.Settings, stride);
+            reference = CreateGeographicFixtureArray(samples, 1);
+            RequireSharedHeightValidation(source.TryAcquire(tile, stride, out lease, out string error), error);
+            RequireSharedHeightValidation(materializer.TryMaterialize(lease, reference, 0,
+                source.Settings.HeightTileSamplesPerSide, samples, stride, out error), error);
+            RequireSharedHeightValidation(source.TryGetRange(tile, out float baseLow, out float baseHigh, out error), error);
+            RequireSharedHeightValidation(compositor.TryComposeTile(reference, tile, 0, samples,
+                TerrainHeightResolutionUtility.GetSampleSpacing(source.Settings, stride), source.Settings.HeightTileWorldSize,
+                TerrainClipmapLayoutUtility.CalculateWorldSizeXZ(source.Settings), source.Data, baseLow, baseHigh,
+                out float low, out float high, out error), error);
+            materializer.ReleaseTextureBindings(); compositor.ReleaseTextureBindings();
+            var expected = AsyncGPUReadback.Request(reference, 0); expected.WaitForCompletion();
+            var observed = AsyncGPUReadback.Request(actual, 0); observed.WaitForCompletion();
+            RequireSharedHeightValidation(!expected.hasError && !observed.hasError, "Explicit authoring comparison readback failed.");
+            var a = expected.GetData<float>(0); var b = observed.GetData<float>(actualSlice);
+            RequireSharedHeightValidation(a.Length == samples * samples && b.Length == a.Length
+                && Approximately(low, minimum) && Approximately(high, maximum), "Equivalent-stride ranges or dimensions differ.");
+            for (int i = 0; i < a.Length; i++) RequireSharedHeightValidation(Approximately(a[i], b[i]), "Equivalent-stride authoring pixel mismatch at " + i + ".");
+        }
+        finally
+        {
+            materializer.ReleaseTextureBindings(); compositor.ReleaseTextureBindings();
+            // Even an unsuccessful dispatch can have queued commands referencing inputs.
+            if (reference != null && reference.IsCreated()) { var boundary = AsyncGPUReadback.Request(reference, 0); boundary.WaitForCompletion(); }
+            lease?.Dispose(); if (reference != null) { reference.Release(); UnityEngine.Object.DestroyImmediate(reference); }
+        }
+    }
+    private static void RunSharedGeographicAuthoringValidation()
+    {
+        if (!TerrainAuthoringPreviewSharedHeightBindingData.TryValidateDevice(out string featureError)
+            || !TerrainAuthoringPreviewHeightPagePool.TryValidateDevice(17, 9, out featureError)
+            || !SystemInfo.SupportsTextureFormat(TextureFormat.RFloat)
+            || (SystemInfo.copyTextureSupport & CopyTextureSupport.Basic) == 0)
+        { AddResult("Shared geographical authoring and native adapter", ValidationOutcome.Blocked,
+            string.IsNullOrEmpty(featureError) ? "This fixture requires RFloat source textures and native array slice copies." : featureError); return; }
+        WorldSettings settings = null; TerrainAuthoringData data = null; TerrainHeightStampAsset stampAsset = null;
+        Texture2D stampTexture = null; TerrainAuthoringPreviewSharedHeightCache cache = null;
+        TerrainAuthoringPreviewSharedHeightComposer worker = null, newerWorker = null;
+        TerrainAuthoringPreviewNativeAnalysisAdapter adapter = null;
+        TerrainAuthoringPreviewHeightPageMap map = null;
+        var compositor = new TerrainHeightCompositor(); var referenceCompositor = new TerrainHeightCompositor();
+        var materializer = new TerrainAuthoringPreviewHeightMaterializer();
+        try
+        {
+            if (!compositor.TryPrepare(out string error) || !referenceCompositor.TryPrepare(out error) || !materializer.TryPrepare(out error))
+            { AddResult("Shared geographical authoring and native adapter", ValidationOutcome.Blocked, error); return; }
+            settings = CreateGeographicAuthoringFixtureWorld();
+            data = ScriptableObject.CreateInstance<TerrainAuthoringData>(); data.hideFlags = HideFlags.HideAndDontSave;
+            stampAsset = ScriptableObject.CreateInstance<TerrainHeightStampAsset>(); stampAsset.hideFlags = HideFlags.HideAndDontSave;
+            stampTexture = new Texture2D(4, 4, TextureFormat.RFloat, false, true)
+            { hideFlags = HideFlags.HideAndDontSave, filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
+            var stampValues = new float[16]; for (int i = 0; i < stampValues.Length; i++) stampValues[i] = i / 15f;
+            stampTexture.SetPixelData(stampValues, 0); stampTexture.Apply(false, false);
+            SetGeographicFixtureField(stampAsset, "heightTexture", stampTexture);
+            var stamp = new TerrainStampModifier();
+            SetGeographicFixtureField(stamp, "stampAsset", stampAsset);
+            SetGeographicFixtureField(stamp, "positionXZ", new Vector2(750, 750));
+            SetGeographicFixtureField(stamp, "sizeXZ", new Vector2(2000, 2000));
+            SetGeographicFixtureField(stamp, "falloff", 0f);
+            SetGeographicFixtureField(stamp, "targetBaseHeight", 20f);
+            SetGeographicFixtureField(stamp, "targetHeightRange", 15f);
+            var blendField = typeof(TerrainHeightModifier).GetField("blendMode", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            if (blendField == null) { AddResult("Shared geographical authoring and native adapter", ValidationOutcome.Blocked, "Transient nonlinear stamp fixture data is unavailable."); return; }
+            blendField.SetValue(stamp, Enum.Parse(blendField.FieldType, "Max"));
+            var modifierField = typeof(TerrainAuthoringData).GetField("heightModifiers", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            if (modifierField == null) { AddResult("Shared geographical authoring and native adapter", ValidationOutcome.Blocked, "Transient modifier list fixture data is unavailable."); return; }
+            ((System.Collections.IList)modifierField.GetValue(data)).Add(stamp);
+            var policy = new TerrainAuthoringPreviewQualitySnapshot(1, 4, gpuBudgetMiB: 1);
+            var demand = CreateGeographicAuthoringFixtureDemand(settings, policy);
+            var source = new GeographicHeightFixtureSource(settings, data, demand, 1);
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightCache.TryCreate(settings, policy, demand,
+                1, source.CommittedSignature, 1, out cache, out error), error);
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightComposer.TryCreate(cache, source,
+                compositor, materializer, out worker, out error), error);
+            RequireSharedHeightValidation(worker.TryBeginTile(Vector2Int.zero, out var first, out error)
+                && worker.TryBeginTile(Vector2Int.zero, out var duplicate, out error) && ReferenceEquals(first, duplicate),
+                "Overlapping display requests were not coalesced: " + error);
+            DriveGeographicFixtureTile(worker, Vector2Int.zero); DriveGeographicFixtureTile(worker, new Vector2Int(1, 0));
+            RequireSharedHeightValidation(worker.DisplayCompositionCount == 2
+                && !worker.TryBeginTile(new Vector2Int(2, 0), out _, out _), "Native-only work fabricated a display page.");
+            RequireSharedHeightValidation(cache.TryCreateRenderMapSnapshot(out map, out error), error);
+            foreach (var row in map.Entries)
+            {
+                RequireSharedHeightValidation(row.IsCurrent && map.TryGetPoolTexture(row.PoolIndex, out _, out error), error);
+                RequireSharedHeightValidation(map.TryGetPoolTexture(row.PoolIndex, out var pool, out error), error);
+                CompareGeographicFixtureReference(source, referenceCompositor, materializer, row.Tile,
+                    row.Page.Handle.Stride, pool, row.Slice, row.Page.MinimumHeight, row.Page.MaximumHeight);
+            }
+            RequireSharedHeightValidation(TerrainAuthoringPreviewNativeAnalysisAdapter.TryCreate(cache, compositor, materializer,
+                100000, out adapter, out error), error);
+            var output = new TerrainHeightCacheWindow(Vector2Int.zero, new Vector2Int(2, 2));
+            var physical = new TerrainHeightCacheWindow(Vector2Int.zero, new Vector2Int(3, 3));
+            RequireSharedHeightValidation(adapter.TryBeginBuild(source, output, physical, out error)
+                && !adapter.TryGetCurrentSource(out _, out _, out _) && !adapter.TryPublishCandidate(out _, out _),
+                "Partly filled native analysis was published: " + error);
+            DriveGeographicFixtureAdapter(adapter);
+            RequireSharedHeightValidation(adapter.TryPublishCandidate(out var analysis, out error) && analysis.IsValid
+                && analysis.SamplesPerSide == settings.HeightTileSamplesPerSide && analysis.SourceWindow == physical
+                && analysis.ResidencyGeneration == 1 && analysis.CompositeGeneration == 1
+                && adapter.BorrowedNativeCount == 1 && adapter.NativeCompositionCount == 8,
+                "Native page copy/coarse fallback/ordinary source contract failed: " + error);
+            for (int z = 0; z < 3; z++) for (int x = 0; x < 3; x++)
+            {
+                var tile = new Vector2Int(x, z);
+                RequireSharedHeightValidation(source.TryGetRange(tile, out float baseLow, out float baseHigh, out error), error);
+                // Read range from the same equivalent native composition below; bounds for
+                // native analysis are not exposed as a fabricated display page descriptor.
+                var reference = CreateGeographicFixtureArray(settings.HeightTileSamplesPerSide, 1);
+                TerrainAuthoringPreviewHeightSourceLease lease = null;
+                try
+                {
+                    RequireSharedHeightValidation(source.TryAcquire(tile, 1, out lease, out error), error);
+                    RequireSharedHeightValidation(materializer.TryMaterialize(lease, reference, 0, settings.HeightTileSamplesPerSide,
+                        settings.HeightTileSamplesPerSide, 1, out error), error);
+                    RequireSharedHeightValidation(referenceCompositor.TryComposeTile(reference, tile, 0, settings.HeightTileSamplesPerSide,
+                        TerrainHeightResolutionUtility.GetSampleSpacing(settings, 1), settings.HeightTileWorldSize,
+                        TerrainClipmapLayoutUtility.CalculateWorldSizeXZ(settings), data, baseLow, baseHigh,
+                        out float low, out float high, out error), error);
+                    var boundary = AsyncGPUReadback.Request(reference, 0); boundary.WaitForCompletion();
+                    CompareGeographicFixtureReference(source, referenceCompositor, materializer, tile, 1,
+                        analysis.HeightCache, x + z * 3, low, high);
+                }
+                finally
+                {
+                    var boundary = AsyncGPUReadback.Request(reference, 0); boundary.WaitForCompletion();
+                    lease?.Dispose(); reference.Release(); UnityEngine.Object.DestroyImmediate(reference);
+                }
+            }
+            RequireSharedHeightValidation(cache.AnalysisAllocatedBytes == 17L * 17 * 9 * sizeof(float)
+                && cache.PeakCombinedAllocatedBytes >= cache.AllocatedBytes + cache.AnalysisAllocatedBytes,
+                "Native adapter active allocation was not charged separately alongside shared pools.");
+            RequireSharedHeightValidation(TerrainAuthoringPreviewGeographicAuthoringProjection.TryProject(settings, demand, cache,
+                1, 7, source.CommittedSignature, new[] { new Vector2Int(1, 0) }, new[] { new Vector2Int(1, 0) },
+                TerrainRegionalElevationInvalidationScope.None, out var transition, out error), error);
+            RequireSharedHeightValidation(cache.TryAcceptAuthoringProjection(transition, out var proof, out error), error);
+            long epoch = cache.MappingEpoch;
+            RequireSharedHeightValidation(map.TryGetEntry(Vector2Int.zero, out var oldEntry)
+                && cache.TryAcknowledgeUnchangedPage(Vector2Int.zero, proof, out error)
+                && !cache.TryAcknowledgeUnchangedPage(new Vector2Int(1, 0), proof, out _)
+                && cache.TryGetPublishedPage(Vector2Int.zero, out var acknowledged, out bool current) && current
+                && acknowledged.Handle.Equals(oldEntry.Page.Handle) && acknowledged.MinimumHeight == oldEntry.Page.MinimumHeight
+                && acknowledged.MaximumHeight == oldEntry.Page.MaximumHeight && cache.MappingEpoch == epoch + 1
+                && oldEntry.Page.AuthoringGeneration == 1 && !map.TargetsAreCurrent,
+                "Untouched metadata acknowledgement mutated pixels/identity/range or an old map: " + error);
+            source.Current = false;
+            RequireSharedHeightValidation(adapter.HasLastGood && !adapter.TryGetCurrentSource(out _, out _, out _),
+                "Stale native analysis remained current.");
+            var newer = new GeographicHeightFixtureSource(settings, data, demand, 7);
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightComposer.TryCreate(cache, newer, compositor, materializer,
+                out newerWorker, out error), error);
+            RequireSharedHeightValidation(newerWorker.TryBeginTile(new Vector2Int(1, 0), out _, out error), error);
+            RequireSharedHeightValidation(newerWorker.TryStep(new Vector2Int(1, 0), out _, out error), error);
+            newer.Current = false;
+            RequireSharedHeightValidation(newerWorker.TryStep(new Vector2Int(1, 0), out var cancelled, out error)
+                && cancelled.State == TerrainAuthoringPreviewSharedCompositionState.Cancelled
+                && cache.TryGetPublishedPage(new Vector2Int(1, 0), out var lastGood, out current) && !current
+                && lastGood.AuthoringGeneration == 1, "Superseded candidate lost last-good display: " + error);
+            newer.Current = true; newer.MissingNative = true;
+            RequireSharedHeightValidation(adapter.TryBeginBuild(newer, output, physical, out error), error);
+            RequireSharedHeightValidation(adapter.TryProgress(out _, out error), error); // acknowledged native page can be copied
+            var read = AsyncGPUReadback.Request(analysis.HeightCache, 0); read.WaitForCompletion();
+            RequireSharedHeightValidation(adapter.TryProgress(out _, out error), error);
+            RequireSharedHeightValidation(!adapter.TryProgress(out _, out _) && adapter.HasLastGood
+                && !adapter.TryGetCurrentSource(out _, out _, out _), "Missing exact native dependency was published as current.");
+            AddResult("Shared geographical authoring and native adapter", ValidationOutcome.Pass,
+                "Real materializer/compositor with transient nonlinear Max stamp at native and stride 4; equivalent-stride pixels/ranges, guarded row-major native copy/fallback, safe acknowledgement and superseded/missing-source last-good handling.");
+        }
+        catch (Exception exception) { AddResult("Shared geographical authoring and native adapter", ValidationOutcome.Fail, exception.Message); }
+        finally
+        {
+            // No live consumers were attached. Explicit fixture shutdown may block.
+            bool inputsReleased = true;
+            adapter?.Dispose(); if (adapter != null && !adapter.WaitForRelease(out string adapterError))
+            { inputsReleased = false; AddResult("Native adapter release", ValidationOutcome.Fail, adapterError); }
+            worker?.Dispose(); newerWorker?.Dispose();
+            if (worker != null && !worker.WaitForRelease(out string workError)) { inputsReleased = false; AddResult("Shared authoring release", ValidationOutcome.Fail, workError); }
+            if (newerWorker != null && !newerWorker.WaitForRelease(out string newerError)) { inputsReleased = false; AddResult("Superseded authoring release", ValidationOutcome.Fail, newerError); }
+            map?.Dispose(); cache?.Dispose();
+            if (cache != null && !cache.WaitForRelease(out string cacheError)) AddResult("Shared authoring storage release", ValidationOutcome.Fail, cacheError);
+            // On a failed graphics boundary, pending work retains its compositor and
+            // borrowed assets. Never force-destroy their inputs to make cleanup pass.
+            if (inputsReleased)
+            {
+                materializer.ReleaseTextureBindings(); compositor.Dispose(); referenceCompositor.Dispose();
+                if (stampTexture != null) UnityEngine.Object.DestroyImmediate(stampTexture);
+                if (stampAsset != null) UnityEngine.Object.DestroyImmediate(stampAsset);
+                if (data != null) UnityEngine.Object.DestroyImmediate(data);
+                if (settings != null) UnityEngine.Object.DestroyImmediate(settings);
+            }
+        }
+    }
+    private static void DriveGeographicFixtureAdapter(TerrainAuthoringPreviewNativeAnalysisAdapter adapter)
+    {
+        // A bounded isolated readback may flush the graphics queue. It is never
+        // called by normal Editor progress or installed as a recurring callback.
+        for (int step = 0; step < 80 && !adapter.CandidateReady; step++)
+        {
+            RequireSharedHeightValidation(adapter.TryProgress(out _, out string error), error);
+            RequireSharedHeightValidation(adapter.WaitForBuildGpuBoundary(out error), error);
+        }
+        RequireSharedHeightValidation(adapter.CandidateReady, "Bounded native analysis fixture did not finish its GPU stages.");
+    }
+
 
     private static void RunDerivedCommittedSourceValidation()
     {

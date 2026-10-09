@@ -812,6 +812,30 @@ public static partial class TerrainAuthoringPreviewService
         && cache.SamplesPerSide == samples && Mathf.Approximately(cache.SampleSpacing, spacing)
         && cache.WorldSizeXZ == TerrainClipmapLayoutUtility.CalculateWorldSizeXZ(analysisSettings);
 
+    // Known exact-native consumer intent only. No stamp-wide native window is
+    // inferred: contextual display authoring can run at its selected coarse stride.
+    internal static bool TryCaptureSharedNativeWorkingRequirement(WorldSettings settings,
+        long ownership, out TerrainAuthoringPreviewNativeWorkingDemand requirement)
+    {
+        requirement = default;
+        if (!Enabled || !hasAnalysisSourceIntent || !hasAnalysisSourceDemand || analysisSettings != settings
+            || ownership != analysisOwnershipGeneration
+            || ownership != TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration
+            || !analysisRequiredSourceWindow.IsValid) return false;
+        requirement = new TerrainAuthoringPreviewNativeWorkingDemand(analysisRequiredSourceWindow,
+            TerrainAuthoringPreviewNativeWorkingReason.Analysis);
+        return true;
+    }
+
+    // Explicit selection seam only; the normal analysis source/observers stay on
+    // their existing path. The future owner publishes once after consumer detachment,
+    // then projects ordinary source identity/generations through the same observers.
+    internal static bool TryGetExplicitSharedNativeSource(TerrainAuthoringPreviewNativeAnalysisAdapter adapter,
+        out TerrainAnalysisGpuSource source, out TerrainHeightCacheWindow output, out string error)
+    {
+        source = default; output = default; error = "No shared-native analysis adapter was explicitly selected.";
+        return adapter != null && adapter.TryGetCurrentSource(out source, out output, out error);
+    }
 }
 
 

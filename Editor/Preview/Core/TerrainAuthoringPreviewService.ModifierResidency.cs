@@ -1238,6 +1238,23 @@ public static partial class TerrainAuthoringPreviewService
 
     // Observability only; maintained alongside existing bounded dirty projection.
     private static readonly HashSet<Vector2Int> diagnosticPendingGeographicDirty = new HashSet<Vector2Int>();
+    // Read-only late snapshot. Legacy work may already have drained part of this
+    // transition, so it deliberately supplies incomplete evidence: no acknowledgements.
+    // A controlled caller with authoritative old/new footprints uses TryProject directly.
+    internal static bool TryCaptureGeographicAuthoringScope(WorldSettings settings,
+        TerrainAuthoringPreviewGeographicDemandPlan demand, TerrainAuthoringPreviewSharedHeightCache cache,
+        long previousGeneration, string committed,
+        out TerrainAuthoringPreviewGeographicAuthoringProjection projection, out string error)
+    {
+        projection = null; error = "";
+        if (settings == null || demand == null || demand.OwnershipGeneration != TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration)
+        { error = "Geographical authoring snapshot ownership is stale."; return false; }
+        var incoming = new List<Vector2Int>(dirtyCompositeTiles);
+        return TerrainAuthoringPreviewGeographicAuthoringProjection.TryProject(settings, demand, cache,
+            previousGeneration, authoringGeneration, committed, incoming, null,
+            hasPendingRegionalElevationInvalidation ? pendingRegionalElevationInvalidation
+                : TerrainRegionalElevationInvalidationScope.None, out projection, out error);
+    }
 }
 
 

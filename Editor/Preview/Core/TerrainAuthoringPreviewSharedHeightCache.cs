@@ -32,19 +32,20 @@ internal sealed class TerrainAuthoringPreviewSharedHeightCache : IDisposable
     private readonly HashSet<TerrainAuthoringPreviewHeightPageMap> maps = new HashSet<TerrainAuthoringPreviewHeightPageMap>();
     private TerrainAuthoringPreviewGeographicDemandPlan demand;
     private string committedTarget;
-    private long authoringTarget, nextAllocation, nextPage, lastRequest;
+    private long authoringTarget, nextAllocation, nextPage, lastRequest, authoringProofEpoch;
     internal long OwnerId { get; }
     internal long ResourceGeneration { get; }
     internal long MappingEpoch { get; private set; } = 1;
     internal long AllocatedBytes { get; private set; }
     internal long PeakAllocatedBytes { get; private set; }
     internal long LookupAllocatedBytes { get; private set; }
+    internal long AnalysisAllocatedBytes { get; private set; }
     internal long PeakCombinedAllocatedBytes { get; private set; }
     internal long GpuBudgetBytes { get; }
     internal long AdmissionAttempts { get; private set; }
     internal long FailedAdmissions { get; private set; }
     internal bool IsDisposed { get; private set; }
-    internal bool ReleaseComplete => IsDisposed && AllocatedBytes == 0 && LookupAllocatedBytes == 0;
+    internal bool ReleaseComplete => IsDisposed && AllocatedBytes == 0 && LookupAllocatedBytes == 0 && AnalysisAllocatedBytes == 0;
 
     private TerrainAuthoringPreviewSharedHeightCache(WorldSettings settings,
         TerrainAuthoringPreviewQualitySnapshot policy, TerrainAuthoringPreviewGeographicDemandPlan plan,
@@ -156,8 +157,75 @@ internal sealed class TerrainAuthoringPreviewSharedHeightCache : IDisposable
             { if (pair.Value.Active != null) Retire(pair.Value.Active); pair.Value.Active = null; }
         }
         RemoveEmptyTiles(); demand = plan; committedTarget = committedSignature; authoringTarget = authoringGeneration;
-        MappingEpoch++; CollectRetiredPages(); return true;
+        MappingEpoch++; authoringProofEpoch++; CollectRetiredPages(); return true;
     }
+
+    internal bool TryCaptureAuthoringTarget(WorldSettings world, TerrainAuthoringPreviewGeographicDemandPlan plan,
+        out string committed, out long authoring, out string error)
+    {
+        committed = ""; authoring = 0;
+        if (!CheckAlive(out error)) return false;
+        if (!topology.ConfigurationMatches(world) || plan == null || plan.Generation != demand.Generation
+            || !plan.IsEquivalentTo(demand))
+        { error = "The shared authoring world/demand target is stale or belongs to another owner."; return false; }
+        committed = committedTarget; authoring = authoringTarget; return true;
+    }
+    internal bool AuthoringTargetMatches(WorldSettings world, TerrainAuthoringPreviewGeographicDemandPlan plan,
+        string committed, long authoring) => TryCaptureAuthoringTarget(world, plan, out string c, out long a, out _)
+        && c == committed && a == authoring;
+
+    // Receipt issued only when this owner accepts a validated complete transition.
+    // Affected-set exclusion is checked here; callers cannot acknowledge with a boolean.
+    internal sealed class UnchangedPageProof
+    {
+        private readonly TerrainAuthoringPreviewSharedHeightCache owner;
+        private readonly long epoch;
+        internal readonly TerrainAuthoringPreviewGeographicAuthoringProjection Projection;
+        internal UnchangedPageProof(TerrainAuthoringPreviewSharedHeightCache owner, long epoch,
+            TerrainAuthoringPreviewGeographicAuthoringProjection projection)
+        { this.owner = owner; this.epoch = epoch; Projection = projection; }
+        internal bool Matches(TerrainAuthoringPreviewSharedHeightCache candidate, long acceptedEpoch) =>
+            ReferenceEquals(owner, candidate) && epoch == acceptedEpoch;
+    }
+    internal bool TryAcceptAuthoringProjection(TerrainAuthoringPreviewGeographicAuthoringProjection projection,
+        out UnchangedPageProof proof, out string error)
+    {
+        proof = null;
+        if (!CheckAlive(out error)) return false;
+        if (projection == null || projection.OwnerId != OwnerId || projection.ResourceGeneration != ResourceGeneration
+            || !AuthoringTargetMatches(projection.Settings, projection.Demand, projection.PreviousCommittedSignature,
+                projection.PreviousGeneration) || projection.TargetGeneration <= authoringTarget)
+        { error = "The geographical authoring projection does not cover this owner's exact current transition."; return false; }
+        if (!TryAcceptDemand(projection.Demand, projection.CommittedSignature, projection.TargetGeneration, out error)) return false;
+        proof = new UnchangedPageProof(this, authoringProofEpoch, projection); return true;
+    }
+    internal bool TryAcknowledgeUnchangedPage(Vector2Int tile, UnchangedPageProof proof, out string error)
+    {
+        if (!CheckAlive(out error)) return false;
+        var projection = proof?.Projection;
+        if (projection == null || !proof.Matches(this, authoringProofEpoch) || !projection.CanProveUntouched
+            || projection.Affects(tile) || !AuthoringTargetMatches(projection.Settings, projection.Demand,
+                projection.CommittedSignature, projection.TargetGeneration)
+            || !demand.TryGetTile(tile, out var row) || !row.HasDisplay
+            || !tiles.TryGetValue(tile, out var state) || state.Active == null || state.Pending != null)
+        { error = "Untouched-page acknowledgement lacks a complete current affected-scope receipt or has unresolved tile work."; return false; }
+        var page = state.Active;
+        if (page.Readiness != TerrainAuthoringPreviewHeightPageReadiness.FinalComposite
+            || page.Committed != committedTarget || page.Handle.Stride != row.SelectedDisplayStride
+            || !pools[page.Handle.PoolIndex].Matches(page.Handle, out _)
+            || page.Authoring != projection.PreviousGeneration && page.Authoring != projection.TargetGeneration)
+        { error = "The published page is not a current unchanged predecessor with matching source/stride/allocation."; return false; }
+        if (page.Authoring == projection.TargetGeneration) return true;
+        page.Authoring = projection.TargetGeneration; MappingEpoch++; return true;
+    }
+    internal bool TryPollCandidate(TerrainAuthoringPreviewHeightPageHandle handle, out bool complete, out string error)
+    {
+        complete = false;
+        return TryPending(handle, out _, out error) && pools[handle.PoolIndex].TryPollWrite(handle, out complete, out error);
+    }
+    // The caller owns request sequencing; this narrow query avoids two explicit
+    // coordinators accidentally issuing the same token within one resource lifetime.
+    internal long NextRequestToken { get { RequireOwnerThread(); return checked(lastRequest + 1); } }
 
     internal bool TryReservePage(Vector2Int tile, int stride, long requestToken, long demandGeneration,
         out TerrainAuthoringPreviewHeightPageHandle handle, out string error)
@@ -185,13 +253,13 @@ internal sealed class TerrainAuthoringPreviewSharedHeightCache : IDisposable
         {
             int samples = TerrainHeightResolutionUtility.GetSamplesPerSide(settings, stride);
             if (!TerrainAuthoringPreviewHeightPagePool.TryEstimateBytes(samples, capacities[index], out long bytes)
-                || bytes > GpuBudgetBytes - AllocatedBytes - LookupAllocatedBytes)
+                || bytes > GpuBudgetBytes - AllocatedBytes - LookupAllocatedBytes - AnalysisAllocatedBytes)
             { error = "Shared Height allocated capacity would exceed its GPU budget or byte arithmetic limits."; return false; }
             if (!TerrainAuthoringPreviewHeightPagePool.TryCreate(stride, index, samples,
                 TerrainHeightResolutionUtility.GetSampleSpacing(settings, stride), capacities[index], ++nextAllocation,
                 ReleasedBytes, out var pool, out error)) return false;
             pools[index] = pool; AllocatedBytes += bytes; PeakAllocatedBytes = Math.Max(PeakAllocatedBytes, AllocatedBytes);
-            PeakCombinedAllocatedBytes = Math.Max(PeakCombinedAllocatedBytes, AllocatedBytes + LookupAllocatedBytes);
+            PeakCombinedAllocatedBytes = Math.Max(PeakCombinedAllocatedBytes, AllocatedBytes + LookupAllocatedBytes + AnalysisAllocatedBytes);
         }
         var physical = pools[index];
         long pageGeneration = ++nextPage;
@@ -340,11 +408,36 @@ internal sealed class TerrainAuthoringPreviewSharedHeightCache : IDisposable
     {
         allocation = null;
         if (!CheckAlive(out error)) return false;
-        if (!maps.Contains(map) || bytes <= 0 || bytes > GpuBudgetBytes - AllocatedBytes - LookupAllocatedBytes)
+        if (!maps.Contains(map) || bytes <= 0 || bytes > GpuBudgetBytes - AllocatedBytes - LookupAllocatedBytes - AnalysisAllocatedBytes)
         { error = "Shared Height lookup capacity exceeds the remaining GPU budget or belongs to a retired map."; return false; }
         LookupAllocatedBytes += bytes;
-        PeakCombinedAllocatedBytes = Math.Max(PeakCombinedAllocatedBytes, AllocatedBytes + LookupAllocatedBytes);
+        PeakCombinedAllocatedBytes = Math.Max(PeakCombinedAllocatedBytes, AllocatedBytes + LookupAllocatedBytes + AnalysisAllocatedBytes);
         allocation = new LookupAllocation(this, bytes); return true;
+    }
+    // Analysis owns a distinct contiguous native array, including candidate and retired
+    // arrays. Borrowed shared pools are already charged once in AllocatedBytes.
+    internal bool TryReserveAnalysisBytes(TerrainAuthoringPreviewCommittedSourceContext source, long bytes,
+        out IDisposable allocation, out string error)
+    {
+        allocation = null;
+        if (!CheckAlive(out error)) return false;
+        if (!TerrainAuthoringPreviewSharedHeightComposer.TargetCurrent(this, source) || bytes <= 0
+            || bytes > GpuBudgetBytes - AllocatedBytes - LookupAllocatedBytes - AnalysisAllocatedBytes)
+        { error = "Native analysis capacity exceeds the remaining shared GPU budget or has a stale target."; return false; }
+        AnalysisAllocatedBytes += bytes;
+        PeakCombinedAllocatedBytes = Math.Max(PeakCombinedAllocatedBytes, AllocatedBytes + LookupAllocatedBytes + AnalysisAllocatedBytes);
+        allocation = new AnalysisAllocation(this, bytes); return true;
+    }
+    private sealed class AnalysisAllocation : IDisposable
+    {
+        private TerrainAuthoringPreviewSharedHeightCache owner;
+        private readonly long bytes;
+        internal AnalysisAllocation(TerrainAuthoringPreviewSharedHeightCache owner, long bytes) { this.owner = owner; this.bytes = bytes; }
+        public void Dispose()
+        {
+            if (owner == null) return;
+            owner.RequireOwnerThread(); owner.AnalysisAllocatedBytes -= bytes; owner = null;
+        }
     }
     private sealed class LookupAllocation : IDisposable
     {
@@ -403,7 +496,7 @@ internal sealed class TerrainAuthoringPreviewSharedHeightCache : IDisposable
         if (!IsDisposed) { error = "Dispose Shared Height storage before waiting for release."; return false; }
         bool complete = true; foreach (var pool in pools) if (pool != null && !pool.WaitForRelease()) complete = false;
         if (!complete) error = "Shared Height GPU release is still pending; close writers and collect after the graphics boundary completes.";
-        if (LookupAllocatedBytes != 0) error = "Retire owned shared Height binding lookups before completing cache release.";
-        return complete && AllocatedBytes == 0 && LookupAllocatedBytes == 0;
+        if (LookupAllocatedBytes != 0 || AnalysisAllocatedBytes != 0) error = "Retire owned shared Height binding lookups and native analysis arrays before completing cache release.";
+        return complete && AllocatedBytes == 0 && LookupAllocatedBytes == 0 && AnalysisAllocatedBytes == 0;
     }
 }
