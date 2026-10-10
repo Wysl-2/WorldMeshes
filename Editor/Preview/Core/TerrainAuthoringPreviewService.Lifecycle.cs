@@ -84,7 +84,7 @@ public static partial class TerrainAuthoringPreviewService
         }
     }
 
-    internal static bool HasLifecycleStagingCache => sharedQueue.Count > 0 || sharedRunningTile.HasValue ||
+    internal static bool HasLifecycleStagingCache => sharedQueue.Count > 0 || sharedJobs.Count > 0 ||
         currentCacheSetTransition != null && LegacyTransitionInProgress;
 
     /*

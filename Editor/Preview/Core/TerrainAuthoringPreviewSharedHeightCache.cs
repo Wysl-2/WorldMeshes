@@ -13,6 +13,8 @@ internal sealed class TerrainAuthoringPreviewSharedHeightCache : IDisposable
         internal TerrainAuthoringPreviewHeightPageReadiness Readiness;
         internal string Committed;
         internal int SourceStride;
+        internal long AcceptedDemand;
+        internal bool Provisional;
         internal long Authoring;
         internal float Minimum, Maximum;
     }
@@ -40,6 +42,13 @@ internal sealed class TerrainAuthoringPreviewSharedHeightCache : IDisposable
     internal long PeakAllocatedBytes { get; private set; }
     internal long LookupAllocatedBytes { get; private set; }
     internal long AnalysisAllocatedBytes { get; private set; }
+    internal bool LastAdmissionBlocked { get; private set; }
+    internal long UnallocatedPoolBytes(int stride)
+    {
+        RequireOwnerThread(); int index = PoolIndex(stride);
+        if (index < 0 || index >= pools.Length || pools[index] != null) return 0;
+        return TerrainAuthoringPreviewHeightPagePool.TryEstimateBytes(samples[index], capacities[index], out long bytes) ? bytes : long.MaxValue;
+    }
     internal long PeakCombinedAllocatedBytes { get; private set; }
     internal long GpuBudgetBytes { get; }
     internal long AdmissionAttempts { get; private set; }
@@ -129,14 +138,19 @@ internal sealed class TerrainAuthoringPreviewSharedHeightCache : IDisposable
         page = null;
         if (!CheckAlive(out error)) return false;
         if (!Owns(handle) || !tiles.TryGetValue(handle.Tile, out var state) || state.Pending == null
-            || !state.Pending.Handle.Equals(handle) || handle.DemandGeneration != demand.Generation
-            || !demand.TryGetTile(handle.Tile, out var row) || !row.HasDisplay || row.SelectedDisplayStride != handle.Stride
+            || !state.Pending.Handle.Equals(handle) || state.Pending.AcceptedDemand != demand.Generation
+            || !demand.TryGetTile(handle.Tile, out var row) || !row.HasDisplay || !CanPrepare(row, handle.Stride, state.Pending.Provisional)
             || pools[handle.PoolIndex] == null || !pools[handle.PoolIndex].Matches(handle, out _))
         { error = "The Height candidate is stale or belongs to another owner/demand."; return false; }
         page = state.Pending; return true;
     }
 
-    // Revision changes cancel candidates; remaining published pages are drawable last-good content.
+    internal bool CanPrepare(TerrainAuthoringPreviewGeographicTileDemand row, int stride, bool provisional) => row.HasDisplay
+        && TerrainHeightResolutionUtility.IsRepresentationStrideCompatible(settings, stride)
+        && (stride == row.SelectedDisplayStride || provisional && stride == Math.Max(row.SelectedDisplayStride, policy.ContextualMinimumStride));
+    internal bool PendingTargetMatches(TerrainAuthoringPreviewHeightPageHandle handle) => TryPending(handle, out _, out _);
+
+    // Demand adoption changes only the logical accepted revision, never physical handle identity.
     // Pages leaving display demand are retired, so the canonical dictionary stays coverage-bounded.
     internal bool TryAcceptDemand(TerrainAuthoringPreviewGeographicDemandPlan plan, string committedSignature,
         long authoringGeneration, out string error)
@@ -151,8 +165,14 @@ internal sealed class TerrainAuthoringPreviewSharedHeightCache : IDisposable
         if (ReferenceEquals(plan, demand) && committedSignature == committedTarget && authoringGeneration == authoringTarget) return true;
         foreach (var pair in tiles)
         {
-            if (pair.Value.Pending != null) Retire(pair.Value.Pending);
-            pair.Value.Pending = null;
+            var pending = pair.Value.Pending;
+            if (pending != null)
+            {
+                if (committedSignature == committedTarget && authoringGeneration == authoringTarget
+                    && plan.TryGetTile(pair.Key, out var next) && CanPrepare(next, pending.Handle.Stride, pending.Provisional))
+                    pending.AcceptedDemand = plan.Generation;
+                else { Retire(pending); pair.Value.Pending = null; }
+            }
             if (!plan.TryGetTile(pair.Key, out var row) || !row.HasDisplay)
             { if (pair.Value.Active != null) Retire(pair.Value.Active); pair.Value.Active = null; }
         }
@@ -211,7 +231,7 @@ internal sealed class TerrainAuthoringPreviewSharedHeightCache : IDisposable
         { error = "Untouched-page acknowledgement lacks a complete current affected-scope receipt or has unresolved tile work."; return false; }
         var page = state.Active;
         if (page.Readiness != TerrainAuthoringPreviewHeightPageReadiness.FinalComposite
-            || page.Committed != committedTarget || page.Handle.Stride != row.SelectedDisplayStride
+            || page.Committed != committedTarget || !TerrainHeightResolutionUtility.IsRepresentationStrideCompatible(settings, page.Handle.Stride)
             || !pools[page.Handle.PoolIndex].Matches(page.Handle, out _)
             || page.Authoring != projection.PreviousGeneration && page.Authoring != projection.TargetGeneration)
         { error = "The published page is not a current unchanged predecessor with matching source/stride/allocation."; return false; }
@@ -228,22 +248,23 @@ internal sealed class TerrainAuthoringPreviewSharedHeightCache : IDisposable
     internal long NextRequestToken { get { RequireOwnerThread(); return checked(lastRequest + 1); } }
 
     internal bool TryReservePage(Vector2Int tile, int stride, long requestToken, long demandGeneration,
-        out TerrainAuthoringPreviewHeightPageHandle handle, out string error)
+        out TerrainAuthoringPreviewHeightPageHandle handle, out string error, bool provisional = false)
     {
         handle = default;
+        LastAdmissionBlocked = false;
         if (!CheckAlive(out error)) return false;
         AdmissionAttempts++;
-        if (!TryReserve(tile, stride, requestToken, demandGeneration, out handle, out error))
+        if (!TryReserve(tile, stride, requestToken, demandGeneration, out handle, out error, provisional))
         { FailedAdmissions++; return false; }
         return true;
     }
     private bool TryReserve(Vector2Int tile, int stride, long requestToken, long demandGeneration,
-        out TerrainAuthoringPreviewHeightPageHandle handle, out string error)
+        out TerrainAuthoringPreviewHeightPageHandle handle, out string error, bool provisional = false)
     {
         handle = default;
         if (!CheckAlive(out error)) return false;
         if (requestToken <= lastRequest || requestToken <= 0 || demandGeneration != demand.Generation
-            || !demand.TryGetTile(tile, out var row) || !row.HasDisplay || row.SelectedDisplayStride != stride)
+            || !demand.TryGetTile(tile, out var row) || !row.HasDisplay || !CanPrepare(row, stride, provisional))
         { error = "Height admission requires current display demand, selected stride and an increasing request token."; return false; }
         int index = PoolIndex(stride);
         if (index < 0 || index >= pools.Length || !TerrainHeightResolutionUtility.IsRepresentationStrideCompatible(settings, stride))
@@ -254,7 +275,7 @@ internal sealed class TerrainAuthoringPreviewSharedHeightCache : IDisposable
             int samples = TerrainHeightResolutionUtility.GetSamplesPerSide(settings, stride);
             if (!TerrainAuthoringPreviewHeightPagePool.TryEstimateBytes(samples, capacities[index], out long bytes)
                 || bytes > GpuBudgetBytes - AllocatedBytes - LookupAllocatedBytes - AnalysisAllocatedBytes)
-            { error = "Shared Height allocated capacity would exceed its GPU budget or byte arithmetic limits."; return false; }
+            { LastAdmissionBlocked = true; error = "Shared Height allocated capacity would exceed its GPU budget or byte arithmetic limits."; return false; }
             if (!TerrainAuthoringPreviewHeightPagePool.TryCreate(stride, index, samples,
                 TerrainHeightResolutionUtility.GetSampleSpacing(settings, stride), capacities[index], ++nextAllocation,
                 ReleasedBytes, out var pool, out error)) return false;
@@ -263,12 +284,13 @@ internal sealed class TerrainAuthoringPreviewSharedHeightCache : IDisposable
         }
         var physical = pools[index];
         long pageGeneration = ++nextPage;
-        if (!physical.TryReserve(pageGeneration, out int slice, out error)) return false;
+        if (!physical.TryReserve(pageGeneration, out int slice, out error))
+        { LastAdmissionBlocked = physical.Capture().FreeCount == 0; return false; }
         handle = new TerrainAuthoringPreviewHeightPageHandle(OwnerId, ResourceGeneration, physical.AllocationGeneration,
             pageGeneration, requestToken, demand.Generation, tile, stride, index, slice);
         if (!tiles.TryGetValue(tile, out var state)) { state = new TileState(); tiles.Add(tile, state); }
         if (state.Pending != null) Retire(state.Pending);
-        state.Pending = new Page { Handle = handle }; lastRequest = requestToken;
+        state.Pending = new Page { Handle = handle, AcceptedDemand = demand.Generation, Provisional = provisional }; lastRequest = requestToken;
         return true;
     }
     private void ReleasedBytes(long bytes) { AllocatedBytes -= bytes; }

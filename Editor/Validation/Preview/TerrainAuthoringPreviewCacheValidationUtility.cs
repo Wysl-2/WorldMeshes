@@ -3570,6 +3570,169 @@ public static class TerrainAuthoringPreviewCacheValidationUtility
             <=
             tolerance;
     }
+    // Explicit isolated GPU fixture. No live preview owner or persistent source is changed.
+    internal static bool RunIncrementalSharedHeightFixture(out string detail, out bool blocked)
+    {
+        detail = ""; blocked = false;
+        if (!TerrainAuthoringPreviewSharedHeightBindingData.TryValidateDevice(out detail)) { blocked = true; return false; }
+        WorldSettings settings = null; TerrainAuthoringData data = null;
+        TerrainAuthoringPreviewSharedHeightCache cache = null;
+        TerrainAuthoringPreviewSharedHeightComposer worker = null;
+        TerrainHeightCompositor compositor = null;
+        TerrainAuthoringPreviewHeightPageMap retained = null;
+        try
+        {
+            settings = CreateGeographicAuthoringFixtureWorld(); data = ScriptableObject.CreateInstance<TerrainAuthoringData>();
+            data.hideFlags = HideFlags.HideAndDontSave;
+            var quality = new TerrainAuthoringPreviewQualitySnapshot(1, 4, gpuBudgetMiB: 8);
+            var demand = CreateGeographicAuthoringFixtureDemand(settings, quality);
+            var source = new GeographicHeightFixtureSource(settings, data, demand, 1);
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightCache.TryCreate(settings, quality, demand,
+                1, source.CommittedSignature, 1, out cache, out string error, new Dictionary<int, int> { { 4, 4 } }), error);
+            compositor = new TerrainHeightCompositor();
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightComposer.TryCreate(cache, source, compositor,
+                new TerrainAuthoringPreviewHeightMaterializer(), out worker, out error, 1), error);
+            RequireSharedHeightValidation(worker.TryBeginTile(Vector2Int.zero, out var job, out error, requestedStride: 4), error);
+            RequireSharedHeightValidation(worker.TryStep(Vector2Int.zero, out _, out error), error);
+            var revised = new TerrainAuthoringPreviewGeographicDemandPlan(settings, quality,
+                new TerrainAuthoringPreviewFocus(settings, Vector3.zero, TerrainAuthoringPreviewFocusKind.Canonical, 1),
+                Vector2Int.zero, demand.EditableWindow, 2, 1, 2, new List<TerrainAuthoringPreviewGeographicTileDemand>(demand.Tiles).ToArray());
+            RequireSharedHeightValidation(cache.TryAcceptDemand(revised, source.CommittedSignature, 1, out error), error);
+            var next = new GeographicHeightFixtureSource(settings, data, revised, 1);
+            RequireSharedHeightValidation(worker.TryRetarget(next), "A compatible GPU-submitted job was restarted on a harmless demand revision.");
+            DriveGeographicFixtureTile(worker, Vector2Int.zero);
+            RequireSharedHeightValidation(cache.TryGetPublishedPage(Vector2Int.zero, out var coarse, out bool final)
+                && !final && coarse.Handle.Stride == 4 && coarse.Handle.DemandGeneration == 1,
+                "Adoption changed physical identity or declared provisional Height final.");
+            RequireSharedHeightValidation(!cache.TryReservePage(Vector2Int.zero, 8, cache.NextRequestToken,
+                revised.Generation, out _, out _, true), "An arbitrary coarse stride bypassed the contextual policy.");
+            worker.RetireResult(Vector2Int.zero);
+            RequireSharedHeightValidation(cache.TryCreateRenderMapSnapshot(out retained, out error), error);
+            DriveGeographicFixtureTile(worker, Vector2Int.zero); worker.RetireResult(Vector2Int.zero);
+            RequireSharedHeightValidation(cache.TryGetPublishedPage(Vector2Int.zero, out var fine, out final)
+                && final && fine.Handle.Stride == 1 && !fine.Handle.Equals(coarse.Handle)
+                && retained.TryGetEntry(Vector2Int.zero, out var old) && old.IsValid && old.Page.Handle.Equals(coarse.Handle),
+                "Final replacement reclaimed the retained coarse reader or did not converge.");
+            int releases = 0; var texture = new Texture2D(2, 2, TextureFormat.RFloat, false, true);
+            try
+            {
+                var lease = new TerrainAuthoringPreviewHeightSourceLease(texture, 1, 2, false, release: () => releases++);
+                lease.Dispose(); lease.Dispose();
+                RequireSharedHeightValidation(releases == 1, "Shared source release ran twice.");
+            }
+            finally { UnityEngine.Object.DestroyImmediate(texture); }
+            detail = "Demand adoption preserved submitted physical identity; provisional quality converged with retained readers; arbitrary coarse admission rejected; source release is idempotent.";
+            return true;
+        }
+        catch (Exception exception) { detail = exception.Message; return false; }
+        finally
+        {
+            retained?.Dispose(); worker?.Dispose();
+            bool released = worker == null || worker.WaitForRelease(out _);
+            if (released) compositor?.Dispose();
+            cache?.Dispose(); if (cache != null) cache.WaitForRelease(out _);
+            if (released && data != null) UnityEngine.Object.DestroyImmediate(data);
+            if (settings != null) UnityEngine.Object.DestroyImmediate(settings);
+        }
+    }
+    internal static bool RunSafeSharedVisibilityFixture(out string detail, out bool blocked)
+    {
+        detail = ""; blocked = false;
+        if (!TerrainAuthoringPreviewSharedHeightBindingData.TryValidateDevice(out detail)) { blocked = true; return false; }
+        WorldSettings settings = null; TerrainAuthoringData data = null;
+        TerrainAuthoringPreviewSharedHeightCache cache = null;
+        TerrainAuthoringPreviewSharedHeightComposer worker = null;
+        TerrainAuthoringPreviewNativeAnalysisAdapter adapter = null;
+        TerrainAuthoringPreviewSharedHeightBindingData payload = null;
+        TerrainAuthoringPreviewHeightPageMap map = null;
+        TerrainHeightCompositor compositor = null, nativeCompositor = null;
+        Material original = null, variant = null; GameObject go = null; Mesh mesh = null;
+        try
+        {
+            settings = CreateGeographicAuthoringFixtureWorld(); settings.gridWidth = settings.gridHeight = 14;
+            settings.clipmapLevelCount = 1; settings.clipmapCenterResolution = 8; settings.clipmapBaseSampleStep = 1;
+            data = ScriptableObject.CreateInstance<TerrainAuthoringData>(); data.hideFlags = HideFlags.HideAndDontSave;
+            var quality = new TerrainAuthoringPreviewQualitySnapshot(3, 4, gpuBudgetMiB: 8);
+            var focusTile = new Vector2Int(3, 3); var editable = new TerrainHeightCacheWindow(new Vector2Int(2, 2), new Vector2Int(3, 3));
+            var rows = new List<TerrainAuthoringPreviewGeographicTileDemand>();
+            for (int z = 0; z < 7; z++) for (int x = 0; x < 7; x++)
+            {
+                var tile = new Vector2Int(x, z); bool fine = editable.Contains(tile);
+                rows.Add(new TerrainAuthoringPreviewGeographicTileDemand(tile, 1, fine ? 1 : 4, fine,
+                    TerrainAuthoringPreviewDisplayRequirement.Geometry, TerrainAuthoringPreviewNativeWorkingReason.Analysis));
+            }
+            var position = new Vector3(1792, 0, 1792); var layout = new TerrainClipmapLayout();
+            RequireSharedHeightValidation(TerrainClipmapLayoutUtility.TryCalculateLayout(settings, position, 0, layout, out string error), error);
+            var demand = new TerrainAuthoringPreviewGeographicDemandPlan(settings, quality,
+                new TerrainAuthoringPreviewFocus(settings, position, TerrainAuthoringPreviewFocusKind.Canonical, 1), focusTile, editable, 1, 1, 1, rows.ToArray());
+            var source = new GeographicHeightFixtureSource(settings, data, demand, 1);
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightCache.TryCreate(settings, quality, demand, 1,
+                source.CommittedSignature, 1, out cache, out error), error);
+            nativeCompositor = new TerrainHeightCompositor();
+            RequireSharedHeightValidation(TerrainAuthoringPreviewNativeAnalysisAdapter.TryCreate(cache, nativeCompositor,
+                new TerrainAuthoringPreviewHeightMaterializer(), cache.GpuBudgetBytes, out adapter, out error), error);
+            RequireSharedHeightValidation(adapter.TryBeginBuild(source, new TerrainHeightCacheWindow(focusTile, Vector2Int.one), editable, out error), error);
+            DriveGeographicFixtureAdapter(adapter);
+            RequireSharedHeightValidation(adapter.TryPublishCandidate(out var native, out error) && native.IsValid
+                && native.SamplesPerSide == settings.HeightTileSamplesPerSide && cache.AllocatedBytes == 0,
+                "Native preparation was blocked by missing display or substituted coarse precision: " + error);
+            compositor = new TerrainHeightCompositor();
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightComposer.TryCreate(cache, source, compositor,
+                new TerrainAuthoringPreviewHeightMaterializer(), out worker, out error, 1), error);
+            for (int z = 1; z <= 5; z++) for (int x = 1; x <= 5; x++)
+            {
+                var tile = new Vector2Int(x, z);
+                RequireSharedHeightValidation(worker.TryBeginTile(tile, out _, out error, requestedStride: 4), error);
+                DriveGeographicFixtureTile(worker, tile); worker.RetireResult(tile);
+            }
+            go = new GameObject("Safe shared visibility fixture") { hideFlags = HideFlags.HideAndDontSave };
+            mesh = new Mesh { hideFlags = HideFlags.HideAndDontSave, vertices = new[] { Vector3.zero, new Vector3(32, 0, 0), new Vector3(0, 0, 32) }, triangles = new[] { 0, 1, 2 } };
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var renderer = go.AddComponent<MeshRenderer>(); renderer.transform.position = position;
+            original = new Material(Shader.Find("Custom/ClipmapTerrain")) { hideFlags = HideFlags.HideAndDontSave };
+            renderer.sharedMaterial = original;
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightBindingData.TryCreateMaterial(original, out variant, out error), error);
+            var bindings = new[] { new TerrainClipmapRendererBinding(renderer, TerrainClipmapRendererRole.CreateCenter()) };
+            RequireSharedHeightValidation(cache.TryCreateRenderMapSnapshot(out map, out error), error);
+            RequireSharedHeightValidation(TerrainAuthoringPreviewHeightBindingUtility.TryBuildSafeVisibility(settings, layout, demand,
+                map, bindings, out var visible, out int margin, out error) && margin == 2 && visible.SetEquals(new[] { focusTile }),
+                "Triangle/halo erosion did not isolate the safe region: " + error);
+            RequireSharedHeightValidation(!TerrainAuthoringPreviewSharedHeightBindingData.TryCreate(settings, map, out _, out _,
+                new[] { new Vector2Int(1, 1) }, margin), "Unsafe visibility cell was accepted.");
+            RequireSharedHeightValidation(TerrainAuthoringPreviewSharedHeightBindingData.TryCreate(settings, map, out payload, out error, visible, margin), error);
+            RequireSharedHeightValidation(payload.IsPartial && payload.VisibleCount == 1 && payload.RequiredMissingCount > 0
+                && map.TryGetEntry(new Vector2Int(2, 2), out var halo) && halo.IsValid && !payload.IsVisible(halo.Tile),
+                "Partial visibility discarded valid physical halo or claimed full coverage.");
+            RequireSharedHeightValidation(TerrainAuthoringPreviewService.TryApplySharedRendererTransaction(settings, quality, layout, demand,
+                payload, bindings, Array.Empty<TerrainClipmapRendererBinding>(), new Dictionary<MeshRenderer, Material> { { renderer, variant } },
+                () => true, () => true, () => true, () => true, out error), error);
+            var block = new MaterialPropertyBlock(); renderer.GetPropertyBlock(block);
+            var mask = block.GetTexture(TerrainAuthoringPreviewSharedHeightBindingData.VisibilityId) as Texture2D;
+            RequireSharedHeightValidation(mask != null && mask.width == payload.Window.Width && mask.height == payload.Window.Height
+                && block.GetFloat(TerrainAuthoringPreviewSharedHeightBindingData.PartialId) == 1, "Mask and lookup addressing differ.");
+            var read = AsyncGPUReadback.Request(mask, 0); read.WaitForCompletion();
+            var bytes = read.GetData<byte>(); int channels = mask.format == TextureFormat.R8 ? 1 : 4;
+            RequireSharedHeightValidation(!read.hasError && bytes[24 * channels] == 255 && bytes[16 * channels] == 0,
+                "Safe mask upload differs from its proof.");
+            detail = "Independent exact native source completed before any display page; safe partial transaction retained physical halo, rejected an unsafe cell, uploaded the bounded visibility mask and kept final quality pending.";
+            return true;
+        }
+        catch (Exception exception) { detail = exception.Message; return false; }
+        finally
+        {
+            if (go != null) TerrainAuthoringPreviewHeightBindingUtility.DisableShared(new[] { new TerrainClipmapRendererBinding(go.GetComponent<MeshRenderer>(), TerrainClipmapRendererRole.CreateCenter()) });
+            payload?.Dispose(); if (payload != null) payload.WaitForRelease(out _); map?.Dispose();
+            worker?.Dispose(); adapter?.Dispose();
+            bool displayReleased = worker == null || worker.WaitForRelease(out _), nativeReleased = adapter == null || adapter.WaitForRelease(out _);
+            if (displayReleased) compositor?.Dispose(); if (nativeReleased) nativeCompositor?.Dispose();
+            cache?.Dispose(); if (cache != null) cache.WaitForRelease(out _);
+            if (go != null) UnityEngine.Object.DestroyImmediate(go); if (mesh != null) UnityEngine.Object.DestroyImmediate(mesh);
+            if (variant != null) UnityEngine.Object.DestroyImmediate(variant); if (original != null) UnityEngine.Object.DestroyImmediate(original);
+            if (displayReleased && nativeReleased && data != null) UnityEngine.Object.DestroyImmediate(data);
+            if (settings != null) UnityEngine.Object.DestroyImmediate(settings);
+        }
+    }
+
 }
 
 

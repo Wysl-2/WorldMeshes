@@ -5,6 +5,8 @@ using UnityEngine;
 // stride. AssetDatabase sources are borrowed; decoded disk sources are owned.
 internal sealed class TerrainAuthoringPreviewHeightSourceLease : IDisposable
 {
+    private Action release;
+    private readonly int threadId = System.Threading.Thread.CurrentThread.ManagedThreadId;
     internal Texture2D Texture { get; private set; }
     internal readonly int SourceStride;
     internal readonly int NativeSamplesPerSide;
@@ -16,9 +18,9 @@ internal sealed class TerrainAuthoringPreviewHeightSourceLease : IDisposable
     internal TerrainAuthoringPreviewHeightSourceLease(Texture2D texture, int sourceStride,
         int nativeSamples, bool ownsTexture,
         TerrainAuthoringPreviewDerivedHeightCache.EntryIdentity identity = default,
-        string committedSignature = "")
+        string committedSignature = "", Action release = null)
     {
-        Texture = texture;
+        Texture = texture; this.release = release;
         SourceStride = sourceStride;
         NativeSamplesPerSide = nativeSamples;
         OwnsTexture = ownsTexture;
@@ -37,8 +39,12 @@ internal sealed class TerrainAuthoringPreviewHeightSourceLease : IDisposable
 
     public void Dispose()
     {
+        if (release != null && threadId != System.Threading.Thread.CurrentThread.ManagedThreadId)
+            throw new InvalidOperationException("Shared Height source leases require their creating Unity main thread.");
         Texture2D texture = Texture;
         Texture = null;
-        if (OwnsTexture && texture != null) UnityEngine.Object.DestroyImmediate(texture);
+        var callback = release; release = null;
+        if (callback != null) callback();
+        else if (OwnsTexture && texture != null) UnityEngine.Object.DestroyImmediate(texture);
     }
 }

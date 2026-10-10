@@ -87,12 +87,12 @@ public static partial class TerrainAuthoringPreviewService
     public static int StreamingSourceGroupCount => sharedTargetJobs;
     public static int StreamingSourceLoadedCount => sharedTargetLoads;
     public static int StreamingSourceMaterializedCount => sharedTargetLoads;
-    public static int StreamingSourceComposedCount => sharedDisplayWork?.Display?.DisplayCompositionCount ?? 0;
+    public static int StreamingSourceComposedCount => sharedTargetCompleted;
     public static int StreamingRetainedCopiesPerUpdate => 0;
-    public static int StreamingCommittedLoadsPerUpdate => DefaultCommittedLoadsPerUpdate;
-    public static int StreamingCompositionsPerUpdate => DefaultCompositionsPerUpdate;
-    public static int DirtyCompositionsPerUpdate => 1;
-    public static int StreamingMaterializationsPerUpdate => 1;
+    public static int StreamingCommittedLoadsPerUpdate => 2;
+    public static int StreamingCompositionsPerUpdate => 2;
+    public static int DirtyCompositionsPerUpdate => 2;
+    public static int StreamingMaterializationsPerUpdate => 2;
     public static double StreamingSoftWorkBudgetMilliseconds => DefaultSoftWorkBudgetMilliseconds;
     public static string StreamingCoverageLabel
     {

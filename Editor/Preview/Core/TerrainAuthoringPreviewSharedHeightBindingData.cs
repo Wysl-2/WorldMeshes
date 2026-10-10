@@ -42,6 +42,15 @@ internal sealed class TerrainAuthoringPreviewSharedHeightBindingData : IDisposab
     internal long AllocatedBytes { get; private set; }
     internal bool IsAlive => !disposed && lookup != null && Map.IsAlive;
     internal bool ReleaseComplete => disposed && lookup == null;
+    private Texture2D visibility;
+    private HashSet<Vector2Int> visible;
+    internal static readonly int VisibilityId = Shader.PropertyToID("_EditorSharedHeightVisibility");
+    internal static readonly int PartialId = Shader.PropertyToID("_EditorSharedHeightPartialCoverage");
+    internal bool IsPartial => visible != null;
+    internal int VisibilityMargin { get; private set; }
+    internal int VisibleCount => IsPartial ? visible.Count : DrawableCount;
+    internal bool IsVisible(Vector2Int tile) => !IsPartial || visible.Contains(tile);
+    internal bool VisibilityEquals(HashSet<Vector2Int> other) => visible != null && visible.SetEquals(other);
     internal Texture2D Lookup => IsAlive ? lookup : null;
 
     private static int[] CreatePropertyIds(string prefix)
@@ -151,7 +160,8 @@ internal sealed class TerrainAuthoringPreviewSharedHeightBindingData : IDisposab
         { if (candidate != null) UnityEngine.Object.DestroyImmediate(candidate); error = exception.Message; return false; }
     }
     internal static bool TryCreate(WorldSettings settings, TerrainAuthoringPreviewHeightPageMap map,
-        out TerrainAuthoringPreviewSharedHeightBindingData data, out string error)
+        out TerrainAuthoringPreviewSharedHeightBindingData data, out string error,
+        IReadOnlyCollection<Vector2Int> safeVisible = null, int visibilityMargin = 0)
     {
         data = null;
         if (!TryValidateDevice(out error)) return false;
@@ -204,7 +214,12 @@ internal sealed class TerrainAuthoringPreviewSharedHeightBindingData : IDisposab
             || cells > Math.Max(64L, (long)map.Entries.Count * 4))
         { error = "Shared Height sparse coverage expands beyond the bounded local lookup texture/density limits."; return false; }
         var window = new TerrainHeightCacheWindow(maxX < 0 ? Vector2Int.zero : new Vector2Int(minX, minZ), new Vector2Int(width, height));
-        long bytes = checked(cells * 4 * sizeof(float));
+        bool r8 = SystemInfo.SupportsTextureFormat(TextureFormat.R8);
+        if (safeVisible != null && !r8 && !SystemInfo.SupportsTextureFormat(TextureFormat.RGBA32))
+        { error = "Neither R8 nor RGBA32 supports the safe Height visibility mask."; return false; }
+        if (safeVisible != null && (safeVisible.Count == 0 || visibilityMargin < 1 || visibilityMargin > 32))
+        { error = "Partial visibility requires a nonempty bounded triangle/halo proof."; return false; }
+        long bytes = checked(cells * (4 * sizeof(float) + (safeVisible == null ? 0 : r8 ? 1 : 4)));
         if (!map.TryClaimBinding(out error)) return false;
         if (!map.TryReserveLookupBytes(bytes, out var allocation, out error)) { map.ReleaseFailedBindingClaim(); return false; }
         var candidate = new TerrainAuthoringPreviewSharedHeightBindingData(settings, map, window, borrowed, info,
@@ -221,6 +236,24 @@ internal sealed class TerrainAuthoringPreviewSharedHeightBindingData : IDisposab
             { name = "Terrain Shared Height Geographical Lookup", hideFlags = HideFlags.HideAndDontSave,
                 filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp, anisoLevel = 0 };
             candidate.lookup.SetPixels(pixels); candidate.lookup.Apply(false, true);
+            if (safeVisible != null)
+            {
+                candidate.visible = new HashSet<Vector2Int>(safeVisible); candidate.VisibilityMargin = visibilityMargin;
+                candidate.visibility = new Texture2D(width, height, r8 ? TextureFormat.R8 : TextureFormat.RGBA32, false, true)
+                { name = "Terrain Shared Height Safe Visibility", hideFlags = HideFlags.HideAndDontSave,
+                    filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp, anisoLevel = 0 };
+                var mask = new byte[checked((int)cells * (r8 ? 1 : 4))];
+                foreach (var tile in candidate.visible)
+                {
+                    if (!window.Contains(tile) || !map.Demand.TryGetTile(tile, out var row)
+                        || (row.DisplayRequirement & TerrainAuthoringPreviewDisplayRequirement.Geometry) == 0
+                        || !TerrainAuthoringPreviewHeightBindingUtility.IsSafeVisibilityCell(settings, map, tile, visibilityMargin))
+                        throw new InvalidOperationException("A visible Height cell lacks ready geographical triangle/halo dependencies.");
+                    int index = (tile.x - window.OriginTile.x + (tile.y - window.OriginTile.y) * width) * (r8 ? 1 : 4);
+                    mask[index] = 255;
+                }
+                candidate.visibility.SetPixelData(mask, 0); candidate.visibility.Apply(false, true);
+            }
             candidate.ownsMap = true; data = candidate; return true;
         }
         catch (Exception exception) { candidate.Dispose(); map.ReleaseFailedBindingClaim(); error = "Shared Height lookup upload failed: " + exception.Message; return false; }
@@ -239,7 +272,8 @@ internal sealed class TerrainAuthoringPreviewSharedHeightBindingData : IDisposab
     internal static bool MaterialHasProperties(Material material)
     {
         if (material == null || !material.HasProperty(EnabledId) || !material.HasProperty(MapId)
-            || !material.HasProperty(WindowId) || !material.HasProperty(TopologyId)) return false;
+            || !material.HasProperty(WindowId) || !material.HasProperty(TopologyId)
+            || !material.HasProperty(PartialId) || !material.HasProperty(VisibilityId)) return false;
         for (int i = 0; i < MaximumPoolCount; i++) if (!material.HasProperty(PoolIds[i]) || !material.HasProperty(PoolInfoIds[i])) return false;
         return true;
     }
@@ -247,6 +281,8 @@ internal sealed class TerrainAuthoringPreviewSharedHeightBindingData : IDisposab
     {
         RequireThread();
         if (!IsAlive) throw new InvalidOperationException("The shared Height binding payload has been retired.");
+        block.SetTexture(VisibilityId, visibility != null ? visibility : Texture2D.whiteTexture);
+        block.SetFloat(PartialId, IsPartial ? 1 : 0);
         block.SetTexture(MapId, lookup); block.SetVector(WindowId, new Vector4(Window.OriginTile.x, Window.OriginTile.y, Window.Width, Window.Height));
         block.SetVector(TopologyId, Topology);
         // for (int i = 0; i < MaximumPoolCount; i++) { block.SetTexture(PoolIds[i], textures[i]); block.SetVector(PoolInfoIds[i], poolInfo[i]); }
@@ -266,7 +302,9 @@ internal sealed class TerrainAuthoringPreviewSharedHeightBindingData : IDisposab
         error = "";
         if (!IsAlive || block == null || block.GetFloat(EnabledId) < 0.5f || block.GetTexture(MapId) != lookup)
         { error = "Shared Height active flag or geographical lookup was not preserved in the renderer property block."; return false; }
-        if (block.GetVector(WindowId) != new Vector4(Window.OriginTile.x, Window.OriginTile.y, Window.Width, Window.Height)
+        if (block.GetFloat(PartialId) != (IsPartial ? 1 : 0)
+            || block.GetTexture(VisibilityId) != (visibility != null ? visibility : Texture2D.whiteTexture)
+            || block.GetVector(WindowId) != new Vector4(Window.OriginTile.x, Window.OriginTile.y, Window.Width, Window.Height)
             || block.GetVector(TopologyId) != Topology)
         { error = "Shared Height geographic window/topology property block differs from the published map."; return false; }
         for (int i = 0; i < MaximumPoolCount; i++)
@@ -281,6 +319,7 @@ internal sealed class TerrainAuthoringPreviewSharedHeightBindingData : IDisposab
     {
         // Replace previous GPU references with inert resources without
         // clearing unrelated renderer/authoring properties in this block.
+        block.SetFloat(PartialId, 0); block.SetTexture(VisibilityId, Texture2D.whiteTexture);
         block.SetFloat(EnabledId, 0);
         block.SetTexture(MapId, Texture2D.blackTexture);
         block.SetVector(WindowId, Vector4.zero);
@@ -328,7 +367,8 @@ internal sealed class TerrainAuthoringPreviewSharedHeightBindingData : IDisposab
     private void FinishRelease()
     {
         if (lookup != null) UnityEngine.Object.DestroyImmediate(lookup);
-        lookup = null; allocation?.Dispose(); allocation = null; AllocatedBytes = 0;
+        if (visibility != null) UnityEngine.Object.DestroyImmediate(visibility);
+        visibility = null; lookup = null; allocation?.Dispose(); allocation = null; AllocatedBytes = 0;
     }
     internal bool WaitForRelease(out string error)
     {

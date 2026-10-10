@@ -55,7 +55,7 @@ internal sealed class TerrainAuthoringPreviewSharedHeightComposer : IDisposable
 {
     private readonly int threadId = Thread.CurrentThread.ManagedThreadId;
     private readonly TerrainAuthoringPreviewSharedHeightCache cache;
-    private readonly TerrainAuthoringPreviewCommittedSourceContext source;
+    private TerrainAuthoringPreviewCommittedSourceContext source;
     private readonly TerrainHeightCompositor compositor;
     private readonly TerrainAuthoringPreviewHeightMaterializer materializer;
     private readonly int maximumJobs;
@@ -92,7 +92,8 @@ internal sealed class TerrainAuthoringPreviewSharedHeightComposer : IDisposable
         cache != null && source != null && source.Settings != null && source.Data != null && source.Demand != null
         && source.IsCurrent && cache.AuthoringTargetMatches(source.Settings, source.Demand, source.CommittedSignature, source.AuthoringGeneration);
 
-    internal bool TryBeginTile(Vector2Int tile, out TileWork work, out string error, bool retry = false)
+    internal bool TryBeginTile(Vector2Int tile, out TileWork work, out string error, bool retry = false, int requestedStride = 0,
+        TerrainAuthoringPreviewHeightAcquisitionPurpose purpose = TerrainAuthoringPreviewHeightAcquisitionPurpose.AuthoringReplacement)
     {
         RequireThread(); CollectRelease(); work = null; error = "";
         if (disposed || !TargetCurrent(cache, source) || !source.Demand.TryGetTile(tile, out var row) || !row.HasDisplay)
@@ -104,11 +105,30 @@ internal sealed class TerrainAuthoringPreviewSharedHeightComposer : IDisposable
         }
         if (jobs.Count + retiring.Count >= maximumJobs)
         { BlockedAdmissionCount++; error = "The bounded shared composer is waiting for job/result retirement."; return false; }
-        if (!cache.TryReservePage(tile, row.SelectedDisplayStride, cache.NextRequestToken, source.Demand.Generation,
-            out var handle, out error)) { BlockedAdmissionCount++; return false; }
-        work = new TileWork(cache, source, compositor, materializer, tile, row.SelectedDisplayStride, handle, null, 0);
+        int stride = requestedStride == 0 ? row.SelectedDisplayStride : requestedStride;
+        if (!cache.TryReservePage(tile, stride, cache.NextRequestToken, source.Demand.Generation,
+            out var handle, out error, stride != row.SelectedDisplayStride))
+        { if (cache.LastAdmissionBlocked) BlockedAdmissionCount++; return false; }
+        work = new TileWork(cache, source, compositor, materializer, tile, stride, handle, null, 0, purpose);
         jobs.Add(tile, work); return true;
     }
+    internal bool TryRetarget(TerrainAuthoringPreviewCommittedSourceContext next)
+    {
+        RequireThread();
+        if (disposed || !TargetCurrent(cache, next) || !CompatibleSources(source, next)) return false;
+        foreach (var work in jobs.Values) if (!work.CanRetarget(next)) return false;
+        foreach (var work in jobs.Values) work.Retarget(next);
+        source = next; return true;
+    }
+    internal static bool CompatibleSources(TerrainAuthoringPreviewCommittedSourceContext old, TerrainAuthoringPreviewCommittedSourceContext next) =>
+        old != null && next != null && old.Settings == next.Settings && old.Data == next.Data
+        && old.CommittedSignature == next.CommittedSignature && old.AuthoringGeneration == next.AuthoringGeneration
+        && old.Demand.OwnershipGeneration == next.Demand.OwnershipGeneration;
+    internal static bool Acquire(TerrainAuthoringPreviewCommittedSourceContext source, Vector2Int tile, int stride,
+        TerrainAuthoringPreviewHeightAcquisitionPurpose purpose, out TerrainAuthoringPreviewHeightSourceLease lease, out string error) =>
+        source is CommittedSource production ? production.Acquire(tile, stride, purpose, out lease, out error)
+        : source.TryAcquire(tile, stride, out lease, out error);
+
     internal bool TryStep(Vector2Int tile, out TerrainAuthoringPreviewSharedCompositionResult result, out string error)
     {
         RequireThread(); CollectRelease(); result = default; error = "";
@@ -147,7 +167,8 @@ internal sealed class TerrainAuthoringPreviewSharedHeightComposer : IDisposable
     internal static bool TryCreateCommittedSourceContext(WorldSettings settings, TerrainAuthoringData data,
         TerrainAuthoringPreviewGeographicDemandPlan demand, long targetGeneration,
         Func<long> currentGeneration, Func<long> currentOwnership,
-        out TerrainAuthoringPreviewCommittedSourceContext source, out string error)
+        out TerrainAuthoringPreviewCommittedSourceContext source, out string error,
+        TerrainAuthoringPreviewHeightSourceResidency residency = null)
     {
         source = null; error = "";
         if (settings == null || data == null || demand == null || !demand.TryValidate(settings, out error)
@@ -159,7 +180,7 @@ internal sealed class TerrainAuthoringPreviewSharedHeightComposer : IDisposable
         string committed = TerrainAuthoringStateUtility.GetCommittedHeightfieldSignature(settings);
         if (string.IsNullOrEmpty(committed)) { error = "The committed Height identity is unavailable."; return false; }
         var candidate = new CommittedSource(settings, data, demand, manifest, committed, targetGeneration,
-            currentGeneration, currentOwnership);
+            currentGeneration, currentOwnership, residency);
         if (!candidate.IsCurrent) { error = "Authoring/source ownership changed during committed-source validation."; return false; }
         source = candidate; return true;
     }
@@ -170,13 +191,14 @@ internal sealed class TerrainAuthoringPreviewSharedHeightComposer : IDisposable
         public TerrainAuthoringPreviewGeographicDemandPlan Demand { get; }
         public string CommittedSignature { get; }
         public long AuthoringGeneration { get; }
+        private readonly TerrainAuthoringPreviewHeightSourceResidency residency;
         private readonly TerrainAuthoringHeightManifest manifest;
         private readonly string overallSignature;
         private readonly Func<long> generation, ownership;
         internal CommittedSource(WorldSettings settings, TerrainAuthoringData data, TerrainAuthoringPreviewGeographicDemandPlan demand,
-            TerrainAuthoringHeightManifest manifest, string committed, long authoring, Func<long> generation, Func<long> ownership)
+            TerrainAuthoringHeightManifest manifest, string committed, long authoring, Func<long> generation, Func<long> ownership, TerrainAuthoringPreviewHeightSourceResidency residency)
         {
-            Settings = settings; Data = data; Demand = demand; this.manifest = manifest;
+            this.residency = residency; Settings = settings; Data = data; Demand = demand; this.manifest = manifest;
             CommittedSignature = committed; AuthoringGeneration = authoring; this.generation = generation; this.ownership = ownership;
             overallSignature = TerrainAuthoringStateUtility.GetOverallAuthoringSignature(settings, data);
         }
@@ -188,10 +210,17 @@ internal sealed class TerrainAuthoringPreviewSharedHeightComposer : IDisposable
         public bool TryAcquire(Vector2Int tile, int stride, out TerrainAuthoringPreviewHeightSourceLease lease, out string error)
         {
             lease = null; error = "The committed authoring target is stale."; if (!IsCurrent) return false;
+            return Acquire(tile, stride, TerrainAuthoringPreviewHeightAcquisitionPurpose.NativeWorking, out lease, out error);
+        }
+        internal bool AcquisitionBlocked => residency != null && residency.LastAcquisitionBlocked;
+        internal bool Acquire(Vector2Int tile, int stride, TerrainAuthoringPreviewHeightAcquisitionPurpose purpose,
+            out TerrainAuthoringPreviewHeightSourceLease lease, out string error)
+        {
+            lease = null; error = "The committed authoring target is stale."; if (!IsCurrent) return false;
+            if (residency != null) return residency.TryAcquire(Settings, tile, stride, purpose, out lease, out error);
             Texture2D native = null;
-            // Modifier/native-analysis work reads derived BASE entries but never generates/writes cache files.
             return TerrainAuthoringPreviewHeightSourceUtility.TryAcquireCommittedSource(Settings, tile, stride,
-                ref native, false, out lease, out error);
+                ref native, purpose == TerrainAuthoringPreviewHeightAcquisitionPurpose.DisplayAdmission, out lease, out error);
         }
         // Optional source-identity I/O failure can still serve the legacy native loader,
         // but cannot prove this new transaction current. Retain last-good rather than
@@ -216,11 +245,12 @@ internal sealed class TerrainAuthoringPreviewSharedHeightComposer : IDisposable
     {
         private readonly int threadId = Thread.CurrentThread.ManagedThreadId;
         private readonly TerrainAuthoringPreviewSharedHeightCache cache;
-        private readonly TerrainAuthoringPreviewCommittedSourceContext source;
+        private TerrainAuthoringPreviewCommittedSourceContext source;
         private readonly TerrainHeightCompositor compositor;
         private readonly TerrainAuthoringPreviewHeightMaterializer materializer;
         private readonly TerrainAuthoringPreviewHeightPageHandle handle;
         private readonly bool display;
+        private readonly TerrainAuthoringPreviewHeightAcquisitionPurpose purpose;
         private readonly int slice, samples;
         private readonly float spacing;
         private readonly List<object> retainedAuthoringInputs = new List<object>();
@@ -247,9 +277,10 @@ internal sealed class TerrainAuthoringPreviewSharedHeightComposer : IDisposable
 
         internal TileWork(TerrainAuthoringPreviewSharedHeightCache cache, TerrainAuthoringPreviewCommittedSourceContext source,
             TerrainHeightCompositor compositor, TerrainAuthoringPreviewHeightMaterializer materializer,
-            Vector2Int tile, int stride, TerrainAuthoringPreviewHeightPageHandle handle, RenderTexture nativeDestination, int nativeSlice)
+            Vector2Int tile, int stride, TerrainAuthoringPreviewHeightPageHandle handle, RenderTexture nativeDestination, int nativeSlice,
+            TerrainAuthoringPreviewHeightAcquisitionPurpose purpose = TerrainAuthoringPreviewHeightAcquisitionPurpose.NativeWorking)
         {
-            this.cache = cache; this.source = source; this.compositor = compositor; this.materializer = materializer;
+            this.purpose = purpose; this.cache = cache; this.source = source; this.compositor = compositor; this.materializer = materializer;
             this.handle = handle; display = handle.IsValid; Tile = tile; Stride = stride;
             AuthoringGeneration = source.AuthoringGeneration; CommittedSignature = source.CommittedSignature;
             samples = TerrainHeightResolutionUtility.GetSamplesPerSide(source.Settings, stride);
@@ -261,6 +292,11 @@ internal sealed class TerrainAuthoringPreviewSharedHeightComposer : IDisposable
                 if (modifier is TerrainStampModifier stamp && stamp.StampAsset != null)
                 { retainedAuthoringInputs.Add(stamp.StampAsset); if (stamp.StampAsset.HeightTexture != null) retainedAuthoringInputs.Add(stamp.StampAsset.HeightTexture); }
         }
+        internal bool CanRetarget(TerrainAuthoringPreviewCommittedSourceContext next) => !disposed && !IsTerminal
+            && CompatibleSources(source, next) && TargetCurrent(cache, next)
+            && next.Demand.TryGetTile(Tile, out var row) && (display ? cache.PendingTargetMatches(handle) : row.NativeWorkingRequired);
+        internal void Retarget(TerrainAuthoringPreviewCommittedSourceContext next)
+        { RequireThread(); if (!CanRetarget(next)) throw new InvalidOperationException("Height work retarget is incompatible."); source = next; }
         internal void Step()
         {
             RequireThread(); if (disposed || IsTerminal) return;
@@ -272,7 +308,10 @@ internal sealed class TerrainAuthoringPreviewSharedHeightComposer : IDisposable
                     if (!source.TryGetRange(Tile, out minimum, out maximum, out string error)
                         || !Finite(minimum) || !Finite(maximum) || maximum < minimum)
                         throw new InvalidOperationException(string.IsNullOrEmpty(error) ? "Invalid native committed range." : error);
-                    if (!source.TryAcquire(Tile, Stride, out lease, out error) || lease == null
+                    if (!Acquire(source, Tile, Stride, purpose, out lease, out error))
+                    { if (source is CommittedSource production && production.AcquisitionBlocked) { Error = error; return; } throw new InvalidOperationException(error); }
+                    Error = "";
+                    if (lease == null
                         || !source.LeaseIsCurrent(lease) || !lease.CanMaterializeAt(Stride)
                         || lease.NativeSamplesPerSide != source.Settings.HeightTileSamplesPerSide)
                         throw new InvalidOperationException(string.IsNullOrEmpty(error) ? "Invalid/stale committed source lease." : error);
@@ -302,7 +341,7 @@ internal sealed class TerrainAuthoringPreviewSharedHeightComposer : IDisposable
         }
         private bool Current() => TargetCurrent(cache, source) && source.AuthoringGeneration == AuthoringGeneration
             && source.CommittedSignature == CommittedSignature && source.Demand.TryGetTile(Tile, out var row)
-            && (display ? row.HasDisplay && row.SelectedDisplayStride == Stride && cache.IsWritableHandle(handle) : row.NativeWorkingRequired);
+            && (display ? row.HasDisplay && cache.IsWritableHandle(handle) : row.NativeWorkingRequired);
         private void Submit(bool compose)
         {
             TerrainAuthoringPreviewHeightPageWrite writer = null;

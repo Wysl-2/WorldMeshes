@@ -57,6 +57,15 @@ public static class TerrainAuthoringIncrementalStreamingValidationUtility
             RunScheduledValidation;
     }
 
+    private static void ValidateSharedSchedulerFairness()
+    {
+        var opportunities = new int[4];
+        for (int i = 0; i < 60; i++) opportunities[TerrainAuthoringPreviewService.SelectSharedWorkClass(i)]++;
+        bool fair = opportunities[0] > 0 && opportunities[1] > 0 && opportunities[2] > 0 && opportunities[3] > 0;
+        if (fair) AddPass("Shared display class fairness", "Interactive, missing coarse, final quality and optional classes each receive bounded cyclic service opportunities; native service alternates independently.");
+        else AddFail("Shared display class fairness", "A work class has no bounded service opportunity.");
+    }
+
     private static void RunScheduledValidation()
     {
         validationScheduled =
@@ -85,6 +94,11 @@ public static class TerrainAuthoringIncrementalStreamingValidationUtility
             if (setBlocked) AddBlocked("Resumable Height cache set worker", setDetail);
             else if (setPassed) AddPass("Resumable Height cache set worker", setDetail);
             else AddFail("Resumable Height cache set worker", setDetail);
+            bool sharedPassed = TerrainAuthoringPreviewCacheValidationUtility.RunIncrementalSharedHeightFixture(out string sharedDetail, out bool sharedBlocked);
+            if (sharedBlocked) AddBlocked("Incremental shared Height adoption", sharedDetail);
+            else if (sharedPassed) AddPass("Incremental shared Height adoption", sharedDetail);
+            else AddFail("Incremental shared Height adoption", sharedDetail);
+            ValidateSharedSchedulerFairness();
             ValidateHeightSetPolicy();
             ValidateDirtyFailureProgress();
             ValidateDirtyPriorityAndAdmission();

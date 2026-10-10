@@ -14,7 +14,7 @@ public static partial class TerrainAuthoringPreviewService
 
 
     private static bool LegacyTransitionInProgress => currentCacheSetTransition != null && currentCacheSetTransition.InProgress;
-    public static bool TransitionInProgress => sharedQueue.Count > 0 || sharedRunningTile.HasValue;
+    public static bool TransitionInProgress => sharedQueue.Count > 0 || sharedJobs.Count > 0;
 
     public static bool HasTransitionDiagnostics => sharedHeight != null || !string.IsNullOrEmpty(sharedFailedTarget);
     public static string TransitionStateLabel => StreamingStateLabel;

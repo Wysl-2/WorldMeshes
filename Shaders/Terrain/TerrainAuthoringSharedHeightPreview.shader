@@ -4,6 +4,8 @@ Shader "Hidden/WorldMeshes/TerrainAuthoringSharedHeightPreview"
 {
     Properties
     {
+        [HideInInspector] _EditorSharedHeightVisibility("Safe Height Visibility", 2D) = "white" {}
+        [HideInInspector] _EditorSharedHeightPartialCoverage("Partial Height Coverage", Float) = 0
         [MainColor] _BaseColor("Ground Color", Color) = (1,1,1,1)
         [MainTexture] _BaseMap("Ground Map", 2D) = "white" {}
         _BaseMapWorldSize("Ground World Size", Float) = 8
@@ -96,7 +98,10 @@ Shader "Hidden/WorldMeshes/TerrainAuthoringSharedHeightPreview"
             TEXTURE2D(_SlopeMap);
             SAMPLER(sampler_SlopeMap);
 
+            TEXTURE2D(_EditorSharedHeightVisibility);
+            SAMPLER(sampler_EditorSharedHeightVisibility);
             CBUFFER_START(UnityPerMaterial)
+                float _EditorSharedHeightPartialCoverage;
                 half4 _BaseColor;
                 float4 _BaseMap_ST;
                 float _BaseMapWorldSize;
@@ -252,6 +257,18 @@ Shader "Hidden/WorldMeshes/TerrainAuthoringSharedHeightPreview"
                 // terrain. Show an unmistakable diagnostic pattern rather than
                 // silently hiding the entire clipmap when sampling fails.
                 // The untouched source material/runtime shader cannot use this.
+                // Visibility is independent of physical Height validity. Ready
+                // halo pages remain bound even where fragments are masked.
+                if (_EditorSharedHeightPartialCoverage > 0.5)
+                {
+                    float2 sampleXZ = ClampTerrainWorldXZ(input.positionWS.xz);
+                    int2 tile = (int2)floor(sampleXZ / _EditorSharedHeightTopology.x);
+                    tile = clamp(tile, int2(0, 0), (int2)_EditorSharedHeightTopology.zw - 1);
+                    int2 cell = tile - (int2)_EditorSharedHeightMapWindow.xy;
+                    if (any(cell < 0) || any(cell >= (int2)_EditorSharedHeightMapWindow.zw)) discard;
+                    float2 uv = ((float2)cell + 0.5) / _EditorSharedHeightMapWindow.zw;
+                    if (SAMPLE_TEXTURE2D_LOD(_EditorSharedHeightVisibility, sampler_EditorSharedHeightVisibility, uv, 0).r < 0.5) discard;
+                }
                 if (_EditorSharedHeightEnabled < 0.5 || input.heightValid < 0.99999)
                 {
                     float failure = input.heightFailure;

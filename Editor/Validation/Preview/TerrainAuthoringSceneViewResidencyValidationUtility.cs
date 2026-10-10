@@ -135,6 +135,8 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
             RunBoundedScalingValidation();
             RunMultiresolutionResidencyPlanValidation();
             RunGeographicDemandValidation();
+            bool safePassed = TerrainAuthoringPreviewCacheValidationUtility.RunSafeSharedVisibilityFixture(out string safeDetail, out bool safeBlocked);
+            AddResult("Safe progressive shared publication", safeBlocked ? ValidationOutcome.Blocked : safePassed ? ValidationOutcome.Pass : ValidationOutcome.Fail, safeDetail);
             RunMultiresolutionBoundedScalingValidation();
             RunDiagnosticsProjectionValidation();
             RunOperationalFeedbackValidation();
@@ -1529,11 +1531,12 @@ public static class TerrainAuthoringSceneViewResidencyValidationUtility
     private static void RunSharedLivePreviewValidation(TerrainAuthoringPreviewDiagnosticsSnapshot snapshot)
     {
         var shared = snapshot.SharedHeight;
-        bool valid = shared.Current + shared.Stale + shared.Missing == shared.Demanded && shared.Required <= shared.Demanded
-            && shared.Failed <= shared.Backlog && snapshot.DisplayLods.Count == 0
+        bool valid = shared.Current + shared.Provisional + shared.Stale + shared.Missing == shared.Demanded && shared.Required <= shared.Demanded
+            && shared.Failed <= shared.Backlog && shared.Visible >= 0 && (!snapshot.Drawable || shared.Visible > 0)
+            && TerrainAuthoringPreviewService.SharedSourceBudgetIsValid && snapshot.DisplayLods.Count == 0
             && snapshot.Ownership.TotalBytes == TerrainAuthoringPreviewService.ApproximateTotalResidentGpuMemoryBytes;
         AddResult("Shared geographic ownership and convergence", valid ? ValidationOutcome.Pass : ValidationOutcome.Fail,
-            $"Demanded={shared.Demanded}, required={shared.Required}, current/stale/missing={shared.Current}/{shared.Stale}/{shared.Missing}; failed={shared.Failed}.");
+            $"Demanded={shared.Demanded}, required={shared.Required}, final/provisional/stale/missing={shared.Current}/{shared.Provisional}/{shared.Stale}/{shared.Missing}; failed={shared.Failed}.");
         if (!TerrainAuthoringPreviewService.TryCaptureSharedDisplayForValidation(out var map, out string error))
         { AddResult("Retained shared display inspection", ValidationOutcome.Blocked, error); return; }
         try

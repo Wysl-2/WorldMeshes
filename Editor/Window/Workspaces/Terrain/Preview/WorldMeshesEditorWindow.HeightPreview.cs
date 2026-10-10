@@ -88,12 +88,23 @@ public partial class WorldMeshesEditorWindow :
         {
             var shared = snapshot.SharedHeight;
             EditorGUILayout.LabelField("Demanded / Required", $"{shared.Demanded} / {shared.Required}");
-            EditorGUILayout.LabelField("Current / Stale / Missing", $"{shared.Current} / {shared.Stale} / {shared.Missing}");
+            EditorGUILayout.LabelField("Final / Provisional / Stale / Missing", $"{shared.Current} / {shared.Provisional} / {shared.Stale} / {shared.Missing}");
+            EditorGUILayout.LabelField("Safely Visible Tiles", shared.Visible.ToString("N0"));
             EditorGUILayout.LabelField("Stride: Tile Count", shared.Strides);
             EditorGUILayout.LabelField("Pending / Failed", $"{shared.Backlog} / {shared.Failed}");
             EditorGUILayout.LabelField("Pool Capacity / Lookup Payload", $"{FormatPreviewMemory(shared.PoolBytes)} / {FormatPreviewMemory(shared.LookupBytes)}");
             EditorGUILayout.LabelField("Native / Retiring Owner Payload", $"{FormatPreviewMemory(shared.NativeBytes)} / {FormatPreviewMemory(shared.RetiringBytes)}");
             EditorGUILayout.LabelField("Physical Compositions", TerrainAuthoringPreviewService.TotalIncrementalSliceUpdates.ToString("N0"));
+            EditorGUILayout.LabelField("Work Classes", TerrainAuthoringPreviewService.SharedWorkClassDiagnostics);
+            EditorGUILayout.LabelField("Jobs / Publications", TerrainAuthoringPreviewService.SharedSchedulerDiagnostics);
+            EditorGUILayout.LabelField("Source Residency", TerrainAuthoringPreviewService.SharedSourceResidencyDiagnostics);
+            EditorGUILayout.LabelField("Callback Limits", TerrainAuthoringPreviewService.SharedCallbackLimits);
+            EditorGUILayout.LabelField("Soft Callback Budget", $"{TerrainAuthoringPreviewService.StreamingSoftWorkBudgetMilliseconds:R} ms");
+            EditorGUILayout.LabelField("Last Callback: Allocate / Source / Copy / Materialize / Compose",
+                $"{snapshot.LastDirtyAllocations} / {snapshot.LastDirtyLoads} / {snapshot.LastDirtyCopies} / {snapshot.LastDirtyMaterializations} / {snapshot.LastDirtyCompositions}");
+            var source = snapshot.SourceCache;
+            EditorGUILayout.LabelField("Derived Hit / Generated / Native Fallback", $"{source.CacheHits} / {source.GeneratedEntries} / {source.NativeFallbacks}");
+            if (!string.IsNullOrEmpty(source.Warning)) EditorGUILayout.HelpBox(source.Warning, MessageType.Warning);
             if (shared.Failure.Present) EditorGUILayout.HelpBox($"Tile {shared.Failure.Tile}: {shared.Failure.Message}", MessageType.Warning);
             if (!snapshot.Analysis.Ready) EditorGUILayout.HelpBox(snapshot.Analysis.Message, snapshot.Analysis.Failed ? MessageType.Warning : MessageType.Info);
             return;

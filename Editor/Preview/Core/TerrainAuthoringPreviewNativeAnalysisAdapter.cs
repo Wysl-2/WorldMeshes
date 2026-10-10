@@ -27,6 +27,11 @@ internal sealed class TerrainAuthoringPreviewNativeAnalysisAdapter : IDisposable
     internal int BorrowedNativeCount { get; private set; }
     internal int NativeCompositionCount { get; private set; }
     internal int BlockedAdmissionCount { get; private set; }
+    internal int LastStepSources { get; private set; }
+    internal int LastStepMaterializations { get; private set; }
+    internal int LastStepCompositions { get; private set; }
+    internal int LastStepCopies { get; private set; }
+    internal bool LastStepBlocked { get; private set; }
     internal string Error { get; private set; } = "";
     internal int AllocatedArrayCount
     { get { int count = active?.Texture != null ? 1 : 0; if (candidate?.Texture != null) count++; foreach (var frame in retiring) if (frame.Texture != null) count++; return count; } }
@@ -125,9 +130,24 @@ internal sealed class TerrainAuthoringPreviewNativeAnalysisAdapter : IDisposable
     }
 
     // One copy or one tile-stage per call. No synchronous readback in normal progress.
+    internal bool TryRetargetBuild(TerrainAuthoringPreviewCommittedSourceContext next,
+        TerrainHeightCacheWindow output, TerrainHeightCacheWindow physical)
+    {
+        RequireThread();
+        if (disposed || candidate == null || candidate.Output != output || candidate.Physical != physical
+            || !TerrainAuthoringPreviewSharedHeightComposer.TargetCurrent(cache, next)
+            || !TerrainAuthoringPreviewSharedHeightComposer.CompatibleSources(candidate.Source, next)) return false;
+        for (int z = physical.OriginTile.y; z < physical.OriginTile.y + physical.Height; z++)
+            for (int x = physical.OriginTile.x; x < physical.OriginTile.x + physical.Width; x++)
+                if (!next.Demand.TryGetTile(new Vector2Int(x, z), out var row) || !row.NativeWorkingRequired) return false;
+        if (!candidate.Retarget(next)) return false;
+        requestedOutput = output; requestedPhysical = physical; return true;
+    }
+
     internal bool TryProgress(out bool ready, out string error)
     {
         RequireThread(); CollectRelease(); ready = false; error = Error;
+        LastStepSources = LastStepMaterializations = LastStepCompositions = LastStepCopies = 0; LastStepBlocked = false;
         if (disposed || candidate == null) { if (string.IsNullOrEmpty(error)) error = "No native analysis candidate exists."; return false; }
         try
         {
@@ -263,12 +283,12 @@ internal sealed class TerrainAuthoringPreviewNativeAnalysisAdapter : IDisposable
             if (Ready) return;
             if (copyPending)
             {
-                if (!fenceCaptured || !fence.passed) return;
+                if (!fenceCaptured || !fence.passed) { owner.LastStepBlocked = true; return; }
                 copyPending = false; nextSlice++; CompleteWindow(); return;
             }
             if (work != null)
             {
-                work.Step(); if (!work.IsTerminal) return;
+                StepWork(); if (!work.IsTerminal) return;
                 if (!work.Result.Succeeded) throw new InvalidOperationException(work.Error);
                 owner.NativeCompositionCount++; work.Dispose(); work = null; nextSlice++; CompleteWindow(); return;
             }
@@ -289,13 +309,27 @@ internal sealed class TerrainAuthoringPreviewNativeAnalysisAdapter : IDisposable
                 fenceCaptured = false;
                 try { Graphics.CopyTexture(pool, entry.Slice, 0, Texture, nextSlice, 0); }
                 finally { CaptureFence(); }
-                copyPending = true; owner.BorrowedNativeCount++; return;
+                copyPending = true; owner.BorrowedNativeCount++; owner.LastStepCopies++; return;
             }
             // Coarse, missing and native-only tiles all start from committed NATIVE BASE.
             work = new TerrainAuthoringPreviewSharedHeightComposer.TileWork(owner.cache, Source, owner.compositor,
                 owner.materializer, tile, 1, default, Texture, nextSlice);
-            work.Step();
+            StepWork();
             if (work.IsTerminal && !work.Result.Succeeded) throw new InvalidOperationException(work.Error);
+        }
+        private void StepWork()
+        {
+            var before = work.State; work.Step();
+            if (before == TerrainAuthoringPreviewSharedCompositionState.Prepared) owner.LastStepSources++;
+            if (before == TerrainAuthoringPreviewSharedCompositionState.Prepared && work.State == TerrainAuthoringPreviewSharedCompositionState.WaitingForBase) owner.LastStepMaterializations++;
+            if (before == TerrainAuthoringPreviewSharedCompositionState.WaitingForBase && work.State == TerrainAuthoringPreviewSharedCompositionState.WaitingForComposite) owner.LastStepCompositions++;
+            owner.LastStepBlocked = work.State == before;
+        }
+        internal bool Retarget(TerrainAuthoringPreviewCommittedSourceContext next)
+        {
+            if (work != null && !work.IsTerminal)
+            { if (!work.CanRetarget(next)) return false; work.Retarget(next); }
+            Source = next; return true;
         }
         private void CompleteWindow() { if (Ready) { map?.Dispose(); map = null; } }
         private void CaptureFence()

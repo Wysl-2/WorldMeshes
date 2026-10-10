@@ -178,7 +178,7 @@ public static partial class TerrainAuthoringPreviewService
             && sharedPublishedDemand != null && latestGeographicDemand != null && sharedPublishedDemand.IsEquivalentTo(latestGeographicDemand)
             && latestDisplayIntent.ConfigurationMatches(settings)
             && latestDisplayIntent.OwnershipGeneration == TerrainAuthoringSceneViewController.SceneViewOwnershipGeneration
-            && PublishedDisplayIsDrawable(settings, committed); }
+            && sharedBinding != null && !sharedBinding.IsPartial && PublishedDisplayIsDrawable(settings, committed); }
 
     internal static bool RequestPreparedHeightCacheSet(WorldSettings settings, TerrainAuthoringData data,
         TerrainAuthoringPreviewResidencyPlan plan, bool rebuildCommitted, out string error)

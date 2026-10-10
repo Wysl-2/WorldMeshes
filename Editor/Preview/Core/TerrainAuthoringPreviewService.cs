@@ -254,7 +254,7 @@ public static partial class TerrainAuthoringPreviewService
     {
         get
         {
-            int count = sharedQueue.Count + sharedTileFailures.Count + (sharedRunningTile.HasValue ? 1 : 0);
+            int count = sharedQueue.Count;
             if (activeHeightStates != null) foreach (var s in activeHeightStates) count += s.PendingDirtyTiles.Count;
             return count;
         }
@@ -298,7 +298,7 @@ public static partial class TerrainAuthoringPreviewService
         get
         {
             return
-                (sharedDisplayWork?.Compositor ?? heightCompositor).IsPrepared;
+                (sharedHeight != null ? sharedCompositorPrepared : heightCompositor.IsPrepared);
         }
     }
 
@@ -317,8 +317,7 @@ public static partial class TerrainAuthoringPreviewService
         get
         {
             return
-                (sharedDisplayWork?.Compositor ?? heightCompositor)
-                    .LastDispatchTileCount;
+                (sharedHeight != null ? sharedCompositeLast[0] : heightCompositor.LastDispatchTileCount);
         }
     }
 
@@ -327,42 +326,33 @@ public static partial class TerrainAuthoringPreviewService
         get
         {
             return
-                (sharedDisplayWork?.Compositor ?? heightCompositor)
-                    .TotalDispatchTileCount;
+                (sharedHeight != null ? sharedCompositeTotals[0] : heightCompositor.TotalDispatchTileCount);
         }
     }
 
     public static int LastCompositeModifierConsideredCount =>
-        (sharedDisplayWork?.Compositor ?? heightCompositor)
-            .LastModifierConsideredCount;
+        (sharedHeight != null ? sharedCompositeLast[1] : heightCompositor.LastModifierConsideredCount);
 
     public static long TotalCompositeModifierConsideredCount =>
-        (sharedDisplayWork?.Compositor ?? heightCompositor)
-            .TotalModifierConsideredCount;
+        (sharedHeight !=null ? sharedCompositeTotals[1] : heightCompositor.TotalModifierConsideredCount);
 
     public static int LastCompositeModifierDispatchCount =>
-        (sharedDisplayWork?.Compositor ?? heightCompositor)
-            .LastModifierDispatchCount;
+        (sharedHeight != null ? sharedCompositeLast[2] : heightCompositor.LastModifierDispatchCount);
 
     public static long TotalCompositeModifierDispatchCount =>
-        (sharedDisplayWork?.Compositor ?? heightCompositor)
-            .TotalModifierDispatchCount;
+        (sharedHeight !=null ? sharedCompositeTotals[2] : heightCompositor.TotalModifierDispatchCount);
 
     public static int LastCompositeComputeDispatchCount =>
-        (sharedDisplayWork?.Compositor ?? heightCompositor)
-            .LastComputeDispatchCount;
+        (sharedHeight != null ? sharedCompositeLast[3] : heightCompositor.LastComputeDispatchCount);
 
     public static long TotalCompositeComputeDispatchCount =>
-        (sharedDisplayWork?.Compositor ?? heightCompositor)
-            .TotalComputeDispatchCount;
+        (sharedHeight !=null ? sharedCompositeTotals[3] : heightCompositor.TotalComputeDispatchCount);
 
     public static int LastRegionalElevationDispatchCount =>
-        (sharedDisplayWork?.Compositor ?? heightCompositor)
-            .LastRegionalElevationDispatchCount;
+        (sharedHeight != null ? sharedCompositeLast[4] : heightCompositor.LastRegionalElevationDispatchCount);
 
     public static long TotalRegionalElevationDispatchCount =>
-        (sharedDisplayWork?.Compositor ?? heightCompositor)
-            .TotalRegionalElevationDispatchCount;
+        (sharedHeight !=null ? sharedCompositeTotals[4] : heightCompositor.TotalRegionalElevationDispatchCount);
 
 
     // =====================================================
@@ -426,7 +416,7 @@ public static partial class TerrainAuthoringPreviewService
         if (output == null) return;
         var unique = new HashSet<Vector2Int>(dirtyCompositeTiles);
         unique.UnionWith(sharedQueue); unique.UnionWith(sharedTileFailures.Keys);
-        if (sharedRunningTile.HasValue) unique.Add(sharedRunningTile.Value);
+        unique.UnionWith(sharedJobs.Keys);
         if (activeHeightStates != null) foreach (var s in activeHeightStates) unique.UnionWith(s.PendingDirtyTiles);
         foreach (var tile in unique) output.Add(tile);
     }

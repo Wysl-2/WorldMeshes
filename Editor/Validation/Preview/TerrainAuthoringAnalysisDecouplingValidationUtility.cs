@@ -706,6 +706,15 @@ public static class TerrainAuthoringAnalysisDecouplingValidationUtility
         }
         var diagnostics = TerrainAuthoringPreviewService.GetDiagnosticsSnapshot();
         var ownership = diagnostics.Ownership;
+        if (diagnostics.SharedHeight.Present)
+        {
+            bool bounded = diagnostics.LastDirtyAllocations <= 2 && diagnostics.LastDirtyCopies <= 1
+                && diagnostics.LastDirtyLoads <= TerrainAuthoringPreviewService.StreamingCommittedLoadsPerUpdate
+                && diagnostics.LastDirtyMaterializations <= TerrainAuthoringPreviewService.StreamingMaterializationsPerUpdate
+                && diagnostics.LastDirtyCompositions <= TerrainAuthoringPreviewService.StreamingCompositionsPerUpdate;
+            Add("Shared display/native callback quotas", bounded ? ValidationOutcome.Pass : ValidationOutcome.Fail,
+                "Native and display share the measured callback budget with independent bounded source, copy and GPU submission opportunities.");
+        }
         bool nativeClassified = snapshot.Kind != TerrainAuthoringAnalysisSourceKind.Unavailable
             && snapshot.SamplesPerSide == source.SamplesPerSide && Mathf.Approximately(snapshot.SampleSpacing, source.SampleSpacing)
             && (!diagnostics.Worker.Present || diagnostics.Worker.Purpose != TerrainAuthoringPreviewCachePublication.NativeAnalysis

@@ -46,7 +46,7 @@ internal static class TerrainAuthoringPreviewHeightSourceUtility
     // Dirty work passes allowGeneration=false: modifier updates never write files.
     internal static bool TryAcquireCommittedSource(WorldSettings settings, Vector2Int tile, int requestedStride,
         ref Texture2D reusableNative, bool allowGeneration,
-        out TerrainAuthoringPreviewHeightSourceLease lease, out string error)
+        out TerrainAuthoringPreviewHeightSourceLease lease, out string error, Func<bool> admitNative = null)
     {
         lease = null;
         error = "";
@@ -70,7 +70,7 @@ internal static class TerrainAuthoringPreviewHeightSourceUtility
             // Source identity I/O is optional; the existing native loader is
             // still useful on a device where persistent data cannot be accessed.
             Warn("Committed derived Height identity is unavailable: " + exception.Message);
-            return TryBorrowNative(settings, tile, ref reusableNative, default, committed, requestedStride > 1, out lease, out error);
+            return TryBorrowNative(settings, tile, ref reusableNative, default, committed, requestedStride > 1, out lease, out error, admitNative);
         }
 
         string failureKey = identity.Namespace + identity.Source;
@@ -104,7 +104,7 @@ internal static class TerrainAuthoringPreviewHeightSourceUtility
                 }
                 else if (allowGeneration)
                 {
-                    if (!EnsureNative(settings, tile, ref reusableNative, out error)) return false;
+                    if (!EnsureAdmittedNative(settings, tile, ref reusableNative, admitNative, out error)) return false;
                     if (TerrainAuthoringPreviewDerivedHeightCache.TryExtract(reusableNative,
                         settings.HeightTileSamplesPerSide, requestedStride, out bytes, out detail))
                     {
@@ -137,7 +137,7 @@ internal static class TerrainAuthoringPreviewHeightSourceUtility
         }
         if (!IdentityStillCurrent(settings, identity, committed))
         { error = "The committed Height source changed during acquisition."; return false; }
-        return TryBorrowNative(settings, tile, ref reusableNative, identity, committed, requestedStride > 1, out lease, out error);
+        return TryBorrowNative(settings, tile, ref reusableNative, identity, committed, requestedStride > 1, out lease, out error, admitNative);
     }
 
     private static bool IdentityStillCurrent(WorldSettings settings,
@@ -167,6 +167,16 @@ internal static class TerrainAuthoringPreviewHeightSourceUtility
         return false;
     }
 
+    // The explicit source owner reserves native bytes only when a disk-derived
+    // hit cannot serve the request. Legacy callers keep their existing contract.
+    private static bool EnsureAdmittedNative(WorldSettings settings, Vector2Int tile, ref Texture2D native,
+        Func<bool> admission, out string error)
+    {
+        if (admission != null && !admission())
+        { error = "Committed Height native acquisition is blocked by the source byte budget."; return false; }
+        return EnsureNative(settings, tile, ref native, out error);
+    }
+
     private static bool EnsureNative(WorldSettings settings, Vector2Int tile, ref Texture2D native, out string error)
     {
         if (native != null && TryValidateNativeSource(native, settings.HeightTileSamplesPerSide, out error)) return true;
@@ -175,10 +185,10 @@ internal static class TerrainAuthoringPreviewHeightSourceUtility
 
     private static bool TryBorrowNative(WorldSettings settings, Vector2Int tile, ref Texture2D native,
         TerrainAuthoringPreviewDerivedHeightCache.EntryIdentity identity, string committed, bool fallback,
-        out TerrainAuthoringPreviewHeightSourceLease lease, out string error)
+        out TerrainAuthoringPreviewHeightSourceLease lease, out string error, Func<bool> admitNative = null)
     {
         lease = null;
-        if (!EnsureNative(settings, tile, ref native, out error)) return false;
+        if (!EnsureAdmittedNative(settings, tile, ref native, admitNative, out error)) return false;
         var nativeIdentity = identity.IsValid
             ? new TerrainAuthoringPreviewDerivedHeightCache.EntryIdentity(identity.Namespace, identity.Source,
                 tile, identity.NativeSamples, 1, identity.Persistable) : default;

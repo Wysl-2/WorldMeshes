@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
@@ -118,6 +119,88 @@ internal static class TerrainAuthoringPreviewHeightBindingUtility
         }
     }
 
+    // A visible fragment can interpolate any vertex of its triangle. Its complete
+    // horizontal reach, stitch offset and sampling halo must all remain ready.
+    internal static bool TryBuildSafeVisibility(WorldSettings settings, TerrainClipmapLayout layout,
+        TerrainAuthoringPreviewGeographicDemandPlan demand, TerrainAuthoringPreviewHeightPageMap map,
+        IReadOnlyList<TerrainClipmapRendererBinding> bindings, out HashSet<Vector2Int> visible,
+        out int margin, out string error)
+    {
+        visible = new HashSet<Vector2Int>(); margin = 0; error = "";
+        if (settings == null || layout == null || !layout.IsValid || demand == null || map == null
+            || !map.TargetsAreCurrent || bindings == null || bindings.Count != layout.LevelCount * 2 - 1)
+        { error = "Safe partial visibility requires the exact current layout, map and semantic hierarchy."; return false; }
+        float reach = 0, spacing = 0, pageSpacing = 0;
+        try
+        {
+            var meshes = new HashSet<Mesh>();
+            foreach (var binding in bindings)
+            {
+                var filter = binding.Renderer != null ? binding.Renderer.GetComponent<MeshFilter>() : null;
+                var mesh = filter != null ? filter.sharedMesh : null;
+                if (!binding.IsValid || mesh == null || !mesh.isReadable)
+                { error = "Partial visibility cannot prove triangle reach for an unreadable or absent clipmap mesh."; return false; }
+                // Generated clipmap meshes use world-unit vertices. The placement
+                // transaction normalizes level transforms; reject external scaling.
+                var transform = binding.Renderer.transform;
+                if (transform.lossyScale != Vector3.one || transform.rotation != Quaternion.identity)
+                { error = "Partial visibility requires the validated unscaled horizontal clipmap hierarchy."; return false; }
+                if (!meshes.Add(mesh)) continue;
+                var vertices = mesh.vertices;
+                var transition = new List<Vector4>(); mesh.GetUVs(3, transition);
+                if (transition.Count != 0 && transition.Count != vertices.Length) return false;
+                foreach (var value in transition) if (float.IsNaN(value.x) || float.IsInfinity(value.x)) return false;
+                foreach (var vertex in vertices)
+                    if (float.IsNaN(vertex.x) || float.IsInfinity(vertex.x) || float.IsNaN(vertex.y) || float.IsInfinity(vertex.y)
+                        || float.IsNaN(vertex.z) || float.IsInfinity(vertex.z)) return false;
+                for (int sub = 0; sub < mesh.subMeshCount; sub++)
+                {
+                    if (mesh.GetTopology(sub) != MeshTopology.Triangles)
+                    { error = "Partial visibility requires triangle clipmap meshes."; return false; }
+                    var indices = mesh.GetIndices(sub);
+                    if (indices.Length == 0 || indices.Length % 3 != 0) return false;
+                    for (int n = 0; n < indices.Length; n += 3)
+                    {
+                        for (int edge = 0; edge < 3; edge++)
+                        {
+                            int a = indices[n + edge], b = indices[n + (edge + 1) % 3];
+                            if (a < 0 || b < 0 || a >= vertices.Length || b >= vertices.Length) return false;
+                            var delta = vertices[a] - vertices[b];
+                            // Generated meshes are horizontal. The 3D length is
+                            // also conservative for externally supplied finite Y.
+                            float length = Mathf.Sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
+                            if (float.IsNaN(length) || float.IsInfinity(length)) return false;
+                            reach = Mathf.Max(reach, length);
+                        }
+                    }
+                }
+            }
+            for (int level = 0; level < layout.LevelCount; level++) spacing = Mathf.Max(spacing, layout.GetSpacing(level));
+            foreach (var entry in map.Entries) if (entry.IsValid) pageSpacing = Mathf.Max(pageSpacing, entry.Page.SampleSpacing);
+            // Two independently offset stitch endpoints plus both seam and normal
+            // steps. An extra whole tile covers exact-addressing boundaries.
+            margin = Mathf.CeilToInt((reach + 2 * spacing + Mathf.Max(spacing, pageSpacing) + pageSpacing) / settings.HeightTileWorldSize) + 1;
+            if (margin < 1 || margin > 32)
+            { error = "Partial visibility triangle/sampling reach exceeds its bounded proof radius."; return false; }
+            foreach (var row in demand.Tiles)
+                if ((row.DisplayRequirement & TerrainAuthoringPreviewDisplayRequirement.Geometry) != 0
+                    && IsSafeVisibilityCell(settings, map, row.Tile, margin)) visible.Add(row.Tile);
+            return true;
+        }
+        catch (Exception exception) { error = "Partial visibility mesh proof failed: " + exception.Message; return false; }
+    }
+    internal static bool IsSafeVisibilityCell(WorldSettings settings, TerrainAuthoringPreviewHeightPageMap map, Vector2Int tile, int margin)
+    {
+        if (margin < 1 || margin > 32 || map == null || !map.TargetsAreCurrent) return false;
+        for (int z = Math.Max(0, tile.y - margin); z <= Math.Min(settings.HeightTileGridHeight - 1, tile.y + margin); z++)
+            for (int x = Math.Max(0, tile.x - margin); x <= Math.Min(settings.HeightTileGridWidth - 1, tile.x + margin); x++)
+            {
+                if (!map.TryGetEntry(new Vector2Int(x, z), out var page) || !page.IsValid
+                    || page.Page.CommittedSignature != map.CommittedTarget || page.Page.AuthoringGeneration != map.AuthoringTarget) return false;
+            }
+        return true;
+    }
+
     internal static bool TryPreflightShared(WorldSettings settings, TerrainAuthoringPreviewQualitySnapshot quality,
         TerrainClipmapLayout layout, TerrainAuthoringPreviewGeographicDemandPlan demand,
         TerrainAuthoringPreviewSharedHeightBindingData data, IReadOnlyList<TerrainClipmapRendererBinding> bindings,
@@ -132,11 +215,17 @@ internal static class TerrainAuthoringPreviewHeightBindingUtility
         { if (string.IsNullOrEmpty(error)) error = "Shared Height requires matching world, demand/map epoch, layout, quality and semantic renderers."; return false; }
         if (!allowLastGood && !data.Map.TargetsAreCurrent)
         { error = "The captured shared Height content/demand targets are older than their owner; explicitly allow last-good or upload a current snapshot."; return false; }
-        if (data.RequiredMissingCount != 0 || data.DrawableCount == 0)
+        if ((!data.IsPartial && data.RequiredMissingCount != 0) || data.DrawableCount == 0 || data.IsPartial && data.VisibleCount == 0)
         { error = "Required shared Height pages are missing; a lookup allocation alone is not ready coverage."; return false; }
+        if (data.IsPartial)
+        {
+            if (!TryBuildSafeVisibility(settings, layout, demand, data.Map, bindings, out var safe, out int margin, out error)
+                || margin != data.VisibilityMargin || !data.VisibilityEquals(safe))
+            { if (string.IsNullOrEmpty(error)) error = "The partial visibility mask does not match its current triangle/halo proof."; return false; }
+        }
         foreach (var row in demand.Tiles)
         {
-            if (!row.DisplayRequired) continue;
+            if (!row.DisplayRequired || data.IsPartial) continue;
             if (!data.Map.TryGetEntry(row.Tile, out var page) || !page.IsValid || !allowLastGood && !page.IsCurrent)
             { error = "Required shared Height coverage is absent or stale at " + row.Tile + "."; return false; }
         }
@@ -150,7 +239,7 @@ internal static class TerrainAuthoringPreviewHeightBindingUtility
             demand.PlacementGeneration, demand.NativeWorkingGeneration, demand.Generation, out var coverage, out error)) return false;
         foreach (var row in coverage.Tiles)
             if (row.DisplayRequired && (!demand.TryGetTile(row.Tile, out var requested) || !requested.DisplayRequired
-                || !data.Map.TryGetEntry(row.Tile, out var page) || !page.IsValid))
+                || !data.IsPartial && (!data.Map.TryGetEntry(row.Tile, out var page) || !page.IsValid)))
             { error = "Shared Height demand does not cover the actual centre/ring/stitch sampling layout at " + row.Tile + "."; return false; }
         // The original planner's normal halo uses geometry spacing. Coarse shared
         // pages also need their wider normal step and one boundary-profile band.
@@ -163,7 +252,7 @@ internal static class TerrainAuthoringPreviewHeightBindingUtility
         var checkedTiles = new HashSet<Vector2Int>();
         foreach (var row in coverage.Tiles)
         {
-            if ((row.DisplayRequirement & TerrainAuthoringPreviewDisplayRequirement.Geometry) == 0) continue;
+            if (data.IsPartial || (row.DisplayRequirement & TerrainAuthoringPreviewDisplayRequirement.Geometry) == 0) continue;
             for (int z = -halo; z <= halo; z++) for (int x = -halo; x <= halo; x++)
             {
                 var tile = row.Tile + new Vector2Int(x, z);
@@ -194,7 +283,19 @@ internal static class TerrainAuthoringPreviewHeightBindingUtility
                 || !TerrainAuthoringPreviewSharedHeightBindingData.UsesDedicatedPreviewShader(material)
                 || !material.shader.isSupported || ShaderUtil.ShaderHasError(material.shader)
                 || !TerrainAuthoringPreviewSharedHeightBindingData.MaterialHasProperties(material))
-            { error = "Shared Height requires the supported temporary editor preview shader; shared assets must not be changed."; return false; }
+            {
+                error = "Shared Height material rejected: "
+                    + (material == null ? "the renderer has no material."
+                    : EditorUtility.IsPersistent(material) ? "the renderer still uses a saved material asset."
+                    : !TerrainAuthoringPreviewSharedHeightBindingData.UsesDedicatedPreviewShader(material)
+                        ? "unexpected shader: " + (material.shader != null ? material.shader.name : "<null>")
+                    : !material.shader.isSupported ? "the dedicated preview shader is unsupported on this graphics backend."
+                    : ShaderUtil.ShaderHasError(material.shader) ? "the dedicated preview shader reports compilation errors."
+                    : "required shader properties are missing; visibility="
+                        + material.HasProperty(TerrainAuthoringPreviewSharedHeightBindingData.VisibilityId)
+                        + ", partialCoverage=" + material.HasProperty(TerrainAuthoringPreviewSharedHeightBindingData.PartialId));
+                return false;
+            }
             foreach (int id in RequiredProperties)
                 if (!material.HasProperty(id)) { error = "The shared terrain material lacks the preserved legacy/world/normal properties."; return false; }
         }
