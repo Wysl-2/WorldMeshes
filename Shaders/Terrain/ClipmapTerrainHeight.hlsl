@@ -196,6 +196,81 @@ float4 SharedHeightPoolInfo(int pool)
     return 0.0;
 }
 
+#if defined(SHADER_API_GLCORE)
+// Use the hardware bilinear sampler for fractional page coordinates on
+// OpenGL. Exact lattice points retain point reads from the original page.
+// This reduces the expanded vertex-stage texture-read paths without changing
+// the geographical page selection, boundary blending or missing-page policy.
+// OpenGL Core does not support Unity inline sampler states. These names
+// pair with the corresponding pool textures and inherit their filter mode.
+SAMPLER(sampler_EditorSharedHeightPool0);
+SAMPLER(sampler_EditorSharedHeightPool1);
+SAMPLER(sampler_EditorSharedHeightPool2);
+SAMPLER(sampler_EditorSharedHeightPool3);
+SAMPLER(sampler_EditorSharedHeightPool4);
+SAMPLER(sampler_EditorSharedHeightPool5);
+SAMPLER(sampler_EditorSharedHeightPool6);
+SAMPLER(sampler_EditorSharedHeightPool7);
+SAMPLER(sampler_EditorSharedHeightPool8);
+SAMPLER(sampler_EditorSharedHeightPool9);
+SAMPLER(sampler_EditorSharedHeightPool10);
+
+float SampleSharedHeightBilinear(int pool, int2 low, int2 high, int slice, float2 fraction)
+{
+    float sampleCount = max(SharedHeightPoolInfo(pool).x, 2.0);
+    float2 coordinate = lerp((float2)low, (float2)high, fraction);
+    float2 uv = (coordinate + 0.5) / sampleCount;
+    bool exactLatticePoint = all(fraction == float2(0.0, 0.0));
+    switch (pool)
+    {
+        case 0:
+            return exactLatticePoint
+                ? LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool0, low, slice).r
+                : SAMPLE_TEXTURE2D_ARRAY_LOD(_EditorSharedHeightPool0, sampler_EditorSharedHeightPool0, uv, slice, 0).r;
+        case 1:
+            return exactLatticePoint
+                ? LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool1, low, slice).r
+                : SAMPLE_TEXTURE2D_ARRAY_LOD(_EditorSharedHeightPool1, sampler_EditorSharedHeightPool1, uv, slice, 0).r;
+        case 2:
+            return exactLatticePoint
+                ? LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool2, low, slice).r
+                : SAMPLE_TEXTURE2D_ARRAY_LOD(_EditorSharedHeightPool2, sampler_EditorSharedHeightPool2, uv, slice, 0).r;
+        case 3:
+            return exactLatticePoint
+                ? LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool3, low, slice).r
+                : SAMPLE_TEXTURE2D_ARRAY_LOD(_EditorSharedHeightPool3, sampler_EditorSharedHeightPool3, uv, slice, 0).r;
+        case 4:
+            return exactLatticePoint
+                ? LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool4, low, slice).r
+                : SAMPLE_TEXTURE2D_ARRAY_LOD(_EditorSharedHeightPool4, sampler_EditorSharedHeightPool4, uv, slice, 0).r;
+        case 5:
+            return exactLatticePoint
+                ? LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool5, low, slice).r
+                : SAMPLE_TEXTURE2D_ARRAY_LOD(_EditorSharedHeightPool5, sampler_EditorSharedHeightPool5, uv, slice, 0).r;
+        case 6:
+            return exactLatticePoint
+                ? LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool6, low, slice).r
+                : SAMPLE_TEXTURE2D_ARRAY_LOD(_EditorSharedHeightPool6, sampler_EditorSharedHeightPool6, uv, slice, 0).r;
+        case 7:
+            return exactLatticePoint
+                ? LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool7, low, slice).r
+                : SAMPLE_TEXTURE2D_ARRAY_LOD(_EditorSharedHeightPool7, sampler_EditorSharedHeightPool7, uv, slice, 0).r;
+        case 8:
+            return exactLatticePoint
+                ? LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool8, low, slice).r
+                : SAMPLE_TEXTURE2D_ARRAY_LOD(_EditorSharedHeightPool8, sampler_EditorSharedHeightPool8, uv, slice, 0).r;
+        case 9:
+            return exactLatticePoint
+                ? LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool9, low, slice).r
+                : SAMPLE_TEXTURE2D_ARRAY_LOD(_EditorSharedHeightPool9, sampler_EditorSharedHeightPool9, uv, slice, 0).r;
+        case 10:
+            return exactLatticePoint
+                ? LOAD_TEXTURE2D_ARRAY(_EditorSharedHeightPool10, low, slice).r
+                : SAMPLE_TEXTURE2D_ARRAY_LOD(_EditorSharedHeightPool10, sampler_EditorSharedHeightPool10, uv, slice, 0).r;
+        default: return 0.0;
+    }
+}
+#else
 // Select the physical pool once for all four bilinear taps. Repeating the
 // pool switch for each tap multiplies the translated vertex program.
 float SampleSharedHeightBilinear(int pool, int2 low, int2 high, int slice, float2 fraction)
@@ -272,6 +347,7 @@ float SampleSharedHeightBilinear(int pool, int2 low, int2 high, int slice, float
     }
     return lerp(lerp(taps.x, taps.y, fraction.x), lerp(taps.z, taps.w, fraction.x), fraction.y);
 }
+#endif
 
 struct SharedHeightPage
 {

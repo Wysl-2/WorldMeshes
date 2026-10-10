@@ -83,8 +83,10 @@ internal sealed class TerrainAuthoringPreviewSharedHeightBindingData : IDisposab
             candidate.EnableKeyword(ShaderKeyword);
             // Force the selected local variant through the installed backend, whose resource
             // limit is not exposed by a portable SystemInfo graphics-texture-count query.
-            if (!candidate.SetPass(0) || ShaderUtil.ShaderHasError(candidate.shader))
-                throw new InvalidOperationException("The shared Height variant failed to compile/bind within the device resource limits.");
+            if (!candidate.SetPass(0))
+                throw new InvalidOperationException("The shared Height shader pass could not be activated. Check the Unity shader compiler log and graphics backend.");
+            if (ShaderUtil.ShaderHasError(candidate.shader))
+                throw new InvalidOperationException("The terrain shader reports compilation errors. Check the Unity Console and Editor log for the failing variant.");
             material = candidate; return true;
         }
         catch (Exception exception)

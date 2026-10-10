@@ -76,7 +76,7 @@ internal sealed class TerrainAuthoringPreviewHeightPagePool : IDisposable
             {
                 name = "Terrain Authoring Shared Height Pages", dimension = TextureDimension.Tex2DArray,
                 volumeDepth = capacity, enableRandomWrite = true, useMipMap = false, autoGenerateMips = false,
-                antiAliasing = 1, filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp,
+                antiAliasing = 1, filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp,
                 anisoLevel = 0, hideFlags = HideFlags.HideAndDontSave
             };
             if (!texture.Create() || !texture.IsCreated()) throw new InvalidOperationException("Shared Height array creation failed.");
