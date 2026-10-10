@@ -408,7 +408,10 @@ SharedHeightPage PickSharedHeightCorner(SharedHeightPage a, SharedHeightPage b, 
 bool SharedHeightCornerNeedsBlend(SharedHeightPage a, SharedHeightPage b, SharedHeightPage c, SharedHeightPage d)
 {
     SharedHeightPage corner = PickSharedHeightCorner(a, b, c, d);
-    if (corner.valid < 0.5) return true; // A missing in-world neighbour must not masquerade as a compatible edge.
+    // Missing profiles have no trustworthy seam stride. Do not invent a
+    // transition band into an absent page. Required neighbourhood
+    // coverage remains the responsibility of publication preflight.
+    if (corner.valid < 0.5) return false;
     return (a.required > 0.5 && a.stride != corner.stride)
         || (b.required > 0.5 && b.stride != corner.stride)
         || (c.required > 0.5 && c.stride != corner.stride)
@@ -417,7 +420,9 @@ bool SharedHeightCornerNeedsBlend(SharedHeightPage a, SharedHeightPage b, Shared
 
 float SharedHeightBandWeight(float distance, float width)
 {
-    if (width <= 0.0) return distance <= 0.0 ? 1.0 : 0.0;
+    // A zero-width band has no blending contribution, including at
+    // distance == 0 on an exact geographical tile boundary.
+    if (width <= 0.0) return 0.0;
     return 1.0 - smoothstep(0.0, width, max(distance, 0.0));
 }
 

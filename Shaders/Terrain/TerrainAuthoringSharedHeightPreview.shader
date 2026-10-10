@@ -12,6 +12,7 @@ Shader "Hidden/WorldMeshes/TerrainAuthoringSharedHeightPreview"
         _SlopeMapWorldSize("Rock World Size", Float) = 6
         _SlopeBlendStart("Rock Blend Start", Float) = 0.2
         _SlopeBlendEnd("Rock Blend End", Float) = 0.5
+        _SlopeTriplanarSharpness("Rock Triplanar Sharpness", Range(1,16)) = 4
 
         [HideInInspector] _HeightCache("Height Cache", 2DArray) = "" {}
         [HideInInspector] _HeightCacheOriginTile("Height Origin", Vector) = (0,0,0,0)
@@ -104,6 +105,7 @@ Shader "Hidden/WorldMeshes/TerrainAuthoringSharedHeightPreview"
                 float _SlopeMapWorldSize;
                 float _SlopeBlendStart;
                 float _SlopeBlendEnd;
+                float _SlopeTriplanarSharpness;
                 float4 _HeightCacheOriginTile;
                 float4 _HeightCacheSize;
                 float _HeightTileSamplesPerSide;
@@ -217,6 +219,22 @@ Shader "Hidden/WorldMeshes/TerrainAuthoringSharedHeightPreview"
                 return output;
             }
 
+            // Same world-space triplanar rock UVs, normal weights and tint
+            // as the normal terrain surface path. No live curvature sampling.
+            half4 SamplePreviewRock(float3 positionWS, float3 normalWS)
+            {
+                float3 weights = pow(abs(normalWS), max(_SlopeTriplanarSharpness, 1.0));
+                weights /= max(weights.x + weights.y + weights.z, 0.0001);
+                float size = max(_SlopeMapWorldSize, 0.0001);
+                float2 uvX = positionWS.zy / size * _SlopeMap_ST.xy + _SlopeMap_ST.zw;
+                float2 uvY = positionWS.xz / size * _SlopeMap_ST.xy + _SlopeMap_ST.zw;
+                float2 uvZ = positionWS.xy / size * _SlopeMap_ST.xy + _SlopeMap_ST.zw;
+                half4 x = SAMPLE_TEXTURE2D(_SlopeMap, sampler_SlopeMap, uvX);
+                half4 y = SAMPLE_TEXTURE2D(_SlopeMap, sampler_SlopeMap, uvY);
+                half4 z = SAMPLE_TEXTURE2D(_SlopeMap, sampler_SlopeMap, uvZ);
+                return (x * weights.x + y * weights.y + z * weights.z) * _SlopeColor;
+            }
+
             float GridLineMask(float2 worldXZ, float spacing)
             {
                 float2 coordinate = worldXZ / max(spacing, 0.0001);
@@ -260,16 +278,14 @@ Shader "Hidden/WorldMeshes/TerrainAuthoringSharedHeightPreview"
                 groundUV = groundUV * _BaseMap_ST.xy + _BaseMap_ST.zw;
                 half4 ground = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, groundUV) * _BaseColor;
 
-                float2 rockUV = input.positionWS.xz / max(_SlopeMapWorldSize, 0.0001);
-                rockUV = rockUV * _SlopeMap_ST.xy + _SlopeMap_ST.zw;
-                half4 rock = SAMPLE_TEXTURE2D(_SlopeMap, sampler_SlopeMap, rockUV) * _SlopeColor;
+                half4 rock = SamplePreviewRock(input.positionWS, normalWS);
                 float rockWeight = smoothstep(min(_SlopeBlendStart, _SlopeBlendEnd),
                     max(max(_SlopeBlendStart, _SlopeBlendEnd), _SlopeBlendStart + 0.0001), slope);
                 half3 color = lerp(ground.rgb, rock.rgb, rockWeight);
 
-                // Low-cost diffuse cue, not the runtime PBR lighting model.
-                float light = 0.45 + 0.55 * saturate(dot(normalWS, normalize(float3(0.4, 0.8, 0.35))));
-                color *= light;
+                // Preview base colour tracks material albedo instead of the
+                // old arbitrary 0.45..1.0 tint. Deferred URP/PBR lighting and
+                // scree remain in the ordinary terrain shader.
 
                 if (_AuthoringVisualizationEnabled > 0.5)
                 {
