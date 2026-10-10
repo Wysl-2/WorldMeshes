@@ -108,23 +108,35 @@ internal sealed class TerrainAuthoringPreviewSharedHeightBindingData : IDisposab
         { error = "Shared Height sampling requires desktop array/float-texture shaders, graphics fences and GPU readback; this graphics backend is unsupported."; return false; }
         return true;
     }
+    // This shader deliberately has no runtime PBR or terrain-analysis variants.
+    // Keep the edit-mode page display isolated from compilation errors in the
+    // ordinary runtime terrain shader. The transient material retains matching
+    // surface values; no asset material is modified.
+    private const string SharedPreviewShaderPath =
+        "Assets/WorldMeshes/Shaders/Terrain/TerrainAuthoringSharedHeightPreview.shader";
+
     internal static bool TryCreateMaterial(Material source, out Material material, out string error)
     {
         material = null;
         if (!TryValidateDevice(out error)) return false;
-        if (source == null || source.shader == null || !source.shader.isSupported || !source.HasProperty(EnabledId))
-        { error = "The terrain shader lacks the supported shared Height variant/properties."; return false; }
+        if (source == null || source.shader == null || !source.HasProperty(EnabledId))
+        { error = "The source terrain material lacks shared Height binding properties."; return false; }
+        Shader previewShader = AssetDatabase.LoadAssetAtPath<Shader>(SharedPreviewShaderPath);
+        if (previewShader == null || !previewShader.isSupported)
+        { error = "The dedicated shared Height preview shader is missing or unsupported."; return false; }
         Material candidate = null;
         try
         {
-            candidate = new Material(source) { hideFlags = HideFlags.HideAndDontSave, name = "Terrain Shared Height Material" };
+            candidate = new Material(previewShader)
+            { hideFlags = HideFlags.HideAndDontSave, name = "Terrain Shared Height Material" };
+            candidate.CopyPropertiesFromMaterial(source);
             candidate.EnableKeyword(ShaderKeyword);
-            // Force the selected local variant through the installed backend, whose resource
-            // limit is not exposed by a portable SystemInfo graphics-texture-count query.
+            if (!candidate.IsKeywordEnabled(ShaderKeyword))
+                throw new InvalidOperationException("Could not select the shared Height preview shader variant.");
             if (!candidate.SetPass(0))
-                throw new InvalidOperationException("The shared Height shader pass could not be activated. Check the Unity shader compiler log and graphics backend.");
-            if (ShaderUtil.ShaderHasError(candidate.shader))
-                throw new InvalidOperationException("The terrain shader reports compilation errors. Check the Unity Console and Editor log for the failing variant.");
+                throw new InvalidOperationException("The dedicated shared Height preview pass could not be activated. Check the Unity shader compiler log and graphics backend.");
+            if (ShaderUtil.ShaderHasError(previewShader))
+                throw new InvalidOperationException("The dedicated shared Height preview shader reports compilation errors. Check the Unity Console and Editor log.");
             material = candidate; return true;
         }
         catch (Exception exception)
