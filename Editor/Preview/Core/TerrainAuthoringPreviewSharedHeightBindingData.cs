@@ -146,7 +146,7 @@ internal sealed class TerrainAuthoringPreviewSharedHeightBindingData : IDisposab
         {
             candidate = new Material(previewShader)
             { hideFlags = HideFlags.HideAndDontSave, name = "Terrain Shared Height Material" };
-            candidate.CopyPropertiesFromMaterial(source);
+            candidate.CopyMatchingPropertiesFromMaterial(source);
             // The draw-time MaterialPropertyBlock supplies the published page
             // map and pools. Keep this transient material explicitly enabled.
             candidate.SetFloat(EnabledId, 1f);
