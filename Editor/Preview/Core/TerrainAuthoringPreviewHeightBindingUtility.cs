@@ -112,7 +112,7 @@ internal static class TerrainAuthoringPreviewHeightBindingUtility
             if (binding.Renderer == null || (ownerLevel >= 0 && binding.Role.HeightOwnerLevel != ownerLevel)) continue;
             binding.Renderer.GetPropertyBlock(block);
             TerrainAuthoringPreviewSharedHeightBindingData.Clear(block);
-            block.SetTexture(TextureId, null);
+            block.SetTexture(TextureId, TerrainAuthoringPreviewSharedHeightBindingData.NeutralPoolTexture);
             block.SetFloat(ReadyId, 0);
             binding.Renderer.SetPropertyBlock(block);
         }

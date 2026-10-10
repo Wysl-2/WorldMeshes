@@ -471,6 +471,11 @@ float3 GetAuthoringScreeSuitabilityColor(
     float3 normalWS
 )
 {
+#if defined(WORLDMESHES_EDITOR_SHARED_HEIGHT)
+    // Grey denotes unavailable native scree analysis, not unsuitable terrain.
+    // The editor must not run direct curvature on shared display pages.
+    if (_AuthoringScreeAnalysisReady < 0.5) return float3(0.16, 0.16, 0.16);
+#endif
     float suitability =
         GetScreeSuitability(
             positionWS,

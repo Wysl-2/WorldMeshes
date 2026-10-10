@@ -1026,7 +1026,34 @@ Shader "Custom/ClipmapTerrain"
                         IN.clipmapData.x
                     );
 
-                float3 normalWS;
+                // float3 normalWS;
+                //
+                // float heightValid = ApplyTerrainHeightDisplacement(
+                //     positionWS,
+                //     normalWS,
+                //     IN.clipmapData.x
+                // );
+                
+                // float3 normalWS;
+                // float heightValid;
+                //
+                // #if defined(WORLDMESHES_EDITOR_SHARED_HEIGHT)
+                //
+                //     // Temporary compilation diagnostic.
+                //     normalWS = float3(0.0, 1.0, 0.0);
+                //     heightValid = 1.0;
+                //
+                // #else
+                //
+                //     heightValid = ApplyTerrainHeightDisplacement(
+                //         positionWS,
+                //         normalWS,
+                //         IN.clipmapData.x
+                //     );
+                //
+                // #endif
+                
+                                float3 normalWS;
 
                 float heightValid = ApplyTerrainHeightDisplacement(
                     positionWS,

@@ -19,6 +19,7 @@ internal sealed class TerrainAuthoringPreviewSharedHeightBindingData : IDisposab
     internal static readonly int TopologyId = Shader.PropertyToID("_EditorSharedHeightTopology");
     private static readonly int[] PoolIds = CreatePropertyIds("_EditorSharedHeightPool");
     private static readonly int[] PoolInfoIds = CreatePropertyIds("_EditorSharedHeightPoolInfo");
+    private static RenderTexture neutralPool;
     private readonly int threadId;
     private readonly RenderTexture[] textures;
     private readonly Vector4[] poolInfo;
@@ -46,6 +47,43 @@ internal sealed class TerrainAuthoringPreviewSharedHeightBindingData : IDisposab
     private static int[] CreatePropertyIds(string prefix)
     {
         var ids = new int[MaximumPoolCount]; for (int i = 0; i < ids.Length; i++) ids[i] = Shader.PropertyToID(prefix + i); return ids;
+    }
+    static TerrainAuthoringPreviewSharedHeightBindingData()
+    {
+        AssemblyReloadEvents.beforeAssemblyReload += ReleaseNeutralPool;
+        EditorApplication.quitting += ReleaseNeutralPool;
+    }
+    internal static Texture NeutralPoolTexture
+    {
+        get
+        {
+            if (neutralPool == null)
+            {
+                var candidate = new RenderTexture(2, 2, 0, RenderTextureFormat.RFloat, RenderTextureReadWrite.Linear)
+                {
+                    name = "Terrain Height Inactive Array",
+                    dimension = TextureDimension.Tex2DArray,
+                    volumeDepth = 1,
+                    antiAliasing = 1,
+                    filterMode = FilterMode.Point,
+                    wrapMode = TextureWrapMode.Clamp,
+                    hideFlags = HideFlags.HideAndDontSave
+                };
+                if (!candidate.Create())
+                {
+                    UnityEngine.Object.DestroyImmediate(candidate);
+                    throw new InvalidOperationException("Could not allocate a neutral shared Height texture array.");
+                }
+                neutralPool = candidate;
+            }
+            return neutralPool;
+        }
+    }
+    private static void ReleaseNeutralPool()
+    {
+        if (neutralPool == null) return;
+        UnityEngine.Object.DestroyImmediate(neutralPool);
+        neutralPool = null;
     }
     private TerrainAuthoringPreviewSharedHeightBindingData(WorldSettings settings, TerrainAuthoringPreviewHeightPageMap map,
         TerrainHeightCacheWindow window, RenderTexture[] textures, Vector4[] info, int drawable, int current,
@@ -191,13 +229,31 @@ internal sealed class TerrainAuthoringPreviewSharedHeightBindingData : IDisposab
         if (!IsAlive) throw new InvalidOperationException("The shared Height binding payload has been retired.");
         block.SetTexture(MapId, lookup); block.SetVector(WindowId, new Vector4(Window.OriginTile.x, Window.OriginTile.y, Window.Width, Window.Height));
         block.SetVector(TopologyId, Topology);
-        for (int i = 0; i < MaximumPoolCount; i++) { block.SetTexture(PoolIds[i], textures[i]); block.SetVector(PoolInfoIds[i], poolInfo[i]); }
+        // for (int i = 0; i < MaximumPoolCount; i++) { block.SetTexture(PoolIds[i], textures[i]); block.SetVector(PoolInfoIds[i], poolInfo[i]); }
+        // Bind a valid 2D array in every slot. Missing physical pools have
+        // zero metadata, so they cannot be addressed by a valid lookup entry.
+        var emptyPool = NeutralPoolTexture;
+        for (int i = 0; i < MaximumPoolCount; i++)
+        {
+            block.SetTexture(PoolIds[i], textures[i] != null ? textures[i] : emptyPool);
+            block.SetVector(PoolInfoIds[i], poolInfo[i]);
+        }
         block.SetFloat(EnabledId, 1);
     }
     internal static void Clear(MaterialPropertyBlock block)
     {
-        block.SetFloat(EnabledId, 0); block.SetTexture(MapId, null); block.SetVector(WindowId, Vector4.zero); block.SetVector(TopologyId, Vector4.zero);
-        for (int i = 0; i < MaximumPoolCount; i++) { block.SetTexture(PoolIds[i], null); block.SetVector(PoolInfoIds[i], Vector4.zero); }
+        // Replace previous GPU references with inert resources without
+        // clearing unrelated renderer/authoring properties in this block.
+        block.SetFloat(EnabledId, 0);
+        block.SetTexture(MapId, Texture2D.blackTexture);
+        block.SetVector(WindowId, Vector4.zero);
+        block.SetVector(TopologyId, Vector4.zero);
+        var emptyPool = NeutralPoolTexture;
+        for (int i = 0; i < MaximumPoolCount; i++)
+        {
+            block.SetTexture(PoolIds[i], emptyPool);
+            block.SetVector(PoolInfoIds[i], Vector4.zero);
+        }
     }
     private void RequireThread()
     {

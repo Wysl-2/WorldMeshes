@@ -445,6 +445,7 @@ bool TryGetCachedScreeAnalysis(
 // DIRECT RUNTIME FALLBACK
 // =========================================================
 
+#if !defined(WORLDMESHES_EDITOR_SHARED_HEIGHT)
 float GetDirectScreeSuitability(
     float3 positionWS,
     float3 normalWS
@@ -500,6 +501,7 @@ float GetDirectScreeSuitability(
             geologyWeight
         );
 }
+#endif
 
 
 // =========================================================
@@ -555,6 +557,14 @@ float GetScreeSuitability(
             );
     }
 
+#if defined(WORLDMESHES_EDITOR_SHARED_HEIGHT)
+    // The editor's shared geographical height lookup performs boundary/page
+    // resolution on every sample. Curvature would recursively invoke that
+    // expensive path four more times for every fragment. Cached analysis is
+    // authoritative here; until it is available, omit scree rather than
+    // compiling the direct heightfield fallback into this fragment variant.
+    return 0.0;
+#else
     /*
      * Runtime currently has no raw Terrain Analysis streamer. The direct
      * path remains authoritative whenever baked/cached bindings are absent.
@@ -564,6 +574,7 @@ float GetScreeSuitability(
             positionWS,
             normalWS
         );
+#endif
 }
 
 
