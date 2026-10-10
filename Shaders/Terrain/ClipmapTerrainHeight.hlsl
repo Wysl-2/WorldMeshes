@@ -165,6 +165,7 @@ float3 ApplyClipmapTransitionOffset(
 #if defined(WORLDMESHES_EDITOR_SHARED_HEIGHT)
 // Finite binding family: native-relative stride 1..1024, pool index 0..10.
 TEXTURE2D(_EditorSharedHeightMap);
+SAMPLER(sampler_EditorSharedHeightMap);
 TEXTURE2D_ARRAY(_EditorSharedHeightPool0);
 TEXTURE2D_ARRAY(_EditorSharedHeightPool1);
 TEXTURE2D_ARRAY(_EditorSharedHeightPool2);
@@ -365,7 +366,9 @@ SharedHeightPage LookupSharedHeightPage(int2 tile)
     if (p.required < 0.5) return p;
     int2 cell = tile - (int2)_EditorSharedHeightMapWindow.xy;
     if (any(cell < 0) || any(cell >= (int2)_EditorSharedHeightMapWindow.zw)) return p;
-    float4 row = LOAD_TEXTURE2D(_EditorSharedHeightMap, cell);
+    float2 lookupUV = ((float2)cell + 0.5) / _EditorSharedHeightMapWindow.zw;
+    float4 row = SAMPLE_TEXTURE2D_LOD(_EditorSharedHeightMap,
+        sampler_EditorSharedHeightMap, lookupUV, 0);
     if (!all(isfinite(row)) || row.x != 1.0 || row.y < 0.0 || row.y > 10.0 || row.z < 0.0) return p;
     int pool = (int)row.y, slice = (int)row.z;
     if (row.y != (float)pool || row.z != (float)slice) return p;

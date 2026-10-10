@@ -159,7 +159,46 @@ Shader "Hidden/WorldMeshes/TerrainAuthoringSharedHeightPreview"
                 float4 positionHCS : SV_POSITION;
                 float3 positionWS : TEXCOORD0;
                 float heightValid : TEXCOORD1;
+                float heightFailure : TEXCOORD2;
             };
+
+            // Failure classification is executed only for invalid height vertices.
+            // Codes correspond to the existing lookup, metadata and seam gates.
+            float ClassifySharedHeightFailure(float2 worldXZ)
+            {
+                if (_EditorSharedHeightEnabled < 0.5) return 1.0;
+                if (TerrainWorldBoundsAreReady() < 0.5) return 2.0;
+                if (_EditorSharedHeightTopology.x <= 0.0 || _EditorSharedHeightTopology.y < 1.0
+                    || any(_EditorSharedHeightMapWindow.zw < 1.0)) return 3.0;
+                if (!all(isfinite(worldXZ))) return 4.0;
+
+                float2 sampleWorldXZ = ClampTerrainWorldXZ(worldXZ);
+                int2 tile = min((int2)floor(sampleWorldXZ / _EditorSharedHeightTopology.x),
+                    (int2)_EditorSharedHeightTopology.zw - 1);
+                int2 cell = tile - (int2)_EditorSharedHeightMapWindow.xy;
+                if (any(cell < 0) || any(cell >= (int2)_EditorSharedHeightMapWindow.zw)) return 5.0;
+
+                // Sample the actual uploaded lookup with the same point-sampled
+                // addressing used by the height sampler, not an assumed CPU copy.
+                float2 lookupUV = ((float2)cell + 0.5) / _EditorSharedHeightMapWindow.zw;
+                float4 row = SAMPLE_TEXTURE2D_LOD(_EditorSharedHeightMap,
+                    sampler_EditorSharedHeightMap, lookupUV, 0);
+                if (!all(isfinite(row)) || row.x != 1.0 || row.y < 0.0 || row.y > 10.0
+                    || row.z < 0.0) return 6.0;
+
+                int pool = (int)row.y;
+                int slice = (int)row.z;
+                float4 info = SharedHeightPoolInfo(pool);
+                float stride = exp2((float)pool);
+                if (row.y != (float)pool || row.z != (float)slice || info.w < 0.5
+                    || info.x < 2.0 || info.y <= 0.0 || slice >= (int)info.z
+                    || row.w != stride || info.x != _EditorSharedHeightTopology.y / stride + 1.0)
+                    return 7.0;
+
+                // The central page is valid. The remaining invalidity is caused
+                // by a required edge/corner profile or a non-finite height result.
+                return 8.0;
+            }
 
             Varyings vert(Attributes input)
             {
@@ -174,6 +213,7 @@ Shader "Hidden/WorldMeshes/TerrainAuthoringSharedHeightPreview"
                 output.positionWS = positionWS;
                 output.positionHCS = TransformWorldToHClip(positionWS);
                 output.heightValid = valid;
+                output.heightFailure = valid > 0.5 ? 0.0 : ClassifySharedHeightFailure(positionWS.xz);
                 return output;
             }
 
@@ -196,10 +236,18 @@ Shader "Hidden/WorldMeshes/TerrainAuthoringSharedHeightPreview"
                 // The untouched source material/runtime shader cannot use this.
                 if (_EditorSharedHeightEnabled < 0.5 || input.heightValid < 0.99999)
                 {
+                    float failure = input.heightFailure;
+                    half3 diagnostic = half3(0.55, 0.0, 0.7); // seam or non-finite sample
+                    if (failure < 1.5) diagnostic = half3(1.0, 0.05, 0.05); // not enabled
+                    else if (failure < 2.5) diagnostic = half3(1.0, 0.90, 0.1); // world not ready
+                    else if (failure < 3.5) diagnostic = half3(1.0, 0.45, 0.0); // bad topology/window
+                    else if (failure < 4.5) diagnostic = half3(0.8, 0.8, 0.8); // non-finite position
+                    else if (failure < 5.5) diagnostic = half3(0.0, 0.95, 0.95); // outside lookup
+                    else if (failure < 6.5) diagnostic = half3(0.1, 0.2, 1.0); // missing lookup row
+                    else if (failure < 7.5) diagnostic = half3(0.05, 0.85, 0.18); // pool metadata mismatch
                     float2 cell = floor(input.positionWS.xz * 0.04);
                     float checker = frac((cell.x + cell.y) * 0.5) * 2.0;
-                    return half4(lerp(half3(0.35, 0.0, 0.35),
-                        half3(1.0, 0.15, 1.0), checker), 1.0);
+                    return half4(lerp(diagnostic * 0.30, diagnostic, checker), 1.0);
                 }
 
                 float3 tangentX = ddx(input.positionWS);

@@ -223,6 +223,15 @@ internal static class TerrainAuthoringPreviewHeightBindingUtility
                 prepared[i].SetVector(WorldId, new Vector4(data.WorldSize.x, data.WorldSize.y, 0, 0)); prepared[i].SetFloat(WorldReadyId, 1);
             }
             for (int i = 0; i < bindings.Count; i++) bindings[i].Renderer.SetPropertyBlock(prepared[i]);
+            // Verify the installed renderer state, rather than trusting that a
+            // staged MPB still contains the mapping after placement and binding.
+            var installed = new MaterialPropertyBlock();
+            for (int i = 0; i < bindings.Count; i++)
+            {
+                bindings[i].Renderer.GetPropertyBlock(installed);
+                if (!data.TryVerifyBoundState(installed, out error))
+                    throw new System.InvalidOperationException(error);
+            }
             return true;
         }
         catch (System.Exception exception)

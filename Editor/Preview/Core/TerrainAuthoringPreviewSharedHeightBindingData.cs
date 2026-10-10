@@ -260,6 +260,23 @@ internal sealed class TerrainAuthoringPreviewSharedHeightBindingData : IDisposab
         }
         block.SetFloat(EnabledId, 1);
     }
+    internal bool TryVerifyBoundState(MaterialPropertyBlock block, out string error)
+    {
+        RequireThread();
+        error = "";
+        if (!IsAlive || block == null || block.GetFloat(EnabledId) < 0.5f || block.GetTexture(MapId) != lookup)
+        { error = "Shared Height active flag or geographical lookup was not preserved in the renderer property block."; return false; }
+        if (block.GetVector(WindowId) != new Vector4(Window.OriginTile.x, Window.OriginTile.y, Window.Width, Window.Height)
+            || block.GetVector(TopologyId) != Topology)
+        { error = "Shared Height geographic window/topology property block differs from the published map."; return false; }
+        for (int i = 0; i < MaximumPoolCount; i++)
+        {
+            var expected = textures[i] != null ? (Texture)textures[i] : NeutralPoolTexture;
+            if (block.GetTexture(PoolIds[i]) != expected || block.GetVector(PoolInfoIds[i]) != poolInfo[i])
+            { error = "Shared Height pool " + i + " has an incorrect texture or page geometry binding."; return false; }
+        }
+        return true;
+    }
     internal static void Clear(MaterialPropertyBlock block)
     {
         // Replace previous GPU references with inert resources without
