@@ -190,10 +190,11 @@ internal static class TerrainAuthoringPreviewHeightBindingUtility
             }
             else { error = "An unknown shared Height renderer role was supplied."; return false; }
             var material = binding.Renderer.sharedMaterial;
-            if (material == null || EditorUtility.IsPersistent(material) || !material.IsKeywordEnabled(TerrainAuthoringPreviewSharedHeightBindingData.ShaderKeyword)
+            if (material == null || EditorUtility.IsPersistent(material)
+                || !TerrainAuthoringPreviewSharedHeightBindingData.UsesDedicatedPreviewShader(material)
                 || !material.shader.isSupported || ShaderUtil.ShaderHasError(material.shader)
                 || !TerrainAuthoringPreviewSharedHeightBindingData.MaterialHasProperties(material))
-            { error = "Shared Height requires a supported, explicitly selected temporary material variant; shared assets must not be changed."; return false; }
+            { error = "Shared Height requires the supported temporary editor preview shader; shared assets must not be changed."; return false; }
             foreach (int id in RequiredProperties)
                 if (!material.HasProperty(id)) { error = "The shared terrain material lacks the preserved legacy/world/normal properties."; return false; }
         }

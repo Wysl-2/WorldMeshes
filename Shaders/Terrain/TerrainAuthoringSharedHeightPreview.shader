@@ -83,8 +83,10 @@ Shader "Hidden/WorldMeshes/TerrainAuthoringSharedHeightPreview"
             #pragma require 2darray
             #pragma vertex vert
             #pragma fragment frag
-            // Only one optional keyword. No runtime lighting/surface variants.
-            #pragma shader_feature_local _ WORLDMESHES_EDITOR_SHARED_HEIGHT
+            // This dedicated material always draws the shared geographical pages.
+            // An optional shader_feature could select/strip the non-sampling
+            // variant, which leaves all vertices invalid and therefore hidden.
+            #define WORLDMESHES_EDITOR_SHARED_HEIGHT 1
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
@@ -164,14 +166,11 @@ Shader "Hidden/WorldMeshes/TerrainAuthoringSharedHeightPreview"
                 Varyings output;
                 float3 positionWS = TransformObjectToWorld(input.positionOS.xyz);
                 positionWS = ApplyClipmapTransitionOffset(positionWS, input.clipmapData.x);
+                // Always sample the published shared Height map. This shader
+                // has no non-shared variant and never invents valid flat terrain.
                 float valid = 0.0;
-#if defined(WORLDMESHES_EDITOR_SHARED_HEIGHT)
-                // One authoritative sample per vertex. Normal derivatives are
-                // computed in the fragment stage, avoiding four more page
-                // traversals in the vertex program.
                 float height = SampleEditorSharedTerrainHeight(positionWS.xz, valid);
                 if (valid > 0.5) positionWS.y = height;
-#endif
                 output.positionWS = positionWS;
                 output.positionHCS = TransformWorldToHClip(positionWS);
                 output.heightValid = valid;
@@ -190,9 +189,18 @@ Shader "Hidden/WorldMeshes/TerrainAuthoringSharedHeightPreview"
             half4 frag(Varyings input) : SV_Target
             {
                 ClipTerrainFragmentToWorld(input.positionWS.xz);
-                // A missing page must not show up as a valid flat triangle.
-                clip(input.heightValid - 0.5);
                 if (_AuthoringWireframeOnly > 0.5) clip(-1.0);
+                // Missing-page and invalid shared-height results are not valid
+                // terrain. Show an unmistakable diagnostic pattern rather than
+                // silently hiding the entire clipmap when sampling fails.
+                // The untouched source material/runtime shader cannot use this.
+                if (_EditorSharedHeightEnabled < 0.5 || input.heightValid < 0.99999)
+                {
+                    float2 cell = floor(input.positionWS.xz * 0.04);
+                    float checker = frac((cell.x + cell.y) * 0.5) * 2.0;
+                    return half4(lerp(half3(0.35, 0.0, 0.35),
+                        half3(1.0, 0.15, 1.0), checker), 1.0);
+                }
 
                 float3 tangentX = ddx(input.positionWS);
                 float3 tangentY = ddy(input.positionWS);

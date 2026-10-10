@@ -115,6 +115,14 @@ internal sealed class TerrainAuthoringPreviewSharedHeightBindingData : IDisposab
     private const string SharedPreviewShaderPath =
         "Assets/WorldMeshes/Shaders/Terrain/TerrainAuthoringSharedHeightPreview.shader";
 
+    // The dedicated shader unconditionally compiles its shared height sampler.
+    // Validate the shader identity rather than an optional material keyword.
+    internal static bool UsesDedicatedPreviewShader(Material material)
+    {
+        Shader expected = AssetDatabase.LoadAssetAtPath<Shader>(SharedPreviewShaderPath);
+        return material != null && expected != null && material.shader == expected;
+    }
+
     internal static bool TryCreateMaterial(Material source, out Material material, out string error)
     {
         material = null;
@@ -130,9 +138,9 @@ internal sealed class TerrainAuthoringPreviewSharedHeightBindingData : IDisposab
             candidate = new Material(previewShader)
             { hideFlags = HideFlags.HideAndDontSave, name = "Terrain Shared Height Material" };
             candidate.CopyPropertiesFromMaterial(source);
-            candidate.EnableKeyword(ShaderKeyword);
-            if (!candidate.IsKeywordEnabled(ShaderKeyword))
-                throw new InvalidOperationException("Could not select the shared Height preview shader variant.");
+            // The draw-time MaterialPropertyBlock supplies the published page
+            // map and pools. Keep this transient material explicitly enabled.
+            candidate.SetFloat(EnabledId, 1f);
             if (!candidate.SetPass(0))
                 throw new InvalidOperationException("The dedicated shared Height preview pass could not be activated. Check the Unity shader compiler log and graphics backend.");
             if (ShaderUtil.ShaderHasError(previewShader))
